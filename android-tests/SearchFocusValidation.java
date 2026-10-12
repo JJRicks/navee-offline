@@ -55,6 +55,9 @@ public final class SearchFocusValidation extends Instrumentation {
         Bundle result = new Bundle();
         try {
             requireFreshEmulator(); admitted = true;
+            android.accessibilityservice.AccessibilityServiceInfo accessibility = getUiAutomation().getServiceInfo();
+            accessibility.flags |= android.accessibilityservice.AccessibilityServiceInfo.FLAG_RETRIEVE_INTERACTIVE_WINDOWS;
+            getUiAutomation().setServiceInfo(accessibility);
             require(settings().edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
                     .putString("theme", "dark").commit(), "Could not prepare emulator preferences");
             activity = (MainActivity)startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -118,16 +121,36 @@ public final class SearchFocusValidation extends Instrumentation {
         Object tile = liveTile(dashboard); final DashboardConfig.Widget widget = (DashboardConfig.Widget)field(tile, "widget");
         click(findDescription((View)tile, "Options for " + widget.title)); clickText(dialogRoot(dashboard), "Parameter");
         AlertDialog picker = dialog(dashboard); EditText search = first(picker.getWindow().getDecorView(), EditText.class);
-        showKeyboard(search, picker.getWindow(), "voltage"); tap(findText(picker.getWindow().getDecorView(), "Choose parameter"));
-        assertDismissed(search, picker.getWindow(), "voltage", "Dialog title tap");
+        showKeyboard(search, picker.getWindow(), "voltage");
+        AtomicReference<WindowTouchTrace> trace = new AtomicReference<>();
+        main(() -> trace.set(new WindowTouchTrace(picker.getWindow())));
+        try {
+            tap(findText(picker.getWindow().getDecorView(), "Choose parameter"));
+            assertDismissed(search, picker.getWindow(), "voltage", "Dialog title tap");
+        } catch (IllegalStateException error) {
+            throw new IllegalStateException(error.getMessage() + "; " + trace.get().describe(), error);
+        } finally { main(() -> trace.get().restore()); }
         require(picker.isShowing(), "An inert title tap dismissed the parameter picker");
+        showKeyboard(search, picker.getWindow(), "voltage");
+        Rect field = nativeScreenBounds(search);
+        require(search.getLayoutParams() instanceof ViewGroup.MarginLayoutParams
+                && ((ViewGroup.MarginLayoutParams)search.getLayoutParams()).bottomMargin >= activity.ui().dp(12),
+                "Parameter search lacks its expected inert bottom margin");
+        float marginX = field.centerX(), marginY = field.bottom + activity.ui().dp(6);
+        lastTapScreenBounds = new Rect((int)marginX, (int)marginY, (int)marginX + 1, (int)marginY + 1);
+        long marginDown = SystemClock.uptimeMillis();
+        inject(marginDown, MotionEvent.ACTION_DOWN, marginX, marginY);
+        inject(marginDown, MotionEvent.ACTION_UP, marginX, marginY);
+        assertDismissed(search, picker.getWindow(), "voltage", "Dialog search margin tap");
+        require(picker.isShowing(), "A tap below search dismissed the parameter picker; nativeField=" + field
+                + ", tapped=" + lastTapScreenBounds);
         showKeyboard(search, picker.getWindow(), "voltage"); sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
         assertDismissed(search, picker.getWindow(), "voltage", "Dialog system Back");
         require(picker.isShowing(), "Hiding the picker keyboard also dismissed the dialog");
         showKeyboard(search, picker.getWindow(), "voltage"); tap(findText(picker.getWindow().getDecorView(), metricLabel("voltage_v")));
         await(() -> !picker.isShowing() && widget.metric.equals("voltage_v") && !imeVisible(activity.getWindow()), 4000,
                 "Outside parameter tap was swallowed or did not save the selection");
-        checks.add(theme + ": parameter picker clears keyboard focus without clearing its query or consuming a parameter selection");
+        checks.add(theme + ": IME-panned picker clears focus from title and search-margin taps without clearing its query or consuming a selection");
 
         tile = liveTile(dashboard); DashboardConfig.Widget current = (DashboardConfig.Widget)field(tile, "widget");
         click(findDescription((View)tile, "Options for " + current.title)); clickText(dialogRoot(dashboard), "Title");
@@ -152,9 +175,25 @@ public final class SearchFocusValidation extends Instrumentation {
         awaitStableInputBounds(search, window, stage);
         // Touch focus follows the same path as the user. Calling requestFocus and
         // showSoftInput together can race IMM after the neutral root held focus.
-        tap(search);
-        try { await(search::hasFocus, 3000, stage + ": tapping the field did not focus it"); }
-        catch (IllegalStateException error) { throw new IllegalStateException(error.getMessage() + "; " + keyboardDiagnostics(search, window), error); }
+        AtomicReference<WindowTouchTrace> focusTrace = new AtomicReference<>();
+        AtomicReference<View.OnFocusChangeListener> previousFocusListener = new AtomicReference<>();
+        ArrayList<String> focusChanges = new ArrayList<>();
+        main(() -> {
+            focusTrace.set(new WindowTouchTrace(window));
+            previousFocusListener.set(search.getOnFocusChangeListener());
+            search.setOnFocusChangeListener((view, focused) -> {
+                ArrayList<String> appStack = new ArrayList<>();
+                for (StackTraceElement frame : Thread.currentThread().getStackTrace())
+                    if (frame.getClassName().startsWith("local.navee.offlinelock")) appStack.add(frame.toString());
+                focusChanges.add("focused=" + focused + ", ime=" + imeVisible(window) + ", via=" + appStack);
+                if (previousFocusListener.get() != null) previousFocusListener.get().onFocusChange(view, focused);
+            });
+        });
+        try { tap(search); await(search::hasFocus, 3000, stage + ": tapping the field did not focus it"); }
+        catch (IllegalStateException error) {
+            throw new IllegalStateException(error.getMessage() + "; " + keyboardDiagnostics(search, window)
+                    + "; " + focusTrace.get().describe() + "; focusChanges=" + focusChanges, error);
+        } finally { main(() -> { focusTrace.get().restore(); search.setOnFocusChangeListener(previousFocusListener.get()); }); }
         waitForIdleSync(); SystemClock.sleep(100);
         main(() -> {
             search.setText(text); search.setSelection(search.length());
@@ -165,7 +204,7 @@ public final class SearchFocusValidation extends Instrumentation {
             await(() -> search.hasFocus() && imeVisible(window), 5000,
                     stage + ": software keyboard was not shown; enable the emulator software keyboard for this validation");
         } catch (IllegalStateException error) { throw new IllegalStateException(error.getMessage() + "; " + keyboardDiagnostics(search, window), error); }
-        waitForIdleSync(); SystemClock.sleep(250);
+        waitForIdleSync(); awaitStableInputBounds(search, window, stage + " after IME");
     }
     private void awaitStableInputBounds(EditText search, Window window, String stage) {
         Rect previous = new Rect(); final long[] since = {SystemClock.elapsedRealtime()};
@@ -202,9 +241,23 @@ public final class SearchFocusValidation extends Instrumentation {
                     + ", fieldFocus=" + search.hasFocus() + ", enabled=" + search.isEnabled()
                     + ", focusable=" + search.isFocusable() + "/" + search.isFocusableInTouchMode()
                     + ", attached=" + search.isAttachedToWindow() + ", selection=[" + search.getSelectionStart() + "," + search.getSelectionEnd() + "]"
+                    + ", searchCoordinates=" + coordinateDiagnostics(search)
+                    + ", decorCoordinates=" + coordinateDiagnostics(decor)
+                    + ", softInputMode=" + window.getAttributes().softInputMode
                     + ", accessibilityWindows=" + windows);
         });
         return details.get();
+    }
+    private String coordinateDiagnostics(View view) {
+        int[] screen = new int[2], inWindow = new int[2];
+        view.getLocationOnScreen(screen); view.getLocationInWindow(inWindow);
+        Rect global = new Rect(), frame = new Rect(), accessible = new Rect();
+        view.getGlobalVisibleRect(global); view.getWindowVisibleDisplayFrame(frame);
+        android.view.accessibility.AccessibilityNodeInfo node = view.createAccessibilityNodeInfo();
+        try { node.getBoundsInScreen(accessible); } finally { node.recycle(); }
+        return "screen=[" + screen[0] + "," + screen[1] + "], window=[" + inWindow[0] + "," + inWindow[1]
+                + "], global=" + global + ", accessible=" + accessible + ", frame=" + frame
+                + ", rootScroll=" + view.getRootView().getScrollX() + "," + view.getRootView().getScrollY();
     }
     private boolean imeVisible(Window window) {
         WindowInsets insets = window.getDecorView().getRootWindowInsets();
@@ -218,13 +271,71 @@ public final class SearchFocusValidation extends Instrumentation {
         main(() -> require(text.contentEquals(input.getText()), action + " changed the search text"));
     }
     private void tap(View view) {
-        require(view != null, "Missing touch target"); Rect rect = new Rect();
-        main(() -> {
-            rect.set(screenBounds(view)); require(rect.width() > 0 && rect.height() > 0, "Touch target is not visible");
-            lastTapScreenBounds = new Rect(rect);
-        });
+        require(view != null, "Missing touch target"); Rect rect = nativeScreenBounds(view);
+        require(rect.width() > 0 && rect.height() > 0, "Touch target is not visible");
+        lastTapScreenBounds = new Rect(rect);
         long now = SystemClock.uptimeMillis(); inject(now, MotionEvent.ACTION_DOWN, rect.centerX(), rect.centerY());
         inject(now, MotionEvent.ACTION_UP, rect.centerX(), rect.centerY()); waitForIdleSync();
+    }
+    private Rect nativeScreenBounds(View view) {
+        // injectInputEvent also waits for these animations, but doing it only
+        // after selecting coordinates can move the target underneath the tap.
+        try { getUiAutomation().getClass().getMethod("syncInputTransactions").invoke(getUiAutomation()); }
+        catch (ReflectiveOperationException error) {
+            throw new IllegalStateException("Emulator cannot synchronize native touch coordinates", error);
+        }
+        ArrayList<android.view.accessibility.AccessibilityNodeInfo> candidates = new ArrayList<>();
+        Rect visible = new Rect();
+        AtomicReference<Boolean> ime = new AtomicReference<>(false);
+        main(() -> {
+            visible.set(screenBounds(view));
+            WindowInsets insets = view.getRootView().getRootWindowInsets();
+            ime.set(insets != null && insets.isVisible(WindowInsets.Type.ime()));
+            if (!ime.get()) return;
+            View candidate = view;
+            while (true) {
+                candidates.add(candidate.createAccessibilityNodeInfo());
+                if (!(candidate.getParent() instanceof View)) break;
+                candidate = (View)candidate.getParent();
+            }
+        });
+        // Once IME is hidden the view's screen origin is correct again. The
+        // accessibility service can retain its previous pan transform briefly.
+        if (!ime.get()) return visible;
+        // An IME surface pan can change screen coordinates without a view-layout
+        // event. Do not reuse the accessibility cache from the previous IME state.
+        if (Build.VERSION.SDK_INT >= 33) getUiAutomation().clearCache();
+        android.view.accessibility.AccessibilityNodeInfo root = null;
+        int wantedWindow = candidates.get(0).getWindowId();
+        for (android.view.accessibility.AccessibilityWindowInfo window : getUiAutomation().getWindows())
+            if (window.getId() == wantedWindow) { root = window.getRoot(); break; }
+        Rect actual = new Rect();
+        try {
+            require(root != null, "Touch target's accessibility window is unavailable: " + wantedWindow);
+            for (android.view.accessibility.AccessibilityNodeInfo expected : candidates) {
+                if (!findNativeBounds(root, expected, actual)) continue;
+                Rect reported = new Rect(); expected.getBoundsInScreen(reported);
+                // Server bounds include IME surface pan. An inert container may be
+                // merged out of accessibility, so its same-window ancestor supplies
+                // the translation while the target's original visible region is kept.
+                visible.offset(actual.left - reported.left, actual.top - reported.top);
+                return visible;
+            }
+            throw new IllegalStateException("No accessible same-window ancestor for touch target " + candidates.get(0).getText());
+        } finally {
+            if (root != null) root.recycle();
+            for (android.view.accessibility.AccessibilityNodeInfo candidate : candidates) candidate.recycle();
+        }
+    }
+    private boolean findNativeBounds(android.view.accessibility.AccessibilityNodeInfo node,
+            android.view.accessibility.AccessibilityNodeInfo wanted, Rect output) {
+        if (node.equals(wanted)) { node.getBoundsInScreen(output); return !output.isEmpty(); }
+        for (int i = 0; i < node.getChildCount(); i++) {
+            android.view.accessibility.AccessibilityNodeInfo child = node.getChild(i);
+            if (child != null) try { if (findNativeBounds(child, wanted, output)) return true; }
+            finally { child.recycle(); }
+        }
+        return false;
     }
     private void inject(long down, int action, float x, float y) {
         MotionEvent event = MotionEvent.obtain(down, SystemClock.uptimeMillis(), action, x, y, 0); event.setSource(InputDevice.SOURCE_TOUCHSCREEN);

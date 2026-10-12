@@ -1,7 +1,78 @@
-NAVEE OFFLINE 0.6.2 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.6.3 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-0.6.2 — RESPONSIVE CARDS AND MATCHING EDIT PREVIEWS
+0.6.3 — GLANCEABLE DASHBOARD POLISH
+
+Your scooter now defaults to odometer and drive mode. The older four-reading
+preset migrates once without changing widget IDs, coordinates, sizes, titles or
+other options; custom reading lists remain. The minimum height is three rows and
+new cards default to four, so owners can shrink a card without a layout reset.
+Reported charge count and lifetime throughput remain available in Stats. The two
+readings stack vertically beside a larger photo, which grows with the card.
+The photo uses the profile's saved model identity and remains visible while
+connecting, disconnected or reopening offline; cached measurements remain muted.
+
+The taller lock slider stays centered, with a slight horizontal inset at ordinary
+widths and the full available width in very narrow cards. Connection status is a compact
+Connected / Connecting (inline spinner) / Disconnected + last-connected clock.
+Tap the status for details. The timestamp reuses persisted, authenticated scooter
+connection history; a launch or failed connection does not invent a timestamp.
+More > App preferences > Time format follows the system by default, with explicit
+12/24-hour choices. Connection dates, dashboard stale timestamps, charts, Stats
+reading times and scheduled-charge controls use the preference.
+
+The battery card uses its available space for a larger, thicker percentage ring
+above compact range/route, power/lightning, health/heart and temperature readings. The
+four cells share a row at ordinary widths and reflow at narrow/large-text sizes.
+Charging changes this strip to power, current, estimated time and temperature;
+rate limitations and parameter descriptions remain accessible on long press and
+to screen readers. The separate detailed charging widget is retained.
+The visible arc is optically centered above the bottom reading strip. Charts use
+the available height, and compact controls balance within their content area;
+long notes and reading lists retain natural top alignment and scrolling.
+
+Widget settings use a gear. Live footers and redundant chart help/status copy
+are removed, while stale state remains visible. Two minutes is an option in the
+existing Live trend time-window chooser. Power labels drop '(signed)' without
+changing stored values, signs or energy calculations. Overflowing custom content
+accepts a swipe throughout its scrollable area. Edit/view geometry stays matched.
+Search dismissal compares touch and field bounds within the same window, so an
+Android keyboard that pans a floating dialog cannot shift the outside-tap area.
+
+Verified for 0.6.3:
+
+- The signed production APK passed signature and alignment verification.
+- DashboardValidation passed 13 grouped checks at 360, 411 and 701 dp, including
+  all 15 widget types at minimum/default heights and narrow/default/full widths,
+  normal and 140% text, light/dark themes, and identical edit/view geometry.
+- The matrix checks the centered adaptive lock slider, concise connection states and
+  inline spinner, system/12/24-hour dates, the largest fitting battery ring and
+  accessible icon readings, charging/stale states, and gear controls only in Edit.
+- Native drag/resize/reflow, cancellation, a real swipe inside overflowing widget
+  content, configuration persistence, the two-minute time-window option and
+  layout-preserving scooter-stat migration passed. Synthetic checks submitted
+  zero scooter writes. These are UI checks, not field ride/sensor verification.
+- A further 701 dp run passed all 13 groups after the offline-photo fix, including
+  a disconnected known-model fixture that keeps its drawable visible, hides its
+  placeholder and retains muted, stale readings. Unknown models retain fallback
+  content. Add widget and Layout have an 8 dp gap in the final toolbar.
+- The Pixel had no active/saving ride notification before its in-place upgrade
+  from 0.6.2 to 0.6.3 (versionCode 12). Installation, launch and reconnection
+  succeeded. Connected Home screenshots confirmed the larger photo and vertically
+  stacked scooter readings, blue SPORT, centered taller slider, gear controls,
+  thicker balanced battery ring and four battery icon readings.
+  Its existing scooter profile and customized dashboard remained available.
+  No scooter lock/settings writes or phone network changes were made. This pass
+  was not retested on the friend's Samsung.
+
+- SearchFocusValidation passed eight grouped checks with the real software
+  keyboard in both themes: outside taps, system Back, refocusing, retained search
+  text, list scrolling, parameter selection and unchanged ordinary form behavior.
+  The parameter picker checks both its title and the margin immediately below
+  search while the keyboard pans its window. Native touch coordinates synchronize
+  window animations and account for the emulator's surface-level keyboard pan.
+
+HISTORICAL 0.6.2 — RESPONSIVE CARDS AND MATCHING EDIT PREVIEWS
 
 The scooter image sits to the left of its statistics. The right pane adapts its
 stat columns to the card width, and the image height uses the measured content

@@ -185,8 +185,10 @@ public final class SearchFocus {
                     && searches.containsKey(focus)) {
                 EditText search = (EditText) focus;
                 int[] location = new int[2];
-                search.getLocationOnScreen(location);
-                float x = event.getRawX(), y = event.getRawY();
+                // IME pan moves a floating window's surface without updating its
+                // reported screen origin. Compare both objects in window coordinates.
+                search.getLocationInWindow(location);
+                float x = event.getX(), y = event.getY();
                 if (!search.isShown()
                         || x < location[0]
                         || y < location[1]

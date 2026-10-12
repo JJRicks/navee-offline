@@ -53,7 +53,6 @@ import java.io.FileOutputStream;
 import java.io.InputStream;
 import java.io.OutputStream;
 import java.nio.charset.StandardCharsets;
-import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Calendar;
 import java.util.LinkedHashMap;
@@ -266,48 +265,95 @@ public final class MainActivity extends Activity implements ScreenHost {
         View more=design.icon("bluetooth",24,design.accent);more.setContentDescription("Choose a nearby scooter");more.setFocusable(true);more.setOnClickListener(v->showScanner(true));brand.addView(more,new LinearLayout.LayoutParams(design.dp(48),design.dp(48)));header.addView(brand);return header;
     }
     private View makeDashboardLock(){
-        LinearLayout content=column();
-        lockTitle=design.text("Waiting for scooter",24,true);lockControl=new LockControl();
-        content.addView(new DashboardActionRow(lockTitle,lockControl,true));
-        lockHint=design.caption("Connect to see the confirmed lock state.");content.addView(lockHint);
-        connectionTitle=design.text("Disconnected",13,true);connectionAction=design.secondaryButton("Connect",this::connect);
-        connectionAction.setPadding(design.dp(12),design.dp(10),design.dp(12),design.dp(10));
-        content.addView(new DashboardActionRow(connectionTitle,connectionAction,false));
+        LinearLayout content=column();content.setGravity(Gravity.CENTER_HORIZONTAL);
+        lockTitle=design.text("Lock",18,true);lockTitle.setGravity(Gravity.CENTER);lockControl=new LockControl();
+        content.addView(lockTitle,new LinearLayout.LayoutParams(-1,-2));
+        content.addView(new DashboardLockRow(lockControl),new LinearLayout.LayoutParams(-1,-2));
+        lockHint=design.caption("");lockHint.setVisibility(View.GONE);content.addView(lockHint);
+        connectionTitle=connectionLabel();connectionAction=design.secondaryButton("Connect",this::connect);
+        connectionAction.setTextSize(13*design.textScale);
+        connectionAction.setPadding(design.dp(10),design.dp(8),design.dp(10),design.dp(8));
+        content.addView(new DashboardActionRow(connectionTitle,connectionAction));
         connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);updateHeader();return content;
     }
-    /** Dashboard widgets can be much narrower than a screen, especially with large text. */
-    private final class DashboardActionRow extends LinearLayout {
-        private final TextView label;
-        private final View action;
-        private final boolean lock;
-        DashboardActionRow(TextView label,View action,boolean lock){
-            super(MainActivity.this);this.label=label;this.action=action;this.lock=lock;
-            setOrientation(HORIZONTAL);setGravity(Gravity.CENTER_VERTICAL);
-            addView(label,new LinearLayout.LayoutParams(0,-2,1));
-            addView(action,new LinearLayout.LayoutParams(lock?design.dp(106):-2,lock?design.dp(68):-2));
+    /** A taller centered track leaves a little breathing room without shrinking narrow touch targets. */
+    private final class DashboardLockRow extends FrameLayout {
+        private final LockControl control;
+        DashboardLockRow(LockControl control){
+            super(MainActivity.this);this.control=control;
+            addView(control,new FrameLayout.LayoutParams(-1,design.dp(68),Gravity.CENTER));
         }
         @Override protected void onMeasure(int widthSpec,int heightSpec){
             int available=Math.max(0,MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight());
-            float scale=Math.max(1f,design.textScale*getResources().getConfiguration().fontScale);
-            boolean stacked=MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED&&available<design.dp(220*scale);
+            int width=available>=design.dp(160)?Math.round(available*.9f):available;
+            int height=Math.min(design.dp(68),width);
+            FrameLayout.LayoutParams size=(FrameLayout.LayoutParams)control.getLayoutParams();
+            if(size.width!=width||size.height!=height){size.width=width;size.height=height;control.setLayoutParams(size);}
+            super.onMeasure(widthSpec,heightSpec);
+        }
+    }
+    /** Keep the status on one line where it fits; narrow cards put the action below it. */
+    private final class DashboardActionRow extends LinearLayout {
+        private final TextView label,action;
+        DashboardActionRow(TextView label,TextView action){
+            super(MainActivity.this);this.label=label;this.action=action;
+            setOrientation(HORIZONTAL);setGravity(Gravity.CENTER);
+            addView(label,new LinearLayout.LayoutParams(-2,-2));
+            addView(action,new LinearLayout.LayoutParams(-2,-2));
+        }
+        @Override protected void onMeasure(int widthSpec,int heightSpec){
+            int available=Math.max(0,MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight());
+            action.measure(MeasureSpec.makeMeasureSpec(available,MeasureSpec.AT_MOST),MeasureSpec.makeMeasureSpec(0,MeasureSpec.UNSPECIFIED));
+            int statusWidth=(int)Math.ceil(android.text.Layout.getDesiredWidth(label.getText(),label.getPaint()))+label.getPaddingLeft()+label.getPaddingRight();
+            boolean stacked=MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED
+                    &&available<statusWidth+action.getMeasuredWidth()+design.dp(12);
             int orientation=stacked?VERTICAL:HORIZONTAL;if(getOrientation()!=orientation)setOrientation(orientation);
             LinearLayout.LayoutParams words=(LinearLayout.LayoutParams)label.getLayoutParams();
-            int labelWidth=stacked?LayoutParams.MATCH_PARENT:0;float weight=stacked?0:1;
-            if(words.width!=labelWidth||words.weight!=weight){words.width=labelWidth;words.weight=weight;label.setLayoutParams(words);}
+            int labelWidth=stacked?LayoutParams.MATCH_PARENT:LayoutParams.WRAP_CONTENT;
+            label.setGravity(stacked?Gravity.CENTER:Gravity.START|Gravity.CENTER_VERTICAL);
+            if(words.width!=labelWidth||words.weight!=0){words.width=labelWidth;words.weight=0;label.setLayoutParams(words);}
             LinearLayout.LayoutParams control=(LinearLayout.LayoutParams)action.getLayoutParams();
-            int actionWidth=lock?design.dp(106):stacked?LayoutParams.MATCH_PARENT:LayoutParams.WRAP_CONTENT;
-            int actionHeight=lock?design.dp(68):LayoutParams.WRAP_CONTENT;
-            if(lock&&stacked){
-                actionWidth=Math.max(design.dp(48),Math.min(actionWidth,available));
-                actionHeight=Math.min(actionHeight,actionWidth);
-            }
-            int left=stacked?0:design.dp(lock?8:12),top=stacked?design.dp(8):0;
-            if(control.width!=actionWidth||control.height!=actionHeight||control.leftMargin!=left||control.topMargin!=top){
-                control.width=actionWidth;control.height=actionHeight;control.leftMargin=left;control.topMargin=top;
-                action.setLayoutParams(control);
+            int actionWidth=stacked?LayoutParams.MATCH_PARENT:LayoutParams.WRAP_CONTENT;
+            int left=stacked?0:design.dp(12),top=stacked?design.dp(6):0;
+            if(control.width!=actionWidth||control.leftMargin!=left||control.topMargin!=top){
+                control.width=actionWidth;control.leftMargin=left;control.topMargin=top;action.setLayoutParams(control);
             }
             super.onMeasure(widthSpec,heightSpec);
         }
+    }
+    private TextView connectionLabel(){
+        TextView label=design.text("Disconnected",13,true);
+        label.setOnClickListener(v->showConnectionDetails());
+        label.setTooltipText("Connection details");
+        return label;
+    }
+    private void showConnectionDetails(){
+        BleController ble=scooterService==null?null:scooterService.ble;
+        ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();
+        String detail=ble==null?(hasBluetoothPermission()?"Opening the local connection.":"Nearby devices permission is needed."):ble.message();
+        if(profile!=null&&profile.lastConnected>0)
+            detail+="\n\nLast connected: "+DisplayTime.dateTime(this,preferences,profile.lastConnected);
+        controlDialog=new AlertDialog.Builder(dialogContext()).setTitle("Connection").setMessage(detail).setPositiveButton("Close",null).create();
+        controlDialog.show();
+    }
+    /** An animated span keeps the spinner next to its word, without adding a separate row. */
+    private CharSequence connectingLabel(TextView owner){
+        android.text.SpannableString text=new android.text.SpannableString("Connecting  \uFFFC");
+        android.graphics.drawable.Drawable spinner=new android.graphics.drawable.Drawable(){
+            private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override public void draw(Canvas canvas){
+                paint.setColor(design.muted);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(2));paint.setStrokeCap(Paint.Cap.ROUND);
+                RectF arc=new RectF(getBounds());arc.inset(design.dp(2),design.dp(2));
+                canvas.drawArc(arc,(SystemClock.uptimeMillis()%900)*.4f,250,false,paint);
+                if(owner.isShown())owner.postInvalidateDelayed(32);
+            }
+            @Override public void setAlpha(int alpha){paint.setAlpha(alpha);}
+            @Override public void setColorFilter(android.graphics.ColorFilter filter){paint.setColorFilter(filter);}
+            @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
+        };
+        int size=Math.round(owner.getTextSize());spinner.setBounds(0,0,size,size);
+        text.setSpan(new android.text.style.ImageSpan(spinner,android.text.style.DynamicDrawableSpan.ALIGN_BASELINE),text.length()-1,text.length(),android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+        return text;
     }
     private void renameScooter(){
         if(scooterService==null||scooterService.profiles.active()==null){toast("Set up a scooter profile first.");return;}ScooterProfiles.Profile profile=scooterService.profiles.active();EditText input=new EditText(this);input.setSingleLine(true);input.setText(profile.name);input.setSelectAllOnFocus(true);input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(48)});
@@ -322,8 +368,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         lockControl=new LockControl();LinearLayout.LayoutParams lockParams=new LinearLayout.LayoutParams(design.dp(80),design.dp(52));lockParams.leftMargin=design.dp(8);toolbar.addView(lockControl,lockParams);header.addView(toolbar);
         lockHint=design.caption("");lockHint.setVisibility(View.GONE);header.addView(lockHint);
         LinearLayout connection=row();connection.setGravity(Gravity.CENTER_VERTICAL);
-        connectionTitle=design.caption("Bluetooth only");connectionTitle.setMaxLines(1);connectionTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);connection.addView(connectionTitle,new LinearLayout.LayoutParams(0,-2,1));
-        connectionDetail=design.caption("");connectionDetail.setMaxLines(2);connectionDetail.setPadding(0,0,0,design.dp(4));
+        connectionTitle=connectionLabel();connection.addView(connectionTitle,new LinearLayout.LayoutParams(0,-2,1));
+        connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);
         connectionAction=design.secondaryButton("Connect",this::connect);connectionAction.setTextSize(12*design.textScale);connectionAction.setPadding(design.dp(12),design.dp(5),design.dp(12),design.dp(5));connectionAction.setMinHeight(design.dp(48));
         connection.addView(connectionAction,new LinearLayout.LayoutParams(-2,design.dp(48)));header.addView(connection);header.addView(connectionDetail);
         return header;
@@ -342,8 +388,32 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void heading(LinearLayout parent,String title,String detail){TextView h=design.text(title,22,true);h.setPadding(0,design.dp(12),0,design.dp(6));parent.addView(h);if(detail!=null){TextView d=design.caption(detail);d.setPadding(0,0,0,design.dp(16));parent.addView(d);}}
     private void updateHeader(){
         BleController ble=scooterService==null?null:scooterService.ble;Boolean locked=ble==null?null:ble.locked();String pending=ble==null?null:ble.pending();boolean ready=ble!=null&&ble.ready(),home=selectedPage.equals("home");Boolean shownLock=locked;if(shownLock==null&&scooterService!=null){Integer saved=scooterService.displayFeatures().get("lock");if(saved!=null)shownLock=saved!=0;}
-        if(lockTitle!=null){lockTitle.setVisibility(home||shownLock!=null||pending!=null?View.VISIBLE:View.GONE);lockControl.setVisibility(home||shownLock!=null||ready?View.VISIBLE:View.GONE);lockTitle.setText(shownLock==null?"State unavailable":shownLock?"Locked":"Unlocked");lockTitle.setTextColor(!ready?design.muted:Boolean.TRUE.equals(shownLock)?design.orange:design.accent);boolean editing=screen instanceof DashboardScreen&&((DashboardScreen)screen).isEditing();lockControl.update(shownLock,ready&&pending==null&&!editing);lockHint.setVisibility(pending!=null||(home&&!ready)?View.VISIBLE:View.GONE);lockHint.setText(pending!=null?(pending.equals("lock")?"Waiting for the scooter to confirm…":"Applying a setting…"):shownLock!=null?"Last known lock state · connect to verify":"Connect for a fresh lock state.");}
-        if(connectionTitle!=null){String state=ble==null?(hasBluetoothPermission()?"Opening local connection…":"Nearby devices permission needed"):ready?"Connected":ble.state()==BleController.State.WAITING?"Waiting for your scooter":ble.state()==BleController.State.SCANNING?"Finding nearby scooters":ble.state()==BleController.State.CONNECTING?"Connecting…":ble.state()==BleController.State.AUTHENTICATING?"Authenticating locally…":"Disconnected";connectionTitle.setText(state);connectionTitle.setTextColor(ready?design.accent:design.muted);String detail=ble==null?"":ble.message();connectionDetail.setText(detail);connectionDetail.setVisibility(!ready&&!detail.isEmpty()&&!detail.equals("Ready when your scooter is.")&&!detail.equals(state)?View.VISIBLE:View.GONE);boolean active=ble!=null&&(ble.connected()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING);connectionAction.setText(active?"Disconnect":"Connect");connectionAction.setOnClickListener(v->{if(active){ble.disconnect();redraw();}else connect();});if(screen instanceof DashboardScreen&&((DashboardScreen)screen).isEditing())connectionAction.setEnabled(false);else connectionAction.setEnabled(true);}
+        if(lockTitle!=null){
+            lockTitle.setVisibility(home||shownLock!=null||pending!=null?View.VISIBLE:View.GONE);
+            lockControl.setVisibility(home||shownLock!=null||ready?View.VISIBLE:View.GONE);
+            lockTitle.setText("lock".equals(pending)?"Updating…":shownLock==null?"Lock":shownLock?"Locked":"Unlocked");
+            lockTitle.setTextColor(!ready?design.muted:Boolean.TRUE.equals(shownLock)?design.orange:design.accent);
+            boolean editing=screen instanceof DashboardScreen&&((DashboardScreen)screen).isEditing();
+            lockControl.update(shownLock,ready&&pending==null&&!editing);
+            lockHint.setVisibility(View.GONE);
+        }
+        if(connectionTitle!=null){
+            boolean connecting=ble!=null&&(ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
+                    ||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING||ble.connected())&&!ready;
+            ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();
+            long last=profile==null?0:profile.lastConnected;
+            String state=ready?"Connected":connecting?"Connecting":"Disconnected";
+            String shown=state+(!ready&&!connecting&&last>0?" · "+DisplayTime.recent(this,preferences,last,System.currentTimeMillis()):"");
+            connectionTitle.setText(connecting?connectingLabel(connectionTitle):shown);
+            connectionTitle.setContentDescription(state+(!ready&&!connecting&&last>0?", last connected "+DisplayTime.dateTime(this,preferences,last):"")+". Connection details");
+            connectionTitle.setTextColor(ready?design.accent:design.muted);
+            connectionDetail.setVisibility(View.GONE);
+            boolean active=ble!=null&&(ble.connected()||connecting);
+            connectionAction.setText(active?"Disconnect":"Connect");
+            connectionAction.setContentDescription(active?"Disconnect scooter":"Connect scooter");
+            connectionAction.setOnClickListener(v->{if(active){ble.disconnect();redraw();}else connect();});
+            connectionAction.setEnabled(!(screen instanceof DashboardScreen&&((DashboardScreen)screen).isEditing()));
+        }
         ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();if(profileTitle!=null){profileTitle.setText(p==null?"Your scooter":p.name);profileTitle.setVisibility(home?View.VISIBLE:View.GONE);}
     }
     private final class LockControl extends View {
@@ -513,7 +583,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&liveActual!=null&&scooterService.featureFresh(feature.key);
-            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");value.setText(seconds==null?"Not reported":seconds<=0?"Not scheduled":new SimpleDateFormat("EEE h:mm a",Locale.US).format(new java.util.Date((long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()))));}
+            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");value.setText(seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.recent(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()),System.currentTimeMillis()));}
             else value.setText(actual==null?"Not reported":featureLabel(feature,actual));
             name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&(feature.type!=ScooterCommands.Type.CHOICE||ble.featureChoices(feature.key).length>0));
             action.setContentDescription(feature.label+", "+value.getText()+". "+feature.description);
@@ -541,7 +611,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void showChargingTime(){
         if(scooterService==null||!scooterService.ble.ready())return;Double stored=scooterService.ble.telemetry.number("scheduled_charge_time_raw");Calendar initial=Calendar.getInstance();if(stored!=null&&stored>0)initial.setTimeInMillis((long)(stored*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));
-        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),android.text.format.DateFormat.is24HourFormat(this));picker.setTitle("Next charging start");controlDialog=picker;picker.show();
+        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle("Next charging start");controlDialog=picker;picker.show();
     }
     /** The gutter follows the actual fold bounds within this content pane. */
     private final class TwoPane extends LinearLayout {

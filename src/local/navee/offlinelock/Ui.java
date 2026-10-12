@@ -382,11 +382,15 @@ public final class Ui {
             setMeasuredDimension(resolveSize(dp(160), width), resolveSize(dp(176), height));
         }
         @Override protected void onDraw(Canvas canvas) {
-            float cx = getWidth() / 2f, cy = Math.min(getHeight() / 2f, getWidth() / 2f) - dp(1);
-            float radius = Math.min(getWidth(), getHeight() - dp(12)) / 2f - dp(13);
+            String label = charging ? "Charging" + (subtitle.isEmpty() ? "" : " · " + subtitle) : subtitle;
+            float drawableHeight = Math.max(1, getHeight() - (label.isEmpty() ? 0 : dp(20)));
+            float radius = Math.min(getWidth(), drawableHeight) / 2f - dp(13);
             if (radius <= 0) return;
+            // The open lower quarter makes the painted arc shorter below the circle
+            // center. Center its visible bounds, not the invisible full-circle square.
+            float cx = getWidth() / 2f, cy = drawableHeight / 2f + radius * .1464466f;
             RectF circle = new RectF(cx - radius, cy - radius, cx + radius, cy + radius);
-            float stroke = Math.min(dp(10), radius * .2f);
+            float stroke = Math.min(dp(12.5f), radius * .25f);
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(stroke); paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setColor(outline); canvas.drawArc(circle, 135, 270, false, paint);
             int color = !live ? muted : !Double.isNaN(percent) && percent < 15 ? danger : !Double.isNaN(percent) && percent < 30 ? orange : accent;
@@ -394,7 +398,9 @@ public final class Ui {
             paint.setStyle(Paint.Style.FILL); paint.setTextAlign(Paint.Align.CENTER);
             String amount = Double.isNaN(percent) ? "—" : Long.toString(Math.round(percent));
             String unit = Double.isNaN(percent) ? "" : "%";
-            float amountSize = Math.min(sp(34), dp(42)), unitSize = Math.min(sp(14), dp(18));
+            float ringScale = Math.max(1f, radius / dp(58));
+            float amountSize = Math.min(sp(34) * ringScale, radius * .76f);
+            float unitSize = Math.min(sp(14) * ringScale, radius * .30f);
             float gap = unit.isEmpty() ? 0 : dp(5);
             Rect amountBounds = new Rect(), unitBounds = new Rect();
             paint.setTypeface(BOLD); paint.setTextSize(amountSize);
@@ -419,7 +425,6 @@ public final class Ui {
             paint.setTypeface(MEDIUM); paint.setTextSize(unitSize); paint.setColor(muted);
             if (!unit.isEmpty()) canvas.drawText(unit, cx, top + amountBounds.height() + gap - unitBounds.top, paint);
             paint.setTextSize(Math.min(sp(11), dp(14))); paint.setColor(charging && live ? accent : muted);
-            String label = charging ? "Charging" + (subtitle.isEmpty() ? "" : " · " + subtitle) : subtitle;
             label = TextUtils.ellipsize(label, new android.text.TextPaint(paint), Math.max(dp(40), getWidth() - dp(8)), TextUtils.TruncateAt.END).toString();
             canvas.drawText(label, cx, getHeight() - dp(9), paint);
         }
@@ -447,10 +452,12 @@ public final class Ui {
         private long first = 0, last = 1, gapThresholdMs = 3500;
         private boolean historyMode;
         private float left, top, right, bottom;
-        private final SimpleDateFormat time = new SimpleDateFormat("HH:mm:ss", Locale.US);
-        private final SimpleDateFormat historyTime = new SimpleDateFormat("HH:mm", Locale.US);
-        private final SimpleDateFormat historyDate = new SimpleDateFormat("MMM d", Locale.US);
-        private final SimpleDateFormat historyDetail = new SimpleDateFormat("MMM d, yyyy HH:mm:ss", Locale.US);
+        private final boolean use24Hour = DisplayTime.is24Hour(context,
+                context.getSharedPreferences("app_settings", Context.MODE_PRIVATE));
+        private final SimpleDateFormat time = new SimpleDateFormat(use24Hour ? "HH:mm:ss" : "h:mm:ss a", Locale.getDefault());
+        private final SimpleDateFormat historyTime = new SimpleDateFormat(use24Hour ? "HH:mm" : "h:mm a", Locale.getDefault());
+        private final SimpleDateFormat historyDate = new SimpleDateFormat("MMM d", Locale.getDefault());
+        private final SimpleDateFormat historyDetail = new SimpleDateFormat(use24Hour ? "MMM d, yyyy HH:mm:ss" : "MMM d, yyyy h:mm:ss a", Locale.getDefault());
         public ChartView() {
             super(context); setMinimumHeight(dp(210)); setFocusable(true);
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
@@ -528,8 +535,12 @@ public final class Ui {
                 canvas.drawText(message, (left + right) / 2, (top + bottom) / 2, paint); return;
             }
             paint.setTextSize(Math.min(sp(10), dp(14))); paint.setColor(muted); paint.setTextAlign(Paint.Align.LEFT);
-            canvas.drawText(axisTime(first), left, bottom + dp(21), paint);
-            paint.setTextAlign(Paint.Align.RIGHT); canvas.drawText(axisTime(last), right, bottom + dp(21), paint);
+            String firstLabel = axisTime(first), lastLabel = axisTime(last);
+            if (paint.measureText(firstLabel) + paint.measureText(lastLabel) + dp(8) <= right - left)
+                canvas.drawText(firstLabel, left, bottom + dp(21), paint);
+            paint.setTextAlign(Paint.Align.RIGHT);
+            canvas.drawText(TextUtils.ellipsize(lastLabel, new android.text.TextPaint(paint),
+                    Math.max(1, right - left), TextUtils.TruncateAt.END).toString(), right, bottom + dp(21), paint);
             // Each filled segment closes independently, preserving visible data gaps.
             float zero = Math.max(top, Math.min(bottom, y(0)));
             Path line = new Path(), fill = new Path();
@@ -569,7 +580,7 @@ public final class Ui {
                 paint.setColor(text); canvas.drawText(TextUtils.ellipsize(tooltip, new android.text.TextPaint(paint), width - dp(16), TextUtils.TruncateAt.END).toString(), start + dp(8), dp(21), paint);
             } else {
                 paint.setTextAlign(Paint.Align.LEFT); paint.setTextSize(Math.min(sp(11), dp(15))); paint.setColor(muted);
-                canvas.drawText("Touch to inspect" + (unit.isEmpty() ? "" : " · " + unit), left, dp(22), paint);
+                canvas.drawText(unit, left, dp(22), paint);
             }
         }
         @Override public boolean onTouchEvent(MotionEvent event) {
@@ -691,7 +702,20 @@ public final class Ui {
             } else if (key.equals("battery")) {
                 canvas.drawRoundRect(new RectF(3, 6, 20, 18), 2, 2, paint); canvas.drawLine(22, 10, 22, 14, paint);
                 paint.setStyle(Paint.Style.FILL); canvas.drawRoundRect(new RectF(6, 9, 14, 15), 1, 1, paint);
-            } else if (key.equals("settings") || key.equals("gear") || key.equals("tune")) {
+            } else if (key.equals("heart")) {
+                p.moveTo(12, 21); p.cubicTo(10, 19, 2, 13, 2, 8);
+                p.cubicTo(2, 2, 9, 1, 12, 7); p.cubicTo(15, 1, 22, 2, 22, 8);
+                p.cubicTo(22, 13, 14, 19, 12, 21); p.close(); canvas.drawPath(p, paint);
+            } else if (key.equals("gear")) {
+                for (int i = 0; i < 32; i++) {
+                    double angle = i * Math.PI / 16 - Math.PI / 2;
+                    float radius = i % 4 == 0 || i % 4 == 3 ? 10 : 7.8f;
+                    float x = 12 + radius * (float) Math.cos(angle);
+                    float y = 12 + radius * (float) Math.sin(angle);
+                    if (i == 0) p.moveTo(x, y); else p.lineTo(x, y);
+                }
+                p.close(); canvas.drawPath(p, paint); canvas.drawCircle(12, 12, 3.3f, paint);
+            } else if (key.equals("settings") || key.equals("tune")) {
                 for (int i = 0; i < 3; i++) { float yy = 5 + i * 7, xx = i == 1 ? 15 : 8; canvas.drawLine(3, yy, 21, yy, paint); paint.setStyle(Paint.Style.FILL); paint.setColor(surface); canvas.drawCircle(xx, yy, 3, paint); paint.setStyle(Paint.Style.STROKE); paint.setColor(color); canvas.drawCircle(xx, yy, 2.5f, paint); }
             } else if (key.equals("rides") || key.equals("route")) {
                 canvas.drawCircle(6, 5, 2.5f, paint); canvas.drawCircle(18, 19, 2.5f, paint);

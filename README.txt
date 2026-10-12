@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.6.2
+NAVEE OFFLINE — VERSION 0.6.3
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -12,14 +12,16 @@ regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
 
-0.6.2 places the scooter photo beside its readings and adapts widget content to
-the card size. Widget editing controls appear only in global dashboard edit mode.
-It retains 0.6.1's grips/corners, live previews, animated reflow and themed options.
-The per-scooter dashboard, persistent last-known readings/settings and bounded
-connected history introduced in 0.6.0 remain. Five main tabs keep Lights inside
-Scooter. GPS, barometer, experimental motion and route maps remain part of explicit
-ride recordings. The confirmed 0.4.1 Samsung startup fix is retained. A
-same-signature update retains setup and rides.
+0.6.3 makes Home more glanceable: a larger battery percentage ring with icon
+readings, just odometer/mode stacked beside a larger scooter photo, a taller
+centered lock slider and concise connection status. Widget options use a gear, and the
+power chart has a two-minute window. Clock format follows the phone unless
+changed in App preferences. Saved card geometry and custom reading lists stay
+intact; the old four-reading scooter default becomes the new two-reading list.
+The floating edit controls, live drag previews, persistent last-known readings,
+bounded history, grouped settings and explicit phone-sensor recording remain.
+The confirmed 0.4.1 Samsung startup fix is retained. A same-signature update
+retains setup and rides.
 
 GET CONNECTED
 
@@ -112,7 +114,7 @@ FIVE ORGANIZED TABS
 
 Home
   Editable widgets for connection/lock, battery, readings, charts, quick access,
-  the connected UT5 MAX photo, and recording. While editing Home, use the scooter
+  the recognized UT5 MAX photo (also visible offline), and recording. While editing Home, use the scooter
   widget's pencil to rename its local profile. The default layout puts lock first.
 
 Scooter
@@ -167,7 +169,7 @@ Reflow takes 200 ms and the outline transition 120 ms; disabled system animation
 are respected. Scooter/data actions inside widgets stay inactive; local scooter
 renaming remains available. Tap Done when finished.
 
-Use the ... menu for widget options; there is no duplicate bottom options bar.
+Use the gear for widget options; there is no duplicate bottom options bar.
 Tap the dots for a Move dialog or the corner for Size if dragging is inconvenient.
 Those dialogs are also available inside the options menu. Dialogs follow the
 app's light/dark theme for readable controls and text. Widget menus, handles and
@@ -187,21 +189,37 @@ Battery, Your scooter and reading-list widgets can contain up to 12 chosen readi
 The seven defaults include lock/connection, Your scooter, battery, quick access,
 recent power trend, Capacity experiment and recording. Existing custom layouts
 are preserved; add Capacity experiment through Edit or restore defaults.
-The battery card normally shows charge with estimated range, power,
-controller-reported health and temperature when supplied. Fresh charging status
-switches those details to charging power, current and estimated time remaining,
-keeping the same battery percentage and ring. The ring uses a compact % label
-and more spacing around its number. Your scooter shows the provided UT5 MAX
-photo on the left for a freshly connected, matching model, with configurable
-readings on the right. The summary defaults to odometer, drive mode, reported
-charge count and lifetime battery throughput. Use its pencil while editing Home
-to rename the local scooter profile.
+The battery card balances a large centered percentage ring with a thicker arc
+above its readings. Route, lightning, heart and thermometer icons identify
+estimated range, power,
+controller-reported health and temperature along the bottom. These four readings
+share a row where they fit; small cards and large text wrap them instead of
+hiding values. Fresh charging status replaces that row with charging power,
+current, estimated time remaining and temperature, keeping the percentage ring.
+The extra Battery label beside the ring and repeated Live footers are removed.
+Last-known readings remain grey and retain their timestamps.
+
+Your scooter shows a larger UT5 MAX photo on the left for a recognized model,
+including while disconnected, with configurable readings stacked vertically on the right.
+Its defaults are odometer and drive mode. Reported charge count and battery throughput remain
+in Stats and available as custom readings. Existing cards using the former four
+reading defaults switch once to these two; other custom lists and saved card
+positions/sizes are retained. New scooter cards use four rows and can shrink to
+three. Use its pencil while editing Home to rename the local scooter profile.
 
 As cards resize, narrow rows stack, values fit within readable font limits and
-photos/rings/gauges/charts use the available space. Long content stays vertically
-scrollable. Your scooter needs at least four grid rows; Lock & connection, Gauge
-and Ride recorder need at least three. Existing smaller cards are brought up to
-those minimums without changing their selected readings.
+photos/rings/gauges/charts use the available space. Short content is balanced
+within its card rather than gathering at the top. Saved card geometry remains
+unchanged. Swipe anywhere inside long widget content to scroll it. Your scooter, Lock & connection, Gauge and
+Ride recorder need at least three rows. Editing uses the same content geometry.
+
+The taller lock slider is centered and slightly inset from the card edges.
+Narrow cards retain the full available width for its touch target. Its connection
+status is simply Connected, Connecting with an inline spinner, or Disconnected
+with the last verified
+connection time. Older connections include a date. Tap this line for connection
+details or errors. Successful authenticated connection timestamps are already
+saved per scooter; launching the app or a failed attempt does not invent one.
 
 On UT5 MAX/PID 2538, owner-observed mode codes 11, 2 and 3 display as WALK, ECO
 and SPORT. Other codes and models retain raw labels. This presentation does not
@@ -216,7 +234,10 @@ Each scooter retains separate arrangements for each column count. Moving or
 resizing one card moves colliding cards out of its way. Restore default widgets
 replaces only that scooter's dashboard configuration, keeping readings and rides.
 
-Choose a parameter for Big reading, Gauge, Live trend or History chart. A chart
+Choose a parameter for Big reading, Gauge, Live trend or History chart. The
+Live trend time-window selector includes two minutes, also for battery power.
+The chart omits redundant signed and Recent readings/live labels; values and
+recorded signs are unchanged. A chart
 needs numeric samples actually received from the scooter; text-only or unsupported
 fields cannot produce a graph. A gauge's scale is a display choice, not a new
 scooter limit. Reported battery health is not a measured capacity test.
@@ -441,7 +462,9 @@ saved scooter address. Do not add a private owner backup to a public archive.
 READABILITY, CONNECTION OPTIONS AND FOLDING PHONES
 
 More offers dark/light/system appearance, text scale, miles/km/both units and
-comfortable/dense Stats rows. App units affect display; Dashboard units is a
+comfortable/dense Stats rows. More > App preferences > Time format follows the
+phone by default, or uses an explicit 12-hour/24-hour clock for displayed times.
+Stats omits repeated explanatory UI text while retaining interpretation details. App units affect display; Dashboard units is a
 separate scooter setting. Kick-start, maximum-speed and Lab cap selectors follow
 the app units, including Show both. Fractional mph choices reflect the scooter's
 fixed metric speed steps. Stored trips and minimum-distance hints follow the
@@ -545,6 +568,17 @@ content remains scrollable and practical minimum heights preserve usable cards.
 Editing uses floating controls over the same widget/content dimensions shown
 during normal viewing. Search fields and surrounding filters/results gain
 consistent padding and spacing.
+
+
+0.6.3 trims repeated Live/status text, uses gear-shaped widget options, adds a
+two-minute Live trend window and an app clock-format preference. The battery
+ring takes priority over compact icon readings, and Your scooter defaults to
+odometer/mode with a three-row minimum. Its old four-reading default is migrated
+without moving/resizing cards or changing other custom reading lists. A taller
+centered lock slider and concise connection status keep controls compact;
+overflowing widget content accepts scrolling from within the content area. The battery arc
+is thicker, scooter readings stack beside a larger photo, and content uses the
+card's available space while preserving the saved layout.
 
 
 LICENSE AND REFERENCES

@@ -32,7 +32,19 @@ final class WindowTouchTrace {
                             }
                         }
                     }
-                    try { return method.invoke(original, arguments); }
+                    try {
+                        Object result = method.invoke(original, arguments);
+                        if (method.getName().equals("dispatchTouchEvent") && arguments != null
+                                && arguments.length == 1 && arguments[0] instanceof MotionEvent) {
+                            synchronized (events) {
+                                View focus = window.getCurrentFocus();
+                                if (events.size() < 24) events.add("after action=" + ((MotionEvent)arguments[0]).getActionMasked()
+                                        + ", focus=" + (focus == null ? "null" : focus.getClass().getSimpleName()
+                                        + ":" + focus.getContentDescription()) + ", consumed=" + result);
+                            }
+                        }
+                        return result;
+                    }
                     catch (InvocationTargetException error) { throw error.getCause(); }
                 });
         window.setCallback(proxy);

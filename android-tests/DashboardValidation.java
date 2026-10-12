@@ -44,6 +44,7 @@ import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.DashboardConfig;
 import local.navee.offlinelock.DashboardLayout;
 import local.navee.offlinelock.DashboardScreen;
+import local.navee.offlinelock.DisplayTime;
 import local.navee.offlinelock.MainActivity;
 import local.navee.offlinelock.ScooterProfiles;
 import local.navee.offlinelock.ScooterService;
@@ -76,6 +77,7 @@ public final class DashboardValidation extends Instrumentation {
             require(settings().edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
                     .putString("theme", "dark").putString("units", "mi").commit(), "Could not configure isolated emulator");
             verifyScooterStatsMigration();
+            verifyClockFormats();
             seedSyntheticProfileAndHistory(); launch();
             for (String destination : DESTINATIONS) { clickDescription(destination); assertNavigationFits(); assertNoScooterWork(); }
             clickDescription("Home"); awaitDashboard();
@@ -87,6 +89,8 @@ public final class DashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Persisted synthetic readings did not load");
             assertCachedReadings();
+            verifyCompactConnection();
+            verifyDisconnectedScooterPhoto();
             clickDescription("Scooter"); clickText(root(), "Scooter name");
             AlertDialog rename = (AlertDialog)field(activity, "controlDialog");
             main(() -> first(rename.getWindow().getDecorView(), EditText.class).setText(RENAMED));
@@ -105,7 +109,7 @@ public final class DashboardValidation extends Instrumentation {
                     3000, "The scooter card rename did not update Home");
             main(() -> require(HOME_RENAMED.equals(new ScooterProfiles(getTargetContext()).active().name),
                     "The scooter card rename was not saved"));
-            check("Synthetic readings return as stale; Scooter settings and the edit-only Home rename pencil persist the scooter name");
+            check("Cached readings stay stale while a known UT5 MAX keeps its photo offline; settings and the edit-only Home pencil preserve its name");
 
             require(dashboard().isEditing(), "Renaming the scooter unexpectedly left dashboard editing");
             assertEditInputsInert(); screenshot("edit-dark");
@@ -137,7 +141,7 @@ public final class DashboardValidation extends Instrumentation {
                 Object tile = tileById(metricId); TextView amount = (TextView)field(tile, "big");
                 require(amount.getText().toString().contains("73"), "Big reading did not render the cached parameter");
                 require(amount.getCurrentTextColor() == activity.ui().muted, "Cached big reading is presented as live");
-                require(((TextView)field(tile, "footer")).getText().toString().contains("Last known"), "Cached widget lacks a timestamp label");
+                require(((TextView)field(tile, "footer")).getText().toString().contains("Last known"), "Cached widget lacks its stale-reading label");
             });
             setSize(metricId, 1, 4); setPosition(metricId, 1, 1);
             main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == 1 && cell(metricId).h == 4,
@@ -152,15 +156,15 @@ public final class DashboardValidation extends Instrumentation {
             scrollHomeTop(); screenshot("native-drag-dark");
             check("Direct touchscreen drag previews the full card and reflows neighbors before release; drop saves and cancellation restores every position");
 
-            verifyGaugeUnits(); assertNoScooterWork();
-            check("Gauge speed limits display in mph, round-trip through editing and convert to km/h without changing the stored scale");
+            verifyGaugeUnits(); verifyTwoMinuteChart(); assertNoScooterWork();
+            check("Gauge limits round-trip between mph and km/h; the two-minute live-chart window persists without changing dashboard placement");
 
             verifyCapacityExperiment(); assertGrid(); assertNoScooterWork();
             reveal((View)field(tile("capacity"), "capacityValue")); screenshot("capacity-no-data-dark");
             check("Capacity experiment reports insufficient ride data; its title, time window and advertised Wh can be configured and saved");
 
-            verifyChargingDisplay(); assertNoScooterWork();
-            check("The battery card switches exclusively between normal and fresh charging details; charging rate and cutoff estimates reject stale inputs");
+            verifyChargingDisplay(); verifyLiveFooters(); assertNoScooterWork();
+            check("Battery charging details reject stale inputs and honor the cutoff; live cards omit redundant live-status footers");
 
             noteId = widget("note").id;
             openOptions(noteId); clickText(dialogRoot(), "Note");
@@ -177,7 +181,7 @@ public final class DashboardValidation extends Instrumentation {
             });
             assertConfigurationHidden();
             assertInnerScrolling(); assertGrid(); assertNoScooterWork();
-            check("Done restores ordinary actions; long widget content scrolls within its card without hiding its footer");
+            check("Done restores ordinary actions; a swipe on long widget text scrolls its contents without moving the dashboard");
 
             DashboardLayout.Cell before = cell(metricId).copy();
             recreateActivity();
@@ -261,6 +265,8 @@ public final class DashboardValidation extends Instrumentation {
                 syntheticReading(readings, "battery_percent", "73 %", "%", 73d, wall);
                 syntheticReading(readings, "power_w", (900 + i * 10) + " W", "W", 900d + i * 10, wall);
                 syntheticReading(readings, "battery_health_percent", "98 %", "%", 98d, wall);
+                syntheticReading(readings, "remaining_range_km", "35.4 km", "km", 35.4d, wall);
+                syntheticReading(readings, "temperature_c", "23.5 °C", "°C", 23.5d, wall);
                 syntheticReading(readings, "controller_version", "Synthetic 1.2.3", "", null, wall);
                 syntheticReading(readings, "charging_state", "Charging", "", 1d, wall);
                 syntheticReading(readings, "voltage_v", "52 V", "V", 52d, wall);
@@ -292,8 +298,8 @@ public final class DashboardValidation extends Instrumentation {
             DashboardConfig migrated = new DashboardConfig(isolated, "legacy");
             require(migrated.widgets.size() == 1, "Legacy migration changed widget count");
             DashboardConfig.Widget photo = migrated.widgets.get(0);
-            require(photo.keys.equals(Arrays.asList("odometer_km", "driving_mode", "charge_cycles", "capacity_throughput_ah")),
-                    "Legacy unused photo keys did not migrate to scooter statistics");
+            require(photo.keys.equals(Arrays.asList("odometer_km", "driving_mode")),
+                    "Legacy unused photo keys did not migrate to the two glanceable scooter readings");
             require(photo.id.equals("legacy-photo") && photo.title.equals("Existing photo")
                     && sameCell(photo.layouts.get(2), new DashboardLayout.Cell(photo.id, 1, 3, 1, 4))
                     && sameCell(photo.layouts.get(4), new DashboardLayout.Cell(photo.id, 2, 5, 2, 6)),
@@ -301,6 +307,25 @@ public final class DashboardValidation extends Instrumentation {
             migrated.save();
             org.json.JSONObject saved = new org.json.JSONArray(isolated.getString("dashboard_v1_legacy", "")).getJSONObject(0);
             require(saved.getBoolean("scooterStats"), "Saving migrated scooter statistics did not mark their schema");
+            require(saved.getBoolean("glanceableScooterStats"), "Saving compact scooter statistics did not mark the new schema");
+
+            String previousDefault = legacy.replace("\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"",
+                    "\"odometer_km\",\"driving_mode\",\"charge_cycles\",\"capacity_throughput_ah\"")
+                    .replace("\"type\":\"scooter\"", "\"type\":\"scooter\",\"scooterStats\":true");
+            require(isolated.edit().putString("dashboard_v1_previous-default", previousDefault).commit(),
+                    "Could not seed the previous default scooter readings");
+            DashboardConfig compact = new DashboardConfig(isolated, "previous-default");
+            DashboardConfig.Widget compactPhoto = compact.widgets.get(0);
+            require(compactPhoto.keys.equals(Arrays.asList("odometer_km", "driving_mode")),
+                    "Previous default scooter readings retained charge count or throughput");
+            require(compactPhoto.minimumHeight() < 4
+                    && sameCell(compactPhoto.layouts.get(2), photo.layouts.get(2))
+                    && sameCell(compactPhoto.layouts.get(4), photo.layouts.get(4)),
+                    "Making the scooter card smaller changed its existing saved placement");
+            compact.save();
+            DashboardConfig compactReloaded = new DashboardConfig(isolated, "previous-default");
+            require(compactReloaded.widgets.get(0).keys.equals(compactPhoto.keys),
+                    "Compact scooter readings changed after saving and reopening");
 
             DashboardConfig fresh = new DashboardConfig(isolated, "fresh-custom");
             DashboardConfig.Widget custom = null;
@@ -312,6 +337,14 @@ public final class DashboardValidation extends Instrumentation {
             for (DashboardConfig.Widget widget : reloaded.widgets) if (widget.id.equals(custom.id)) restored = widget;
             require(restored != null && restored.keys.equals(oldKeys),
                     "Reload migrated a new widget's deliberately selected readings a second time");
+            restored.keys.clear();
+            restored.keys.addAll(Arrays.asList("odometer_km", "driving_mode", "charge_cycles", "capacity_throughput_ah"));
+            reloaded.save();
+            DashboardConfig explicitFour = new DashboardConfig(isolated, "fresh-custom");
+            DashboardConfig.Widget explicitRestored = null;
+            for (DashboardConfig.Widget widget : explicitFour.widgets) if (widget.id.equals(custom.id)) explicitRestored = widget;
+            require(explicitRestored != null && explicitRestored.keys.equals(restored.keys),
+                    "A newly chosen four-reading scooter card was mistaken for an old default");
         } finally { require(isolated.edit().clear().commit(), "Could not remove isolated migration fixture"); }
     }
     private void syntheticReading(Map<String, TelemetryHistory.Reading> readings, String key, String value, String unit, Double number, long wall) {
@@ -319,10 +352,111 @@ public final class DashboardValidation extends Instrumentation {
         require(metric != null, "Unknown synthetic parameter");
         readings.put(key, new TelemetryHistory.Reading(key, metric.label, metric.group, value, unit, number, wall, true));
     }
+    private void verifyClockFormats() {
+        SharedPreferences isolated = getTargetContext().getSharedPreferences("clock_validation", Context.MODE_PRIVATE);
+        require(isolated.getAll().isEmpty(), "Clock checks require empty isolated preferences");
+        Locale originalLocale = Locale.getDefault(); java.util.TimeZone originalZone = java.util.TimeZone.getDefault();
+        try {
+            Locale.setDefault(Locale.US); java.util.TimeZone.setDefault(java.util.TimeZone.getTimeZone("UTC"));
+            java.util.Calendar calendar = java.util.Calendar.getInstance(); calendar.clear();
+            calendar.set(2026, java.util.Calendar.JANUARY, 28, 13, 5);
+            long wall = calendar.getTimeInMillis();
+            isolated.edit().putString("time_format", "24h").commit();
+            require(DisplayTime.is24Hour(getTargetContext(), isolated)
+                    && DisplayTime.clock(getTargetContext(), isolated, wall).equals("13:05"),
+                    "Explicit 24-hour clock did not show 13:05");
+            isolated.edit().putString("time_format", "12h").commit();
+            String clock = DisplayTime.clock(getTargetContext(), isolated, wall).replaceAll("[\\s\\p{Z}]", "");
+            require(!DisplayTime.is24Hour(getTargetContext(), isolated) && clock.equals("1:05PM"),
+                    "Explicit 12-hour clock did not show 1:05 PM");
+            require(DisplayTime.recent(getTargetContext(), isolated, wall, wall + 60000).equals(
+                    DisplayTime.clock(getTargetContext(), isolated, wall)), "A same-day connection unnecessarily repeats its date");
+            String yesterday = DisplayTime.recent(getTargetContext(), isolated, wall, wall + 86400000L);
+            require(yesterday.contains("Jan") && yesterday.contains("28") && yesterday.contains(":"),
+                    "An older connection lost its date or clock and can be confused with today");
+            String previousYear = DisplayTime.recent(getTargetContext(), isolated, wall, wall + 370 * 86400000L);
+            require(previousYear.contains("2026"), "A previous-year connection omitted its year");
+            require(DisplayTime.clock(getTargetContext(), isolated, 0).isEmpty()
+                    && DisplayTime.recent(getTargetContext(), isolated, 0, wall).isEmpty(),
+                    "A scooter with no connection history invented a clock time");
+            isolated.edit().putString("time_format", "system").commit();
+            require(DisplayTime.is24Hour(getTargetContext(), isolated) == android.text.format.DateFormat.is24HourFormat(getTargetContext()),
+                    "Follow system ignored the phone's clock format");
+        } finally {
+            Locale.setDefault(originalLocale); java.util.TimeZone.setDefault(originalZone);
+            require(isolated.edit().clear().commit(), "Could not remove isolated clock preferences");
+        }
+    }
+    private void verifyCompactConnection() {
+        main(() -> {
+            ScooterProfiles.Profile profile = activity.service().profiles.active();
+            BleController ble = activity.service().ble;
+            long originalLast = profile.lastConnected; BleController.State originalState = ble.state();
+            try {
+                profile.lastConnected = 0; invoke(activity, "updateHeader");
+                TextView status = (TextView)field(activity, "connectionTitle");
+                require("Disconnected".contentEquals(status.getText()), "No connection history should show only Disconnected");
+                profile.lastConnected = System.currentTimeMillis() - 60000; invoke(activity, "updateHeader");
+                require(status.getText().toString().equals("Disconnected · " + DisplayTime.recent(
+                        getTargetContext(), settings(), profile.lastConnected, System.currentTimeMillis())),
+                        "Disconnected status did not display the most recent connection time");
+                require(status.getContentDescription().toString().contains("last connected"),
+                        "Connection time lacks an accessible explanation");
+                for (BleController.State state : new BleController.State[] {BleController.State.WAITING,
+                        BleController.State.SCANNING, BleController.State.CONNECTING, BleController.State.AUTHENTICATING}) {
+                    // View-state fixture only; no BLE transition method, callbacks or queue is called.
+                    setField(ble, "state", state); invoke(activity, "updateHeader");
+                    CharSequence text = status.getText();
+                    require(text.toString().startsWith("Connecting") && text instanceof android.text.Spanned,
+                            state + " did not render the compact connecting status");
+                    android.text.style.ImageSpan[] spinners = ((android.text.Spanned)text).getSpans(0, text.length(), android.text.style.ImageSpan.class);
+                    require(spinners.length == 1 && spinners[0].getDrawable().getBounds().width() > 0,
+                            state + " lacks one inline loading indicator");
+                    require(((View)field(activity, "lockHint")).getVisibility() == View.GONE
+                            && ((View)field(activity, "connectionDetail")).getVisibility() == View.GONE,
+                            state + " added an explanatory text block to the compact connection card");
+                }
+            } finally {
+                profile.lastConnected = originalLast; setField(ble, "state", originalState); invoke(activity, "updateHeader");
+            }
+        });
+        assertNoScooterWork();
+    }
     private void launch() {
         activity = (MainActivity)startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000, "Workspace did not initialize");
         awaitDashboard();
+    }
+    private void verifyDisconnectedScooterPhoto() {
+        main(() -> {
+            ScooterService service = activity.service();
+            require(service.ble.state() == BleController.State.DISCONNECTED, "Offline photo fixture must stay disconnected");
+            ScooterProfiles.Profile profile = service.profiles.active();
+            String originalSerial = profile.serial;
+            Object scooter = tile("scooter");
+            Map<String, TelemetryHistory.Reading> cached = service.displayReadings();
+            try {
+                // Model-only display fixture; never saved or used for a BLE connection.
+                profile.serial = "X2538-SYNTHETIC";
+                require(profile.pid() == 2538, "Synthetic photo fixture did not identify the UT5 MAX model");
+                invoke(scooter, "refresh", new Class<?>[] {Map.class}, cached);
+                android.widget.ImageView photo = (android.widget.ImageView)field(scooter, "photo");
+                require(photo.getVisibility() == View.VISIBLE && photo.getDrawable() != null
+                        && ((View)field(scooter, "photoHint")).getVisibility() == View.GONE,
+                        "A disconnected known UT5 MAX lost its scooter image or still shows the placeholder");
+                for (Object value : ((Map<?, ?>)field(scooter, "amounts")).values())
+                    require(((TextView)value).getCurrentTextColor() == activity.ui().muted,
+                            "Keeping the scooter photo visible made an offline reading appear live");
+                require(!service.readingFresh("odometer_km") && !service.readingFresh("driving_mode"),
+                        "Displaying an offline scooter photo promoted cached readings to fresh data");
+            } finally {
+                profile.serial = originalSerial;
+                invoke(scooter, "refresh", new Class<?>[] {Map.class}, cached);
+            }
+            require(((View)field(scooter, "photo")).getVisibility() == View.GONE,
+                    "Restoring an unknown model incorrectly retained the UT5 MAX image");
+        });
+        assertNoScooterWork();
     }
     private void awaitDashboard() { await(() -> field(activity, "screen") instanceof DashboardScreen && grid().getWidth() > 0,
             5000, "Dashboard did not attach"); waitForIdleSync(); }
@@ -343,6 +477,27 @@ public final class DashboardValidation extends Instrumentation {
         require(activity.service() != old, "A fresh service was not created");
     }
     private void assertCachedReadings() {
+        // Loading the service's cache and redrawing its listeners are separate
+        // main-loop steps. Assert the rendered result after both have completed.
+        final String[] rendered = {"Dashboard has not rendered cached readings"};
+        try {
+            await(() -> {
+                Object scooter = tileOrNull("scooter");
+                if (scooter == null) return false;
+                Map<?, ?> readings = (Map<?, ?>)field(scooter, "amounts");
+                TextView odometer = (TextView)readings.get("odometer_km");
+                TextView mode = (TextView)readings.get("driving_mode");
+                String odoText = odometer == null ? "<missing>" : odometer.getText().toString();
+                String modeText = mode == null ? "<missing>" : mode.getText().toString();
+                String chargeText = metricId == null ? "<not configured>"
+                        : ((TextView)field(tileById(metricId), "big")).getText().toString();
+                rendered[0] = "odometer=" + odoText + ", mode=" + modeText + ", battery reading=" + chargeText;
+                return odoText.equals("100.00 mi") && modeText.equals("3 (raw)")
+                        && (metricId == null || chargeText.contains("73"));
+            }, 5000, "Cached readings loaded but their dashboard values did not render");
+        } catch (IllegalStateException error) {
+            throw new IllegalStateException(error.getMessage() + "; actual " + rendered[0], error);
+        }
         main(() -> {
             TelemetryHistory.Reading number = activity.service().displayReadings().get("battery_percent");
             TelemetryHistory.Reading text = activity.service().displayReadings().get("controller_version");
@@ -353,11 +508,12 @@ public final class DashboardValidation extends Instrumentation {
             require(!activity.service().readingFresh("battery_percent") && !activity.service().featureFresh("headlight"),
                     "Cache must not provide command freshness");
             Map<?, ?> stats = (Map<?, ?>)field(tile("scooter"), "amounts");
-            require(stats.keySet().containsAll(Arrays.asList("odometer_km", "driving_mode", "charge_cycles", "capacity_throughput_ah")),
-                    "My Scooter does not offer its default long-term readings");
+            require(stats.keySet().equals(new HashSet<>(Arrays.asList("odometer_km", "driving_mode"))),
+                    "My Scooter's defaults should contain only odometer and drive mode");
             TextView odometer = (TextView)stats.get("odometer_km"), mode = (TextView)stats.get("driving_mode");
             require("100.00 mi".contentEquals(odometer.getText()) && "3 (raw)".contentEquals(mode.getText()),
-                    "My Scooter did not format its cached odometer and unknown-model mode");
+                    "My Scooter did not format its cached odometer and unknown-model mode: "
+                            + odometer.getText() + ", " + mode.getText());
             require(odometer.getCurrentTextColor() == activity.ui().muted && mode.getCurrentTextColor() == activity.ui().muted,
                     "My Scooter's disconnected stats appear live");
         });
@@ -501,6 +657,22 @@ public final class DashboardValidation extends Instrumentation {
                     View body = (View)field(object, "body");
                     require(viewport != null && viewport.getHeight() > 0 && body.getWidth() > 0 && body.getHeight() > 0,
                             context + ": content has no usable viewport");
+                    if (Arrays.asList("lock", "metric", "gauge", "ride").contains(widget.type))
+                        assertBalancedContent((ViewGroup)body, viewport, context);
+                    if (widget.type.equals("lock")) {
+                        View slider = (View)field(activity, "lockControl");
+                        Rect bounds = relativeBounds(slider, body);
+                        int expectedWidth = body.getWidth() >= activity.ui().dp(160)
+                                ? Math.round(body.getWidth() * .90f) : body.getWidth();
+                        require(Math.abs(bounds.width() - expectedWidth) <= 1
+                                && Math.abs(bounds.left - (body.getWidth() - bounds.right)) <= 1,
+                                context + ": lock slider is off-center or has the wrong comfortable side inset");
+                        require(bounds.height() == Math.min(activity.ui().dp(68), expectedWidth),
+                                context + ": lock slider lost its taller touch target");
+                        require(((View)field(activity, "lockHint")).getVisibility() == View.GONE
+                                && ((View)field(activity, "connectionDetail")).getVisibility() == View.GONE,
+                                context + ": compact lock card contains a redundant explanation");
+                    }
                     for (TextView text : all(body, TextView.class))
                         if (text.isShown() && text.length() > 0) assertReadableValue(text, body, context + " body text");
                     for (String name : new String[] {"photoPane", "chart", "gauge", "battery"}) {
@@ -515,6 +687,7 @@ public final class DashboardValidation extends Instrumentation {
                 }
             }
             assertScooterRowAtMinimum(columns, columnWidth, rowHeight);
+            assertBatteryAtMinimum(columns, columnWidth, rowHeight);
             // The matrix deliberately measured children outside their parent's
             // normal layout pass. Invalidate those cached subtree measurements
             // before returning to the actual saved dashboard geometry.
@@ -528,6 +701,24 @@ public final class DashboardValidation extends Instrumentation {
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++)
             forceSubtreeMeasure(((ViewGroup)view).getChildAt(i));
         view.forceLayout();
+    }
+    private void assertBalancedContent(ViewGroup body, ScrollView viewport, String context) {
+        if (body.getHeight() > viewport.getHeight() + 1) return; // Long custom content intentionally scrolls.
+        int top = Integer.MAX_VALUE, bottom = Integer.MIN_VALUE;
+        for (int i = 0; i < body.getChildCount(); i++) {
+            View child = body.getChildAt(i);
+            if (child.getVisibility() == View.GONE || child.getHeight() == 0) continue;
+            int before = 0, after = 0;
+            if (child.getLayoutParams() instanceof ViewGroup.MarginLayoutParams) {
+                ViewGroup.MarginLayoutParams margins = (ViewGroup.MarginLayoutParams)child.getLayoutParams();
+                before = margins.topMargin; after = margins.bottomMargin;
+            }
+            top = Math.min(top, child.getTop() - before); bottom = Math.max(bottom, child.getBottom() + after);
+        }
+        if (top == Integer.MAX_VALUE) return;
+        int topGap = top - body.getPaddingTop(), bottomGap = body.getHeight() - body.getPaddingBottom() - bottom;
+        require(Math.abs(topGap - bottomGap) <= activity.ui().dp(2),
+                context + ": fitting widget content is not vertically balanced: top=" + topGap + ", bottom=" + bottomGap);
     }
     private void verifyDriveModeStyles(Object object, int width, int height, String context) {
         TextView mode = (TextView)((Map<?, ?>)field(object, "amounts")).get("driving_mode");
@@ -639,6 +830,11 @@ public final class DashboardValidation extends Instrumentation {
             Rect image = relativeBounds(photo, body), stats = relativeBounds(info, body);
             require(image.width() > 0 && image.height() > 0 && image.right <= stats.left,
                     "Scooter photo is not laid out to the left of the statistics");
+            Map<?, ?> readings = (Map<?, ?>)field(scooter, "amounts");
+            View odometer = (View)((View)readings.get("odometer_km")).getParent();
+            View mode = (View)((View)readings.get("driving_mode")).getParent();
+            require(relativeBounds(odometer, body).bottom <= relativeBounds(mode, body).top,
+                    "Scooter odometer and drive mode are not stacked vertically beside the photo");
             ScrollView viewport = first(card, ScrollView.class);
             Rect visibleBody = new Rect(viewport.getScrollX(), viewport.getScrollY(),
                     viewport.getScrollX() + viewport.getWidth(), viewport.getScrollY() + viewport.getHeight());
@@ -655,6 +851,49 @@ public final class DashboardValidation extends Instrumentation {
         } finally {
             for (Map.Entry<View, Integer> entry : visibility.entrySet()) entry.getKey().setVisibility(entry.getValue());
             hint.setVisibility(hintVisibility);
+        }
+    }
+    private void assertBatteryAtMinimum(int columns, float columnWidth, float rowHeight) {
+        Object batteryTile = tile("battery"); View card = (View)batteryTile;
+        DashboardConfig.Widget widget = (DashboardConfig.Widget)field(batteryTile, "widget");
+        measureCard(card, Math.round(columns * columnWidth) - activity.ui().dp(10),
+                Math.round(widget.minimumHeight() * rowHeight) - activity.ui().dp(10));
+        View body = (View)field(batteryTile, "body"), ring = (View)field(batteryTile, "battery");
+        View strip = (View)field(batteryTile, "batteryData"); ScrollView viewport = first(card, ScrollView.class);
+        Rect ringBounds = relativeBounds(ring, body), stripBounds = relativeBounds(strip, body);
+        require(findText(body, "Battery") == null && field(batteryTile, "subtitle") == null,
+                "Battery card repeats its name next to the percentage ring");
+        require(Math.abs(ringBounds.centerX() - body.getWidth() / 2) <= 1,
+                "Battery percentage ring is not horizontally centered");
+        require(ringBounds.bottom <= stripBounds.top && stripBounds.bottom <= viewport.getHeight() + 1,
+                "Battery ring and compact readings do not fit in the minimum full-width card");
+        int availableDiameter = Math.min(body.getWidth(), viewport.getHeight()
+                - body.getPaddingTop() - body.getPaddingBottom() - strip.getHeight() - activity.ui().dp(12));
+        require(ring.getWidth() >= availableDiameter - 2,
+                "Battery percentage ring leaves unused space that could make it larger: actual=" + ring.getWidth()
+                        + ", available=" + availableDiameter + ", viewport=" + viewport.getWidth() + "x" + viewport.getHeight()
+                        + ", bodyPadding=" + body.getPaddingTop() + "+" + body.getPaddingBottom()
+                        + ", strip=" + strip.getWidth() + "x" + strip.getHeight());
+        List<?> cells = (List<?>)field(strip, "cells");
+        require(cells.size() == 4, "Default battery card does not expose its four glanceable readings");
+        String[] icons = {"route", "bolt", "heart", "temperature"};
+        android.view.ViewParent readingsRow = null;
+        Rect previous = null;
+        for (int index = 0; index < cells.size(); index++) {
+            View cell = (View)cells.get(index);
+            require(findDescription(cell, icons[index]) != null,
+                    "Compact battery reading lacks its identifying " + icons[index] + " icon");
+            TextView value = first(cell, TextView.class);
+            require(value != null && value.getContentDescription() != null
+                    && value.getContentDescription().length() > value.length(),
+                    "An icon-only battery reading lost its accessible parameter label");
+            if (body.getWidth() >= activity.ui().dp(248 * activity.ui().textScale)) {
+                Rect bounds = relativeBounds(cell, body);
+                if (readingsRow == null) readingsRow = cell.getParent();
+                require(cell.getParent() == readingsRow && (previous == null || previous.right <= bounds.left),
+                        "Glanceable battery readings do not share one row when space permits");
+                previous = bounds;
+            }
         }
     }
     private void assertGrid() {
@@ -675,13 +914,27 @@ public final class DashboardValidation extends Instrumentation {
     }
     private void assertInnerScrolling() {
         Object note = tileById(noteId); ScrollView viewport = first((View)note, ScrollView.class); reveal(viewport);
-        main(() -> viewport.fullScroll(View.FOCUS_DOWN));
-        // fullScroll may schedule smooth scrolling on later frames. Main-queue idle
-        // alone does not mean that animation has advanced.
-        await(() -> viewport.getScrollY() > 0, 3000, "Long note cannot scroll inside its card");
+        main(() -> viewport.scrollTo(0, 0)); awaitSettledLayout();
+        ScrollView outer = (ScrollView)field(activity, "scroll");
+        final int[] outerBefore = new int[1]; final Rect touchArea = new Rect();
+        main(() -> {
+            require(viewport.getGlobalVisibleRect(touchArea), "Long-note viewport is not visible for a swipe");
+            require(touchArea.height() > activity.ui().dp(48), "Long-note viewport is too small for a real swipe");
+            outerBefore[0] = outer.getScrollY();
+        });
+        float x = touchArea.centerX(), startY = touchArea.bottom - activity.ui().dp(12);
+        float endY = touchArea.top + activity.ui().dp(12);
+        long down = SystemClock.uptimeMillis();
+        injectTouch(down, MotionEvent.ACTION_DOWN, x, startY);
+        for (int step = 1; step <= 10; step++) {
+            injectTouch(down, MotionEvent.ACTION_MOVE, x, startY + (endY - startY) * step / 10f);
+            SystemClock.sleep(20);
+        }
+        injectTouch(down, MotionEvent.ACTION_UP, x, endY);
+        await(() -> viewport.getScrollY() > 0, 3000, "A swipe on the note text did not scroll the widget contents");
         main(() -> {
             require(viewport.getChildAt(0).getHeight() > viewport.getHeight(), "Long note did not exceed its bounded viewport");
-            require(viewport.getScrollY() > 0, "Long note cannot scroll inside its card");
+            require(outer.getScrollY() == outerBefore[0], "The dashboard intercepted a swipe intended for the widget contents");
             View footer = (View)field(note, "footer");
             require(footer.getBottom() <= ((View)note).getHeight(), "Widget footer escaped its card");
         });
@@ -706,6 +959,7 @@ public final class DashboardValidation extends Instrumentation {
         View grip = findDescription(tile, "Move " + title), corner = findDescription(tile, "Resize " + title);
         View options = findDescription(tile, "Options for " + title);
         require(grip != null && corner != null, "Dedicated move and corner resize handles are missing");
+        require(findDescription(options, "gear") != null, "Widget options do not use a gear icon");
         main(() -> {
             Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile);
             int touch = activity.ui().dp(48), tolerance = activity.ui().dp(24);
@@ -978,6 +1232,24 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> settings().edit().putString("units", "mi").apply()); waitForIdleSync();
         awaitDashboard();
     }
+    private void verifyTwoMinuteChart() {
+        String id = widget("live").id;
+        Map<String, DashboardLayout.Cell> before = layoutSnapshot();
+        openOptions(id); clickText(dialogRoot(), "Time window"); chooseDialogItem("2 minutes");
+        require(widgetById(id).windowMs == 120000L, "Two-minute chart window was not selected");
+        DashboardConfig saved = new DashboardConfig(settings(), profileId);
+        DashboardConfig.Widget restored = null;
+        for (DashboardConfig.Widget widget : saved.widgets) if (widget.id.equals(id)) restored = widget;
+        require(restored != null && restored.windowMs == 120000L, "Two-minute chart window did not persist");
+        require(sameLayout(before), "Changing the chart window moved or resized a widget");
+        main(() -> {
+            for (TextView text : all((View)tileById(id), TextView.class)) if (text.isShown()) {
+                String value = text.getText().toString().toLowerCase(Locale.ROOT);
+                require(!value.contains("signed") && !value.contains("recent readings"),
+                        "Live chart retained redundant explanatory text: " + text.getText());
+            }
+        });
+    }
     private void verifyCapacityExperiment() {
         String id = widget("capacity").id;
         require(widgetById(id).title.equals("Capacity experiment"), "Capacity widget default title is missing");
@@ -1071,6 +1343,26 @@ public final class DashboardValidation extends Instrumentation {
         require(((View)field(batteryTile, "battery")).getVisibility() == View.VISIBLE,
                 context + " hid the shared battery percentage ring");
     }
+    private void verifyLiveFooters() {
+        main(() -> {
+            Map<String, TelemetryHistory.Reading> cached = activity.service().displayReadings();
+            Map<String, TelemetryHistory.Reading> preview = new LinkedHashMap<>();
+            for (TelemetryHistory.Reading reading : cached.values()) {
+                preview.put(reading.key, new TelemetryHistory.Reading(reading.key, reading.label, reading.group,
+                        reading.value, reading.unit, reading.number, System.currentTimeMillis(), true));
+            }
+            try {
+                for (Object tile : tiles()) {
+                    invoke(tile, "refresh", new Class<?>[] {Map.class}, preview);
+                    TextView footer = (TextView)field(tile, "footer");
+                    require(!footer.isShown() || !footer.getText().toString().toLowerCase(Locale.ROOT).contains("live"),
+                            "A current widget repeats its live status: " + footer.getText());
+                }
+            } finally {
+                for (Object tile : tiles()) invoke(tile, "refresh", new Class<?>[] {Map.class}, cached);
+            }
+        });
+    }
     private void chooseDialogItem(String label) {
         ListView list = dialog().getListView(); require(list != null, "Expected a choice list");
         int found = -1;
@@ -1155,6 +1447,10 @@ public final class DashboardValidation extends Instrumentation {
         require(value != null, "Null object while inspecting " + name);
         try { Field field = value.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(value); }
         catch (ReflectiveOperationException error) { throw new IllegalStateException("Cannot inspect " + name, error); }
+    }
+    private static void setField(Object value, String name, Object replacement) {
+        try { Field field = value.getClass().getDeclaredField(name); field.setAccessible(true); field.set(value, replacement); }
+        catch (ReflectiveOperationException error) { throw new IllegalStateException("Cannot set synthetic field " + name, error); }
     }
     private static Object invoke(Object value, String name) {
         return invoke(value, name, new Class<?>[0]);

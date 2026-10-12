@@ -304,6 +304,8 @@ public final class MoreScreen implements AppScreen {
                 new String[]{"dark", "system", "light"}, "dark");
         preferenceChoice(c, "Distance & speed", "units", new String[]{"Miles / mph", "Kilometers / km/h", "Show both"},
                 new String[]{"mi", "km", "dual"}, "mi");
+        preferenceChoice(c, "Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
+                new String[]{"system", "12h", "24h"}, "system");
         preferenceChoice(c, "Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
                 new String[]{"comfortable", "dense"}, "comfortable");
         ui.divider(c); LinearLayout text = ui.settingRow("Text size", "", this::textSize); c.addView(text);

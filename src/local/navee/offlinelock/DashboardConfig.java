@@ -92,11 +92,7 @@ public final class DashboardConfig {
                                     : type.equals("health") ? 30 * 86400000L : 86400000L;
             keys.addAll(
                     type.equals("scooter")
-                            ? Arrays.asList(
-                                    "odometer_km",
-                                    "driving_mode",
-                                    "charge_cycles",
-                                    "capacity_throughput_ah")
+                            ? Arrays.asList("odometer_km", "driving_mode")
                             : Arrays.asList(
                                     "remaining_range_km",
                                     "power_w",
@@ -111,7 +107,7 @@ public final class DashboardConfig {
                 case "charging":
                     return 6;
                 case "scooter":
-                    return 6;
+                    return 4;
                 case "live":
                 case "history":
                     return 5;
@@ -130,7 +126,7 @@ public final class DashboardConfig {
         }
 
         public int minimumHeight() {
-            if (type.equals("scooter")) return 4;
+            if (type.equals("scooter")) return 3;
             if (type.equals("lock") || type.equals("gauge") || type.equals("ride")) return 3;
             return type.equals("live") || type.equals("history")
                     ? 4
@@ -209,10 +205,16 @@ public final class DashboardConfig {
                         w.keys.clear();
                         w.keys.addAll(
                                 Arrays.asList(
-                                        "odometer_km",
-                                        "driving_mode",
-                                        "charge_cycles",
-                                        "capacity_throughput_ah"));
+                                        "odometer_km", "driving_mode"));
+                    }
+                    // Retire the old four-stat default once; do not overwrite a
+                    // subsequently customized reading list or any saved placement.
+                    if (type.equals("scooter")
+                            && !o.optBoolean("glanceableScooterStats", false)
+                            && w.keys.equals(Arrays.asList("odometer_km", "driving_mode",
+                                    "charge_cycles", "capacity_throughput_ah"))) {
+                        w.keys.clear();
+                        w.keys.addAll(Arrays.asList("odometer_km", "driving_mode"));
                     }
                     JSONObject layouts = o.optJSONObject("layouts");
                     if (layouts != null)
@@ -270,7 +272,10 @@ public final class DashboardConfig {
                 JSONObject o = new JSONObject();
                 o.put("id", w.id);
                 o.put("type", w.type);
-                if (w.type.equals("scooter")) o.put("scooterStats", true);
+                if (w.type.equals("scooter")) {
+                    o.put("scooterStats", true);
+                    o.put("glanceableScooterStats", true);
+                }
                 o.put("title", w.title);
                 o.put("metric", w.metric);
                 o.put("note", w.note);

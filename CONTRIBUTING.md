@@ -55,7 +55,7 @@ store owner identity or PIN traffic. Dashboard layout is per scooter and column
 count; widget scale values are stored in canonical units and converted for display.
 
 The editor uses dedicated top-left move grips and bottom-right resize
-corners, with tap-accessible Move/Size dialogs and one widget-options menu.
+corners, with tap-accessible Move/Size dialogs and one gear-shaped widget-options menu.
 Gesture previews must use an untouched start snapshot, pin the full requested
 rectangle, compact neighbors without overlap, save only on release and restore
 on cancellation or teardown. Preserve scrolling outside the handles. Reflow is
@@ -67,15 +67,32 @@ belong in `VERIFICATION.txt`, not inferred from an implementation change.
 Edit controls float over unchanged card content. Compare card, title, footer and
 body-text geometry before/after entering Edit. The responsive matrix covers every
 widget at minimum/default heights and narrow/default/full widths, including 140%
-text. Keep the scooter's default stats beside its photo, and preserve scrolling
-for longer custom content. Fit text from current available space rather than a
-previously measured text height, so shrinking and growing a card is repeatable.
+text. Keep the scooter's two default stats stacked vertically beside its larger
+photo, and preserve scrolling from within longer custom content. Keep saved
+positions/sizes and genuinely custom reading lists; the 0.6.3 migration changes
+only the former default lists. Fit text from current available space rather than
+a previously measured text height, so shrinking and growing a card is repeatable.
+Balance short content within its viewport without forcing overflowing content
+outside the reachable scroll area.
 
 Your scooter's selected readings and local rename are presentation features.
 Keep the owner-observed WALK/ECO/SPORT labels restricted to PID 2538 and the
 confirmed mode codes (11/2/3). Unknown codes/models and raw diagnostics/exports
 must retain their original values. Reported charge/throughput counters are not
 measured capacity or current-ride consumption.
+
+The battery ring should use the space remaining after its icon readings, with a
+thicker arc and balanced visual placement. Check four readings in one row where
+they fit, then wrapping at narrow widths or large text. Preserve charging context switches, missing/stale semantics and spoken
+labels for icon-only readings. Live footer removal must not hide stale timestamps.
+
+Connection status remains concise; errors stay reachable by tapping it. Reuse the
+profile's verified lastConnected timestamp rather than launch/attempt times.
+DisplayTime applies time_format (system/12h/24h) to user-facing clocks. Keep
+unknown timestamps empty and include dates for older connections. Dashboard
+validation covers the taller centered, slightly inset slider, its full-width
+narrow-card fallback, connection states and time formats using isolated synthetic
+state; it must never issue a scooter command.
 
 `SearchFocusValidation` uses a real visible software keyboard on a fresh emulator
 to verify outside taps, scrolling, system Back, query preservation, and ordinary
