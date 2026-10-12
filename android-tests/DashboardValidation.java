@@ -95,6 +95,8 @@ public final class DashboardValidation extends Instrumentation {
             clickDescription("Home"); awaitDashboard();
             main(() -> require(RENAMED.contentEquals(((TextView)field(tile("scooter"), "photoName")).getText()),
                     "Dashboard scooter card did not update its name"));
+            assertConfigurationHidden();
+            enterEditPreservingContent();
             clickDescription("Rename scooter");
             AlertDialog homeRename = (AlertDialog)field(activity, "controlDialog");
             main(() -> first(homeRename.getWindow().getDecorView(), EditText.class).setText(HOME_RENAMED));
@@ -103,9 +105,9 @@ public final class DashboardValidation extends Instrumentation {
                     3000, "The scooter card rename did not update Home");
             main(() -> require(HOME_RENAMED.equals(new ScooterProfiles(getTargetContext()).active().name),
                     "The scooter card rename was not saved"));
-            check("Synthetic readings return as stale; both Scooter settings and the Home rename pencil persist the scooter name");
+            check("Synthetic readings return as stale; Scooter settings and the edit-only Home rename pencil persist the scooter name");
 
-            clickDescription("Edit dashboard"); await(() -> dashboard().isEditing(), 3000, "Edit pencil did not open edit mode");
+            require(dashboard().isEditing(), "Renaming the scooter unexpectedly left dashboard editing");
             assertEditInputsInert(); screenshot("edit-dark");
             Set<String> existing = types();
             for (int i = 0; i < DashboardConfig.TYPES.length; i++) {
@@ -118,6 +120,10 @@ public final class DashboardValidation extends Instrumentation {
             main(() -> require(types().equals(new HashSet<>(Arrays.asList(DashboardConfig.TYPES))) && config().widgets.size() == DashboardConfig.TYPES.length,
                     "Palette did not construct every widget type exactly once"));
             check("All " + DashboardConfig.TYPES.length + " widget types can be added; Edit disables widget actions and performs no scooter work");
+            clickText(root(), "Done"); await(() -> !dashboard().isEditing(), 3000, "Done did not leave Edit for content sizing checks");
+            verifyResponsiveCards(); assertConfigurationHidden();
+            enterEditPreservingContent();
+            check("Every widget keeps complete readable values at its default and minimum sizes; scooter photo and statistics share a usable row");
 
             metricId = widget("metric").id;
             openOptions(metricId); clickText(dialogRoot(), "Parameter");
@@ -168,8 +174,8 @@ public final class DashboardValidation extends Instrumentation {
             clickText(root(), "Done"); await(() -> !dashboard().isEditing(), 3000, "Done did not leave Edit");
             main(() -> {
                 require(((View)field(activity, "connectionAction")).isEnabled(), "Connection control did not recover after Done");
-                require(((TextView)field(tile("scooter"), "photoName")).isEnabled(), "Scooter naming remained disabled after Done");
             });
+            assertConfigurationHidden();
             assertInnerScrolling(); assertGrid(); assertNoScooterWork();
             check("Done restores ordinary actions; long widget content scrolls within its card without hiding its footer");
 
@@ -192,8 +198,9 @@ public final class DashboardValidation extends Instrumentation {
             await(() -> !activity.ui().dark && activity.ui().textScale > 1.3f && dashboard().view().getWidth() > 0, 5000,
                     "Large light theme did not apply");
             assertGrid(); assertNavigationFits(); scrollHomeTop(); screenshot("customized-large-light");
+            verifyResponsiveCards(); assertConfigurationHidden();
             assertInnerScrolling(); screenshot("scrolling-note-large-light");
-            clickDescription("Edit dashboard"); assertEditInputsInert(); assertGrid();
+            enterEditPreservingContent(); assertEditInputsInert(); assertGrid();
             verifyEditAffordances(metricId); verifyOptionsContrast(metricId); scrollHomeTop(); screenshot("edit-large-light");
             main(() -> invoke(activity, "navigateBack"));
             await(() -> !dashboard().isEditing(), 3000, "Back did not leave dashboard Edit");
@@ -378,8 +385,277 @@ public final class DashboardValidation extends Instrumentation {
         }); assertNoScooterWork();
     }
     private void assertDisabledActions(View view) {
-        if (view.isClickable()) require(!view.isEnabled(), "Widget action remains enabled while editing: " + view.getContentDescription());
+        if ("Rename scooter".contentEquals(view.getContentDescription() == null ? "" : view.getContentDescription())) {
+            require(view.isEnabled(), "Edit-only scooter rename is disabled");
+        } else if (view.isClickable()) require(!view.isEnabled(), "Widget action remains enabled while editing: " + view.getContentDescription());
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) assertDisabledActions(((ViewGroup)view).getChildAt(i));
+    }
+    private void assertConfigurationHidden() {
+        main(() -> {
+            require(!dashboard().isEditing(), "Expected ordinary dashboard mode");
+            require(findDescription(root(), "Rename scooter") == null, "Scooter rename pencil is visible outside editing");
+            require(!((View)field(tile("scooter"), "photoName")).isClickable(), "Scooter name remains a configuration action outside editing");
+            for (Object tile : tiles()) {
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(tile, "widget");
+                for (String prefix : new String[] {"Options for ", "Move ", "Resize "})
+                    require(findDescription((View)tile, prefix + widget.title) == null,
+                            "Widget configuration control remains outside editing: " + prefix + widget.title);
+            }
+        });
+    }
+    private static final class CardGeometry {
+        DashboardLayout.Cell cell;
+        Rect outer, body, heading, footer;
+        final Map<String, Rect> textBounds = new LinkedHashMap<>();
+        final Map<String, Float> textSizes = new LinkedHashMap<>();
+        final Map<String, String> textValues = new LinkedHashMap<>();
+    }
+    private Map<String, CardGeometry> contentGeometry() {
+        Map<String, CardGeometry> result = new LinkedHashMap<>();
+        for (Object object : tiles()) {
+            DashboardConfig.Widget widget = (DashboardConfig.Widget)field(object, "widget");
+            View tile = (View)object, body = (View)field(object, "body");
+            CardGeometry geometry = new CardGeometry(); geometry.cell = cell(widget.id).copy();
+            geometry.outer = new Rect(tile.getLeft(), tile.getTop(), tile.getRight(), tile.getBottom());
+            geometry.body = relativeBounds(body, tile);
+            geometry.heading = relativeBounds((View)field(object, "heading"), tile);
+            geometry.footer = relativeBounds((View)field(object, "footer"), tile);
+            textGeometry(body, body, "body", geometry);
+            result.put(widget.id, geometry);
+        }
+        return result;
+    }
+    private void textGeometry(View body, View current, String path, CardGeometry geometry) {
+        if (current.getVisibility() != View.VISIBLE) return;
+        if (current instanceof TextView) {
+            geometry.textBounds.put(path, relativeBounds(current, body));
+            geometry.textSizes.put(path, ((TextView)current).getTextSize());
+            geometry.textValues.put(path, ((TextView)current).getText().toString());
+        }
+        if (current instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)current).getChildCount(); i++)
+            textGeometry(body, ((ViewGroup)current).getChildAt(i), path + "/" + i, geometry);
+    }
+    private void enterEditPreservingContent() {
+        require(!dashboard().isEditing(), "Content comparison needs ordinary dashboard mode first");
+        // Compare layout itself at the same scroll position, independently of the
+        // long-note scrolling exercise earlier in the suite.
+        main(() -> { for (Object tile : tiles()) first((View)tile, ScrollView.class).scrollTo(0, 0); });
+        awaitSettledLayout();
+        AtomicReference<Map<String, CardGeometry>> before = new AtomicReference<>();
+        main(() -> before.set(contentGeometry()));
+        clickDescription("Edit dashboard"); await(() -> dashboard().isEditing(), 3000, "Edit pencil did not open edit mode");
+        awaitSettledLayout();
+        main(() -> {
+            Map<String, CardGeometry> after = contentGeometry();
+            require(after.keySet().equals(before.get().keySet()), "Entering Edit changed the widget list");
+            for (Map.Entry<String, CardGeometry> entry : before.get().entrySet()) {
+                CardGeometry a = entry.getValue(), b = after.get(entry.getKey());
+                String type = widgetById(entry.getKey()).type;
+                require(sameCell(a.cell, b.cell) && a.outer.equals(b.outer),
+                        type + ": entering Edit changed the card's position or size");
+                require(a.body.equals(b.body) && a.heading.equals(b.heading) && a.footer.equals(b.footer),
+                        type + ": editing controls changed the content, heading or footer geometry");
+                require(a.textBounds.equals(b.textBounds) && a.textSizes.equals(b.textSizes),
+                        type + ": entering Edit changed body text sizing, placement or added a configuration row; " + textDifferences(a, b));
+            }
+        });
+    }
+    private String textDifferences(CardGeometry before, CardGeometry after) {
+        java.util.LinkedHashSet<String> paths = new java.util.LinkedHashSet<>(before.textBounds.keySet());
+        paths.addAll(after.textBounds.keySet()); ArrayList<String> differences = new ArrayList<>();
+        for (String path : paths) {
+            if (!java.util.Objects.equals(before.textBounds.get(path), after.textBounds.get(path))
+                    || !java.util.Objects.equals(before.textSizes.get(path), after.textSizes.get(path))) {
+                String left = before.textValues.get(path), right = after.textValues.get(path);
+                differences.add(path + " bounds " + before.textBounds.get(path) + " -> " + after.textBounds.get(path)
+                        + ", size " + before.textSizes.get(path) + " -> " + after.textSizes.get(path)
+                        + ", text " + diagnosticText(left) + (java.util.Objects.equals(left, right) ? "" : " -> " + diagnosticText(right)));
+                if (differences.size() == 5) break;
+            }
+        }
+        return differences.toString();
+    }
+    private String diagnosticText(String text) {
+        if (text == null) return "null";
+        text = text.replace('\n', ' ');
+        return text.length() <= 96 ? text : text.substring(0, 96) + "…";
+    }
+    private void verifyResponsiveCards() {
+        require(!dashboard().isEditing(), "Responsive content checks require ordinary dashboard mode");
+        main(() -> {
+            int columns = ((Number)field(grid(), "columns")).intValue();
+            float columnWidth = ((Number)invoke(grid(), "columnWidth")).floatValue();
+            float rowHeight = ((Number)invoke(grid(), "rowHeight")).floatValue();
+            for (Object object : tiles()) {
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(object, "widget");
+                View tile = (View)object;
+                Set<Integer> widths = new HashSet<>(Arrays.asList(1, widget.defaultWidth(columns), columns));
+                Set<Integer> heights = new HashSet<>(Arrays.asList(widget.minimumHeight(), widget.defaultHeight()));
+                for (int width : widths) for (int height : heights) {
+                    measureCard(tile, Math.round(width * columnWidth) - activity.ui().dp(10),
+                            Math.round(height * rowHeight) - activity.ui().dp(10));
+                    String context = widget.type + " " + width + "x" + height + " at " + activity.ui().textScale + "x text";
+                    if (widget.type.equals("scooter") && width == 1 && height == widget.minimumHeight())
+                        verifyDriveModeStyles(object, tile.getMeasuredWidth(), tile.getMeasuredHeight(), context);
+                    ScrollView viewport = first(tile, ScrollView.class);
+                    View body = (View)field(object, "body");
+                    require(viewport != null && viewport.getHeight() > 0 && body.getWidth() > 0 && body.getHeight() > 0,
+                            context + ": content has no usable viewport");
+                    for (TextView text : all(body, TextView.class))
+                        if (text.isShown() && text.length() > 0) assertReadableValue(text, body, context + " body text");
+                    for (String name : new String[] {"photoPane", "chart", "gauge", "battery"}) {
+                        View visual = (View)field(object, name);
+                        if (visual != null && visual.isShown()) {
+                            assertExplicitDimensions(visual, context + " " + name);
+                            Rect bounds = relativeBounds(visual, body);
+                            require(visual.getWidth() > 0 && visual.getHeight() > 0 && bounds.left >= 0 && bounds.right <= body.getWidth() + 1,
+                                    context + ": visual has no readable width/height or extends horizontally outside its body");
+                        }
+                    }
+                }
+            }
+            assertScooterRowAtMinimum(columns, columnWidth, rowHeight);
+            // The matrix deliberately measured children outside their parent's
+            // normal layout pass. Invalidate those cached subtree measurements
+            // before returning to the actual saved dashboard geometry.
+            for (Object tile : tiles()) forceSubtreeMeasure((View)tile);
+            grid().requestLayout();
+        });
+        await(() -> !grid().isLayoutRequested(), 3000, "Dashboard did not restore normal placement after sizing checks");
+        assertGrid(); assertNoScooterWork();
+    }
+    private void forceSubtreeMeasure(View view) {
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++)
+            forceSubtreeMeasure(((ViewGroup)view).getChildAt(i));
+        view.forceLayout();
+    }
+    private void verifyDriveModeStyles(Object object, int width, int height, String context) {
+        TextView mode = (TextView)((Map<?, ?>)field(object, "amounts")).get("driving_mode");
+        require(mode != null, "Synthetic scooter statistics lack drive mode");
+        CharSequence originalText = mode.getText(), originalDescription = mode.getContentDescription();
+        android.content.res.ColorStateList originalColors = mode.getTextColors();
+        android.graphics.drawable.Drawable[] originalDrawables = mode.getCompoundDrawablesRelative().clone();
+        int originalPadding = mode.getCompoundDrawablePadding();
+        try {
+            applyModeStyle(mode, "SPORT", true);
+            require("SPORT".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().blue,
+                    "Live SPORT is not recognizable blue text");
+            measureCard((View)object, width, height); assertReadableValue(mode, (View)field(object, "body"), context + " SPORT");
+            applyModeStyle(mode, "ECO", true);
+            require("ECO".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().accent
+                    && mode.getCurrentTextColor() != activity.ui().blue, "Live ECO is not distinct accent text");
+            measureCard((View)object, width, height); assertReadableValue(mode, (View)field(object, "body"), context + " ECO");
+            applyModeStyle(mode, "WALK", true);
+            assertWalkingIcon(mode, activity.ui().accent, context);
+            measureCard((View)object, width, height); assertWalkingIconFits(mode, context);
+            applyModeStyle(mode, "SPORT", false);
+            require("SPORT".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().muted,
+                    "Cached SPORT appears live");
+            applyModeStyle(mode, "ECO", false);
+            require("ECO".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().muted,
+                    "Cached ECO appears live");
+            applyModeStyle(mode, "WALK", false);
+            assertWalkingIcon(mode, activity.ui().muted, context + " cached");
+            measureCard((View)object, width, height); assertWalkingIconFits(mode, context + " cached");
+            String unknown = Telemetry.drivingModeLabel(0, 11d);
+            applyModeStyle(mode, unknown, true);
+            require(unknown.equals("11 (raw)") && unknown.contentEquals(mode.getText())
+                    && mode.getCompoundDrawablesRelative()[0] == null,
+                    "An unsupported raw drive mode was presented as a recognized walking mode");
+        } finally {
+            mode.setText(originalText); mode.setTextColor(originalColors); mode.setContentDescription(originalDescription);
+            mode.setCompoundDrawablesRelative(originalDrawables[0], originalDrawables[1], originalDrawables[2], originalDrawables[3]);
+            mode.setCompoundDrawablePadding(originalPadding); measureCard((View)object, width, height);
+        }
+    }
+    private void applyModeStyle(TextView view, String mode, boolean live) {
+        view.setText(mode); view.setTextColor(live ? activity.ui().text : activity.ui().muted);
+        view.setContentDescription("Drive mode, " + mode + (live ? "" : ", last known"));
+        activity.ui().styleDriveMode(view, mode, live);
+    }
+    private void assertWalkingIcon(TextView mode, int color, String context) {
+        require(mode.length() == 0 && mode.getCompoundDrawablesRelative()[0] != null
+                && mode.getCurrentTextColor() == color, context + ": WALK does not use the expected walking icon and live/stale color");
+        require(mode.getContentDescription() != null
+                && mode.getContentDescription().toString().toLowerCase(Locale.ROOT).contains("walk"),
+                context + ": walking icon lacks an accessible mode label");
+    }
+    private void assertWalkingIconFits(TextView mode, String context) {
+        android.graphics.drawable.Drawable icon = mode.getCompoundDrawablesRelative()[0];
+        require(icon != null && icon.getBounds().width() > 0 && icon.getBounds().height() > 0,
+                context + ": walking icon has no drawable bounds");
+        require(icon.getBounds().width() + mode.getPaddingLeft() + mode.getPaddingRight() <= mode.getWidth()
+                && icon.getBounds().height() + mode.getPaddingTop() + mode.getPaddingBottom() <= mode.getHeight(),
+                context + ": walking icon is clipped in its compact statistics cell");
+    }
+    private void measureCard(View tile, int width, int height) {
+        tile.measure(View.MeasureSpec.makeMeasureSpec(Math.max(1, width), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(Math.max(1, height), View.MeasureSpec.EXACTLY));
+        tile.layout(tile.getLeft(), tile.getTop(), tile.getLeft() + tile.getMeasuredWidth(), tile.getTop() + tile.getMeasuredHeight());
+    }
+    private void assertExplicitDimensions(View visual, String context) {
+        ViewGroup.LayoutParams requested = visual.getLayoutParams();
+        require(requested != null, context + ": visible graphic has no layout parameters");
+        if (requested.height > 0)
+            require(visual.getMeasuredHeight() == requested.height,
+                    context + ": graphic measured height lags requested height (" + visual.getMeasuredHeight() + " vs " + requested.height + ")");
+        if (requested.width > 0)
+            require(visual.getMeasuredWidth() == requested.width,
+                    context + ": graphic measured width lags requested width (" + visual.getMeasuredWidth() + " vs " + requested.width + ")");
+    }
+    private void assertReadableValue(TextView value, View body, String context) {
+        android.text.Layout layout = value.getLayout();
+        require(layout != null && value.getWidth() > 0 && value.getHeight() > 0, context + ": value has no text layout");
+        String text = value.getText().toString();
+        require(layout.getLineCount() > 0 && layout.getLineEnd(layout.getLineCount() - 1) >= text.length(),
+                context + ": value loses text beyond its maximum lines: " + text);
+        require(layout.getHeight() <= value.getHeight() - value.getCompoundPaddingTop() - value.getCompoundPaddingBottom() + 1,
+                context + ": value is vertically clipped: " + text);
+        for (int line = 0; line < layout.getLineCount(); line++)
+            require(layout.getEllipsisCount(line) == 0 && layout.getLineMax(line) <= layout.getWidth() + 1,
+                    context + ": value is truncated or clipped horizontally: " + text);
+        float readableFloor = 12 * activity.ui().textScale * getTargetContext().getResources().getDisplayMetrics().scaledDensity;
+        require(value.getTextSize() >= readableFloor - .5f, context + ": value shrank below the readable text floor: " + text);
+        Rect bounds = relativeBounds(value, body);
+        require(bounds.left >= 0 && bounds.right <= body.getWidth() + 1,
+                context + ": value extends outside the card's scrollable content width: " + text);
+    }
+    private void assertScooterRowAtMinimum(int columns, float columnWidth, float rowHeight) {
+        Object scooter = tile("scooter"); View card = (View)scooter, body = (View)field(scooter, "body");
+        View photo = (View)field(scooter, "photo"), hint = (View)field(scooter, "photoHint"), info = (View)field(scooter, "scooterInfo");
+        Map<View, Integer> visibility = new LinkedHashMap<>();
+        View current = photo;
+        while (current != body) {
+            visibility.put(current, current.getVisibility()); current.setVisibility(View.VISIBLE);
+            require(current.getParent() instanceof View, "Scooter photo left its card hierarchy");
+            current = (View)current.getParent();
+        }
+        int hintVisibility = hint.getVisibility(); hint.setVisibility(View.GONE);
+        try {
+            DashboardConfig.Widget widget = (DashboardConfig.Widget)field(scooter, "widget");
+            measureCard(card, Math.round(columns * columnWidth) - activity.ui().dp(10),
+                    Math.round(widget.minimumHeight() * rowHeight) - activity.ui().dp(10));
+            assertExplicitDimensions((View)field(scooter, "photoPane"), "Synthetic visible scooter photo at minimum size");
+            Rect image = relativeBounds(photo, body), stats = relativeBounds(info, body);
+            require(image.width() > 0 && image.height() > 0 && image.right <= stats.left,
+                    "Scooter photo is not laid out to the left of the statistics");
+            ScrollView viewport = first(card, ScrollView.class);
+            Rect visibleBody = new Rect(viewport.getScrollX(), viewport.getScrollY(),
+                    viewport.getScrollX() + viewport.getWidth(), viewport.getScrollY() + viewport.getHeight());
+            for (Object value : ((Map<?, ?>)field(scooter, "amounts")).values()) {
+                View number = (View)value;
+                require(number.getParent() instanceof View, "Scooter statistic lost its label container");
+                Rect bounds = relativeBounds((View)number.getParent(), body);
+                require(visibleBody.contains(bounds), "Default scooter statistic or its label requires scrolling at its minimum full-width size: "
+                        + ((TextView)value).getText() + "; item=" + bounds + ", viewport=" + visibleBody
+                        + ", card=" + card.getMeasuredWidth() + "x" + card.getMeasuredHeight()
+                        + ", body=" + body.getMeasuredWidth() + "x" + body.getMeasuredHeight()
+                        + ", textScale=" + activity.ui().textScale);
+            }
+        } finally {
+            for (Map.Entry<View, Integer> entry : visibility.entrySet()) entry.getKey().setVisibility(entry.getValue());
+            hint.setVisibility(hintVisibility);
+        }
     }
     private void assertGrid() {
         waitForIdleSync();
@@ -428,6 +704,7 @@ public final class DashboardValidation extends Instrumentation {
         require(findText(tile, "Options") == null && findText(tile, "Resize") == null,
                 "An extra bottom adjustment bar duplicates the corner controls");
         View grip = findDescription(tile, "Move " + title), corner = findDescription(tile, "Resize " + title);
+        View options = findDescription(tile, "Options for " + title);
         require(grip != null && corner != null, "Dedicated move and corner resize handles are missing");
         main(() -> {
             Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile);
@@ -437,6 +714,11 @@ public final class DashboardValidation extends Instrumentation {
                     "Resize target is not in the widget's bottom-right corner");
             require(gripBounds.left <= tolerance && gripBounds.top <= tolerance,
                     "Move grip is not in the widget's top-left corner");
+            for (View control : new View[] {grip, options, corner}) {
+                require(control.getWidth() >= touch && control.getHeight() >= touch,
+                        "An editor overlay has a touch target smaller than 48 dp");
+                require(translucentBackground(control), "An editor overlay background is fully opaque");
+            }
         });
         click(corner);
         require(all(dialogRoot(), NumberPicker.class).size() == 2 && findText(dialogRoot(), "Color") == null,
@@ -446,6 +728,16 @@ public final class DashboardValidation extends Instrumentation {
         require(all(dialogRoot(), EditText.class).size() == 2 && findText(dialogRoot(), "Color") == null,
                 "Tapping the move grip must open accessible placement, not widget options");
         closeDialog();
+    }
+    private boolean translucentBackground(View view) {
+        android.graphics.drawable.Drawable background = view.getBackground();
+        if (background == null) return true;
+        Bitmap sample = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_8888);
+        Rect original = new Rect(background.getBounds());
+        try {
+            background.setBounds(0, 0, 20, 20); background.draw(new android.graphics.Canvas(sample));
+            return Color.alpha(sample.getPixel(10, 10)) < 255;
+        } finally { background.setBounds(original); sample.recycle(); }
     }
     private Rect relativeBounds(View child, View ancestor) {
         Rect rect = new Rect(0, 0, child.getWidth(), child.getHeight());

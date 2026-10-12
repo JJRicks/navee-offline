@@ -130,6 +130,8 @@ public final class DashboardConfig {
         }
 
         public int minimumHeight() {
+            if (type.equals("scooter")) return 4;
+            if (type.equals("lock") || type.equals("gauge") || type.equals("ride")) return 3;
             return type.equals("live") || type.equals("history")
                     ? 4
                     : type.equals("health")

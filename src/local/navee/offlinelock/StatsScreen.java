@@ -110,17 +110,17 @@ public final class StatsScreen implements AppScreen {
         help.setPadding(0, ui.dp(8), 0, 0); guidance.addView(help); overviewSection.addView(guidance);
         TextView heading = ui.caption("Tap a reading for its source and favourite setting."); heading.setPadding(0, ui.dp(4), 0, ui.dp(12));
         search = new EditText(host.activity()); search.setSingleLine(true); search.setHint("Search voltage, odometer, firmware…");
-        search.setTextColor(ui.text); search.setHintTextColor(ui.muted); search.setTextSize(14 * ui.textScale);
-        search.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12)); search.setMinimumHeight(ui.dp(48));
-        search.setBackground(ui.shape(ui.raised, 16, ui.outline)); search.setContentDescription("Search scooter measurements"); search.setText(query);
-        readingsSection.addView(search, new LinearLayout.LayoutParams(-1, -2));
+        ui.styleSearch(search); search.setContentDescription("Search scooter measurements"); search.setText(query);
+        readingsSection.addView(search, ui.searchLayout());
         SearchFocus.bind(search, host.activity().getWindow());
         LinearLayout filters = new LinearLayout(host.activity()); filters.setOrientation(LinearLayout.HORIZONTAL); filters.setGravity(Gravity.CENTER_VERTICAL);
         filterButton = ui.secondaryButton("Favourites", () -> {
             favouritesOnly = !favouritesOnly; preferences.edit().putBoolean("stats_favourites_only", favouritesOnly).apply(); applyFilter();
         });
         filters.addView(filterButton, new LinearLayout.LayoutParams(-2, -2));
-        resultCount = ui.caption(""); resultCount.setPadding(ui.dp(12), 0, 0, 0); filters.addView(resultCount, new LinearLayout.LayoutParams(0, -2, 1)); readingsSection.addView(filters);
+        resultCount = ui.caption(""); resultCount.setPadding(ui.dp(12), 0, 0, 0); filters.addView(resultCount, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams filterSpacing = new LinearLayout.LayoutParams(-1, -2); filterSpacing.bottomMargin = ui.dp(8);
+        readingsSection.addView(filters, filterSpacing);
         readingsSection.addView(heading);
         for (TelemetryHistory.Reading reading : service.displayReadings().values()) addMetric(reading);
         search.addTextChangedListener(new TextWatcher() {
@@ -181,7 +181,7 @@ public final class StatsScreen implements AppScreen {
         }
         LinearLayout row = new LinearLayout(host.activity()); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, ui.dp(dense ? 8 : 14), 0, ui.dp(dense ? 8 : 14)); row.setMinimumHeight(ui.dp(dense ? 52 : 64));
-        LinearLayout words = vertical(); TextView label = ui.text(metric.label, dense ? 13 : 14, false); words.addView(label);
+        LinearLayout words = vertical(); TextView label = ui.text(isKnownDriveMode(metric.key) ? "Drive mode" : metric.label, dense ? 13 : 14, false); words.addView(label);
         TextView source = ui.caption(""); source.setTextSize(11 * ui.textScale); source.setPadding(0, ui.dp(4), 0, 0); words.addView(source);
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
         TextView amount = ui.text("Not reported", dense ? 13 : 14, true); amount.setGravity(Gravity.END); amount.setMaxWidth(ui.dp(150));
@@ -232,6 +232,10 @@ public final class StatsScreen implements AppScreen {
             row.evidence.setVisibility(reading.value != null && !reading.live ? View.VISIBLE : View.GONE);
             row.star.setVisibility(favourites.contains(reading.key) ? View.VISIBLE : View.GONE);
             row.layout.setContentDescription(reading.label + ", " + display(reading) + ", " + age + ". Tap for details.");
+            if (isKnownDriveMode(reading.key)) {
+                row.amount.setContentDescription("Drive mode, " + display(reading) + ", " + age);
+                ui.styleDriveMode(row.amount, display(reading), reading.live);
+            }
         }
         status.setText(saved == 0 ? "Connect to collect readings" : live == 0 ? "Last known readings" : "Saved values update as readings arrive");
         status.setVisibility(saved == 0 || live < saved ? View.VISIBLE : View.GONE);
@@ -291,8 +295,14 @@ public final class StatsScreen implements AppScreen {
                 }).setPositiveButton("Close", null).create(); metricDialog.show();
     }
     @Override public void close() { if (metricDialog != null) metricDialog.dismiss(); }
+    private boolean isKnownDriveMode(String key) {
+        ScooterProfiles.Profile profile = service.profiles.active();
+        return key.equals("driving_mode") && profile != null && profile.pid() == 2538;
+    }
     private String display(TelemetryHistory.Reading metric) {
         if (metric.value == null) return "Not reported";
+        if (isKnownDriveMode(metric.key) && metric.number != null)
+            return Telemetry.drivingModeLabel(2538, metric.number);
         String units = preferences.getString("units", "mi");
         if (metric.key.equals("stored_trips")) return DisplayUnits.metricText(metric.value, units);
         if (metric.number == null || "km".equals(units)) return metric.value;

@@ -1,7 +1,64 @@
-NAVEE OFFLINE 0.6.1 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.6.2 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-0.6.1 — DASHBOARD EDITING REFINEMENT
+0.6.2 — RESPONSIVE CARDS AND MATCHING EDIT PREVIEWS
+
+The scooter image sits to the left of its statistics. The right pane adapts its
+stat columns to the card width, and the image height uses the measured content
+space. The scooter minimum is four rows; lock, gauge and ride cards require three.
+Shorter saved placements are normalized to these practical minimums. Numeric text
+fits within a readable floor, narrow label/value rows stack, narrow lock controls
+stack, and charts, gauges and the battery ring adjust to the measured viewport.
+Long notes, custom lists and explanatory text retain accessible inner scrolling.
+Changed graphic dimensions force a fresh measurement immediately during resizing.
+Numeric fitting starts from available width and the scooter stat area, independent
+of previously chosen font sizes; enlarging a card restores its available type size.
+
+Edit and ordinary viewing share the same 64 dp base grid rows, title styling,
+content padding and footer spacing. Move, options, resize and scooter rename are
+translucent floating controls with 48 dp touch targets; they do not consume layout
+space and are only present in dashboard edit mode. Operational controls remain
+inert while arranging the layout. The toolbar and extra blank editing space may
+change, but card and content dimensions do not change just from toggling Edit.
+
+Search fields share roomier internal padding and separation from surrounding
+buttons/results in Scooter, Lights, Stats and the parameter picker. Existing query
+and keyboard-focus behavior is retained.
+
+Known UT5 MAX modes have display cues: blue SPORT, green ECO and a green walking
+icon for WALK; cached modes stay muted. Light theme uses a darker readable blue.
+Accessible descriptions retain WALK and freshness; raw telemetry/export codes stay
+unchanged and other model codes are not interpreted as UT5 MAX modes.
+
+Verified for 0.6.2:
+
+- Final signed production build and APK alignment verification passed.
+- DashboardValidation passed 13 grouped checks at 360 dp and 701 dp, including
+  all 15 widget types at minimum/default heights and narrow/default/full widths,
+  normal and 140% text, dark/light themes, native drag/resize/reflow, cancellation,
+  persistence, charging/stale states, and configuration visibility only in Edit.
+- Card, heading, footer, body and body-text geometry matched before/after entering
+  Edit. The four default scooter statistics and their labels fit beside the photo
+  at the minimum full-width size. Resize checks reject clipped value text and
+  graphics whose measured dimensions lag their requested dimensions.
+- The size matrix also verified live and cached SPORT/ECO colors, WALK icon
+  bounds and accessible label, and unknown-model raw mode fallback.
+- SearchFocusValidation passed eight grouped checks with the real keyboard in
+  both themes after the spacing change: outside taps, scrolling, system Back,
+  query retention, parameter selection and ordinary form behavior. Scooter search
+  spacing and dashboard edit layouts were also reviewed in emulator screenshots.
+- Emulator checks used isolated synthetic data and submitted zero scooter writes.
+  These checks do not establish field ride/sensor accuracy or exhaustive layout
+  coverage for arbitrary user text. Long content intentionally remains scrollable.
+- The Pixel was checked for active/saving ride notifications before its in-place
+  upgrade from 0.6.1 to 0.6.2 (versionCode 11). Installation and launch succeeded;
+  its saved dashboard and profile remained. A connected Home screenshot confirmed
+  the photo-left/statistics-right layout, all four scooter stats, blue SPORT and
+  hidden widget edit controls. No scooter lock/settings writes or phone network
+  changes were made. This pass was not retested on the friend's Samsung.
+
+
+HISTORICAL 0.6.1 — DASHBOARD EDITING REFINEMENT
 
 Editing now uses a pencil entry, a dedicated top-left grip and a visible
 48 dp bottom-right corner hit target. Direct dragging and long pressing share

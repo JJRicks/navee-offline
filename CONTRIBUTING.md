@@ -54,7 +54,7 @@ change ride-energy integration. Preserve gaps between connections and do not
 store owner identity or PIN traffic. Dashboard layout is per scooter and column
 count; widget scale values are stored in canonical units and converted for display.
 
-The 0.6.1 editor uses dedicated top-left move grips and bottom-right resize
+The editor uses dedicated top-left move grips and bottom-right resize
 corners, with tap-accessible Move/Size dialogs and one widget-options menu.
 Gesture previews must use an untouched start snapshot, pin the full requested
 rectangle, compact neighbors without overlap, save only on release and restore
@@ -63,6 +63,13 @@ on cancellation or teardown. Preserve scrolling outside the handles. Reflow is
 settings. Check direct drag, long press, corner resize, cancellation, theme
 contrast and interrupted animations at each tested width. Executed results
 belong in `VERIFICATION.txt`, not inferred from an implementation change.
+
+Edit controls float over unchanged card content. Compare card, title, footer and
+body-text geometry before/after entering Edit. The responsive matrix covers every
+widget at minimum/default heights and narrow/default/full widths, including 140%
+text. Keep the scooter's default stats beside its photo, and preserve scrolling
+for longer custom content. Fit text from current available space rather than a
+previously measured text height, so shrinking and growing a card is repeatable.
 
 Your scooter's selected readings and local rename are presentation features.
 Keep the owner-observed WALK/ECO/SPORT labels restricted to PID 2538 and the

@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.6.1
+NAVEE OFFLINE — VERSION 0.6.2
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -12,8 +12,9 @@ regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
 
-0.6.1 refines Home editing with visible grips/corners, live layout previews,
-animated reflow, clearer widget options and configurable scooter summary data.
+0.6.2 places the scooter photo beside its readings and adapts widget content to
+the card size. Widget editing controls appear only in global dashboard edit mode.
+It retains 0.6.1's grips/corners, live previews, animated reflow and themed options.
 The per-scooter dashboard, persistent last-known readings/settings and bounded
 connected history introduced in 0.6.0 remain. Five main tabs keep Lights inside
 Scooter. GPS, barometer, experimental motion and route maps remain part of explicit
@@ -111,8 +112,8 @@ FIVE ORGANIZED TABS
 
 Home
   Editable widgets for connection/lock, battery, readings, charts, quick access,
-  the connected UT5 MAX photo, and recording. Tap the scooter name to rename
-  its local profile. The default layout puts the lock control first.
+  the connected UT5 MAX photo, and recording. While editing Home, use the scooter
+  widget's pencil to rename its local profile. The default layout puts lock first.
 
 Scooter
   Named settings grouped into Ride, Battery, Lights, Dashboard & sound, and
@@ -163,12 +164,17 @@ resize it. A long press on the dots also starts movement. The full-size dashed
 outline previews the destination while neighboring cards slide aside and fill
 empty rows. Release to save that arrangement; cancellation restores the start.
 Reflow takes 200 ms and the outline transition 120 ms; disabled system animations
-are respected. Controls inside widgets stay inactive; tap Done when finished.
+are respected. Scooter/data actions inside widgets stay inactive; local scooter
+renaming remains available. Tap Done when finished.
 
 Use the ... menu for widget options; there is no duplicate bottom options bar.
 Tap the dots for a Move dialog or the corner for Size if dragging is inconvenient.
 Those dialogs are also available inside the options menu. Dialogs follow the
-app's light/dark theme for readable controls and text.
+app's light/dark theme for readable controls and text. Widget menus, handles and
+the scooter-name pencil appear only while global dashboard editing is on.
+They float over the card on translucent backgrounds: widgets and their contents
+keep exactly the same dimensions when edit mode is toggled. Editing does not
+expand the cards or rearrange their content.
 
 There are 15 widget types: Lock & connection, Your scooter, Battery overview,
 Big reading, Gauge, Live trend, History chart, Reading list, Trip overview,
@@ -186,14 +192,24 @@ controller-reported health and temperature when supplied. Fresh charging status
 switches those details to charging power, current and estimated time remaining,
 keeping the same battery percentage and ring. The ring uses a compact % label
 and more spacing around its number. Your scooter shows the provided UT5 MAX
-photo for a freshly connected, matching model. Its configurable summary defaults
-to odometer, drive mode, reported charge count and lifetime battery throughput.
-Tap its name or the adjacent pencil to rename the local scooter profile.
+photo on the left for a freshly connected, matching model, with configurable
+readings on the right. The summary defaults to odometer, drive mode, reported
+charge count and lifetime battery throughput. Use its pencil while editing Home
+to rename the local scooter profile.
+
+As cards resize, narrow rows stack, values fit within readable font limits and
+photos/rings/gauges/charts use the available space. Long content stays vertically
+scrollable. Your scooter needs at least four grid rows; Lock & connection, Gauge
+and Ride recorder need at least three. Existing smaller cards are brought up to
+those minimums without changing their selected readings.
 
 On UT5 MAX/PID 2538, owner-observed mode codes 11, 2 and 3 display as WALK, ECO
 and SPORT. Other codes and models retain raw labels. This presentation does not
 alter raw diagnostics or exported ride data. Charge count and lifetime throughput
 remain reported counters, not a current-ride total or battery-capacity test.
+Live SPORT is pale blue (darker blue on a light background), ECO is green and
+WALK uses a green pedestrian icon. Stale modes remain grey; accessibility keeps
+the spoken mode name and reading context.
 
 Layout offers adaptive or one to four columns, limited to what fits the screen.
 Each scooter retains separate arrangements for each column count. Moving or
@@ -522,6 +538,13 @@ Headlight label is corrected to Tail light based on the OEM command mapping.
 visible resize corner, full-size preview and animated compaction. Widget options
 use one menu and themed dialogs. The battery ring gains a shorter % label, while
 Your scooter gains direct renaming and configurable summary readings.
+
+0.6.2 moves the scooter photo left and readings right, adapts card content to
+available space and keeps widget edit controls inside global edit mode. Long
+content remains scrollable and practical minimum heights preserve usable cards.
+Editing uses floating controls over the same widget/content dimensions shown
+during normal viewing. Search fields and surrounding filters/results gain
+consistent padding and spacing.
 
 
 LICENSE AND REFERENCES

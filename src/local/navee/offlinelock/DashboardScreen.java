@@ -283,6 +283,12 @@ public final class DashboardScreen implements AppScreen {
         long capacityChecked;
         ImageView photo;
         TextView photoHint;
+        ScrollView viewport;
+        LinearLayout scooterRow, scooterInfo, scooterNameRow, batteryRow;
+        FrameLayout photoPane;
+        View renameControl;
+        final ArrayList<LinearLayout> scooterStats = new ArrayList<>();
+        int scooterColumns;
         final ArrayList<Ui.Point> livePoints = new ArrayList<>();
         boolean wasLive;
         boolean active = true, querying;
@@ -297,57 +303,78 @@ public final class DashboardScreen implements AppScreen {
             setClipToPadding(false);
             setBackground(ui.shape(ui.surface, 24, editing ? ui.outline : 0));
             LinearLayout content = column();
-            content.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(editing ? 30 : 10));
+            content.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(10));
             addView(content, new FrameLayout.LayoutParams(-1, -1));
             heading = row();
             heading.setGravity(Gravity.CENTER_VERTICAL);
-            if (editing) {
-                FrameLayout grip =
-                        iconAction("grip", "Move " + widget.title, () -> position(widget));
-                grip.setOnLongClickListener(
-                        v -> {
-                            EditorTouch touch = (EditorTouch) grip.getTag();
-                            if (touch != null) touch.start();
-                            return true;
-                        });
-                // Keep the listener reachable by the keyboard/long-press route too.
-                EditorTouch touch = new EditorTouch(this, false);
-                grip.setTag(touch);
-                grip.setOnTouchListener(touch);
-                heading.addView(grip, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-            }
-            title = ui.text(widget.title, editing ? 13 : 15, true);
-            title.setMaxLines(editing ? 1 : 2);
+            title = ui.text(widget.title, 15, true);
+            title.setMaxLines(2);
             title.setEllipsize(android.text.TextUtils.TruncateAt.END);
-            if (!editing) ui.decorate(title, widgetIcon(widget.type));
+            ui.decorate(title, widgetIcon(widget.type));
             heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-            if (editing) {
-                FrameLayout more =
-                        iconAction("more", "Options for " + widget.title, () -> options(widget));
-                heading.addView(more, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-            }
             content.addView(heading, new LinearLayout.LayoutParams(-1, -2));
             body = column();
             body.setPadding(0, ui.dp(8), 0, 0);
-            ScrollView viewport = new ScrollView(host.activity());
+            viewport = new ScrollView(host.activity());
+            viewport.setVerticalScrollBarEnabled(true);
+            viewport.setScrollbarFadingEnabled(false);
             viewport.setFillViewport(true);
             viewport.setClipToPadding(false);
             viewport.addView(body, new ScrollView.LayoutParams(-1, -1));
             content.addView(viewport, new LinearLayout.LayoutParams(-1, 0, 1));
             footer = ui.caption("");
             footer.setMaxLines(2);
-            footer.setPadding(0, ui.dp(5), ui.dp(editing ? 22 : 0), 0);
+            footer.setPadding(0, ui.dp(5), 0, 0);
             content.addView(footer);
-            if (editing) {
-                FrameLayout resize =
-                        iconAction("resize", "Resize " + widget.title, () -> size(widget));
-                resize.setOnTouchListener(new EditorTouch(this, true));
-                addView(
-                        resize,
-                        new FrameLayout.LayoutParams(
-                                ui.dp(48), ui.dp(48), Gravity.BOTTOM | Gravity.RIGHT));
-            }
             build();
+            if (editing) {
+                FrameLayout grip =
+                        floatingAction("grip", "Move " + widget.title, () -> position(widget));
+                EditorTouch touch = new EditorTouch(this, false);
+                grip.setTag(touch);
+                grip.setOnTouchListener(touch);
+                grip.setOnLongClickListener(
+                        v -> {
+                            touch.start();
+                            return true;
+                        });
+                addFloating(grip, Gravity.TOP | Gravity.LEFT, 4);
+                addFloating(
+                        floatingAction(
+                                "more", "Options for " + widget.title, () -> options(widget)),
+                        Gravity.TOP | Gravity.RIGHT,
+                        4);
+                FrameLayout resize =
+                        floatingAction("resize", "Resize " + widget.title, () -> size(widget));
+                resize.setOnTouchListener(new EditorTouch(this, true));
+                addFloating(resize, Gravity.BOTTOM | Gravity.RIGHT, 4);
+                if (widget.type.equals("scooter")) {
+                    renameControl = floatingAction("pencil", "Rename scooter", actions::rename);
+                    addFloating(renameControl, Gravity.TOP | Gravity.RIGHT, 56);
+                }
+            }
+        }
+
+        private FrameLayout floatingAction(String icon, String label, Runnable action) {
+            FrameLayout control = iconAction(icon, label, action);
+            control.setBackground(
+                    new android.graphics.drawable.RippleDrawable(
+                            android.content.res.ColorStateList.valueOf(Ui.withAlpha(ui.accent, 60)),
+                            new android.graphics.drawable.InsetDrawable(
+                                    ui.shape(Ui.withAlpha(ui.surface, 190), 12, 0), ui.dp(6)),
+                            ui.shape(Color.WHITE, 14, 0)));
+            control.setElevation(ui.dp(4));
+            return control;
+        }
+
+        private void addFloating(View control, int gravity, int inset) {
+            FrameLayout.LayoutParams p =
+                    new FrameLayout.LayoutParams(ui.dp(48), ui.dp(48), gravity);
+            p.leftMargin = p.rightMargin = ui.dp(4);
+            if ((gravity & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.BOTTOM)
+                p.bottomMargin = ui.dp(inset);
+            else p.topMargin = ui.dp(inset);
+            addView(control, p);
         }
 
         private void build() {
@@ -356,15 +383,14 @@ public final class DashboardScreen implements AppScreen {
                     body.addView(actions.lock());
                     break;
                 case "scooter":
-                    photoName = ui.text("", 19, true);
-                    photoName.setGravity(Gravity.CENTER);
-                    LinearLayout nameRow = row();
-                    nameRow.setGravity(Gravity.CENTER_VERTICAL);
-                    nameRow.addView(photoName, new LinearLayout.LayoutParams(0, -2, 1));
-                    nameRow.addView(
-                            iconAction("pencil", "Rename scooter", actions::rename),
-                            new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-                    body.addView(nameRow);
+                    photoName = new FittedValue("", 14, 19, 3);
+                    scooterNameRow = row();
+                    scooterNameRow.setGravity(Gravity.CENTER_VERTICAL);
+                    scooterNameRow.addView(photoName, new LinearLayout.LayoutParams(0, -2, 1));
+                    body.addView(scooterNameRow);
+                    scooterRow = row();
+                    scooterRow.setGravity(Gravity.CENTER_VERTICAL);
+                    photoPane = new FrameLayout(host.activity());
                     photo = new ImageView(host.activity());
                     photo.setScaleType(ImageView.ScaleType.FIT_CENTER);
                     photo.setContentDescription("NAVEE UT5 MAX scooter");
@@ -376,35 +402,38 @@ public final class DashboardScreen implements AppScreen {
                                         host.activity().getResources(), R.drawable.ut5max, o);
                     }
                     photo.setImageBitmap(scooterPhoto);
-                    body.addView(photo, new LinearLayout.LayoutParams(-1, ui.dp(146)));
-                    photoHint = ui.caption("Connect your UT5 MAX to see its photo.");
+                    photoPane.addView(photo, new FrameLayout.LayoutParams(-1, -1));
+                    photoHint = ui.caption("Scooter");
                     photoHint.setGravity(Gravity.CENTER);
-                    body.addView(photoHint);
-                    photoName.setOnClickListener(v -> actions.rename());
-                    for (int i = 0; i < widget.keys.size(); i += 2) {
-                        LinearLayout stats = row();
-                        for (int n = i; n < Math.min(i + 2, widget.keys.size()); n++) {
-                            String key = widget.keys.get(n);
-                            LinearLayout item = column();
-                            item.setPadding(ui.dp(4), ui.dp(6), ui.dp(8), ui.dp(6));
-                            TextView value = ui.text("—", 18, true);
-                            value.setMaxLines(2);
-                            item.addView(value);
-                            item.addView(
-                                    ui.caption(
-                                            key.equals("capacity_throughput_ah")
-                                                    ? "Battery throughput"
-                                                    : key.equals("charge_cycles")
-                                                            ? "Reported charges"
-                                                            : label(key)));
-                            stats.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
-                            amounts.put(key, value);
-                        }
-                        body.addView(stats);
+                    photoPane.addView(photoHint, new FrameLayout.LayoutParams(-1, -1));
+                    scooterRow.addView(
+                            photoPane, new LinearLayout.LayoutParams(ui.dp(88), ui.dp(100)));
+                    scooterInfo = column();
+                    LinearLayout.LayoutParams info = new LinearLayout.LayoutParams(0, -2, 1);
+                    info.leftMargin = ui.dp(8);
+                    scooterRow.addView(scooterInfo, info);
+                    body.addView(scooterRow);
+                    for (String key : widget.keys) {
+                        LinearLayout item = column();
+                        item.setPadding(0, ui.dp(3), ui.dp(5), ui.dp(3));
+                        TextView value = new FittedValue("—", 12, 18, 2);
+                        item.addView(value, new LinearLayout.LayoutParams(-1, -2));
+                        TextView label =
+                                ui.caption(
+                                        key.equals("capacity_throughput_ah")
+                                                ? "Battery throughput"
+                                                : key.equals("charge_cycles")
+                                                        ? "Reported charges"
+                                                        : label(key));
+                        label.setTextSize(12 * ui.textScale);
+                        item.addView(label, new LinearLayout.LayoutParams(-1, -2));
+                        scooterStats.add(item);
+                        amounts.put(key, value);
                     }
                     break;
                 case "battery":
                     LinearLayout charge = row();
+                    batteryRow = charge;
                     charge.setGravity(Gravity.CENTER_VERTICAL);
                     battery = ui.new BatteryRing();
                     charge.addView(battery, new LinearLayout.LayoutParams(ui.dp(104), ui.dp(118)));
@@ -419,17 +448,17 @@ public final class DashboardScreen implements AppScreen {
                     buildCharging(chargingData, true);
                     break;
                 case "metric":
-                    big = ui.text("—", 32, true);
-                    body.addView(big);
+                    big = new FittedValue("—", 14, 32, 2);
+                    body.addView(big, new LinearLayout.LayoutParams(-1, -2));
                     subtitle = ui.caption(label(widget.metric));
                     body.addView(subtitle);
                     break;
                 case "gauge":
                     gauge = new Gauge(widget);
                     body.addView(gauge, new LinearLayout.LayoutParams(-1, ui.dp(96)));
-                    big = ui.text("—", 24, true);
+                    big = new FittedValue("—", 14, 24, 2);
                     big.setGravity(Gravity.CENTER);
-                    body.addView(big);
+                    body.addView(big, new LinearLayout.LayoutParams(-1, -2));
                     subtitle = ui.caption(label(widget.metric));
                     subtitle.setGravity(Gravity.CENTER);
                     body.addView(subtitle);
@@ -438,7 +467,7 @@ public final class DashboardScreen implements AppScreen {
                 case "history":
                     chart = ui.new ChartView();
                     chart.setHistoryMode(true);
-                    body.addView(chart, new LinearLayout.LayoutParams(-1, 0, 1));
+                    body.addView(chart, new LinearLayout.LayoutParams(-1, ui.dp(140)));
                     subtitle = ui.caption(label(widget.metric));
                     body.addView(subtitle);
                     break;
@@ -535,17 +564,175 @@ public final class DashboardScreen implements AppScreen {
             body.addView(line);
         }
 
+        private void viewSize(View view, int width, int height) {
+            ViewGroup.LayoutParams params = view.getLayoutParams();
+            if (params.width != width || params.height != height) {
+                params.width = width;
+                params.height = height;
+                view.setLayoutParams(params);
+            }
+        }
+
+        private void linearSize(View v, int width, int height, float weight, int margin) {
+            LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) v.getLayoutParams();
+            if (p.width != width
+                    || p.height != height
+                    || p.weight != weight
+                    || p.leftMargin != margin) {
+                p.width = width;
+                p.height = height;
+                p.weight = weight;
+                p.leftMargin = margin;
+                v.setLayoutParams(p);
+            }
+        }
+
+        /** Fit from the available width, never from a previous WRAP_CONTENT height. */
+        private final class FittedValue extends TextView {
+            final int minimumSp, maximumSp, targetLines;
+            int fittedWidth = -1;
+            String fittedText;
+            float fittedPixels;
+            int heightBudget = Integer.MAX_VALUE;
+
+            FittedValue(String text, int minimum, int maximum, int lines) {
+                super(host.activity());
+                minimumSp = (int) Math.ceil(minimum * ui.textScale);
+                maximumSp = Math.max(minimumSp, Math.round(maximum * ui.textScale));
+                targetLines = lines;
+                setText(text);
+                setTextColor(ui.text);
+                setTypeface(Typeface.create("sans-serif", Typeface.BOLD));
+                setIncludeFontPadding(false);
+                setLineSpacing(ui.dp(3), 1);
+                setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, maximumSp);
+                // At the readable floor, long custom text wraps into the card's
+                // scroller instead of disappearing behind a maximum-line limit.
+            }
+
+            void fitHeight(int pixels) {
+                int next = Math.max(1, pixels);
+                if (heightBudget == next) return;
+                heightBudget = next;
+                fittedWidth = -1;
+                requestLayout();
+            }
+
+            @Override
+            protected void onMeasure(int widthSpec, int heightSpec) {
+                int width = MeasureSpec.getSize(widthSpec)
+                        - getCompoundPaddingLeft() - getCompoundPaddingRight();
+                String text = getText().toString();
+                float density = getResources().getDisplayMetrics().scaledDensity;
+                if (width != fittedWidth || !text.equals(fittedText)) {
+                    fittedWidth = width;
+                    fittedText = text;
+                    fittedPixels = maximumSp * density;
+                    if (width > 0 && MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED) {
+                        android.text.TextPaint paint = new android.text.TextPaint(getPaint());
+                        for (int size = maximumSp; size >= minimumSp; size--) {
+                            fittedPixels = size * density;
+                            paint.setTextSize(fittedPixels);
+                            android.text.StaticLayout layout = android.text.StaticLayout.Builder
+                                    .obtain(text, 0, text.length(), paint, width)
+                                    .setIncludePad(getIncludeFontPadding())
+                                    .setLineSpacing(getLineSpacingExtra(), getLineSpacingMultiplier())
+                                    .setBreakStrategy(getBreakStrategy())
+                                    .setHyphenationFrequency(getHyphenationFrequency())
+                                    .setTextDirection(android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR)
+                                    .build();
+                            int count = layout.getLineCount();
+                            boolean fits = count <= targetLines && layout.getHeight() <= heightBudget
+                                    && (count == 0 || layout.getLineEnd(count - 1) == text.length());
+                            for (int line = 0; fits && line < count; line++)
+                                fits = layout.getLineMax(line) <= width;
+                            if (fits) break;
+                        }
+                    }
+                }
+                if (getTextSize() != fittedPixels)
+                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fittedPixels);
+                super.onMeasure(widthSpec, heightSpec);
+            }
+        }
+
+        private void arrangeScooter(int width) {
+            int photoWidth = Math.min(ui.dp(160), Math.max(ui.dp(36), Math.round(width * .28f)));
+            viewSize(photoPane, photoWidth, photoPane.getLayoutParams().height);
+            int available = width - photoWidth - ui.dp(8);
+            int columns = available >= ui.dp(180 * ui.textScale) ? 2 : 1;
+            if (columns == scooterColumns) return;
+            scooterColumns = columns;
+            for (LinearLayout item : scooterStats)
+                if (item.getParent() instanceof ViewGroup)
+                    ((ViewGroup) item.getParent()).removeView(item);
+            scooterInfo.removeAllViews();
+            for (int i = 0; i < scooterStats.size(); i += columns) {
+                LinearLayout line = row();
+                for (int j = i; j < Math.min(i + columns, scooterStats.size()); j++)
+                    line.addView(scooterStats.get(j), new LinearLayout.LayoutParams(0, -2, 1));
+                if (columns == 2 && i + 1 == scooterStats.size())
+                    line.addView(new View(host.activity()), new LinearLayout.LayoutParams(0, 1, 1));
+                scooterInfo.addView(line, new LinearLayout.LayoutParams(-1, -2));
+            }
+        }
+
         @Override
         protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = Math.max(1, MeasureSpec.getSize(widthSpec) - ui.dp(28));
+            if (photo != null) arrangeScooter(width);
+            if (batteryRow != null) {
+                boolean narrow = width < ui.dp(220 * ui.textScale);
+                batteryRow.setOrientation(narrow ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+                batteryRow.setGravity(narrow ? Gravity.START : Gravity.CENTER_VERTICAL);
+                linearSize(subtitle, narrow ? -1 : 0, -2, narrow ? 0 : 1, 0);
+            }
+            super.onMeasure(widthSpec, heightSpec);
+            int budget =
+                    Math.max(
+                            1,
+                            viewport.getMeasuredHeight()
+                                    - body.getPaddingTop()
+                                    - body.getPaddingBottom());
             if (photo != null) {
-                // A weighted image inside ScrollView can measure at its bitmap's
-                // intrinsic height. Bound it to the card so the whole scooter fits.
-                int budget =
-                        ui.dp(
-                                ((editing ? 175 : 136) + ((widget.keys.size() + 1) / 2) * 60)
-                                        * Math.max(1, ui.textScale));
-                photo.getLayoutParams().height =
-                        Math.max(ui.dp(72), MeasureSpec.getSize(heightSpec) - budget);
+                int rows = Math.max(1, scooterInfo.getChildCount());
+                int rowBudget = Math.max(1, (budget - scooterNameRow.getMeasuredHeight()) / rows);
+                for (LinearLayout item : scooterStats) {
+                    TextView label = (TextView) item.getChildAt(1);
+                    ((FittedValue) item.getChildAt(0)).fitHeight(
+                            rowBudget - label.getMeasuredHeight()
+                                    - item.getPaddingTop() - item.getPaddingBottom());
+                }
+                viewSize(
+                        photoPane,
+                        photoPane.getLayoutParams().width,
+                        Math.max(
+                                ui.dp(40),
+                                Math.min(ui.dp(220), budget - scooterNameRow.getMeasuredHeight())));
+            }
+            if (gauge != null) {
+                viewSize(
+                        gauge,
+                        -1,
+                        Math.max(
+                                ui.dp(40),
+                                Math.min(
+                                        ui.dp(96),
+                                        budget
+                                                - big.getMeasuredHeight()
+                                                - subtitle.getMeasuredHeight())));
+            }
+            if (chart != null) {
+                int other = subtitle == null ? 0 : subtitle.getMeasuredHeight();
+                if (widget.type.equals("health"))
+                    for (TextView amount : amounts.values())
+                        other += ((View) amount.getParent()).getMeasuredHeight();
+                viewSize(chart, -1, Math.max(ui.dp(120), Math.min(ui.dp(280), budget - other)));
+            }
+            if (battery != null) {
+                int diameter = Math.max(ui.dp(72), Math.min(ui.dp(104), budget / 2));
+                viewSize(battery, diameter, diameter + ui.dp(12));
             }
             super.onMeasure(widthSpec, heightSpec);
         }
@@ -555,34 +742,42 @@ public final class DashboardScreen implements AppScreen {
         }
 
         private void addReading(LinearLayout container, String key) {
-            LinearLayout line = row();
-            line.setGravity(Gravity.CENTER_VERTICAL);
-            line.setPadding(0, ui.dp(8), 0, ui.dp(8));
-            TextView name = ui.caption(label(key));
-            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
-            TextView number = ui.text("—", 16, true);
-            number.setGravity(Gravity.END);
-            number.setMaxWidth(ui.dp(155));
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2);
-            p.leftMargin = ui.dp(8);
-            line.addView(number, p);
-            container.addView(line);
-            amounts.put(key, number);
+            ReadingRow line = new ReadingRow(label(key));
+            container.addView(line, new LinearLayout.LayoutParams(-1, -2));
+            amounts.put(key, line.value);
         }
 
         private TextView chargingRow(LinearLayout container, String label) {
-            LinearLayout line = row();
-            line.setGravity(Gravity.CENTER_VERTICAL);
-            line.setPadding(0, ui.dp(8), 0, ui.dp(8));
-            TextView name = ui.caption(label);
-            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
-            TextView value = ui.text("—", 16, true);
-            value.setMaxWidth(ui.dp(150));
-            value.setGravity(Gravity.END);
-            line.addView(value, new LinearLayout.LayoutParams(-2, -2));
-            container.addView(line);
-            if (label.equals("Time to full")) chargingEtaLabel = name;
-            return value;
+            ReadingRow line = new ReadingRow(label);
+            container.addView(line, new LinearLayout.LayoutParams(-1, -2));
+            if (label.equals("Time to full")) chargingEtaLabel = line.name;
+            return line.value;
+        }
+
+        /** A value never takes the entire width away from its label. */
+        private final class ReadingRow extends LinearLayout {
+            final TextView name, value;
+            boolean narrow;
+
+            ReadingRow(String label) {
+                super(host.activity());
+                setGravity(Gravity.CENTER_VERTICAL);
+                name = ui.caption(label);
+                value = new FittedValue("—", 12, 16, 2);
+                addView(name);
+                addView(value);
+            }
+
+            @Override
+            protected void onMeasure(int widthSpec, int heightSpec) {
+                narrow = MeasureSpec.getSize(widthSpec) < ui.dp(220 * ui.textScale);
+                setOrientation(narrow ? VERTICAL : HORIZONTAL);
+                setPadding(0, ui.dp(narrow ? 4 : 6), 0, ui.dp(narrow ? 4 : 6));
+                linearSize(name, narrow ? -1 : 0, -2, narrow ? 0 : 1, 0);
+                linearSize(value, narrow ? -1 : 0, -2, narrow ? 0 : 1, narrow ? 0 : ui.dp(8));
+                value.setGravity(narrow ? Gravity.START : Gravity.END);
+                super.onMeasure(widthSpec, heightSpec);
+            }
         }
 
         private void buildCharging(LinearLayout container, boolean detailed) {
@@ -685,12 +880,20 @@ public final class DashboardScreen implements AppScreen {
                                     + (r != null && !live
                                             ? ", last known " + when(r.capturedWallMs)
                                             : ""));
+                    if (key.equals("driving_mode"))
+                        ui.styleDriveMode(amount, format(r), live);
                 }
             }
             TelemetryHistory.Reading selected = values.get(widget.metric);
             if (big != null) {
                 big.setText(format(selected));
                 big.setTextColor(selected != null && selected.live ? accent : ui.muted);
+                if (widget.metric.equals("driving_mode")) {
+                    big.setContentDescription("Drive mode, " + format(selected)
+                            + (selected != null && !selected.live
+                                    ? ", last known " + when(selected.capturedWallMs) : ""));
+                    ui.styleDriveMode(big, format(selected), selected != null && selected.live);
+                }
             }
             if (gauge != null) gauge.set(selected);
             if (battery != null) {
@@ -736,11 +939,12 @@ public final class DashboardScreen implements AppScreen {
                 footer.setVisibility(View.GONE);
             if (chart != null) refreshChart(values);
             // Editing is a layout operation; data controls stay inert until Done.
-            body.setAlpha(editing ? .72f : 1f);
+            body.setAlpha(editing ? .92f : 1f);
             if (editing) disableInputs(body);
         }
 
         private void disableInputs(View v) {
+            if (v == renameControl) return;
             if (v instanceof ViewGroup) {
                 for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++)
                     disableInputs(((ViewGroup) v).getChildAt(i));
@@ -978,7 +1182,8 @@ public final class DashboardScreen implements AppScreen {
         }
 
         void start() {
-            if (started || handle == null || !editing || !tile.active || !tile.hasWindowFocus()) return;
+            if (started || handle == null || !editing || !tile.active || !tile.hasWindowFocus())
+                return;
             started = true;
             handle.removeCallbacks(hold);
             grid.beginGesture(tile, resize, downX, downY);
@@ -1076,7 +1281,7 @@ public final class DashboardScreen implements AppScreen {
         }
 
         float rowHeight() {
-            return ui.dp((editing ? 88 : 64) * Math.max(1, ui.textScale));
+            return ui.dp(64 * Math.max(1, ui.textScale));
         }
 
         private boolean motionEnabled() {
@@ -1419,6 +1624,7 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private void options(DashboardConfig.Widget widget) {
+        if (!editing) return;
         LinearLayout list = column();
         list.addView(
                 ui.settingRow(
@@ -1695,7 +1901,9 @@ public final class DashboardScreen implements AppScreen {
         LinearLayout content = column();
         EditText search = new EditText(dialogContext);
         search.setHint("Search parameters");
-        content.addView(search);
+        search.setSingleLine(true);
+        ui.styleSearch(search);
+        content.addView(search, ui.searchLayout());
         LinearLayout rows = column();
         content.addView(rows);
         Runnable fill =

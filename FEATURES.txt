@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.6.1
+Current version: 0.6.2
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -154,11 +154,12 @@ Cloud activation, ownership transfer, account sharing, firmware hosting and
 Find My/Find Hub networks remain outside this offline app.
 
 
-0.6.1 DASHBOARD AND LOCAL HISTORY
+0.6.2 DASHBOARD AND LOCAL HISTORY
 
 Five main tabs: Home, Scooter, Stats, Rides and More. Scooter contains grouped
 settings and the Lights destination for tail/automatic, line and star lighting.
-Rename the local scooter profile in Scooter or using its name/pencil on Home.
+Rename the local scooter profile in Scooter or with its widget pencil while
+editing Home.
 
 Home supports 15 widget types: Lock & connection, Your scooter, Battery overview,
 Big reading, Gauge, Live trend, History chart, Reading list, Trip overview,
@@ -174,25 +175,41 @@ neighboring cards reflow and fill vertical gaps. Release saves; cancellation
 restores the starting layout. Reflow is 200 ms and outline motion 120 ms, with
 disabled system animations respected. The ... menu is the sole widget-options
 entry; tap the dots for Move or corner for Size as accessible alternatives.
-The same Size/Move dialogs remain inside options. Dialogs follow the app theme.
-Done restores normal widget actions. Up to 32 widgets are supported, with one
-lock widget. Customize titles, colors, selected parameters/readings, gauge
+The same Size/Move dialogs remain inside options. Menus, grips, resize corners
+and the scooter-name pencil appear only in global dashboard edit mode. Local
+renaming remains enabled there while scooter/data actions are disabled.
+Translucent edit controls float over each card, preserving exactly the same
+widget and content dimensions as normal viewing. Toggling edit mode does not
+expand cards or rearrange their contents.
+Dialogs follow the app theme. Done restores normal widget actions.
+Up to 32 widgets are supported, with one lock widget. Customize titles, colors,
+selected parameters/readings, gauge
 scales, chart windows and notes where applicable. Seven default widgets include
 lock/connection, the connected UT5 MAX photo, a battery overview, shortcuts,
-recent power history,
-the capacity experiment and an explicit ride recorder. Existing custom layouts
-stay intact; add Capacity experiment through Edit or restore defaults.
+recent power history, the capacity experiment and an explicit ride recorder.
+Existing custom layouts stay intact apart from the minimum-height adjustments
+below; add Capacity experiment through Edit or restore defaults.
 The battery overview normally shows charge, estimated range, power,
 controller-reported health and temperature when available. Fresh charging status
 swaps the details to charging power, current and remaining time while retaining
 the battery percentage and ring.
 
-The ring uses % with more space around the number. Your scooter includes up to
-12 configurable readings, defaulting to odometer, drive mode, reported charge
-count and lifetime battery throughput. On PID 2538, owner-observed driving-mode
+The ring uses % with more space around the number. Your scooter places its photo
+on the left and up to 12 configurable readings on the right, defaulting to
+odometer, drive mode, reported charge count and lifetime battery throughput.
+On PID 2538, owner-observed driving-mode
 codes 11, 2 and 3 display as WALK, ECO and SPORT. Unconfirmed codes and other
 models remain raw. Raw diagnostics and ride exports are unchanged; displayed
 lifetime counters do not become current-ride totals or capacity measurements.
+Live SPORT uses pale blue on dark backgrounds and a darker readable blue on
+light backgrounds. ECO is green; WALK uses a green pedestrian icon. Stale modes
+are grey, with the mode name retained for accessibility.
+
+Card contents adapt to the available width/height: narrow rows stack, numeric
+text fits within readable font limits and graphics use a bounded space budget.
+Long content remains vertically scrollable. Your scooter has a four-row minimum;
+Lock & connection, Gauge and Ride recorder have three-row minimums. Smaller saved
+cards are normalized to these heights while retaining their selected readings.
 
 Stats and settings retain last-known values across disconnection and restart.
 Historical readings are grey and retain their measurement times. A cached lock

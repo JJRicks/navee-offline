@@ -24,6 +24,7 @@ import android.view.Gravity;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.Switch;
 import android.widget.TextView;
@@ -76,6 +77,18 @@ public final class Ui {
     public TextView caption(String value) {
         TextView view = text(value, 12, false); view.setTextColor(muted); return view;
     }
+    /** Search spacing is shared without changing each field's focus or input behavior. */
+    public void styleSearch(EditText search) {
+        search.setTextColor(text); search.setHintTextColor(muted);
+        search.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 * textScale);
+        search.setPadding(dp(16), dp(14), dp(16), dp(14));
+        search.setMinimumHeight(dp(52));
+        search.setBackground(shape(raised, 16, outline));
+    }
+    public LinearLayout.LayoutParams searchLayout() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = dp(4); params.bottomMargin = dp(12); return params;
+    }
     public LinearLayout card() {
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
@@ -119,6 +132,24 @@ public final class Ui {
         Drawable[] old = label.getCompoundDrawablesRelative();
         label.setCompoundDrawablesRelative(symbol, old[1], old[2], old[3]);
         label.setCompoundDrawablePadding(dp(10));
+    }
+    /** Display-only mode cues; callers supply the formatted text, base color and spoken context. */
+    public void styleDriveMode(TextView value, String formattedMode, boolean live) {
+        value.setCompoundDrawablesRelative(null, null, null, null);
+        value.setCompoundDrawablePadding(0);
+        if ("SPORT".equals(formattedMode)) value.setTextColor(live ? blue : muted);
+        else if ("ECO".equals(formattedMode)) value.setTextColor(live ? accent : muted);
+        else if ("WALK".equals(formattedMode)) {
+            value.setTextColor(live ? accent : muted);
+            CharSequence spoken = value.getContentDescription();
+            if (spoken == null || spoken.length() == 0) value.setContentDescription("WALK");
+            value.setText("");
+            Drawable walker = new LabelIcon(value, "walk");
+            float fontScale = context.getResources().getConfiguration().fontScale;
+            int size = dp(Math.max(24, Math.min(36, 24 * textScale * fontScale)));
+            walker.setBounds(0, 0, size, size);
+            value.setCompoundDrawablesRelative(walker, null, null, null);
+        }
     }
     public String featureIcon(String key) {
         if (key == null) return "";
@@ -601,6 +632,14 @@ public final class Ui {
                 canvas.drawCircle(5, 19, 2.6f, paint); canvas.drawCircle(20, 19, 2.6f, paint);
                 p.moveTo(5, 17); p.lineTo(8, 17); p.lineTo(11, 20); p.lineTo(17, 20);
                 p.moveTo(20, 17); p.lineTo(16, 4); p.lineTo(12, 4); canvas.drawPath(p, paint);
+            } else if (key.equals("walk")) {
+                paint.setStyle(Paint.Style.FILL); canvas.drawCircle(13.5f, 3.5f, 2, paint);
+                paint.setStyle(Paint.Style.STROKE);
+                p.moveTo(6, 12); p.lineTo(8, 8); p.lineTo(12, 7);
+                p.lineTo(15, 11); p.lineTo(19, 12);
+                p.moveTo(12, 7); p.lineTo(10.5f, 14); p.lineTo(7, 21);
+                p.moveTo(10.5f, 14); p.lineTo(15, 16); p.lineTo(16.5f, 21);
+                canvas.drawPath(p, paint);
             } else if (key.equals("speed")) {
                 canvas.drawArc(new RectF(3, 4, 21, 22), 160, 220, false, paint);
                 p.moveTo(5, 18); p.lineTo(19, 18); p.moveTo(12, 15); p.lineTo(17, 8); canvas.drawPath(p, paint);
