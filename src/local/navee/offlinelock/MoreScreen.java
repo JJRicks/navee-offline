@@ -27,7 +27,8 @@ public final class MoreScreen implements AppScreen {
     private final Ui ui;
     private final ScrollView scroll;
     private final LinearLayout content;
-    private LinearLayout cardDestination, onboardingCard;
+    private LinearLayout cardDestination, onboardingCard, sectionMenu;
+    private TextView sectionBack;
     private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "About"};
     private final Map<String,LinearLayout> sections = new LinkedHashMap<>();
     private final Map<String,Integer> sectionScrollPositions = new LinkedHashMap<>();
@@ -57,13 +58,18 @@ public final class MoreScreen implements AppScreen {
         content = column(); content.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24));
         scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
         cardDestination = content;
-        TextView intro = ui.caption("App settings, scooters, and offline tools.");
-        intro.setPadding(0, ui.dp(6), 0, ui.dp(14)); content.addView(intro);
         onboarding();
-        selectedSection = settings().getString("more_section", "App");
-        if (!knownSection(selectedSection)) selectedSection = "App";
-        View picker = ui.sectionTabs(SECTIONS, selectedSection, this::selectSection);
-        content.addView(picker);
+        selectedSection = settings().getString("more_section", "");
+        if (!knownSection(selectedSection)) selectedSection = "";
+        sectionBack = ui.secondaryButton("‹  More settings", () -> selectSection("")); content.addView(sectionBack);
+        sectionMenu = ui.card(); sectionMenu.setPadding(ui.dp(18), ui.dp(3), ui.dp(18), ui.dp(3)); content.addView(sectionMenu);
+        String[] labels = {"App preferences", "My scooters", "PIN & proximity unlock", "Experimental controls", "About & permissions"};
+        String[] details = {"", "", "", "Lab", ""};
+        for (int i = 0; i < SECTIONS.length; i++) {
+            final String section = SECTIONS[i];
+            if (i > 0) ui.divider(sectionMenu);
+            sectionMenu.addView(ui.settingRow(labels[i], details[i], () -> selectSection(section)));
+        }
         for (String section : SECTIONS) {
             cardDestination = column(); sections.put(section, cardDestination);
             content.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
@@ -84,16 +90,20 @@ public final class MoreScreen implements AppScreen {
         dialogs.clear();
     }
 
+    public boolean back() { if (selectedSection.isEmpty()) return false; selectSection(""); return true; }
+
     private boolean knownSection(String section) {
         for (String candidate : SECTIONS) if (candidate.equals(section)) return true;
         return false;
     }
     private void showSelectedSection() {
+        sectionMenu.setVisibility(selectedSection.isEmpty() ? View.VISIBLE : View.GONE);
+        sectionBack.setVisibility(selectedSection.isEmpty() ? View.GONE : View.VISIBLE);
         for (Map.Entry<String,LinearLayout> section : sections.entrySet())
             section.getValue().setVisibility(section.getKey().equals(selectedSection) ? View.VISIBLE : View.GONE);
     }
     private void selectSection(String section) {
-        if (closed || !knownSection(section) || section.equals(selectedSection)) return;
+        if (closed || (!section.isEmpty() && !knownSection(section)) || section.equals(selectedSection)) return;
         sectionScrollPositions.put(selectedSection, scroll.getScrollY());
         selectedSection = section;
         settings().edit().putString("more_section", section).apply();
@@ -124,7 +134,15 @@ public final class MoreScreen implements AppScreen {
         TextView text = ui.caption(value); text.setPadding(0, ui.dp(7), 0, ui.dp(7)); box.addView(text);
     }
     private TextView button(LinearLayout box, String label, Runnable action, boolean primary) {
-        TextView view = primary ? ui.button(label, action) : ui.secondaryButton(label, action); box.addView(view); return view;
+        TextView view = primary ? ui.button(label, action) : ui.text(label, 15, false);
+        if (!primary) {
+            view.setTextColor(ui.text); view.setGravity(Gravity.CENTER_VERTICAL); view.setMinHeight(ui.dp(52));
+            view.setPadding(ui.dp(2), ui.dp(10), ui.dp(2), ui.dp(10)); view.setFocusable(true);
+            view.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(Ui.withAlpha(ui.accent, 24)), ui.shape(android.graphics.Color.TRANSPARENT, 10, 0), null));
+            view.setOnClickListener(v -> { if (action != null) action.run(); });
+            if (box.getChildCount() > 0) ui.divider(box);
+        }
+        box.addView(view); return view;
     }
     private TextView value(LinearLayout box, String label) {
         TextView text = ui.text(label, 15, true); text.setTextColor(ui.accent);
@@ -145,7 +163,7 @@ public final class MoreScreen implements AppScreen {
     }
 
     private void profiles() {
-        LinearLayout c = card("My scooters", "Keep separate local owner profiles for each scooter.");
+        LinearLayout c = card("My scooters", null);
         profileSummary = value(c, "No scooter profile");
         connectionSummary = ui.caption(""); c.addView(connectionSummary);
         disconnectProfileButton = button(c, "Disconnect scooter", () -> {
@@ -276,44 +294,48 @@ public final class MoreScreen implements AppScreen {
     }
 
     private void preferences() {
-        LinearLayout c = card("App preferences", "Tune the interface independently of your scooter's dashboard settings.");
+        LinearLayout c = card("Appearance", null);
         preferenceChoice(c, "Appearance", "theme", new String[]{"Dark", "Follow system", "Light"},
                 new String[]{"dark", "system", "light"}, "dark");
         preferenceChoice(c, "Distance & speed", "units", new String[]{"Miles / mph", "Kilometers / km/h", "Show both"},
                 new String[]{"mi", "km", "dual"}, "mi");
         preferenceChoice(c, "Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
                 new String[]{"comfortable", "dense"}, "comfortable");
-        TextView rate = button(c, "Telemetry refresh", this::telemetryRate, false);
-        valueRefreshers.add(() -> rate.setText("Telemetry refresh  ·  "
-                + settings().getInt("poll_interval_ms", 2000) / 1000 + " seconds"));
-        button(c, "Text size", this::textSize, false);
-        preferenceToggle("Connect automatically", "Connect to the selected scooter when this app opens.", "auto_connect", true);
-        preferenceToggle("Keep idle connection in background", "Keep an idle Bluetooth connection while hidden. With this off, leaving the app gives idle sessions a fixed 10-second grace period; reconnect failures cannot extend it. Returning cancels the deadline. Ride recording keeps running independently.", "background_connection", false);
-        preferenceToggle("Keep screen awake while riding", "Keep this app readable during a ride recording when it is on screen.", "keep_screen_awake", true);
+        ui.divider(c); LinearLayout text = ui.settingRow("Text size", "", this::textSize); c.addView(text);
+        valueRefreshers.add(() -> ((TextView)text.getChildAt(1)).setText(Math.round(settings().getFloat("text_scale", 1f) * 100) + "%"));
+        LinearLayout connection = card("Connection & recording", null);
+        LinearLayout rate = ui.settingRow("Telemetry refresh", "", this::telemetryRate); connection.addView(rate);
+        valueRefreshers.add(() -> ((TextView)rate.getChildAt(1)).setText(settings().getInt("poll_interval_ms", 2000) / 1000 + " seconds"));
+        preferenceToggle(connection, "Connect automatically", "When the app opens", "auto_connect", true);
+        preferenceToggle(connection, "Stay connected in background", "When off, idle connections close after 10 seconds. Recordings keep running.", "background_connection", false);
+        preferenceToggle(connection, "Keep screen awake", "While a recording is on screen", "keep_screen_awake", true);
     }
     private void preferenceChoice(LinearLayout box, String title, String key, String[] labels, String[] values, String fallback) {
-        TextView action = button(box, title, null, false);
-        Runnable refresh = () -> {
-            String stored = settings().getString(key, fallback); String shown = labels[0];
-            for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) shown = labels[i];
-            action.setText(title + "  ·  " + shown);
-        };
-        valueRefreshers.add(refresh); action.setOnClickListener(v -> {
+        if (box.getChildCount() > 1) ui.divider(box);
+        LinearLayout row = ui.settingRow(title, "", () -> {
             String stored = settings().getString(key, fallback); int selected = 0;
             for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) selected = i;
             AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle(title)
                     .setSingleChoiceItems(labels, selected, (d, choice) -> {
                         settings().edit().putString(key, values[choice]).apply(); d.dismiss();
-                        if (key.equals("theme")) host.rebuild(); else host.redraw();
+                        if (key.equals("theme") || key.equals("stats_density")) host.rebuild(); else host.redraw();
                     }).setNegativeButton("Close", null).create(); show(dialog);
         });
-    }
-    private void preferenceToggle(String title, String detail, String key, boolean fallback) {
-        View row = ui.toggleRow(title, detail, settings().getBoolean(key, fallback), true, enabled -> {
-            settings().edit().putBoolean(key, enabled).apply();
-            host.redraw();
+        box.addView(row); TextView amount = (TextView)row.getChildAt(1);
+        valueRefreshers.add(() -> {
+            String stored = settings().getString(key, fallback), shown = labels[0];
+            for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) shown = labels[i];
+            amount.setText(shown);
         });
-        cardDestination.addView(row); Switch toggle = switchOf(row);
+    }
+    private void preferenceToggle(LinearLayout box, String title, String detail, String key, boolean fallback) {
+        ui.divider(box);
+        View row = ui.toggleRow(title, detail, settings().getBoolean(key, fallback), true, enabled -> {
+            settings().edit().putBoolean(key, enabled).apply(); host.redraw();
+        });
+        row.setPadding(ui.dp(2), ui.dp(12), ui.dp(2), ui.dp(12)); row.setBackground(null);
+        row.setLayoutParams(new LinearLayout.LayoutParams(-1, -2)); box.addView(row);
+        Switch toggle = switchOf(row);
         valueRefreshers.add(() -> refreshSwitch(toggle, settings().getBoolean(key, fallback), true));
     }
     private void textSize() {
@@ -507,9 +529,10 @@ public final class MoreScreen implements AppScreen {
     }
 
     private void privacy() {
-        LinearLayout c = card("Offline by design", "Bluetooth connects directly to your scooter. This app has no internet permission and no server login.");
+        LinearLayout c = card("Navee Offline", "Scooter controls and ride recording connect directly over Bluetooth. No account or server login is required.");
         note(c, "Owner setup, scooter profiles, preferences, and ride recordings stay on this phone. You choose when to export them. Ordinary diagnostics leave out owner identity and PIN digits; a private owner backup intentionally includes its setup identity.");
-        note(c, "Nearby devices lets the app discover and connect to your scooter. The connection notification keeps background recording visible and gives you Stop and Disconnect actions.");
+        note(c, "Nearby devices connects to your scooter. Optional location records your route during a ride. Phone motion and pressure sensors run only while recording. The recording notification includes a Stop action.");
+        note(c, "Street maps load from OpenStreetMap only when you enable Street map on a route. GPS and the recorded route still work without a map connection. Loading tiles sends the map area and your network address to the tile provider.");
         if (Build.VERSION.SDK_INT < 31) note(c, "Older Android versions require location permission for Bluetooth discovery.");
         button(c, "Nearby device permission", host::requestBluetooth, false);
         button(c, "Connect selected scooter", host::connect, true);
@@ -556,8 +579,8 @@ public final class MoreScreen implements AppScreen {
         ScooterCommands.PinState pin = s.ble.pinState(); boolean owner = ownerReady(), busy = s.ble.pending() != null;
         pinSummary.setText(pin == null ? "PIN state has not been read"
                 : pin.status != 0 ? "PIN state was rejected by the scooter"
-                : !pin.configured ? "No configured fallback PIN reported"
-                : Boolean.TRUE.equals(pin.enabled) ? "Fallback PIN configured · enabled" : "Fallback PIN configured · disabled");
+                : !pin.configured ? "No fallback PIN configured"
+                : Boolean.TRUE.equals(pin.enabled) ? "Fallback PIN enabled" : "Fallback PIN disabled");
         readPinButton.setEnabled(owner && !busy); setPinButton.setEnabled(owner && !busy);
         refreshSwitch(pinToggle, pin == null || pin.status != 0 ? null : pin.enabled,
                 owner && !busy && pin != null && pin.status == 0 && pin.configured);

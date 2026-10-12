@@ -1,6 +1,7 @@
 package local.navee.offlinelock;
 
 import android.content.SharedPreferences;
+import android.app.AlertDialog;
 import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.text.Editable;
@@ -36,6 +37,7 @@ public final class StatsScreen implements AppScreen {
     private final EditText search;
     private static final String[] SECTIONS = {"Overview", "Readings", "Charts", "Diagnostics"};
     private boolean favouritesOnly;
+    private AlertDialog metricDialog;
     private final TextView status, batteryHeadline, batteryDetails, batteryCaveat, filterButton,
             resultCount, rawValues, eventValues, chartTitle, livePower;
     private final TextView refreshButton;
@@ -70,9 +72,7 @@ public final class StatsScreen implements AppScreen {
         selectedSection = validSection(preferences.getString("stats_section", "Overview"));
         scroll = new ScrollView(host.activity()); scroll.setFillViewport(true); scroll.setClipToPadding(false);
         page = new LinearLayout(host.activity()); page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(ui.dp(18), ui.dp(22), ui.dp(18), ui.dp(24)); scroll.addView(page);
-        TextView intro = ui.caption("Battery, ride and device data, with source and age preserved.");
-        intro.setPadding(0, ui.dp(8), 0, ui.dp(16)); page.addView(intro);
+        page.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24)); scroll.addView(page);
         status = ui.caption(""); status.setPadding(0, 0, 0, ui.dp(14)); page.addView(status);
         page.addView(ui.sectionTabs(SECTIONS, selectedSection, this::selectSection));
         overviewSection = vertical(); readingsSection = vertical(); chartsSection = vertical(); diagnosticsSection = vertical();
@@ -84,7 +84,7 @@ public final class StatsScreen implements AppScreen {
         LinearLayout battery = ui.card(); battery.setOrientation(compactBattery ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL); battery.setGravity(Gravity.CENTER_VERTICAL);
         batteryRing = ui.new BatteryRing(); battery.addView(batteryRing, new LinearLayout.LayoutParams(ui.dp(144), ui.dp(160)));
         LinearLayout batteryWords = vertical(); batteryWords.setPadding(compactBattery ? 0 : ui.dp(12), compactBattery ? ui.dp(10) : 0, 0, 0);
-        batteryWords.addView(ui.caption("BATTERY CONTROLLER"));
+        batteryWords.addView(ui.caption("Battery"));
         batteryHeadline = ui.text("Waiting for readings", 20, true); batteryHeadline.setPadding(0, ui.dp(8), 0, ui.dp(10)); batteryWords.addView(batteryHeadline);
         batteryDetails = ui.text("", 13, false); batteryDetails.setTextColor(ui.muted); batteryWords.addView(batteryDetails);
         battery.addView(batteryWords, compactBattery ? new LinearLayout.LayoutParams(-1, -2) : new LinearLayout.LayoutParams(0, -2, 1)); overviewSection.addView(battery);
@@ -99,17 +99,17 @@ public final class StatsScreen implements AppScreen {
         chartCard.addView(choices); chart = ui.new ChartView(); chartCard.addView(chart);
         chartCard.addView(ui.caption("Two minutes of measured data. Gaps remain visible. Record a ride for a persistent history.")); chartsSection.addView(chartCard);
 
-        LinearLayout guidance = ui.card(); guidance.addView(ui.text("Make the range question measurable", 16, true));
-        TextView help = ui.caption("Save separate rides with labels such as Sport and Sport + Boost. The Rides tab compares odometer distance, battery change, measured electrical throughput and data coverage. A stationary reading cannot establish battery capacity or riding range.");
+        LinearLayout guidance = ui.card(); guidance.addView(ui.text("Compare rides", 16, true));
+        TextView help = ui.caption("Record a ride to compare distance, battery use and energy per mile. Battery health above is reported by the scooter; measured capacity needs a longer test.");
         help.setPadding(0, ui.dp(8), 0, 0); guidance.addView(help); overviewSection.addView(guidance);
-        TextView heading = ui.text("All measurements", 20, true); heading.setPadding(0, ui.dp(10), 0, ui.dp(12));
+        TextView heading = ui.caption("Tap a reading for its source and favourite setting."); heading.setPadding(0, ui.dp(4), 0, ui.dp(12));
         search = new EditText(host.activity()); search.setSingleLine(true); search.setHint("Search voltage, odometer, firmware…");
         search.setTextColor(ui.text); search.setHintTextColor(ui.muted); search.setTextSize(14 * ui.textScale);
         search.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12)); search.setMinimumHeight(ui.dp(48));
         search.setBackground(ui.shape(ui.raised, 16, ui.outline)); search.setContentDescription("Search scooter measurements"); search.setText(query);
         readingsSection.addView(search, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout filters = new LinearLayout(host.activity()); filters.setOrientation(LinearLayout.HORIZONTAL); filters.setGravity(Gravity.CENTER_VERTICAL);
-        filterButton = ui.secondaryButton("★ Favourites", () -> {
+        filterButton = ui.secondaryButton("Favourites", () -> {
             favouritesOnly = !favouritesOnly; preferences.edit().putBoolean("stats_favourites_only", favouritesOnly).apply(); applyFilter();
         });
         filters.addView(filterButton, new LinearLayout.LayoutParams(-2, -2));
@@ -124,7 +124,7 @@ public final class StatsScreen implements AppScreen {
             public void afterTextChanged(Editable e) {}
         });
 
-        LinearLayout evidence = ui.card(); evidence.addView(ui.text("Read-only protocol evidence", 18, true));
+        LinearLayout evidence = ui.card(); evidence.addView(ui.text("Diagnostics", 18, true));
         TextView explanation = ui.caption("Payloads include the response status followed by data. Unsupported fields and units stay raw. Owner credentials and PIN responses are excluded from these diagnostics.");
         explanation.setPadding(0, ui.dp(8), 0, ui.dp(10)); evidence.addView(explanation);
         refreshButton = ui.secondaryButton("Refresh diagnostic reads", () -> { service.ble.refresh(true); host.toast("Requested all supported diagnostic reads."); }); evidence.addView(refreshButton);
@@ -172,20 +172,16 @@ public final class StatsScreen implements AppScreen {
             title.setOnClickListener(v -> { created.expanded = !created.expanded; preferences.edit().putBoolean("stats_group_" + created.name, created.expanded).apply(); applyFilter(); });
             card.addView(title); card.addView(body); groups.put(metric.group, group); readingsSection.addView(card);
         }
-        LinearLayout row = new LinearLayout(host.activity()); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.TOP);
-        row.setPadding(0, ui.dp(dense ? 7 : 12), 0, ui.dp(dense ? 7 : 12)); row.setMinimumHeight(ui.dp(dense ? 60 : 76));
-        LinearLayout words = vertical(); TextView label = ui.caption(metric.label); words.addView(label);
-        TextView amount = ui.text("Not reported", dense ? 14 : 16, true); amount.setPadding(0, ui.dp(6), 0, ui.dp(5)); words.addView(amount);
-        TextView source = ui.caption("Not supplied"); source.setTextSize(10 * ui.textScale); words.addView(source);
+        LinearLayout row = new LinearLayout(host.activity()); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
+        row.setPadding(0, ui.dp(dense ? 8 : 14), 0, ui.dp(dense ? 8 : 14)); row.setMinimumHeight(ui.dp(dense ? 52 : 64));
+        LinearLayout words = vertical(); TextView label = ui.text(metric.label, dense ? 13 : 14, false); words.addView(label);
+        TextView source = ui.caption(""); source.setTextSize(11 * ui.textScale); source.setPadding(0, ui.dp(4), 0, 0); words.addView(source);
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView star = ui.text(favourites.contains(metric.key) ? "★" : "☆", 22, false);
-        star.setGravity(Gravity.CENTER); star.setMinHeight(ui.dp(48)); star.setMinWidth(ui.dp(48));
-        star.setTextColor(favourites.contains(metric.key) ? ui.orange : ui.muted);
-        star.setContentDescription("Favourite " + metric.label); star.setOnClickListener(v -> {
-            if (!favourites.remove(metric.key)) favourites.add(metric.key);
-            preferences.edit().putStringSet("stats_favourites", new LinkedHashSet<String>(favourites)).apply();
-            star.setText(favourites.contains(metric.key) ? "★" : "☆"); star.setTextColor(favourites.contains(metric.key) ? ui.orange : ui.muted); applyFilter();
-        }); row.addView(star, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+        TextView amount = ui.text("Not reported", dense ? 13 : 14, true); amount.setGravity(Gravity.END); amount.setMaxWidth(ui.dp(150));
+        LinearLayout.LayoutParams amountParams = new LinearLayout.LayoutParams(-2, -2); amountParams.leftMargin = ui.dp(12); row.addView(amount, amountParams);
+        TextView star = ui.text("★", 13, false); star.setTextColor(ui.orange); star.setPadding(ui.dp(8), 0, 0, 0);
+        star.setVisibility(favourites.contains(metric.key) ? View.VISIBLE : View.GONE); star.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); row.addView(star);
+        row.setFocusable(true); row.setOnClickListener(v -> showMetricDetails(metric.key));
         group.body.addView(row); rows.put(metric.key, new Row(metric.key, metric.group, metric.label, row, amount, source, star));
         View divider = new View(host.activity()); divider.setBackgroundColor(ui.outline); group.body.addView(divider, new LinearLayout.LayoutParams(-1, ui.dp(1)));
         divider.setTag(metric.key);
@@ -210,9 +206,9 @@ public final class StatsScreen implements AppScreen {
                     Row row = rows.get(child.getTag()); if (row != null) child.setVisibility(row.layout.getVisibility());
                 }
             }
-            group.title.setText(group.name + "  ·  " + matches + (matches == 1 ? " field  " : " fields  ") + (open ? "⌃" : "⌄"));
+            group.title.setText(group.name + (open ? "  −" : "  +"));
         }
-        filterButton.setText(favouritesOnly ? "★ Favourites only" : "☆ All fields"); filterButton.setTextColor(favouritesOnly ? ui.accent : ui.muted);
+        filterButton.setText(favouritesOnly ? "Show all" : "Favourites"); filterButton.setTextColor(favouritesOnly ? ui.accent : ui.muted);
         resultCount.setText(count == 0 ? "No matching measurements" : count + (count == 1 ? " measurement" : " measurements"));
     }
     @Override public View view() { return scroll; }
@@ -224,12 +220,14 @@ public final class StatsScreen implements AppScreen {
             if (!selectedSection.equals("Readings")) continue;
             Row row = rows.get(m.key); if (row == null) continue;
             row.amount.setText(display(m)); row.amount.setTextColor(m.value == null ? ui.muted : ui.text);
-            row.evidence.setText(m.updatedMs < 0 ? "Not supplied · " + m.key
-                    : age(now - m.updatedMs) + "  ·  " + String.format(Locale.US, "0x%02X", m.sourceCmd) + "  ·  " + m.key);
-            row.layout.setContentDescription(m.label + ", " + display(m) + ", " + row.evidence.getText());
+            boolean stale = m.updatedMs >= 0 && now - m.updatedMs > 15000;
+            row.evidence.setText(m.updatedMs < 0 ? "Not supplied" : age(now - m.updatedMs));
+            row.evidence.setVisibility(stale ? View.VISIBLE : View.GONE);
+            row.star.setVisibility(favourites.contains(m.key) ? View.VISIBLE : View.GONE);
+            row.layout.setContentDescription(m.label + ", " + display(m) + ", " + row.evidence.getText() + ". Tap for details.");
         }
-        status.setText(service.ble.connected() ? "Receiving locally over Bluetooth · " + service.ble.state().name().toLowerCase(Locale.ROOT)
-                : "Disconnected · showing last known values until reconnect.");
+        status.setText("Disconnected · last known readings");
+        status.setVisibility(service.ble.connected() ? View.GONE : View.VISIBLE);
         status.setTextColor(service.ble.connected() ? ui.accent : ui.orange); refreshButton.setEnabled(service.ble.connected());
         if (selectedSection.equals("Overview")) {
             Telemetry.Metric soc = metrics.get("battery_percent"), temp = metrics.get("temperature_c"), voltage = metrics.get("voltage_v");
@@ -262,10 +260,26 @@ public final class StatsScreen implements AppScreen {
         for (Ui.Point point : service.trend(chartKey)) values.add(new Ui.Point(point.millis + offset,
                 chartKey.equals("speed_kmh") && imperial ? point.value / RideStore.KM_PER_MILE : point.value));
         chart.set(values, unit, color, "Connect for measured " + unit + " readings");
-        livePower.setText(chartKey.equals("power_w") ? "Signed electrical power; current sign alone does not establish draw or regeneration."
-                : chartKey.equals("voltage_v") ? "Observed voltage changes are not a diagnosis of cell health."
-                : "Measured speed from the scooter, with the source timestamps preserved.");
+        livePower.setText(chartKey.equals("power_w") ? "Signed power. Confirm current direction in Rides to label draw and regeneration."
+                : chartKey.equals("voltage_v") ? "Battery voltage under the current load."
+                : "Speed reported by the scooter.");
     }
+    private void showMetricDetails(String key) {
+        Telemetry.Metric metric = null;
+        for (Telemetry.Metric candidate : service.ble.telemetry.metrics()) if (candidate.key.equals(key)) { metric = candidate; break; }
+        if (metric == null) return;
+        String source = metric.updatedMs < 0 ? "Not supplied" : age(SystemClock.elapsedRealtime() - metric.updatedMs)
+                + " · response " + String.format(Locale.US, "0x%02X", metric.sourceCmd);
+        String detail = display(metric) + "\n\n" + source + "\n" + metric.key;
+        if (key.equals("energy_throughput_wh")) detail += "\n\nThis field's meaning is unverified. It is not used to calculate ride energy.";
+        metricDialog = new AlertDialog.Builder(host.activity()).setTitle(metric.label).setMessage(detail)
+                .setNeutralButton(favourites.contains(key) ? "Remove favourite" : "Add favourite", (d, which) -> {
+                    if (!favourites.remove(key)) favourites.add(key);
+                    preferences.edit().putStringSet("stats_favourites", new LinkedHashSet<String>(favourites)).apply();
+                    applyFilter(); refresh();
+                }).setPositiveButton("Close", null).create(); metricDialog.show();
+    }
+    @Override public void close() { if (metricDialog != null) metricDialog.dismiss(); }
     private String display(Telemetry.Metric metric) {
         if (metric.value == null) return "Not reported";
         String units = preferences.getString("units", "mi");

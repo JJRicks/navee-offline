@@ -66,13 +66,13 @@ import org.json.JSONObject;
 /** Native adaptive shell. The foreground service owns Bluetooth and recordings. */
 public final class MainActivity extends Activity implements ScreenHost {
     private static final int BLUETOOTH_PERMISSION=101, NOTIFICATION_PERMISSION=102, ENABLE_BLUETOOTH=103,
-            IMPORT_OWNER=201, SAVE_DOCUMENT=202;
+            RIDE_LOCATION_PERMISSION=104, IMPORT_OWNER=201, SAVE_DOCUMENT=202;
     private static final long BODY_REFRESH_MS=1000;
     private static final java.util.Set<String> preparingExports=java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private final String[] pages={"home","controls","stats","rides","more"};
-    private final String[] names={"Home","Controls","Stats","Rides","More"};
-    private final String[] icons={"home","tune","stats","rides","settings"};
+    private final String[] pages={"home","controls","lights","stats","rides","more"};
+    private final String[] names={"Home","Scooter","Lights","Stats","Rides","More"};
+    private final String[] icons={"home","tune","lights","stats","rides","settings"};
     private final LinkedHashMap<String,Integer> scrollPositions=new LinkedHashMap<>();
     private ScooterService scooterService;
     private SharedPreferences preferences,documents;
@@ -87,7 +87,10 @@ public final class MainActivity extends Activity implements ScreenHost {
     private boolean bound,binding,resumed,destroyed,pendingConnect,pendingScan,expanded,rebuilding,applyingOwnerImport,importWaitNotified,bodyRefreshScheduled;
     private long lastBodyRefreshMs;
     private int topInset,bottomInset,leftInset,rightInset;
-    private AlertDialog scanDialog;
+    private AlertDialog scanDialog, controlDialog;
+    private Runnable pendingRideLocation;
+    private boolean rideLocationResolved;
+    private android.window.OnBackInvokedCallback systemBack;
     private ArrayAdapter<String> scanAdapter;
     private final ArrayList<ScanResult> scanResults=new ArrayList<>();
     private final Runnable serviceChanged=this::automaticRefresh;
@@ -115,6 +118,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         preferences=getSharedPreferences("app_settings",MODE_PRIVATE);
         setTheme(darkTheme()?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
         super.onCreate(saved);
+        if(Build.VERSION.SDK_INT>=33){systemBack=this::navigateBack;getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,systemBack);}
         documents=getSharedPreferences("pending_documents",MODE_PRIVATE);
         String stagedExport=documents.getString("path",null);
         if(stagedExport!=null&&!documents.getBoolean("ready",false)&&!preparingExports.contains(stagedExport)){
@@ -136,6 +140,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(hasBluetoothPermission()){ensureService();if(bound&&scooterService!=null)startService(new Intent(this,ScooterService.class));}
         if(scooterService!=null){maybeApplyOwnerImport();scooterService.visible(true);if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}if(scooterService.ble.connected())scooterService.ble.refresh(false);}
         handler.removeCallbacks(pulse);handler.post(pulse);
+        finishRidePermission();
     }
     @Override public void onPause(){
         resumed=false;ScooterService.setUiVisible(false);captureScroll();fold.stop();handler.removeCallbacks(pulse);cancelDeferredBodyRefresh();
@@ -143,7 +148,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         super.onPause();
     }
     @Override public void onDestroy(){
-        destroyed=true;bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
+        if(Build.VERSION.SDK_INT>=33&&systemBack!=null)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(systemBack);
+        destroyed=true;pendingRideLocation=null;if(controlDialog!=null)controlDialog.dismiss();bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
         if(screen!=null)screen.close();if(scanDialog!=null)scanDialog.dismiss();
         if(scooterService!=null)scooterService.unlisten(serviceChanged);
         if(bound||binding)try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}
@@ -153,6 +159,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         captureScroll();saved.putString("page",selectedPage);saved.putBoolean("pending_connect",pendingConnect);saved.putBoolean("pending_scan",pendingScan);
         for(String page:pages)saved.putInt("scroll_"+page,scrollPositions.containsKey(page)?scrollPositions.get(page):0);
         super.onSaveInstanceState(saved);
+    }
+    @Override public void onBackPressed(){navigateBack();}
+    private void navigateBack(){
+        if(screen instanceof ControlsScreen&&((ControlsScreen)screen).back())return;
+        if(screen instanceof MoreScreen&&((MoreScreen)screen).back())return;
+        if(!selectedPage.equals("home")){select("home");return;}
+        finish();
     }
     @Override public void onConfigurationChanged(Configuration next){super.onConfigurationChanged(next);rebuild();}
     private final Runnable pulse=new Runnable(){@Override public void run(){
@@ -196,7 +209,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(awake)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
     @Override public void rebuild(){
-        if(destroyed||rebuilding)return;rebuilding=true;
+        if(destroyed||rebuilding)return;rebuilding=true;if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}
         captureScroll();if(screen!=null)screen.close();
         design=new Ui(this,darkTheme(),preferences.getFloat("text_scale",1f));
         setTheme(design.dark?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
@@ -224,7 +237,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             View spacer=new View(this);spacer.setBackgroundColor(design.bg);content.addView(spacer,new LinearLayout.LayoutParams(-1,Math.max(design.dp(12),fold.hinge.height())));
         }else content.addView(header);
         pageFrame=new FrameLayout(this);content.addView(pageFrame,new LinearLayout.LayoutParams(-1,0,1));
-        screen=selectedPage.equals("home")?new HomeScreen():selectedPage.equals("controls")?new ControlsScreen():scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
+        screen=selectedPage.equals("home")?new HomeScreen():selectedPage.equals("controls")?new ControlsScreen(false):selectedPage.equals("lights")?new ControlsScreen(true):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
         View screenView=screen.view();if(screenView.getParent() instanceof ViewGroup)((ViewGroup)screenView.getParent()).removeView(screenView);
         if(screenView instanceof ScrollView){scroll=(ScrollView)screenView;}
         else{scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setPadding(design.dp(expanded?24:18),design.dp(6),design.dp(expanded?24:18),design.dp(16));scroll.addView(screenView,new ScrollView.LayoutParams(-1,-2));}
@@ -248,10 +261,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(!selectedPage.equals("home"))return makeCompactHeader();
         LinearLayout header=column();header.setPadding(design.dp(expanded?24:18),design.dp(16),design.dp(expanded?24:18),0);
         LinearLayout brand=row();brand.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout title=column();title.addView(design.text("Navee Offline",24,true));profileTitle=design.caption("Your scooter, your controls");profileTitle.setPadding(0,design.dp(5),0,0);title.addView(profileTitle);brand.addView(title,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout title=column();title.addView(design.text("Navee Offline",24,true));profileTitle=design.caption("Your scooter");profileTitle.setPadding(0,design.dp(5),0,0);title.addView(profileTitle);brand.addView(title,new LinearLayout.LayoutParams(0,-2,1));
         View more=design.icon("bluetooth",24,design.accent);more.setPadding(design.dp(8),design.dp(8),design.dp(8),design.dp(8));more.setContentDescription("Choose a nearby scooter");more.setFocusable(true);more.setOnClickListener(v->showScanner(true));brand.addView(more,new LinearLayout.LayoutParams(design.dp(48),design.dp(48)));header.addView(brand);
         LinearLayout lock=design.card();lock.setPadding(design.dp(20),design.dp(16),design.dp(20),design.dp(14));LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=design.dp(16);lp.bottomMargin=design.dp(8);lock.setLayoutParams(lp);
-        LinearLayout lockRow=row();lockRow.setGravity(Gravity.CENTER_VERTICAL);LinearLayout words=column();words.addView(design.caption("ELECTRONIC LOCK"));lockTitle=design.text("Waiting for scooter",25,true);lockTitle.setPadding(0,design.dp(8),0,design.dp(4));words.addView(lockTitle);lockRow.addView(words,new LinearLayout.LayoutParams(0,-2,1));
+        LinearLayout lockRow=row();lockRow.setGravity(Gravity.CENTER_VERTICAL);LinearLayout words=column();words.addView(design.caption("Scooter lock"));lockTitle=design.text("Waiting for scooter",25,true);lockTitle.setPadding(0,design.dp(8),0,design.dp(4));words.addView(lockTitle);lockRow.addView(words,new LinearLayout.LayoutParams(0,-2,1));
         lockControl=new LockControl();LinearLayout.LayoutParams switchParams=new LinearLayout.LayoutParams(design.dp(112),design.dp(68));switchParams.leftMargin=design.dp(14);lockRow.addView(lockControl,switchParams);lock.addView(lockRow);
         lockHint=design.caption("Connect to see the confirmed lock state.");lockHint.setPadding(0,design.dp(4),0,0);lock.addView(lockHint);header.addView(lock);
         LinearLayout connection=row();connection.setGravity(Gravity.CENTER_VERTICAL);LinearLayout connectionWords=column();connectionTitle=design.text("Bluetooth only",13,true);connectionWords.addView(connectionTitle);connectionDetail=design.caption("Connect directly to your scooter.");connectionDetail.setMaxLines(2);connectionDetail.setPadding(0,design.dp(3),0,0);connectionWords.addView(connectionDetail);connection.addView(connectionWords,new LinearLayout.LayoutParams(0,-2,1));
@@ -275,7 +288,6 @@ public final class MainActivity extends Activity implements ScreenHost {
     private View navigation(boolean rail){
         LinearLayout nav=rail?column():row();nav.setGravity(rail?Gravity.TOP|Gravity.CENTER_HORIZONTAL:Gravity.CENTER);nav.setBackgroundColor(design.surface);nav.setPadding(design.dp(rail?8:4),design.dp(rail?20:6),design.dp(rail?8:4),design.dp(rail?12:6));
         for(int i=0;i<pages.length;i++){final String page=pages[i];View item=design.nav(names[i],icons[i],selectedPage.equals(page),()->select(page));LinearLayout.LayoutParams p=rail?new LinearLayout.LayoutParams(-1,design.dp(78)):new LinearLayout.LayoutParams(0,-2,1);if(rail)p.bottomMargin=design.dp(8);nav.addView(item,p);}
-        if(rail){View fill=new View(this);nav.addView(fill,new LinearLayout.LayoutParams(1,0,1));TextView offline=design.caption("OFFLINE\nBY DESIGN");offline.setTextSize(10*design.textScale);offline.setGravity(Gravity.CENTER);offline.setLineSpacing(design.dp(5),1);nav.addView(offline);}
         return nav;
     }
     private void select(String page){if(page.equals(selectedPage)){if(scroll!=null)scroll.smoothScrollTo(0,0);return;}captureScroll();selectedPage=page;preferences.edit().putString("last_page",page).apply();rebuild();}
@@ -288,14 +300,20 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void updateHeader(){
         if(lockTitle==null)return;BleController ble=scooterService==null?null:scooterService.ble;
         Boolean locked=ble==null?null:ble.locked();String pending=ble==null?null:ble.pending();boolean ready=ble!=null&&ble.ready();
+        boolean home=selectedPage.equals("home");
+        lockTitle.setVisibility(home||locked!=null||pending!=null?View.VISIBLE:View.GONE);
+        lockControl.setVisibility(home||locked!=null||ready?View.VISIBLE:View.GONE);
         lockTitle.setText(locked==null?"State unavailable":locked?"Locked":"Unlocked");lockTitle.setTextColor(locked==null?design.muted:locked?design.orange:design.accent);
         lockControl.update(locked,ready&&pending==null);
+        lockHint.setVisibility(pending!=null||(home&&!ready)?View.VISIBLE:View.GONE);
         lockHint.setText(pending!=null?(pending.equals("lock")?"Waiting for the scooter to confirm…":"Applying a setting…"):ready?(Boolean.TRUE.equals(locked)?"Tap the switch to unlock.":"Tap the switch to lock."):(ble!=null&&ble.connected()?"Waiting for a fresh scooter reading.":"Connect to see the confirmed lock state."));
-        String state=ble==null?(hasBluetoothPermission()?"Opening local connection…":"Nearby devices permission needed"):ble.state()==BleController.State.READY?(ble.ready()?"Connected · Bluetooth only":"Connected · Refreshing state"):ble.state()==BleController.State.WAITING?"Waiting for your scooter":ble.state()==BleController.State.SCANNING?"Finding nearby scooters":ble.state()==BleController.State.CONNECTING?"Connecting…":ble.state()==BleController.State.AUTHENTICATING?"Authenticating locally…":"Bluetooth only";
+        String state=ble==null?(hasBluetoothPermission()?"Opening local connection…":"Nearby devices permission needed"):ble.state()==BleController.State.READY?(ble.ready()?"Connected":"Connected · Refreshing state"):ble.state()==BleController.State.WAITING?"Waiting for your scooter":ble.state()==BleController.State.SCANNING?"Finding nearby scooters":ble.state()==BleController.State.CONNECTING?"Connecting…":ble.state()==BleController.State.AUTHENTICATING?"Authenticating locally…":"Disconnected";
         connectionTitle.setText(state);connectionTitle.setTextColor(ready?design.accent:design.text);
         connectionDetail.setText(ble==null?(hasBluetoothPermission()?"Your connection stays local.":"Allow access to connect to your scooter."):ble.message());
+        String detail=connectionDetail.getText().toString();
+        connectionDetail.setVisibility(!ready&&!detail.equals("Ready when your scooter is.")&&!detail.equals(state)?View.VISIBLE:View.GONE);
         boolean active=ble!=null&&(ble.connected()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING);connectionAction.setText(active?"Disconnect":"Connect");connectionAction.setOnClickListener(v->{if(active){ble.disconnect();redraw();}else connect();});
-        ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();profileTitle.setText(p==null?"Your scooter, your controls":p.name+(expanded&&fold!=null?" · "+fold.posture:""));
+        ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();profileTitle.setText(p==null?"Your scooter":p.name);profileTitle.setVisibility(home&&p!=null?View.VISIBLE:View.GONE);
     }
     private final class LockControl extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private Boolean value;private boolean available,dragging;private float downX,downY,previewX;
@@ -325,7 +343,30 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private boolean hasBluetoothPermission(){return Build.VERSION.SDK_INT>=31?checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED:checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
     @Override public void requestBluetooth(){if(!resumed)return;if(hasBluetoothPermission()){ensureService();if(scooterService!=null){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}return;}requestPermissions(Build.VERSION.SDK_INT>=31?new String[]{Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT}:new String[]{Manifest.permission.ACCESS_FINE_LOCATION},BLUETOOTH_PERMISSION);}
-    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){super.onRequestPermissionsResult(request,permissions,results);if(request==BLUETOOTH_PERMISSION){if(hasBluetoothPermission())requestBluetooth();else{pendingConnect=pendingScan=false;toast("Allow Nearby devices when you are ready to connect.");}redraw();}}
+    @Override public void requestRideLocation(Runnable ready){
+        if(destroyed||!resumed||ready==null)return;
+        if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
+                ||checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED){ready.run();return;}
+        if(pendingRideLocation!=null)return;
+        pendingRideLocation=ready;rideLocationResolved=false;
+        requestPermissions(new String[]{Manifest.permission.ACCESS_COARSE_LOCATION,Manifest.permission.ACCESS_FINE_LOCATION},RIDE_LOCATION_PERMISSION);
+    }
+    @Override public void onRequestPermissionsResult(int request,String[] permissions,int[] results){
+        super.onRequestPermissionsResult(request,permissions,results);
+        if(request==RIDE_LOCATION_PERMISSION){
+            // A denied optional GPS permission still permits a scooter-only recording.
+            // Android can deliver this before onResume. Wait until visible before
+            // promoting the recorder to a location foreground service.
+            rideLocationResolved=true;finishRidePermission();
+            return;
+        }
+        if(request==BLUETOOTH_PERMISSION){if(hasBluetoothPermission())requestBluetooth();else{pendingConnect=pendingScan=false;toast("Allow Nearby devices when you are ready to connect.");}redraw();}
+    }
+    private void finishRidePermission(){
+        if(destroyed||!resumed||!rideLocationResolved||pendingRideLocation==null)return;
+        Runnable ready=pendingRideLocation;pendingRideLocation=null;rideLocationResolved=false;ready.run();
+    }
+
     private void showScanner(boolean start){
         if(!resumed){pendingScan=true;return;}
         if(!hasBluetoothPermission()){pendingScan=true;requestBluetooth();return;}if(scooterService==null){pendingScan=true;ensureService();return;}
@@ -363,97 +404,139 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinearLayout view=column();private final Ui.BatteryRing battery;private final TextView batteryTitle,batteryDetail,voltage,power,temperature,liveSpeed,range,odometer,rideTitle,rideDetail,rideButton,headlightValue,regenValue;
         private final Ui.ChartView chart;private final TextView chartCaption;private final TextView lightsButton,recoveryButton;
         HomeScreen(){
-            LinearLayout primary=column(),secondary=column();heading(primary,"Ready for the road","A clear view of the scooter you are connected to.");
-            LinearLayout batteryCard=design.card();LinearLayout batteryRow=row();batteryRow.setGravity(Gravity.CENTER_VERTICAL);battery=design.new BatteryRing();batteryRow.addView(battery,new LinearLayout.LayoutParams(design.dp(136),design.dp(164)));LinearLayout words=column();batteryTitle=design.text("Battery",24,true);words.addView(batteryTitle);batteryDetail=design.caption("Waiting for a battery reading.");batteryDetail.setPadding(0,design.dp(8),0,0);words.addView(batteryDetail);batteryRow.addView(words,new LinearLayout.LayoutParams(0,-2,1));batteryCard.addView(batteryRow);
+            LinearLayout primary=column(),secondary=column();
+            LinearLayout batteryCard=design.card();LinearLayout batteryRow=row();batteryRow.setGravity(Gravity.CENTER_VERTICAL);battery=design.new BatteryRing();batteryRow.addView(battery,new LinearLayout.LayoutParams(design.dp(136),design.dp(142)));LinearLayout words=column();batteryTitle=design.text("Battery",24,true);words.addView(batteryTitle);batteryDetail=design.caption("Waiting for a battery reading.");batteryDetail.setPadding(0,design.dp(8),0,0);words.addView(batteryDetail);batteryRow.addView(words,new LinearLayout.LayoutParams(0,-2,1));batteryCard.addView(batteryRow);
             voltage=metricLine(batteryCard,"Pack voltage");power=metricLine(batteryCard,"Battery power");temperature=metricLine(batteryCard,"Pack temperature");primary.addView(batteryCard);
-            LinearLayout rangeCard=design.card();liveSpeed=metricLine(rangeCard,"Live speed");liveSpeed.setTextColor(design.blue);range=metricLine(rangeCard,"Scooter's estimated range");odometer=metricLine(rangeCard,"Total odometer");rangeCard.addView(design.caption("The scooter's range prediction depends on its selected estimate mode."));primary.addView(rangeCard);
-            LinearLayout ride=design.card();rideTitle=design.text("Capture your next ride",18,true);ride.addView(rideTitle);rideDetail=design.caption("Record battery, distance and energy to compare hills, Sport and Boost.");rideDetail.setPadding(0,design.dp(8),0,design.dp(10));ride.addView(rideDetail);rideButton=design.button("Start ride recording",()->{if(scooterService==null)return;if(scooterService.isRecording())scooterService.stopRide();else scooterService.startRide(new SimpleDateFormat("MMM d · h:mm a",Locale.US).format(Calendar.getInstance().getTime()));redraw();});ride.addView(rideButton);ride.addView(design.secondaryButton("View rides",()->select("rides")));primary.addView(ride);
-            heading(secondary,expanded?"Live energy":"Live battery power","Measured values from the current connection.");LinearLayout powerCard=design.card();chart=design.new ChartView();powerCard.addView(chart);chartCaption=design.caption("The chart fills when the scooter supplies fresh electrical readings.");powerCard.addView(chartCaption);secondary.addView(powerCard);
-            LinearLayout quick=design.card();quick.addView(design.text("Quick controls",18,true));headlightValue=metricLine(quick,"Headlight");lightsButton=design.secondaryButton("Toggle headlight",()->{Integer value=scooterService==null?null:scooterService.ble.featureValue("headlight");if(value!=null){scooterService.ble.set("headlight",value==1?0:1);redraw();}});quick.addView(lightsButton);regenValue=metricLine(quick,"Energy recovery");recoveryButton=design.secondaryButton("Choose recovery",()->showChoice(ScooterCommands.find("energy_recovery")));quick.addView(recoveryButton);quick.addView(design.secondaryButton("All controls",()->select("controls")));secondary.addView(quick);
+            LinearLayout rangeCard=design.card();liveSpeed=metricLine(rangeCard,"Live speed");liveSpeed.setTextColor(design.blue);range=metricLine(rangeCard,"Estimated range");odometer=metricLine(rangeCard,"Odometer");primary.addView(rangeCard);
+            LinearLayout ride=design.card();rideTitle=design.text("Capture your next ride",18,true);ride.addView(rideTitle);rideDetail=design.caption("Record battery, distance and energy to compare hills, Sport and Boost.");rideDetail.setPadding(0,design.dp(8),0,design.dp(10));ride.addView(rideDetail);rideButton=design.button("New ride",()->{if(scooterService==null)return;if(scooterService.isRecording())scooterService.stopRide();else{select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}redraw();});ride.addView(rideButton);ride.addView(design.secondaryButton("View rides",()->select("rides")));primary.addView(ride);
+            heading(secondary,"Battery power",null);LinearLayout powerCard=design.card();chart=design.new ChartView();powerCard.addView(chart);chartCaption=design.caption("The chart fills when the scooter supplies fresh electrical readings.");powerCard.addView(chartCaption);secondary.addView(powerCard);
+            LinearLayout quick=design.card();quick.addView(design.text("Quick settings",18,true));
+            LinearLayout lights=design.settingRow("Lights","",()->select("lights"));headlightValue=(TextView)lights.getChildAt(1);lightsButton=(TextView)lights.getChildAt(0);quick.addView(lights);design.divider(quick);
+            LinearLayout recovery=design.settingRow("Energy recovery","",()->showChoice(ScooterCommands.find("energy_recovery")));regenValue=(TextView)recovery.getChildAt(1);recoveryButton=(TextView)recovery.getChildAt(0);quick.addView(recovery);design.divider(quick);
+            quick.addView(design.settingRow("Scooter settings","",()->select("controls")));design.divider(quick);
+            quick.addView(design.settingRow("App units","",()->{preferences.edit().putString("more_section","App").apply();select("more");}));
+            primary.addView(quick,1);
             if(expanded&&!horizontalHinge())view.addView(new TwoPane(primary,secondary));else{view.addView(primary);view.addView(secondary);}
         }
         @Override public View view(){return view;}
         @Override public void refresh(){
             Map<String,Telemetry.Metric> values=metrics();Double percent=fresh(values,"battery_percent",15000),volts=fresh(values,"voltage_v",12000),watts=fresh(values,"power_w",5000),temp=fresh(values,"temperature_c",15000),charge=fresh(values,"charging_state",15000);
-            boolean charging=charge!=null&&charge.intValue()==1;battery.set(percent,volts==null?"Waiting for voltage":number(volts,1,"V"),charging);
-            batteryTitle.setText(percent==null?"Battery":charging?"Charging":"Your battery");Double health=fresh(values,"battery_health_percent",60000);batteryDetail.setText(percent==null?"Waiting for a fresh battery reading.":(health==null?"Charge reported by the scooter.":"Reported health "+number(health,0,"%")));
+            boolean charging=charge!=null&&charge.intValue()==1;battery.set(percent,"",charging);
+            batteryTitle.setText(charging?"Charging":"Battery");batteryDetail.setText("Waiting for a fresh battery reading.");batteryDetail.setVisibility(percent==null?View.VISIBLE:View.GONE);
             voltage.setText(number(volts,2,"V"));power.setText(number(watts,0,"W"));temperature.setText(number(temp,0,"°C"));liveSpeed.setText(speed(fresh(values,"speed_kmh",5000)));range.setText(distance(fresh(values,"remaining_range_km",15000)));odometer.setText(distance(fresh(values,"odometer_km",30000)));
-            ArrayList<Ui.Point> points=new ArrayList<>();if(scooterService!=null){long offset=System.currentTimeMillis()-SystemClock.elapsedRealtime();for(Ui.Point point:scooterService.trend("power_w"))points.add(new Ui.Point(offset+point.millis,point.value));}chart.set(points,"W",design.accent,"No fresh power readings yet");chartCaption.setText(watts==null?"Power is unavailable until the scooter supplies a complete signed electrical reading.":"Signed battery power · Last two minutes · Touch to inspect");
-            boolean active=scooterService!=null&&scooterService.isRecording();rideTitle.setText(active?"Ride recording is active":"Capture your next ride");rideButton.setText(active?"Stop & save recording":"Start ride recording");rideButton.setEnabled(active||(scooterService!=null&&scooterService.ble.ready()));
+            ArrayList<Ui.Point> points=new ArrayList<>();if(scooterService!=null){long offset=System.currentTimeMillis()-SystemClock.elapsedRealtime();for(Ui.Point point:scooterService.trend("power_w"))points.add(new Ui.Point(offset+point.millis,point.value));}chart.set(points,"W",design.accent,"No fresh power readings yet");chartCaption.setText(watts==null?"Waiting for electrical readings":"Last two minutes");
+            boolean active=scooterService!=null&&scooterService.isRecording();rideTitle.setText(active?"Ride recording is active":"Capture your next ride");rideButton.setText(active?"Stop & save recording":"New ride");rideButton.setEnabled(active||(scooterService!=null&&scooterService.ble.ready()));
             if(active&&scooterService.rides!=null){RideStore.Summary summary=scooterService.rides.activeSummary();rideDetail.setText(summary==null?"Saving measurements locally.":String.format(Locale.US,"%d:%02d elapsed  ·  %s recorded",summary.elapsedMs/60000,(summary.elapsedMs/1000)%60,distance(summary.distanceKm)));}else rideDetail.setText("Record battery, distance and energy to compare hills, Sport and Boost.");
-            Integer headlight=scooterService==null?null:scooterService.ble.featureValue("headlight"),recovery=scooterService==null?null:scooterService.ble.featureValue("energy_recovery");headlightValue.setText(headlight==null?"—":headlight==1?"On":"Off");regenValue.setText(recovery==null?"—":ScooterCommands.find("energy_recovery").valueLabel(recovery));boolean enabled=scooterService!=null&&scooterService.ble.ready()&&scooterService.ble.pending()==null;lightsButton.setEnabled(enabled&&headlight!=null);recoveryButton.setEnabled(enabled&&recovery!=null);
+            Integer headlight=scooterService==null?null:scooterService.ble.featureValue("headlight"),recovery=scooterService==null?null:scooterService.ble.featureValue("energy_recovery");headlightValue.setText(headlight==null?"—":headlight==1?"Headlight on":"Headlight off");regenValue.setText(recovery==null?"—":ScooterCommands.find("energy_recovery").valueLabel(recovery));boolean enabled=scooterService!=null&&scooterService.ble.ready()&&scooterService.ble.pending()==null;lightsButton.setEnabled(true);recoveryButton.setEnabled(enabled&&recovery!=null);
         }
     }
+    /** One compact grouped list per category; lighting has a dedicated destination. */
     private final class ControlsScreen implements AppScreen {
-        private final LinearLayout view=column();private final ArrayList<ControlRow> rows=new ArrayList<>();
-        private final LinkedHashMap<String,LinearLayout> sections=new LinkedHashMap<>();
-        private final LinkedHashMap<String,LinearLayout[]> columns=new LinkedHashMap<>();
-        private final LinkedHashMap<View,String[]> extraCards=new LinkedHashMap<>();
-        private final String[] categories={"Ride","Battery","Lights","Line lights","Star lights","Display","Security"};
-        private final TextView results;private final View categoryTabs;private String category,query;
+        private final LinearLayout view=column(), menu=column();
+        private final ArrayList<ControlRow> rows=new ArrayList<>();
+        private final LinkedHashMap<String,LinearLayout> sections=new LinkedHashMap<>(), bodies=new LinkedHashMap<>();
+        private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
+        private final boolean lights;
+        private final TextView results,back;
+        private final EditText search;
+        private String category,query="";
         private TextView clockButton;
-        ControlsScreen(){
-            category=preferences.getString("controls_section","Ride");if(!java.util.Arrays.asList(categories).contains(category))category="Ride";
-            query=preferences.getString("controls_query","");
-            heading(view,"Scooter settings","Choose a section or search all settings.");
-            EditText search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint("Search lights, charging, speed…");search.setText(query);search.setTextSize(14*design.textScale);search.setTextColor(design.text);search.setHintTextColor(design.muted);search.setPadding(design.dp(14),design.dp(10),design.dp(14),design.dp(10));search.setMinimumHeight(design.dp(48));search.setBackground(design.shape(design.raised,14,design.outline));search.setContentDescription("Search scooter settings");view.addView(search,new LinearLayout.LayoutParams(-1,-2));
-            categoryTabs=design.sectionTabs(categories,category,label->{category=label;query="";search.setText("");preferences.edit().putString("controls_section",category).putString("controls_query","").apply();android.view.inputmethod.InputMethodManager keyboard=(android.view.inputmethod.InputMethodManager)getSystemService(Context.INPUT_METHOD_SERVICE);if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);search.clearFocus();applyFilter();if(scroll!=null)scroll.smoothScrollTo(0,0);});view.addView(categoryTabs,new LinearLayout.LayoutParams(-1,-2));
-            results=design.caption("");results.setPadding(0,0,0,design.dp(10));view.addView(results);
-            for(String name:categories){LinearLayout group=column();sections.put(name,group);view.addView(group);if(expanded&&!horizontalHinge()){LinearLayout left=column(),right=column();group.addView(new TwoPane(left,right));columns.put(name,new LinearLayout[]{left,right});}else columns.put(name,new LinearLayout[]{group,group});}
-            ArrayList<ScooterCommands.Feature> ordered=new ArrayList<>();String[] priority={"maximum_speed","start_speed","energy_recovery","traction_control","cruise_control"};
-            for(String key:priority)ordered.add(ScooterCommands.find(key));for(ScooterCommands.Feature feature:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(feature.key))ordered.add(feature);
-            for(ScooterCommands.Feature feature:ordered){
-                if(feature.experimental||feature.key.equals("lock")||feature.key.equals("pin")||feature.key.equals("proximity_key"))continue;
-                ControlRow control=new ControlRow(feature);rows.add(control);addCard(controlCategory(feature),control.card);
+        ControlsScreen(boolean lights){
+            this.lights=lights;
+            category=lights?"":preferences.getString("scooter_section","");
+            String[] categories=lights?new String[]{"Headlights","Line lights","Star lights"}:new String[]{"Ride","Battery","Dashboard & sound","Security"};
+            if(!java.util.Arrays.asList(categories).contains(category))category="";
+            search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint(lights?"Search lights":"Search scooter settings");search.setTextSize(14*design.textScale);search.setTextColor(design.text);search.setHintTextColor(design.muted);search.setPadding(design.dp(14),design.dp(10),design.dp(14),design.dp(10));search.setMinimumHeight(design.dp(48));search.setBackground(design.shape(design.raised,16,0));search.setContentDescription(lights?"Search light settings":"Search scooter settings");view.addView(search,new LinearLayout.LayoutParams(-1,-2));
+            back=design.secondaryButton("‹  All scooter settings",()->{category="";preferences.edit().putString("scooter_section","").apply();applyFilter();if(scroll!=null)scroll.scrollTo(0,0);});view.addView(back);
+            results=design.caption("");results.setPadding(design.dp(3),design.dp(10),0,design.dp(10));view.addView(results);view.addView(menu);
+            LinearLayout menuCard=design.card();menuCard.setPadding(design.dp(18),design.dp(3),design.dp(18),design.dp(3));menu.addView(menuCard);
+            for(int i=0;i<categories.length;i++){
+                String name=categories[i];if(i>0)design.divider(menuCard);
+                String hint=name.equals("Ride")?"Speed, recovery, assist":name.equals("Battery")?"Charging, range":name.equals("Security")?"Lock, PIN, proximity":"Units, sounds";
+                menuCard.addView(design.settingRow(name,hint,()->{category=name;preferences.edit().putString("scooter_section",name).apply();search.setText("");search.clearFocus();android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);applyFilter();if(scroll!=null)scroll.scrollTo(0,0);}));
+                LinearLayout section=column();TextView heading=design.text(name,18,true);heading.setPadding(design.dp(3),design.dp(18),0,design.dp(10));section.addView(heading);
+                LinearLayout body=design.card();body.setPadding(design.dp(18),0,design.dp(18),0);section.addView(body);sections.put(name,section);bodies.put(name,body);view.addView(section);
             }
-            LinearLayout clock=design.card();clock.addView(design.text("Scooter clock",16,true));TextView detail=design.caption("Set the charging clock from this phone after changing time zones.");detail.setPadding(0,design.dp(8),0,design.dp(8));clock.addView(detail);clockButton=design.secondaryButton("Set scooter clock from phone",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clock.addView(clockButton);addCard("Battery",clock);extraCards.put(clock,new String[]{"Battery","scooter clock scheduled charging time timezone"});
-            LinearLayout security=design.card();security.addView(design.text("PIN & proximity unlock",18,true));TextView explanation=design.caption("Your handlebar fallback PIN and phone pairing are in More → Security.");explanation.setPadding(0,design.dp(8),0,design.dp(8));security.addView(explanation);security.addView(design.secondaryButton("Open PIN & proximity settings",()->{preferences.edit().putString("more_section","Security").apply();select("more");}));addCard("Security",security);extraCards.put(security,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
-            search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){query=s.toString();preferences.edit().putString("controls_query",query).apply();applyFilter();}public void afterTextChanged(Editable text){}});
+            ArrayList<ScooterCommands.Feature> ordered=new ArrayList<>();String[] priority={"maximum_speed","start_speed","energy_recovery","traction_control","cruise_control"};
+            for(String key:priority)ordered.add(ScooterCommands.find(key));for(ScooterCommands.Feature f:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(f.key))ordered.add(f);
+            for(ScooterCommands.Feature f:ordered){
+                if(f.experimental||f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key")||isLighting(f)!=lights)continue;
+                ControlRow control=new ControlRow(f);rows.add(control);addRow(controlCategory(f),control.card);
+            }
+            if(!lights){
+                LinearLayout clock=design.settingRow("Sync scooter clock","",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clockButton=(TextView)clock.getChildAt(0);addRow("Battery",clock);extras.put(clock,new String[]{"Battery","scooter clock scheduled charging time timezone"});
+                LinearLayout security=design.settingRow("PIN & proximity unlock","",()->{preferences.edit().putString("more_section","Security").apply();select("more");});addRow("Security",security);extras.put(security,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
+            }
+            search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){query=s.toString();applyFilter();}public void afterTextChanged(Editable text){}});
             applyFilter();
         }
-        private void addCard(String category,View card){LinearLayout[] pair=columns.get(category);(pair[0].getChildCount()<=pair[1].getChildCount()?pair[0]:pair[1]).addView(card);}
-        private String controlCategory(ScooterCommands.Feature feature){if(feature.key.startsWith("line_"))return "Line lights";if(feature.key.startsWith("star_"))return "Star lights";return feature.group.equals("Ride")?"Ride":feature.group.equals("Battery")?"Battery":feature.group.equals("Preferences")?"Display":feature.group.equals("Security")?"Security":"Lights";}
+        private boolean isLighting(ScooterCommands.Feature f){return f.key.equals("headlight")||f.key.equals("auto_sensor")||f.key.startsWith("line_")||f.key.startsWith("star_");}
+        private String controlCategory(ScooterCommands.Feature f){if(f.key.startsWith("line_"))return "Line lights";if(f.key.startsWith("star_"))return "Star lights";if(isLighting(f))return "Headlights";return f.group.equals("Ride")?"Ride":f.group.equals("Battery")?"Battery":f.group.equals("Security")?"Security":"Dashboard & sound";}
+        private void addRow(String category,View child){LinearLayout body=bodies.get(category);if(body.getChildCount()>0){View line=new View(MainActivity.this);line.setBackgroundColor(Ui.withAlpha(design.outline,125));line.setTag(child);body.addView(line,new LinearLayout.LayoutParams(-1,design.dp(1)));}body.addView(child);}
         private void applyFilter(){
-            String needle=query.trim().toLowerCase(Locale.ROOT);String normalized=needle.replaceAll("[\\s_-]+","");boolean searching=!needle.isEmpty();int count=0;
-            java.util.HashSet<String> visibleSections=new java.util.HashSet<>();
-            for(ControlRow row:rows){String group=controlCategory(row.feature);boolean match=searching?(row.feature.label+" "+row.feature.description+" "+row.feature.group+" "+row.feature.key).toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+","").contains(normalized):group.equals(category);row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visibleSections.add(group);}}
-            for(Map.Entry<View,String[]> entry:extraCards.entrySet()){String[] metadata=entry.getValue();boolean match=searching?metadata[1].contains(needle):metadata[0].equals(category);entry.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visibleSections.add(metadata[0]);}}
-            for(Map.Entry<String,LinearLayout> entry:sections.entrySet())entry.getValue().setVisibility(visibleSections.contains(entry.getKey())?View.VISIBLE:View.GONE);
-            results.setText(searching?(count==0?"No matching settings. Try another word.":count+" matching settings across all sections"):category+" · "+count+" settings");
+            String needle=query.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+","");boolean searching=!needle.isEmpty();int count=0;
+            java.util.HashSet<String> visible=new java.util.HashSet<>();
+            for(ControlRow row:rows){String group=controlCategory(row.feature);boolean match=searching?(row.feature.label+" "+row.feature.description+" "+row.feature.key).toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+","").contains(needle):(lights||group.equals(category));row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
+            for(Map.Entry<View,String[]> e:extras.entrySet()){String[] metadata=e.getValue();boolean match=searching?metadata[1].replace(" ","").contains(needle):metadata[0].equals(category);e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}}
+            for(Map.Entry<String,LinearLayout> e:sections.entrySet()){e.getValue().setVisibility(visible.contains(e.getKey())?View.VISIBLE:View.GONE);LinearLayout body=bodies.get(e.getKey());boolean hasVisible=false;for(int i=0;i<body.getChildCount();i++){View child=body.getChildAt(i);if(child.getTag() instanceof View)child.setVisibility(hasVisible&&((View)child.getTag()).getVisibility()==View.VISIBLE?View.VISIBLE:View.GONE);else if(child.getVisibility()==View.VISIBLE)hasVisible=true;}}
+            menu.setVisibility(!lights&&!searching&&category.isEmpty()?View.VISIBLE:View.GONE);
+            back.setVisibility(!lights&&!searching&&!category.isEmpty()?View.VISIBLE:View.GONE);
+            results.setVisibility(searching?View.VISIBLE:View.GONE);results.setText(count==0?"No matching settings":count+" settings");
+        }
+        boolean back(){
+            if(!query.isEmpty()){search.setText("");return true;}
+            if(!lights&&!category.isEmpty()){category="";preferences.edit().putString("scooter_section","").apply();applyFilter();if(scroll!=null)scroll.scrollTo(0,0);return true;}
+            return false;
         }
         @Override public View view(){return view;}
-        @Override public void close(){for(ControlRow row:rows)row.dragCancelled=true;}
-        @Override public void refresh(){for(ControlRow row:rows)row.refresh();if(clockButton!=null)clockButton.setEnabled(scooterService!=null&&scooterService.ble.ready()&&scooterService.ble.pending()==null);}
+        @Override public void close(){if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}}
+        @Override public void refresh(){for(ControlRow row:rows)row.refresh();if(clockButton!=null){boolean available=scooterService!=null&&scooterService.ble.ready()&&scooterService.ble.pending()==null;((View)clockButton.getParent()).setEnabled(available);clockButton.setTextColor(available?design.text:design.muted);}}
     }
     private final class ControlRow {
-        final ScooterCommands.Feature feature;final LinearLayout card;final TextView value,detail,action,result;final Switch toggle;final SeekBar slider;final TextView sliderValue;boolean dragging,dragCancelled;
+        final ScooterCommands.Feature feature;final LinearLayout card;final TextView value,name,result;final Switch toggle;final View action;
         ControlRow(ScooterCommands.Feature feature){
-            this.feature=feature;card=design.card();LinearLayout title=row();title.setGravity(Gravity.CENTER_VERTICAL);TextView name=design.text(feature.label,16,true);title.addView(name,new LinearLayout.LayoutParams(0,-2,1));value=design.text("—",15,true);value.setTextColor(design.accent);value.setGravity(Gravity.RIGHT);title.addView(value);card.addView(title);
-            detail=design.caption(feature.description);detail.setPadding(0,design.dp(8),0,design.dp(8));card.addView(detail);
-            if(feature.type==ScooterCommands.Type.TOGGLE){toggle=new Switch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setText("Enabled");toggle.setTextColor(design.text);toggle.setTextSize(13*design.textScale);toggle.setMinHeight(design.dp(48));toggle.setThumbTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{design.accent,design.muted}));toggle.setTrackTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{Ui.withAlpha(design.accent,80),design.outline}));toggle.setContentDescription(feature.label);toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});card.addView(toggle);action=null;slider=null;sliderValue=null;}
-            else if(feature.type==ScooterCommands.Type.SLIDER){toggle=null;action=null;sliderValue=design.text("—",15,true);sliderValue.setTextColor(design.accent);card.addView(sliderValue);slider=new SeekBar(MainActivity.this);slider.setMax((feature.max-feature.min)/feature.step);slider.setProgressTintList(ColorStateList.valueOf(design.accent));slider.setThumbTintList(ColorStateList.valueOf(design.accent));slider.setContentDescription(feature.label);slider.setMinimumHeight(design.dp(48));slider.setOnTouchListener((v,event)->{if(event.getActionMasked()==MotionEvent.ACTION_CANCEL)dragCancelled=true;return false;});slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){dragging=true;dragCancelled=false;}public void onProgressChanged(SeekBar s,int progress,boolean user){if(user)sliderValue.setText("Set to "+featureLabel(feature,feature.min+progress*feature.step));}public void onStopTrackingTouch(SeekBar s){dragging=false;int target=feature.min+s.getProgress()*feature.step;target=Math.max(feature.min,Math.min(feature.max,target));if(!dragCancelled&&scooterService!=null)scooterService.ble.set(feature.key,target);redraw();}});card.addView(slider,new LinearLayout.LayoutParams(-1,design.dp(48)));}
-            else{toggle=null;slider=null;sliderValue=null;action=design.secondaryButton(feature.type==ScooterCommands.Type.TIME?"Choose start time":"Change",()->{if(feature.type==ScooterCommands.Type.TIME)showChargingTime();else showChoice(feature);});card.addView(action);}
-            result=design.caption("");result.setPadding(0,design.dp(7),0,0);result.setVisibility(View.GONE);card.addView(result);
+            this.feature=feature;card=column();card.setPadding(design.dp(2),0,design.dp(2),0);
+            LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);line.setMinimumHeight(design.dp(66));line.setPadding(0,design.dp(9),0,design.dp(9));
+            String label=feature.label;if(feature.key.startsWith("line_")||feature.key.startsWith("star_")){if(feature.key.endsWith("_light"))label="Enabled";else if(feature.key.endsWith("boost_color"))label="Boost color";else if(feature.key.endsWith("_color"))label="Color";else label="Pattern";}
+            name=design.text(label,15,false);line.addView(name,new LinearLayout.LayoutParams(0,-2,1));value=design.text("—",14,false);value.setTextColor(design.muted);value.setGravity(Gravity.END);value.setMaxWidth(design.dp(138));
+            LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(-2,-2);vp.leftMargin=design.dp(12);line.addView(value,vp);
+            if(feature.type==ScooterCommands.Type.TOGGLE){
+                value.setVisibility(View.GONE);toggle=new Switch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));toggle.setThumbTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{design.accent,design.muted}));toggle.setTrackTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{Ui.withAlpha(design.accent,80),design.outline}));toggle.setContentDescription(feature.label);toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});line.addView(toggle);line.setOnClickListener(v->{if(toggle.isEnabled())toggle.performClick();});
+            }else{toggle=null;View chevron=design.icon("chevron",15,design.muted);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(design.dp(15),design.dp(15));cp.leftMargin=design.dp(10);line.addView(chevron,cp);line.setOnClickListener(v->editFeature(feature));}
+            line.setFocusable(true);line.setContentDescription(feature.label+". "+feature.description);line.setOnLongClickListener(v->{controlDialog=new AlertDialog.Builder(dialogContext()).setTitle(feature.label).setMessage(feature.description).setPositiveButton("Close",null).create();controlDialog.show();return true;});card.addView(line);action=line;
+            result=design.caption("");result.setPadding(0,0,0,design.dp(10));result.setVisibility(View.GONE);card.addView(result);
         }
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;Integer actual=ble==null?null:ble.featureValue(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&actual!=null;
-            if(feature.type==ScooterCommands.Type.TIME){Double seconds=scooterService==null?null:scooterService.ble.telemetry.number("scheduled_charge_time_raw");available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null;value.setText(seconds==null||seconds<=0?"Not scheduled":new SimpleDateFormat("EEE h:mm a",Locale.US).format(new java.util.Date((long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()))));}
+            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null;value.setText(seconds==null?"Not reported":seconds<=0?"Not scheduled":new SimpleDateFormat("EEE h:mm a",Locale.US).format(new java.util.Date((long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()))));}
             else value.setText(actual==null?"Not reported":featureLabel(feature,actual));
-            value.setTextColor(available?design.accent:design.muted);
+            name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&(feature.type!=ScooterCommands.Type.CHOICE||ble.featureChoices(feature.key).length>0));
+            action.setContentDescription(feature.label+", "+value.getText()+". "+feature.description);
             if(toggle!=null){toggle.setEnabled(available);toggle.setChecked(actual!=null&&actual==1);if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(actual==null?"Not reported":actual==1?"On":"Off");}
-            if(slider!=null&&!dragging){slider.setEnabled(available);if(actual!=null)slider.setProgress(Math.max(0,Math.min(slider.getMax(),(actual-feature.min)/feature.step)));sliderValue.setText(actual==null?"Waiting for a scooter reading":"Confirmed: "+featureLabel(feature,actual));}
-            if(action!=null)action.setEnabled(available&&(feature.type!=ScooterCommands.Type.CHOICE||ble.featureChoices(feature.key).length>0));
-            String feedback=ble==null?null:ble.commandResults().get(feature.key);if(ble!=null&&!ble.ready()&&"Confirmed".equals(feedback))feedback="Previous change confirmed";if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for confirmation…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);result.setTextColor(feedback!=null&&feedback.equals("Confirmed")?design.accent:design.muted);
+            String feedback=ble==null?null:ble.commandResults().get(feature.key);if("Confirmed".equals(feedback))feedback=null;if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
         }
+    }
+    private void editFeature(ScooterCommands.Feature feature){
+        if(feature.type==ScooterCommands.Type.TIME){showChargingTime();return;}
+        if(feature.type!=ScooterCommands.Type.SLIDER){showChoice(feature);return;}
+        if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
+        Integer current=scooterService.ble.featureValue(feature.key);if(current==null)return;
+        LinearLayout body=column();body.setPadding(design.dp(24),design.dp(12),design.dp(24),design.dp(12));body.addView(design.caption(feature.description));
+        TextView amount=design.text(featureLabel(feature,current),26,true);amount.setPadding(0,design.dp(20),0,design.dp(12));body.addView(amount);
+        SeekBar slider=new SeekBar(this);slider.setMax((feature.max-feature.min)/feature.step);slider.setProgress(Math.max(0,(current-feature.min)/feature.step));slider.setProgressTintList(ColorStateList.valueOf(design.accent));slider.setThumbTintList(ColorStateList.valueOf(design.accent));slider.setContentDescription(feature.label);body.addView(slider,new LinearLayout.LayoutParams(-1,design.dp(48)));
+        final int[] selected={current};slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int n,boolean user){if(user){selected[0]=feature.min+n*feature.step;amount.setText(featureLabel(feature,selected[0]));}}public void onStopTrackingTouch(SeekBar s){}});
+        TextView error=design.caption("");error.setTextColor(design.danger);body.addView(error);
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(feature.label).setView(body).setNegativeButton("Cancel",null).setPositiveButton("Apply",null).create();controlDialog=dialog;dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{Integer latest=scooterService.ble.featureValue(feature.key);if(!scooterService.ble.ready()||latest==null||!latest.equals(current)){error.setText("Scooter state changed. Close and reopen this setting.");return;}if(scooterService.ble.set(feature.key,selected[0]))dialog.dismiss();else error.setText(scooterService.ble.message());redraw();});
     }
     private void showChoice(ScooterCommands.Feature feature){
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
         int[] choices=scooterService.ble.featureChoices(feature.key);if(choices.length==0){toast("This choice is not available on the current firmware.");return;}String[] labels=new String[choices.length];Integer actual=scooterService.ble.featureValue(feature.key);int current=-1;for(int i=0;i<choices.length;i++){labels[i]=featureLabel(feature,choices[i]);if(actual!=null&&actual==choices[i])current=i;}
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(feature.label).setSingleChoiceItems(labels,current,(d,which)->{if(scooterService.ble.set(feature.key,choices[which]))d.dismiss();else toast(scooterService.ble.message());redraw();}).setNegativeButton("Close",null).create();dialog.show();
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(feature.label).setSingleChoiceItems(labels,current,(d,which)->{if(scooterService.ble.set(feature.key,choices[which]))d.dismiss();else toast(scooterService.ble.message());redraw();}).setNegativeButton("Close",null).create();controlDialog=dialog;dialog.show();
     }
     private void showChargingTime(){
         if(scooterService==null||!scooterService.ble.ready())return;Double stored=scooterService.ble.telemetry.number("scheduled_charge_time_raw");Calendar initial=Calendar.getInstance();if(stored!=null&&stored>0)initial.setTimeInMillis((long)(stored*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));
-        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),android.text.format.DateFormat.is24HourFormat(this));picker.setTitle("Next charging start");picker.show();
+        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),android.text.format.DateFormat.is24HourFormat(this));picker.setTitle("Next charging start");controlDialog=picker;picker.show();
     }
     /** The gutter follows the actual fold bounds within this content pane. */
     private final class TwoPane extends LinearLayout {

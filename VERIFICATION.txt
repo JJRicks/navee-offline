@@ -1,7 +1,81 @@
-NAVEE OFFLINE 0.4.1 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.5.0 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-GITHUB DEVELOPMENT HANDOFF
+0.5.0 CURRENT RELEASE — PHONE RECORDING, MAPS AND GROUPED SETTINGS
+
+The interface now has six destinations: Home, Scooter, Lights, Stats, Rides and
+More. Scooter settings use grouped rows and detail dialogs; all ten headlight,
+line-light and star-light controls share the Lights destination. More has a
+settings index, and measurement source details/favourites open on tap in Stats.
+The prominent lock control and automatic connection behavior remain available.
+
+Optional phone recording adds GPS routes, pressure-based relative elevation,
+smoothed grade estimates, speed-derived acceleration and experimental motion
+samples. A separate phone journal keeps these samples out of the existing
+scooter electrical integration. Route points can be inspected alongside fresh
+scooter speed, power and battery readings. CSV, JSON and GPX exports preserve
+accepted fixes and route gaps. Pocket motion is explicitly distinguished from
+forward scooter acceleration; missing/low-quality measurements are not replaced
+with invented values.
+
+Route geometry renders locally. Optional OpenStreetMap street tiles load only
+when Street map is enabled; a configurable HTTPS tile provider and local cache
+are supported. Version 0.5.0 therefore requests INTERNET permission for maps.
+Connection, authentication, lock/settings and recording do not require a server
+login or the tile provider. Historical no-INTERNET statements below describe
+older APKs, not 0.5.0.
+
+Verified for 0.5.0:
+
+- Six pure Java suites passed 9,871 assertions: Protocol 145, Telemetry 8,665,
+  ScooterCommands 892, OwnerIdentityParser 61, RideStore 70, PhoneRideStore 38.
+- PhoneRideValidation passed six grouped checks with location denied and six
+  with location granted. These cover optional-permission behavior, registration
+  under the appropriate foreground service type, the active-recording exception
+  to the idle timeout, save/stop and rapid start/stop capture release. Synthetic
+  route checks cover fix filtering, synchronized power/grade/acceleration and
+  CSV/JSON/GPX gap preservation. These emulator fixtures did not exercise the
+  production startRide flow with a real connected scooter or prove outdoor GPS.
+- LaunchValidation passed seven grouped checks in each Nearby devices permission
+  mode (denied and granted with Bluetooth off): six destinations, dark/light/
+  system themes, repeated rebuilds, rapid theme replacement and Activity
+  recreation. These checks retain coverage for the Samsung window-init fix.
+- UiOrganizationValidation passed seven grouped checks at 411 dp, narrow 360 dp
+  and expanded 701 dp widths. Checks cover navigation, grouped Scooter search
+  and Back, all lighting zones, More navigation, Stats details/favourites, light
+  theme with 140% app text, and a synthetic offline route's touch/zoom/colour
+  controls and scrolling to exports. Screenshots were captured for these layouts.
+  Street maps stayed off, and these fixtures made no sensor-hardware claims.
+- A separate emulator smoke test used the actual MapTiles client to retrieve
+  one public OpenStreetMap world tile (0/0/0) over HTTPS, decode its 256x256 image,
+  save 6,987 bytes plus expiry metadata, and retrieve an identical image again.
+  The returned expiry required immediate revalidation, so this did not establish
+  a fresh-cache hit or offline street-map availability. No bulk tiles were fetched.
+- The APK passed alignment and signature verification.
+- An in-place Pixel 10 Pro Fold upgrade from 0.4.0 to 0.5.0 retained the existing
+  owner setup and ride history. A cold launch completed in 414 ms and the app
+  automatically connected to the owner's actual UT5 MAX. Pressure, linear
+  acceleration and rotation-vector sensor capabilities are present on this
+  phone; sensor availability is not an accuracy or calibration result.
+
+Validation boundaries:
+
+No physical outdoor ride or real hill-grade/acceleration accuracy test was
+performed for this release. The emulator route is clearly
+labelled synthetic. No scooter setting or lock writes were made, and phone
+internet settings were not toggled. The new 0.5.0 build has not yet been tested
+on the friend's Samsung; the friend confirmed that 0.4.1 opens on that device.
+
+Local validation evidence is retained in work/v05-validation/*.txt with related
+screenshots under work/v05-validation/. These private workspace artifacts are
+not bundled into the source repository. The historical results below remain
+useful regression context but do not imply those physical tests were repeated
+for 0.5.0.
+
+
+HISTORICAL VALIDATION — VERSIONS 0.4.1 AND EARLIER
+
+GITHUB DEVELOPMENT HANDOFF (0.4.1)
 
 The editable project is a standalone repository with README.md, contributor
 instructions, source/test/build scripts, and core-test CI. Fresh builds default
@@ -27,8 +101,8 @@ NullPointerException during onCreate. System-bar icon styling now runs through
 the attached root view after setContentView. Its null guard and current-root
 check handle unavailable controllers and rapid theme/screen replacement.
 No Bluetooth, scooter-control, recording or background-timeout logic changed.
-The friend's Samsung is not directly attached here; its fixed launch still needs
-confirmation on that device.
+The friend subsequently confirmed that the fixed app opens on Samsung. The device
+is not directly attached here; new 0.5.0 sensor behavior still needs a real ride.
 
 Release checks passed on a fresh Android 16 emulator (API 36.1): two real cold
 launches plus 14 grouped regression checks across Nearby devices permission
@@ -85,7 +159,7 @@ No app crashes were reported. Export-orphan recovery and security/dialog
 prerequisite changes were reviewed/compiled without injecting a process-kill
 or changing the owner's PIN/bond. No firmware/PIN/profile settings changed.
 
-IMPLEMENTED SCOPE
+IMPLEMENTED SCOPE (HISTORICAL 0.3.0 BASELINE)
 
 1. Interface
    Five native tabs: Home, Controls, Stats, Rides and More. Consistent cards,
@@ -180,7 +254,7 @@ metric command values and resulting packet bytes are identical in all three
 display modes. No scooter settings were changed for this display-only update.
 The prior on-scooter control/recording evidence below is from the 0.3.0 build.
 
-AUTOMATED CHECKS
+AUTOMATED CHECKS (HISTORICAL 0.4.x)
 
 Pure Java: 9,833 assertions passed across framing/checksum handling (145),
 telemetry decoding and truncation (8,665), command domains/readback (892),
@@ -188,7 +262,7 @@ owner identity parsing (61), and persistent gap-aware ride accounting (70).
 Capture-helper fixtures and ADB shell quoting checks also passed. These tests
 exercise useful failure cases; they do not replace physical riding tests.
 
-ON-SCOOTER EVIDENCE
+ON-SCOOTER EVIDENCE (HISTORICAL 0.3.0)
 
 - 25/25 routine settings: changed value confirmed, original value restored.
 - Electronic lock: lock and unlock confirmed; original unlocked state restored.
@@ -211,7 +285,7 @@ ON-SCOOTER EVIDENCE
 - CSV/JSON recording outputs were generated and checked. Native document-picker
   interaction was not physically exercised while the phone was asleep.
 
-REMAINING PHYSICAL VALIDATION
+REMAINING PHYSICAL VALIDATION (AT THE 0.3.0 RELEASE)
 
 The app is ready for a safely parked check and real ride recording. Actual
 lighting, cruise engagement, propulsion/hill assistance, scheduled charging
