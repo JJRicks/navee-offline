@@ -417,7 +417,7 @@ public final class RidesScreen implements AppScreen {
         show(new AlertDialog.Builder(host.activity()).setTitle("Delete this recording?").setMessage((label.isEmpty() ? "This ride" : label) + " and its route, motion and scooter journals will be removed from this phone.")
                 .setNegativeButton("Keep ride", null).setPositiveButton("Delete", (d, which) -> {
                     if (service.phoneSaving()) { host.toast("Finishing the sensor files. Try again in a moment."); return; }
-                    try { if (service.phoneRides != null) service.phoneRides.delete(id); service.rides.delete(id); selected.remove(id); saveSelection(); historySignature = ""; refresh(); host.toast("Recording deleted."); }
+                    try { if (service.phoneRides != null) service.phoneRides.delete(id); service.rides.delete(id); service.invalidateCapacityEstimate(); selected.remove(id); saveSelection(); historySignature = ""; refresh(); host.toast("Recording deleted."); }
                     catch (IOException | IllegalStateException e) { host.toast("Could not delete this recording."); }
                 }).create());
     }

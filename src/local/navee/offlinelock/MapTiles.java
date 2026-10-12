@@ -65,7 +65,7 @@ final class MapTiles {
             connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty(
                     "User-Agent",
-                    "NaveeOffline/0.5.0 (Android; https://github.com/JJRicks/navee-offline)");
+                    "NaveeOffline/0.6.0 (Android; https://github.com/JJRicks/navee-offline)");
             if (cached != null) {
                 if (info.getProperty("etag") != null)
                     connection.setRequestProperty("If-None-Match", info.getProperty("etag"));

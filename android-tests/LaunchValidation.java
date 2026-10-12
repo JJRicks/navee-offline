@@ -62,13 +62,13 @@ public final class LaunchValidation extends Instrumentation {
                 MainActivity first = activity;
                 await(() -> field(first, "scooterService") != null, 5000, "Permitted local workspace did not initialize");
             }
-            for (String page : new String[]{"home", "controls", "lights", "stats", "rides", "more"}) {
+            for (String page : new String[]{"home", "controls", "stats", "rides", "more"}) {
                 MainActivity current = activity;
                 main(() -> select(current, page));
                 assertAppearance(current, "tab " + page);
                 main(() -> require(page.equals(field(current, "selectedPage")), "Wrong selected tab"));
             }
-            check("All six tabs opened without control actions");
+            check("All five tabs opened without control actions");
             finishActivity(activity);
 
             for (String theme : new String[]{"dark", "light", "system"}) {

@@ -39,3 +39,17 @@ the Bluetooth or recording path. Map tiles are explicitly enabled in the viewer.
 refuse owner phones and existing app data; synthetic routes are test fixtures, not
 physical sensor validation. Grant test permissions externally only on the emulator.
 Use the existing release signing key privately for an in-place owner update.
+
+## Dashboard and connected history
+
+`DashboardValidation` exercises the actual widget palette, edit controls, cached
+readings, and saved layout. Run it on a fresh emulator at narrow, compact, and
+expanded widths. `HistoryValidation` uses isolated synthetic databases to check
+profile separation, retention, query bounds, and storage pressure. Neither runner
+belongs on an owner's phone; both reject physical devices.
+
+Keep cached values separate from fresh authenticated state. History must not
+enable scooter controls, extend the background grace, start phone sensors, or
+change ride-energy integration. Preserve gaps between connections and do not
+store owner identity or PIN traffic. Dashboard layout is per scooter and column
+count; widget scale values are stored in canonical units and converted for display.

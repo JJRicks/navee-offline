@@ -1,7 +1,94 @@
-NAVEE OFFLINE 0.5.0 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.6.0 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-0.5.0 CURRENT RELEASE — PHONE RECORDING, MAPS AND GROUPED SETTINGS
+0.6.0 CURRENT RELEASE — CUSTOM DASHBOARD AND CONNECTED HISTORY
+
+Home is a per-scooter dashboard with fifteen widget types, independent column
+layouts, native drag/drop, resize handles and explicit Size/Move alternatives.
+Controls are disabled while editing. The default battery card includes estimated
+range, battery power, reported health and temperature. Gauge scales are stored in
+canonical units and converted for display. A local scooter name appears on Home,
+and the supplied UT5 MAX image appears when that model is connected. Metadata
+was removed from the bundled photo without changing its compressed pixels/alpha.
+
+The five destinations are Home, Scooter, Stats, Rides and More. All ten lighting
+controls are nested under Scooter > Lights. The former Headlight label was wrong:
+OEM source identifies command 0x54 and status 0x70 byte 4 as TailLight. Automatic
+lights (0x57, byte 8) is separate. The app reports configuration readback rather
+than claiming a lamp visibly changed; no independent front-headlight command was
+inferred or added.
+
+Last-known parameter/settings readings persist per scooter and display grey with
+stale context after disconnect/restart. Live authentication and freshness gates
+still control writes. Automatic connected-only history does not start a ride,
+phone sensors or GPS, and does not extend background connection life. Its 50 MiB
+budget uses capped SQLite storage and retention/pressure pruning: up to 7 days of
+detailed readings, 30 days of minute aggregates and 730 days of daily aggregates.
+Reported battery health remains a controller report, not a measured capacity.
+
+The battery card replaces ordinary readings with charging power/current and a
+present-rate time estimate only when fresh state reports charging. Otherwise it
+returns to range/power/health/temperature. A separate Charging widget is optional.
+Paired V/I, rated Ah and fresh percentage are required for the applicable values;
+charge cutoffs and taper limitations are visible. Live charging display was
+observed on the owner's Pixel; the time-to-full prediction has not been compared
+with a completed charge.
+
+The capacity experiment compares recent qualified ride energy with displayed
+battery-percentage drop, using separate confirmed-net and unconfirmed-throughput
+pools. This is an experimental energy equivalent, not an independent capacity or
+health test. It updates on ten-second viewed refreshes, supports a selectable ride
+window and editable advertised Wh, and uses 716.04 Wh only for UT5 MAX PID 2538.
+Active ride snapshots are atomic; completed journals replay outside the recorder
+monitor. Tests cover quality rejection, separate pools, weighting, active-ride
+replacement, direction changes, read-only snapshots and source/profile isolation.
+Charging tests cover state/freshness/pairing, polarity, current thresholds,
+invalid signals, charge limits and present-rate estimates.
+
+Verified for 0.6.0:
+
+- Nine pure Java suites passed 20,681 assertions: Protocol 145, Telemetry 8,665,
+  ScooterCommands 907, OwnerIdentityParser 61, RideStore 70, PhoneRideStore 38,
+  DashboardLayout 10,616, BatteryCapacityEstimate 44 and ChargingEstimate 135.
+  Command checks include independent tail/automatic-light mappings; layout checks include collision handling, bounds and idempotence.
+- HistoryValidation passed five grouped emulator checks: profile separation,
+  partial-cache merge, nonnumeric persistence, restored-stale flags, secret
+  exclusion, history-off cache, rejected stale samples, connection gaps,
+  age-based query tiers, 7/30/730-day retention, bounded 600-point queries,
+  actual SQLite journal/cap behavior, pressure pruning and file reclamation.
+- UiOrganizationValidation passed seven grouped checks at 411 dp: five destinations,
+  nested Lights and global search, More and Stats navigation, 140% app text and
+  themes, and synthetic offline route interaction/export access.
+- LaunchValidation passed seven grouped checks with Nearby devices denied and
+  seven granted with Bluetooth off. It covers fresh launches, five destinations,
+  themes/rebuilds and Activity recreation, preserving the Samsung launch fix.
+- PhoneRideValidation passed six grouped checks with location granted: appropriate
+  foreground service registration, active-recording exception to idle timeout,
+  saving/capture release, rapid start/stop, and synthetic route/export regression.
+  This does not validate outdoor sensor accuracy or a real connected ride.
+- APK alignment and signatures passed. A review of newly added source found no
+  owner credentials, signing material or private recordings in the source diff.
+
+- DashboardValidation passed twelve grouped checks each at 360 dp, 411 dp and 701 dp.
+  All fifteen types, default widgets, actual touchscreen long-press drag/drop,
+  resize/reflow, options/persistence, mph/km/h roundtrip, stale numeric/text values,
+  rename, Activity/service recreation, inner scrolling and 140% text were exercised.
+  Capacity config/no-data behavior and charging-rate/cutoff formatting used named
+  synthetic fixtures. Battery normal/charging groups were mutually exclusive;
+  stopped or stale charging state restored the ordinary readings.
+- An in-place Pixel upgrade from 0.5.0 to 0.6.0 retained the configured scooter and
+  reconnected automatically. Cold launch completed in 535 ms. The supplied photo,
+  profile name and actual charging power/current were observed on the Home screen.
+  No lock or scooter setting was changed. Real charging readings do not validate
+  the ETA or establish battery capacity.
+
+No scooter setting or lock writes were made for this release. Phone internet
+settings were not changed. Physical outdoor recording and the new dashboard on
+the friend's Samsung remain untested. Local emulator evidence and screenshots
+are in work/v06-validation; these private workspace files are not in the repo.
+
+
+HISTORICAL 0.5.0 — PHONE RECORDING, MAPS AND GROUPED SETTINGS
 
 The interface now has six destinations: Home, Scooter, Lights, Stats, Rides and
 More. Scooter settings use grouped rows and detail dialogs; all ten headlight,

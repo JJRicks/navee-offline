@@ -47,7 +47,7 @@ public final class Telemetry {
         {"driving_mode", "Driving mode (raw)"},
         {"lock_status", "Electronic lock"},
         {"cruise_control", "Cruise control (raw)"},
-        {"tail_light", "Vehicle lighting setting (raw)"},
+        {"tail_light", "Tail light setting (raw)"},
         {"energy_recovery", "Energy recovery setting (raw)"},
         {"range_algorithm", "Range algorithm (raw)"},
         {"display_units", "Dashboard units"},
