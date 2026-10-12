@@ -420,7 +420,11 @@ public final class DashboardScreen implements AppScreen {
                     for (String key : widget.keys) {
                         LinearLayout item = column();
                         item.setPadding(0, ui.dp(3), ui.dp(5), ui.dp(3));
-                        TextView value = new FittedValue("—", 12, 18, 2);
+                        // The two glanceable stats can grow into a roomy card. Width
+                        // and per-row height still bring them down to the readable
+                        // floor on compact cards or with larger accessibility text.
+                        TextView value = new FittedValue(
+                                "—", 12, widget.keys.size() <= 2 ? 28 : 18, 2);
                         item.addView(value, new LinearLayout.LayoutParams(-1, -2));
                         TextView label =
                                 ui.caption(
@@ -1865,10 +1869,9 @@ public final class DashboardScreen implements AppScreen {
                             "Column " + (cell.x + 1) + ", row " + (cell.y + 1),
                             () -> position(widget)));
         }
-        list.addView(
-                ui.settingRow(
+        Button duplicate = optionButton(
                         "Duplicate",
-                        "",
+                        "copy", ui.accent,
                         () -> {
                             if (widget.type.equals("lock")) {
                                 host.toast("One lock widget per dashboard.");
@@ -1891,18 +1894,83 @@ public final class DashboardScreen implements AppScreen {
                             copy.advertisedWh = widget.advertisedWh;
                             config.widgets.add(copy);
                             changedWidget(copy);
-                        }));
-        list.addView(
-                ui.settingRow(
+                        });
+        Button remove = optionButton(
                         "Remove widget",
-                        "",
+                        "trash", ui.danger,
                         () -> {
                             config.widgets.remove(widget);
                             config.save();
                             dismiss();
                             render();
-                        }));
-        show(widget.title, list);
+                        });
+        LinearLayout actions = row();
+        actions.setGravity(Gravity.CENTER);
+        actions.setBaselineAligned(false);
+        actions.setPadding(0, ui.dp(16), 0, 0);
+        LinearLayout.LayoutParams duplicateSize = new LinearLayout.LayoutParams(0, -1, 1);
+        duplicateSize.setMarginEnd(ui.dp(12));
+        actions.addView(duplicate, duplicateSize);
+        actions.addView(remove, new LinearLayout.LayoutParams(0, -1, 1));
+        showOptions(widget.title, list, actions);
+    }
+
+    private Button optionButton(String label, String icon, int color, Runnable action) {
+        Button button = new Button(dialogContext);
+        button.setText(label);
+        button.setAllCaps(false);
+        button.setTextSize(14 * ui.textScale);
+        button.setTypeface(Typeface.create("sans-serif-medium", Typeface.NORMAL));
+        button.setTextColor(color);
+        button.setGravity(Gravity.CENTER);
+        button.setMinWidth(0);
+        button.setMinimumWidth(0);
+        button.setMinHeight(ui.dp(48));
+        button.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
+        button.setBackgroundTintList(null);
+        button.setStateListAnimator(null);
+        boolean destructive = color == ui.danger;
+        button.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(Ui.withAlpha(color, 35)),
+                ui.shape(destructive ? Ui.withAlpha(color, 20) : ui.raised, 16,
+                        destructive ? Ui.withAlpha(color, 120) : ui.outline), null));
+        ui.decorate(button, icon);
+        button.setCompoundDrawablePadding(ui.dp(8));
+        button.setOnClickListener(v -> action.run());
+        return button;
+    }
+
+    /** Keep the close affordance and widget actions outside the scrolling settings. */
+    private void showOptions(String title, View settings, View actions) {
+        dismiss();
+        LinearLayout sheet = column();
+        sheet.setPadding(ui.dp(20), ui.dp(12), ui.dp(20), ui.dp(20));
+        LinearLayout header = row();
+        header.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading = ui.text(title, 20, true);
+        heading.setTag("widget-options-title");
+        header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
+        FrameLayout close = iconAction("close", "Close widget options", this::dismiss);
+        LinearLayout.LayoutParams closeSize = new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48));
+        closeSize.setMarginStart(ui.dp(8));
+        header.addView(close, closeSize);
+        sheet.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView scroll = new ScrollView(host.activity());
+        scroll.setClipToPadding(false);
+        scroll.setPadding(0, ui.dp(8), 0, 0);
+        scroll.addView(settings);
+        sheet.addView(scroll, new LinearLayout.LayoutParams(-1, 0, 1));
+        sheet.addView(actions, new LinearLayout.LayoutParams(-1, -2));
+        dialog = new AlertDialog.Builder(dialogContext).create();
+        dialog.show();
+        // Replace AlertDialog's wrapping panel so the weighted settings area fills
+        // the sheet and keeps the action row against its bottom edge.
+        dialog.setContentView(sheet);
+        if (dialog.getWindow() != null) {
+            dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 24, 0));
+            dialog.getWindow().setLayout(-1,
+                    (int) (host.activity().getResources().getDisplayMetrics().heightPixels * .86));
+        }
     }
 
     private void changedWidget(DashboardConfig.Widget widget) {

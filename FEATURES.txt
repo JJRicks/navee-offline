@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.6.3
+Current version: 0.6.4
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -154,7 +154,7 @@ Cloud activation, ownership transfer, account sharing, firmware hosting and
 Find My/Find Hub networks remain outside this offline app.
 
 
-0.6.3 DASHBOARD AND LOCAL HISTORY
+0.6.4 DASHBOARD AND LOCAL HISTORY
 
 Five main tabs: Home, Scooter, Stats, Rides and More. Scooter contains grouped
 settings and the Lights destination for tail/automatic, line and star lighting.
@@ -181,7 +181,14 @@ renaming remains enabled there while scooter/data actions are disabled.
 Translucent edit controls float over each card, preserving exactly the same
 widget and content dimensions as normal viewing. Toggling edit mode does not
 expand cards or rearrange their contents.
-Dialogs follow the app theme. Done restores normal widget actions.
+Dialogs follow the app theme. Widget options have a top-right X and a fixed
+bottom row of actual Duplicate and Remove widget buttons, centered side by side.
+Remove uses red text, outline and trash icon. Settings scroll above the footer.
+The connection widget always places status above its slider and centers the
+Connect/Disconnect button below, without width-dependent rearrangement.
+The scooter card gives one/two-reading configurations a larger adaptive value
+size (up to 28 sp at normal text scale); longer lists retain the prior size cap.
+Done restores normal widget actions.
 Up to 32 widgets are supported, with one lock widget. Customize titles, colors,
 selected parameters/readings, gauge
 scales, chart windows and notes where applicable. Seven default widgets include

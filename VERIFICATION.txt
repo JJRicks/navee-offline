@@ -1,7 +1,41 @@
-NAVEE OFFLINE 0.6.3 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.6.4 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-0.6.3 — GLANCEABLE DASHBOARD POLISH
+0.6.4 — WIDGET OPTIONS POLISH
+
+Widget options use actual Duplicate and Remove widget buttons centered side by
+side in a fixed bottom row. Remove has red text, outline and a matching trash
+icon; Duplicate has a copy icon. A labeled 48 dp X target closes the sheet from
+the top-right corner. Settings scroll between the header and footer. The custom
+sheet fills the dialog window, keeping the footer at its actual bottom edge.
+Existing duplicate/remove actions and single-lock/32-widget limits are retained.
+Your scooter grows its one/two-reading values to a moderate 28 sp maximum at
+normal text scale, retaining the existing width and row-height fitting rules.
+Longer custom reading lists retain their previous maximum.
+Lock & connection uses a fixed status / lock control / centered connection-button
+order at all widths. The former horizontal-to-vertical action-row switch is removed.
+
+Verified for 0.6.4:
+
+- The signed production APK passed signature and alignment verification.
+- DashboardValidation passed all 13 groups at 360 dp after the larger scooter
+  values and full-height options sheet changes, with all 15 widget types,
+  minimum/default card sizes, both themes, and 140% text. Synthetic fixtures
+  submitted zero scooter writes.
+- Visual inspection at 360 dp / 140% text confirmed readable equal-height
+  buttons with red trash/copy icons, a top-right X and the footer at the actual
+  bottom edge. Native taps duplicated a disposable Note, removed only its copy,
+  left the original available, and closed the options with the X.
+- After the fixed vertical connection layout, the final APK passed the same
+  13-group 360 dp dashboard run and all nine core Java suites.
+- The Pixel had no active/saving ride notification before its in-place update.
+  Version 0.6.4 (code 13) installed, opened and reconnected. Its saved Home layout
+  retained its positions and sizes; a connected screenshot confirmed larger
+  odometer/SPORT values, status above the lock control, and a centered Disconnect
+  button below. No scooter lock/settings writes or phone-network changes were made.
+  This pass was not retested on the friend's Samsung.
+
+HISTORICAL 0.6.3 — GLANCEABLE DASHBOARD POLISH
 
 Your scooter now defaults to odometer and drive mode. The older four-reading
 preset migrates once without changing widget IDs, coordinates, sizes, titles or

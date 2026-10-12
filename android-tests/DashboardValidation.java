@@ -1007,15 +1007,11 @@ public final class DashboardValidation extends Instrumentation {
         openOptions(id);
         main(() -> {
             TextView label = findText(dialogRoot(), "Title");
-            TextView title = null;
-            // Android keeps alertTitle internal on some releases; inspect its resource name.
-            for (TextView candidate : all(dialogRoot(), TextView.class)) {
-                if (candidate.getId() != View.NO_ID) try {
-                    if (candidate.getResources().getResourceEntryName(candidate.getId()).equals("alertTitle")) { title = candidate; break; }
-                } catch (android.content.res.Resources.NotFoundException ignored) { }
-            }
-            require(title != null && label != null, "Options dialog title and labels must be visible");
-            for (TextView text : new TextView[] {title, label, dialog().getButton(AlertDialog.BUTTON_NEGATIVE)})
+            TextView title = dialogRoot().findViewWithTag("widget-options-title");
+            TextView duplicate = findText(dialogRoot(), "Duplicate"), remove = findText(dialogRoot(), "Remove widget");
+            require(title != null && title.isShown() && label != null && duplicate != null && remove != null,
+                    "Options dialog title, labels and footer actions must be visible");
+            for (TextView text : new TextView[] {title, label, duplicate, remove})
                 require(contrast(text.getCurrentTextColor(), activity.ui().surface) >= 4.5,
                         "Options dialog text has insufficient contrast in " + (activity.ui().dark ? "dark" : "light") + " theme: " + text.getText());
         });
@@ -1377,7 +1373,10 @@ public final class DashboardValidation extends Instrumentation {
         Object tile = tileById(id); DashboardConfig.Widget widget = widgetById(id);
         View options = findDescription((View)tile, "Options for " + widget.title); require(options != null, "Widget options are missing"); click(options);
     }
-    private void closeDialog() { click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE)); }
+    private void closeDialog() {
+        View close = findDescription(dialogRoot(), "Close widget options");
+        click(close != null ? close : dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+    }
     private AlertDialog dialog() { AlertDialog dialog = (AlertDialog)field(dashboard(), "dialog"); require(dialog != null && dialog.isShowing(), "Dashboard dialog is missing"); return dialog; }
     private View dialogRoot() { return dialog().getWindow().getDecorView(); }
     private DashboardScreen dashboard() { return (DashboardScreen)field(activity, "screen"); }

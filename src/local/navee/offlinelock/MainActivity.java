@@ -266,14 +266,18 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private View makeDashboardLock(){
         LinearLayout content=column();content.setGravity(Gravity.CENTER_HORIZONTAL);
+        connectionTitle=connectionLabel();connectionTitle.setGravity(Gravity.CENTER);
+        content.addView(connectionTitle,new LinearLayout.LayoutParams(-1,-2));
         lockTitle=design.text("Lock",18,true);lockTitle.setGravity(Gravity.CENTER);lockControl=new LockControl();
         content.addView(lockTitle,new LinearLayout.LayoutParams(-1,-2));
         content.addView(new DashboardLockRow(lockControl),new LinearLayout.LayoutParams(-1,-2));
         lockHint=design.caption("");lockHint.setVisibility(View.GONE);content.addView(lockHint);
-        connectionTitle=connectionLabel();connectionAction=design.secondaryButton("Connect",this::connect);
+        connectionAction=design.secondaryButton("Connect",this::connect);
         connectionAction.setTextSize(13*design.textScale);
         connectionAction.setPadding(design.dp(10),design.dp(8),design.dp(10),design.dp(8));
-        content.addView(new DashboardActionRow(connectionTitle,connectionAction));
+        LinearLayout.LayoutParams action=new LinearLayout.LayoutParams(-2,-2);
+        action.gravity=Gravity.CENTER_HORIZONTAL;
+        content.addView(connectionAction,action);
         connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);updateHeader();return content;
     }
     /** A taller centered track leaves a little breathing room without shrinking narrow touch targets. */
@@ -289,35 +293,6 @@ public final class MainActivity extends Activity implements ScreenHost {
             int height=Math.min(design.dp(68),width);
             FrameLayout.LayoutParams size=(FrameLayout.LayoutParams)control.getLayoutParams();
             if(size.width!=width||size.height!=height){size.width=width;size.height=height;control.setLayoutParams(size);}
-            super.onMeasure(widthSpec,heightSpec);
-        }
-    }
-    /** Keep the status on one line where it fits; narrow cards put the action below it. */
-    private final class DashboardActionRow extends LinearLayout {
-        private final TextView label,action;
-        DashboardActionRow(TextView label,TextView action){
-            super(MainActivity.this);this.label=label;this.action=action;
-            setOrientation(HORIZONTAL);setGravity(Gravity.CENTER);
-            addView(label,new LinearLayout.LayoutParams(-2,-2));
-            addView(action,new LinearLayout.LayoutParams(-2,-2));
-        }
-        @Override protected void onMeasure(int widthSpec,int heightSpec){
-            int available=Math.max(0,MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight());
-            action.measure(MeasureSpec.makeMeasureSpec(available,MeasureSpec.AT_MOST),MeasureSpec.makeMeasureSpec(0,MeasureSpec.UNSPECIFIED));
-            int statusWidth=(int)Math.ceil(android.text.Layout.getDesiredWidth(label.getText(),label.getPaint()))+label.getPaddingLeft()+label.getPaddingRight();
-            boolean stacked=MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED
-                    &&available<statusWidth+action.getMeasuredWidth()+design.dp(12);
-            int orientation=stacked?VERTICAL:HORIZONTAL;if(getOrientation()!=orientation)setOrientation(orientation);
-            LinearLayout.LayoutParams words=(LinearLayout.LayoutParams)label.getLayoutParams();
-            int labelWidth=stacked?LayoutParams.MATCH_PARENT:LayoutParams.WRAP_CONTENT;
-            label.setGravity(stacked?Gravity.CENTER:Gravity.START|Gravity.CENTER_VERTICAL);
-            if(words.width!=labelWidth||words.weight!=0){words.width=labelWidth;words.weight=0;label.setLayoutParams(words);}
-            LinearLayout.LayoutParams control=(LinearLayout.LayoutParams)action.getLayoutParams();
-            int actionWidth=stacked?LayoutParams.MATCH_PARENT:LayoutParams.WRAP_CONTENT;
-            int left=stacked?0:design.dp(12),top=stacked?design.dp(6):0;
-            if(control.width!=actionWidth||control.leftMargin!=left||control.topMargin!=top){
-                control.width=actionWidth;control.leftMargin=left;control.topMargin=top;action.setLayoutParams(control);
-            }
             super.onMeasure(widthSpec,heightSpec);
         }
     }

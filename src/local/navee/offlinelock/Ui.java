@@ -748,6 +748,16 @@ public final class Ui {
                 else if (key.equals("resize_sw")) canvas.rotate(90, 12, 12);
                 p.moveTo(8, 20); p.lineTo(20, 8); p.moveTo(14, 20); p.lineTo(20, 14);
                 canvas.drawPath(p, paint); canvas.restore();
+            } else if (key.equals("trash")) {
+                canvas.drawLine(4, 6, 20, 6, paint);
+                p.moveTo(9, 6); p.lineTo(9, 3); p.lineTo(15, 3); p.lineTo(15, 6);
+                p.moveTo(6, 6); p.lineTo(7, 21); p.lineTo(17, 21); p.lineTo(18, 6);
+                p.moveTo(10, 10); p.lineTo(10.5f, 17);
+                p.moveTo(14, 10); p.lineTo(13.5f, 17); canvas.drawPath(p, paint);
+            } else if (key.equals("copy")) {
+                canvas.drawRoundRect(new RectF(8, 8, 21, 21), 2, 2, paint);
+                p.moveTo(16, 5); p.lineTo(16, 3); p.lineTo(3, 3); p.lineTo(3, 16); p.lineTo(5, 16);
+                canvas.drawPath(p, paint);
             } else if (key.equals("more")) {
                 paint.setStyle(Paint.Style.FILL);
                 for (int x = 5; x <= 19; x += 7) canvas.drawCircle(x, 12, 1.8f, paint);
