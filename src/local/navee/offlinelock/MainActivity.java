@@ -410,6 +410,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             String[] categories=lights?new String[]{"Headlights","Line lights","Star lights"}:new String[]{"Ride","Lights","Battery","Dashboard & sound","Security"};
             if(!java.util.Arrays.asList(categories).contains(category))category="";
             search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint(lights?"Search lights":"Search scooter settings");search.setTextSize(14*design.textScale);search.setTextColor(design.text);search.setHintTextColor(design.muted);search.setPadding(design.dp(14),design.dp(10),design.dp(14),design.dp(10));search.setMinimumHeight(design.dp(48));search.setBackground(design.shape(design.raised,16,0));search.setContentDescription(lights?"Search light settings":"Search scooter settings");view.addView(search,new LinearLayout.LayoutParams(-1,-2));
+            SearchFocus.bind(search, getWindow());
             back=design.secondaryButton("‹  All scooter settings",()->{category="";preferences.edit().putString("scooter_section","").apply();applyFilter();if(scroll!=null)scroll.scrollTo(0,0);});view.addView(back);
             results=design.caption("");results.setPadding(design.dp(3),design.dp(10),0,design.dp(10));view.addView(results);view.addView(menu);
             LinearLayout identity=design.card();identity.addView(design.settingRow("Scooter name",scooterService==null||scooterService.profiles.active()==null?"Not set":scooterService.profiles.active().name,this::renameFromSettings));menu.addView(identity);

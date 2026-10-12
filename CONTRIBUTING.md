@@ -53,3 +53,25 @@ enable scooter controls, extend the background grace, start phone sensors, or
 change ride-energy integration. Preserve gaps between connections and do not
 store owner identity or PIN traffic. Dashboard layout is per scooter and column
 count; widget scale values are stored in canonical units and converted for display.
+
+The 0.6.1 editor uses dedicated top-left move grips and bottom-right resize
+corners, with tap-accessible Move/Size dialogs and one widget-options menu.
+Gesture previews must use an untouched start snapshot, pin the full requested
+rectangle, compact neighbors without overlap, save only on release and restore
+on cancellation or teardown. Preserve scrolling outside the handles. Reflow is
+200 ms and the dashed destination transition 120 ms; respect system animation
+settings. Check direct drag, long press, corner resize, cancellation, theme
+contrast and interrupted animations at each tested width. Executed results
+belong in `VERIFICATION.txt`, not inferred from an implementation change.
+
+Your scooter's selected readings and local rename are presentation features.
+Keep the owner-observed WALK/ECO/SPORT labels restricted to PID 2538 and the
+confirmed mode codes (11/2/3). Unknown codes/models and raw diagnostics/exports
+must retain their original values. Reported charge/throughput counters are not
+measured capacity or current-ride consumption.
+
+`SearchFocusValidation` uses a real visible software keyboard on a fresh emulator
+to verify outside taps, scrolling, system Back, query preservation, and ordinary
+form focus in both themes. Enable the emulator software keyboard; this runner
+refuses physical phones and existing app data. Search bindings must pass touches
+through, release listeners with the field, and leave ordinary form editors alone.

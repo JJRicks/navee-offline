@@ -8,4 +8,5 @@
   <instrumentation android:name="local.navee.offlinelock.tests.UiOrganizationValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator UI organization validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.DashboardValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator dashboard validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.HistoryValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator history validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.SearchFocusValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator search keyboard validation" />
 </manifest>

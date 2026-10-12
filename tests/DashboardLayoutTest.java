@@ -17,6 +17,10 @@ public final class DashboardLayoutTest {
         invalidInputs();
         overlapEdges();
         deterministicLayouts();
+        previewFillsVacatedRows();
+        previewKeepsFullTargetAndSnapshot();
+        previewBoundsAndOrder();
+        deterministicPreviews();
         System.out.println("DashboardLayout tests passed: " + assertions + " assertions");
     }
 
@@ -153,6 +157,98 @@ public final class DashboardLayoutTest {
                         "Priority rectangle survives dense collision resolution");
                 for (int i = 0; i < first.size(); i++)
                     check(first.get(i).id.equals(input.get(i).id), "Returned order matches input IDs");
+            }
+        }
+    }
+
+    private static void previewFillsVacatedRows() {
+        List<DashboardLayout.Cell> source = Arrays.asList(
+                cell("dragged", 0, 4, 2, 2), cell("next", 0, 2, 2, 2),
+                cell("last", 0, 4, 2, 2));
+        List<DashboardLayout.Cell> result = DashboardLayout.preview(source, 2, "dragged");
+        equal(cell("dragged", 0, 4, 2, 2), find(result, "dragged"),
+                "Moving down leaves the full dragged target pinned");
+        equal(cell("next", 0, 0, 2, 2), find(result, "next"),
+                "Next card fills the vacated top rows");
+        equal(cell("last", 0, 2, 2, 2), find(result, "last"),
+                "Displaced card compacts into the next available gap");
+        check(find(DashboardLayout.settle(source, 2, "dragged"), "next").y == 2,
+                "Restore settling still preserves deliberate gaps");
+        valid(result, 2);
+    }
+
+    private static void previewKeepsFullTargetAndSnapshot() {
+        List<DashboardLayout.Cell> snapshot = Arrays.asList(
+                cell("wide", 0, 0, 4, 2), cell("left", 0, 2, 2, 2),
+                cell("right", 2, 2, 2, 2));
+        List<DashboardLayout.Cell> requested = new ArrayList<DashboardLayout.Cell>();
+        for (DashboardLayout.Cell cell : snapshot) requested.add(cell.copy());
+        requested.get(0).y = 1;
+        requested.get(0).h = 3;
+        List<DashboardLayout.Cell> result = DashboardLayout.preview(requested, 4, "wide");
+        equal(cell("wide", 0, 1, 4, 3), find(result, "wide"),
+                "Preview reserves all columns and rows of a resized target");
+        check(find(result, "left").y == 4 && find(result, "right").y == 4,
+                "Tall cards cannot fit in a one-row gap above the full target");
+        valid(result, 4);
+        for (int i = 0; i < result.size(); i++)
+            check(result.get(i) != requested.get(i), "Preview cells never alias gesture inputs");
+        equal(cell("wide", 0, 0, 4, 2), snapshot.get(0),
+                "Gesture cancellation can recover the untouched original target");
+        equal(cell("left", 0, 2, 2, 2), snapshot.get(1),
+                "Gesture cancellation also recovers displaced cards");
+        equal(cell("right", 2, 2, 2, 2), requested.get(2),
+                "Preview does not progressively mutate the requested snapshot");
+        result.get(1).y = 99;
+        check(requested.get(1).y == 2, "Editing a returned preview cannot affect the next preview");
+    }
+
+    private static void previewBoundsAndOrder() {
+        List<DashboardLayout.Cell> source = Arrays.asList(
+                cell("target", Integer.MAX_VALUE, Integer.MAX_VALUE,
+                        Integer.MAX_VALUE, Integer.MAX_VALUE),
+                cell("first", 0, 0, 1, 1), cell("second", 0, 0, 1, 1),
+                cell("third", 0, 0, 1, 1));
+        List<DashboardLayout.Cell> result = DashboardLayout.preview(source, 2, "target");
+        equal(cell("target", 0, 364, 2, 16), find(result, "target"),
+                "Preview bounds preserve the same clamped target as normal settling");
+        equal(cell("first", 0, 0, 1, 1), find(result, "first"),
+                "Equal-position cards retain first-input priority");
+        equal(cell("second", 1, 0, 1, 1), find(result, "second"),
+                "Equal-position collisions fill the neighboring column");
+        equal(cell("third", 0, 1, 1, 1), find(result, "third"),
+                "Remaining equal-position collision fills the next row");
+        valid(result, 2);
+        same(result, DashboardLayout.preview(result, 2, "target"),
+                "A committed preview restores to the same compacted arrangement");
+        same(DashboardLayout.preview(source, 2, null),
+                DashboardLayout.preview(source, 2, "missing"),
+                "Unknown preview priority uses normal compaction");
+        check(DashboardLayout.preview(Collections.<DashboardLayout.Cell>emptyList(), 2, null).isEmpty(),
+                "An empty preview remains empty");
+        rejects(() -> DashboardLayout.preview(null, 2, null));
+        rejects(() -> DashboardLayout.preview(Arrays.asList(
+                cell("same", 0, 0, 1, 1), cell("same", 1, 0, 1, 1)), 2, "same"));
+    }
+
+    private static void deterministicPreviews() {
+        for (int columns = 1; columns <= 4; columns++) {
+            for (int variant = 0; variant < 16; variant++) {
+                List<DashboardLayout.Cell> input = new ArrayList<DashboardLayout.Cell>();
+                for (int i = 0; i < 8; i++) input.add(cell("card" + i,
+                        (i * 3 + variant) % 6 - 1, (i * 2 + variant) % 14,
+                        1 + (i + variant) % 4, 1 + (i * 2 + variant) % 5));
+                String priority = "card" + variant % 8;
+                List<DashboardLayout.Cell> first = DashboardLayout.preview(input, columns, priority);
+                same(first, DashboardLayout.preview(input, columns, priority),
+                        "Repeated gesture preview from the same snapshot is deterministic");
+                same(first, DashboardLayout.preview(first, columns, priority),
+                        "A settled preview does not keep moving on repeated frames");
+                valid(first, columns);
+                equal(find(DashboardLayout.settle(input, columns, priority), priority),
+                        find(first, priority), "Dense compaction preserves the complete active rectangle");
+                for (int i = 0; i < first.size(); i++)
+                    check(first.get(i).id.equals(input.get(i).id), "Preview output retains input order");
             }
         }
     }

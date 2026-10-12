@@ -109,6 +109,47 @@ public final class DashboardLayout {
         return result;
     }
 
+    /**
+     * Resolves a gesture snapshot, then fills empty rows above the other cards.
+     * The priority card keeps its bounded requested rectangle throughout the
+     * preview. Other cards keep their resolved columns and move upward to the
+     * earliest free row, in stable row/column order. The returned cells are
+     * independent copies, so cancelling a gesture can reuse its untouched
+     * starting snapshot and committing can use this exact preview.
+     *
+     * Unlike {@link #settle}, this deliberately removes vertical gaps. Keep
+     * settle for restoring existing layouts, where deliberate spacing should
+     * survive until the user adjusts a widget.
+     */
+    public static List<Cell> preview(List<Cell> source, int columns, String priorityId) {
+        List<Cell> result = settle(source, columns, priorityId);
+        List<Cell> ordered = new ArrayList<Cell>(result);
+        Collections.sort(ordered, new Comparator<Cell>() {
+            @Override public int compare(Cell a, Cell b) {
+                int byRow = Integer.compare(a.y, b.y);
+                return byRow != 0 ? byRow : Integer.compare(a.x, b.x);
+            }
+        });
+
+        List<Cell> placed = new ArrayList<Cell>(result.size());
+        for (Cell cell : result) {
+            if (cell.id.equals(priorityId)) {
+                placed.add(cell);
+                ordered.remove(cell);
+                break;
+            }
+        }
+        for (Cell cell : ordered) {
+            int settledRow = cell.y;
+            for (int row = 0; row <= settledRow; row++) {
+                cell.y = row;
+                if (fits(cell, cell.x, placed)) break;
+            }
+            placed.add(cell);
+        }
+        return result;
+    }
+
     private static boolean fits(Cell cell, int x, List<Cell> placed) {
         cell.x = x;
         for (Cell other : placed) if (overlaps(cell, other)) return false;

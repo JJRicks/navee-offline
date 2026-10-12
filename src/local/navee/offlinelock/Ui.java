@@ -9,6 +9,7 @@ import android.graphics.PixelFormat;
 import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Shader;
 import android.graphics.Typeface;
@@ -329,7 +330,7 @@ public final class Ui {
         private double percent = Double.NaN;
         private String subtitle = "Not reported";
         private boolean charging, live = true;
-        public void setLive(boolean value) { live = value; invalidate(); }
+        public void setLive(boolean value) { live = value; describe(); invalidate(); }
         public BatteryRing() {
             super(context); setMinimumHeight(dp(140)); setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
             setLayoutParams(new LinearLayout.LayoutParams(dp(160), dp(176)));
@@ -338,8 +339,12 @@ public final class Ui {
         public void set(double percent, String subtitle, boolean charging) {
             this.percent = !Double.isNaN(percent) && !Double.isInfinite(percent) && percent >= 0 && percent <= 100 ? percent : Double.NaN;
             this.subtitle = subtitle == null ? "" : subtitle; this.charging = charging;
-            setContentDescription("Battery " + (Double.isNaN(this.percent) ? "not reported" : Math.round(this.percent) + " percent")
-                    + (charging ? ", charging" : "") + ", " + this.subtitle); invalidate();
+            describe(); invalidate();
+        }
+        private void describe() {
+            setContentDescription("Battery " + (Double.isNaN(percent) ? "not reported" : Math.round(percent) + " percent")
+                    + (charging ? ", charging" : "") + (live ? "" : ", last known reading")
+                    + (subtitle.isEmpty() ? "" : ", " + subtitle));
         }
         public void set(Double percent, String subtitle, boolean charging) { set(percent == null ? Double.NaN : percent.doubleValue(), subtitle, charging); }
         @Override protected void onMeasure(int width, int height) {
@@ -348,17 +353,40 @@ public final class Ui {
         @Override protected void onDraw(Canvas canvas) {
             float cx = getWidth() / 2f, cy = Math.min(getHeight() / 2f, getWidth() / 2f) - dp(1);
             float radius = Math.min(getWidth(), getHeight() - dp(12)) / 2f - dp(13);
+            if (radius <= 0) return;
             RectF circle = new RectF(cx - radius, cy - radius, cx + radius, cy + radius);
-            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(dp(10)); paint.setStrokeCap(Paint.Cap.ROUND);
+            float stroke = Math.min(dp(10), radius * .2f);
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(stroke); paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setColor(outline); canvas.drawArc(circle, 135, 270, false, paint);
             int color = !live ? muted : !Double.isNaN(percent) && percent < 15 ? danger : !Double.isNaN(percent) && percent < 30 ? orange : accent;
             if (!Double.isNaN(percent)) { paint.setColor(color); canvas.drawArc(circle, 135, (float) (270 * percent / 100), false, paint); }
-            paint.setStyle(Paint.Style.FILL); paint.setTypeface(BOLD); paint.setTextAlign(Paint.Align.CENTER);
-            paint.setTextSize(Math.min(sp(38), dp(46))); paint.setColor(live ? text : muted);
+            paint.setStyle(Paint.Style.FILL); paint.setTextAlign(Paint.Align.CENTER);
             String amount = Double.isNaN(percent) ? "—" : Long.toString(Math.round(percent));
-            canvas.drawText(amount, cx, cy + dp(3), paint);
-            paint.setTypeface(MEDIUM); paint.setTextSize(Math.min(sp(12), dp(15))); paint.setColor(muted);
-            canvas.drawText(Double.isNaN(percent) ? "NO READING" : "PERCENT", cx, cy + dp(25), paint);
+            String unit = Double.isNaN(percent) ? "" : "%";
+            float amountSize = Math.min(sp(34), dp(42)), unitSize = Math.min(sp(14), dp(18));
+            float gap = unit.isEmpty() ? 0 : dp(5);
+            Rect amountBounds = new Rect(), unitBounds = new Rect();
+            paint.setTypeface(BOLD); paint.setTextSize(amountSize);
+            paint.getTextBounds(amount, 0, amount.length(), amountBounds);
+            float amountWidth = paint.measureText(amount);
+            paint.setTypeface(MEDIUM); paint.setTextSize(unitSize);
+            paint.getTextBounds(unit, 0, unit.length(), unitBounds);
+            float blockWidth = Math.max(amountWidth, paint.measureText(unit));
+            float blockHeight = amountBounds.height() + unitBounds.height() + gap;
+            // Keep the whole text block inside a padded square inscribed in the ring. This
+            // also fits three digits and larger accessibility text in the compact Home gauge.
+            float safeSide = Math.max(1, (radius - stroke / 2 - dp(6)) * 1.4142f);
+            float fit = Math.min(1, Math.min(safeSide / Math.max(1, blockWidth), safeSide / Math.max(1, blockHeight)));
+            amountSize *= fit; unitSize *= fit; gap *= fit;
+            paint.setTypeface(BOLD); paint.setTextSize(amountSize);
+            paint.getTextBounds(amount, 0, amount.length(), amountBounds);
+            paint.setTypeface(MEDIUM); paint.setTextSize(unitSize);
+            paint.getTextBounds(unit, 0, unit.length(), unitBounds);
+            float top = cy - (amountBounds.height() + unitBounds.height() + gap) / 2f;
+            paint.setTypeface(BOLD); paint.setTextSize(amountSize); paint.setColor(live ? text : muted);
+            canvas.drawText(amount, cx, top - amountBounds.top, paint);
+            paint.setTypeface(MEDIUM); paint.setTextSize(unitSize); paint.setColor(muted);
+            if (!unit.isEmpty()) canvas.drawText(unit, cx, top + amountBounds.height() + gap - unitBounds.top, paint);
             paint.setTextSize(Math.min(sp(11), dp(14))); paint.setColor(charging && live ? accent : muted);
             String label = charging ? "Charging" + (subtitle.isEmpty() ? "" : " · " + subtitle) : subtitle;
             label = TextUtils.ellipsize(label, new android.text.TextPaint(paint), Math.max(dp(40), getWidth() - dp(8)), TextUtils.TruncateAt.END).toString();
@@ -641,6 +669,25 @@ public final class Ui {
                 canvas.drawArc(new RectF(4, 4, 20, 20), -45, 270, false, paint); canvas.drawLine(12, 2, 12, 11, paint);
             } else if (key.equals("download") || key.equals("export")) {
                 canvas.drawLine(12, 3, 12, 15, paint); p.moveTo(7, 10); p.lineTo(12, 15); p.lineTo(17, 10); p.moveTo(4, 16); p.lineTo(4, 21); p.lineTo(20, 21); p.lineTo(20, 16); canvas.drawPath(p, paint);
+            } else if (key.equals("pencil") || key.equals("edit")) {
+                p.moveTo(4, 16); p.lineTo(15.5f, 4.5f); p.quadTo(17, 3, 18.5f, 4.5f);
+                p.lineTo(20, 6); p.quadTo(21.5f, 7.5f, 20, 9); p.lineTo(8, 20);
+                p.lineTo(3, 21); p.close(); p.moveTo(14, 6); p.lineTo(19, 11);
+                p.moveTo(4, 16); p.lineTo(8, 20); canvas.drawPath(p, paint);
+            } else if (key.equals("grip") || key.equals("drag")) {
+                paint.setStyle(Paint.Style.FILL);
+                for (int x = 8; x <= 16; x += 8)
+                    for (int y = 5; y <= 19; y += 7) canvas.drawCircle(x, y, 1.5f, paint);
+            } else if (key.equals("resize") || key.startsWith("resize_")) {
+                canvas.save();
+                if (key.equals("resize_nw")) canvas.rotate(180, 12, 12);
+                else if (key.equals("resize_ne")) canvas.rotate(270, 12, 12);
+                else if (key.equals("resize_sw")) canvas.rotate(90, 12, 12);
+                p.moveTo(8, 20); p.lineTo(20, 8); p.moveTo(14, 20); p.lineTo(20, 14);
+                canvas.drawPath(p, paint); canvas.restore();
+            } else if (key.equals("more")) {
+                paint.setStyle(Paint.Style.FILL);
+                for (int x = 5; x <= 19; x += 7) canvas.drawCircle(x, 12, 1.8f, paint);
             } else if (key.equals("check")) {
                 p.moveTo(4, 12); p.lineTo(9, 17); p.lineTo(20, 6); canvas.drawPath(p, paint);
             } else if (key.equals("plus")) { canvas.drawLine(12, 4, 12, 20, paint); canvas.drawLine(4, 12, 20, 12, paint); }

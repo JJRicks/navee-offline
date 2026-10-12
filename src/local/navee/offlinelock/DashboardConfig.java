@@ -91,11 +91,17 @@ public final class DashboardConfig {
                                     ? 15 * 60000L
                                     : type.equals("health") ? 30 * 86400000L : 86400000L;
             keys.addAll(
-                    Arrays.asList(
-                            "remaining_range_km",
-                            "power_w",
-                            "battery_health_percent",
-                            "temperature_c"));
+                    type.equals("scooter")
+                            ? Arrays.asList(
+                                    "odometer_km",
+                                    "driving_mode",
+                                    "charge_cycles",
+                                    "capacity_throughput_ah")
+                            : Arrays.asList(
+                                    "remaining_range_km",
+                                    "power_w",
+                                    "battery_health_percent",
+                                    "temperature_c"));
         }
 
         public int defaultHeight() {
@@ -105,7 +111,7 @@ public final class DashboardConfig {
                 case "charging":
                     return 6;
                 case "scooter":
-                    return 4;
+                    return 6;
                 case "live":
                 case "history":
                     return 5;
@@ -188,6 +194,24 @@ public final class DashboardConfig {
                         for (int k = 0; k < Math.min(12, keys.length()); k++)
                             w.keys.add(keys.getString(k));
                     }
+                    // 0.6.0 stored unused generic keys on the photo card. Give those
+                    // existing cards the new lifetime defaults without changing their geometry.
+                    if (type.equals("scooter")
+                            && !o.optBoolean("scooterStats", false)
+                            && w.keys.equals(
+                                    Arrays.asList(
+                                            "remaining_range_km",
+                                            "power_w",
+                                            "battery_health_percent",
+                                            "temperature_c"))) {
+                        w.keys.clear();
+                        w.keys.addAll(
+                                Arrays.asList(
+                                        "odometer_km",
+                                        "driving_mode",
+                                        "charge_cycles",
+                                        "capacity_throughput_ah"));
+                    }
                     JSONObject layouts = o.optJSONObject("layouts");
                     if (layouts != null)
                         for (int c = 1; c <= 4; c++) {
@@ -244,6 +268,7 @@ public final class DashboardConfig {
                 JSONObject o = new JSONObject();
                 o.put("id", w.id);
                 o.put("type", w.type);
+                if (w.type.equals("scooter")) o.put("scooterStats", true);
                 o.put("title", w.title);
                 o.put("metric", w.metric);
                 o.put("note", w.note);

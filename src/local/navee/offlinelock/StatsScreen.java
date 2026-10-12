@@ -114,6 +114,7 @@ public final class StatsScreen implements AppScreen {
         search.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12)); search.setMinimumHeight(ui.dp(48));
         search.setBackground(ui.shape(ui.raised, 16, ui.outline)); search.setContentDescription("Search scooter measurements"); search.setText(query);
         readingsSection.addView(search, new LinearLayout.LayoutParams(-1, -2));
+        SearchFocus.bind(search, host.activity().getWindow());
         LinearLayout filters = new LinearLayout(host.activity()); filters.setOrientation(LinearLayout.HORIZONTAL); filters.setGravity(Gravity.CENTER_VERTICAL);
         filterButton = ui.secondaryButton("Favourites", () -> {
             favouritesOnly = !favouritesOnly; preferences.edit().putBoolean("stats_favourites_only", favouritesOnly).apply(); applyFilter();

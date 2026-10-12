@@ -32,7 +32,9 @@ public final class DashboardScreen implements AppScreen {
     private final DashboardConfig config;
     private final String profileId;
     private final LinearLayout view, toolbar;
-    private final TextView edit, add, layoutButton, stale;
+    private final FrameLayout edit;
+    private final TextView add, layoutButton, stale;
+    private final Context dialogContext;
     private final Grid grid;
     private final ArrayList<Tile> tiles = new ArrayList<>();
     private boolean editing, closed;
@@ -43,6 +45,12 @@ public final class DashboardScreen implements AppScreen {
         this.host = host;
         this.actions = actions;
         ui = host.ui();
+        dialogContext =
+                new ContextThemeWrapper(
+                        host.activity(),
+                        ui.dark
+                                ? android.R.style.Theme_Material_Dialog_Alert
+                                : android.R.style.Theme_Material_Light_Dialog_Alert);
         service = host.service();
         preferences = host.activity().getSharedPreferences("app_settings", Context.MODE_PRIVATE);
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
@@ -54,15 +62,8 @@ public final class DashboardScreen implements AppScreen {
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = ui.text("Your dashboard", 16, true);
         toolbar.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
-        edit =
-                smallButton(
-                        editing ? "Done" : "Edit",
-                        () -> {
-                            editing = !editing;
-                            preferences.edit().putBoolean("dashboard_editing", editing).apply();
-                            render();
-                        });
-        toolbar.addView(edit, new LinearLayout.LayoutParams(-2, -2));
+        edit = iconAction("pencil", "Edit dashboard", this::toggleEditing);
+        toolbar.addView(edit, new LinearLayout.LayoutParams(ui.dp(64), ui.dp(48)));
         view.addView(toolbar);
         LinearLayout tools = row();
         add = smallButton("Add widget", this::palette);
@@ -103,13 +104,49 @@ public final class DashboardScreen implements AppScreen {
         return v;
     }
 
+    private void toggleEditing() {
+        grid.finishGesture(false);
+        editing = !editing;
+        preferences.edit().putBoolean("dashboard_editing", editing).apply();
+        render();
+    }
+
+    private FrameLayout iconAction(String key, String label, Runnable action) {
+        FrameLayout target = new FrameLayout(host.activity());
+        View icon = ui.icon(key, 22, ui.accent);
+        target.addView(icon, new FrameLayout.LayoutParams(ui.dp(22), ui.dp(22), Gravity.CENTER));
+        target.setContentDescription(label);
+        target.setFocusable(true);
+        target.setMinimumWidth(ui.dp(48));
+        target.setMinimumHeight(ui.dp(48));
+        target.setBackground(
+                new android.graphics.drawable.RippleDrawable(
+                        android.content.res.ColorStateList.valueOf(Ui.withAlpha(ui.accent, 35)),
+                        null,
+                        ui.shape(Color.WHITE, 14, 0)));
+        if (action != null) target.setOnClickListener(v -> action.run());
+        return target;
+    }
+
     private void render() {
         if (closed) return;
+        grid.finishGesture(false);
         for (Tile tile : tiles) tile.active = false;
         tiles.clear();
         grid.removeAllViews();
         actions.clearLock();
-        edit.setText(editing ? "Done" : "Edit");
+        edit.removeAllViews();
+        if (editing) {
+            TextView done = ui.text("Done", 14, true);
+            done.setTextColor(ui.accent);
+            done.setGravity(Gravity.CENTER);
+            edit.addView(done, new FrameLayout.LayoutParams(-1, -1));
+        } else {
+            edit.addView(
+                    ui.icon("pencil", 22, ui.accent),
+                    new FrameLayout.LayoutParams(ui.dp(22), ui.dp(22), Gravity.CENTER));
+        }
+        edit.setContentDescription(editing ? "Finish editing dashboard" : "Edit dashboard");
         add.setVisibility(editing ? View.VISIBLE : View.GONE);
         layoutButton.setVisibility(editing ? View.VISIBLE : View.GONE);
         for (DashboardConfig.Widget widget : config.widgets) {
@@ -136,9 +173,7 @@ public final class DashboardScreen implements AppScreen {
         Map<String, TelemetryHistory.Reading> readings = readings();
         for (TelemetryHistory.Reading r : readings.values())
             last = Math.max(last, r.capturedWallMs);
-        if (editing)
-            stale.setText(
-                    "Hold a grip to move · Drag a corner to resize · Options for each widget");
+        if (editing) stale.setText("Drag the dots to move · Drag the lower-right corner to resize");
         else
             stale.setText(
                     live
@@ -170,6 +205,10 @@ public final class DashboardScreen implements AppScreen {
 
     private String format(TelemetryHistory.Reading r) {
         if (r == null || r.value == null) return "—";
+        if (r.key.equals("driving_mode") && r.number != null) {
+            ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
+            return Telemetry.drivingModeLabel(profile == null ? 0 : profile.pid(), r.number);
+        }
         if (r.number != null) {
             if (r.key.endsWith("_kmh")) return DisplayUnits.speed(r.number, units());
             if (r.key.endsWith("_km"))
@@ -193,6 +232,7 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private String label(String key) {
+        if (key.equals("driving_mode")) return "Drive mode";
         for (Telemetry.Metric m : new Telemetry().metrics()) if (m.key.equals(key)) return m.label;
         return key;
     }
@@ -222,7 +262,7 @@ public final class DashboardScreen implements AppScreen {
         }
     }
 
-    private final class Tile extends LinearLayout {
+    private final class Tile extends FrameLayout {
         final DashboardConfig.Widget widget;
         final LinearLayout body, heading;
         final TextView footer, title;
@@ -253,119 +293,59 @@ public final class DashboardScreen implements AppScreen {
         Tile(DashboardConfig.Widget widget) {
             super(host.activity());
             this.widget = widget;
-            setOrientation(VERTICAL);
-            setPadding(ui.dp(14), ui.dp(10), ui.dp(14), ui.dp(10));
+            setClipChildren(false);
+            setClipToPadding(false);
             setBackground(ui.shape(ui.surface, 24, editing ? ui.outline : 0));
+            LinearLayout content = column();
+            content.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(editing ? 30 : 10));
+            addView(content, new FrameLayout.LayoutParams(-1, -1));
             heading = row();
             heading.setGravity(Gravity.CENTER_VERTICAL);
-            title = ui.text(widget.title, 15, true);
-            title.setMaxLines(2);
-            ui.decorate(title, widgetIcon(widget.type));
-            heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
             if (editing) {
-                heading.setOrientation(LinearLayout.VERTICAL);
-                title.setLayoutParams(new LinearLayout.LayoutParams(-1, -2));
-                LinearLayout handles = row();
-                heading.addView(handles, new LinearLayout.LayoutParams(-1, -2));
-                TextView grip = smallButton("⠿", null);
-                grip.setContentDescription("Move " + widget.title);
+                FrameLayout grip =
+                        iconAction("grip", "Move " + widget.title, () -> position(widget));
                 grip.setOnLongClickListener(
                         v -> {
-                            ClipData data = ClipData.newPlainText("widget", widget.id);
-                            v.startDragAndDrop(data, new View.DragShadowBuilder(this), this, 0);
+                            EditorTouch touch = (EditorTouch) grip.getTag();
+                            if (touch != null) touch.start();
                             return true;
                         });
-                grip.setOnClickListener(v -> options(widget));
-                handles.addView(grip, new LinearLayout.LayoutParams(0, ui.dp(48), 1));
-                TextView more = smallButton("⋯", () -> options(widget));
-                more.setContentDescription("Options for " + widget.title);
-                handles.addView(more, new LinearLayout.LayoutParams(0, ui.dp(48), 1));
+                // Keep the listener reachable by the keyboard/long-press route too.
+                EditorTouch touch = new EditorTouch(this, false);
+                grip.setTag(touch);
+                grip.setOnTouchListener(touch);
+                heading.addView(grip, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
             }
-            addView(heading, new LinearLayout.LayoutParams(-1, -2));
+            title = ui.text(widget.title, editing ? 13 : 15, true);
+            title.setMaxLines(editing ? 1 : 2);
+            title.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            if (!editing) ui.decorate(title, widgetIcon(widget.type));
+            heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+            if (editing) {
+                FrameLayout more =
+                        iconAction("more", "Options for " + widget.title, () -> options(widget));
+                heading.addView(more, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+            }
+            content.addView(heading, new LinearLayout.LayoutParams(-1, -2));
             body = column();
             body.setPadding(0, ui.dp(8), 0, 0);
             ScrollView viewport = new ScrollView(host.activity());
             viewport.setFillViewport(true);
             viewport.setClipToPadding(false);
             viewport.addView(body, new ScrollView.LayoutParams(-1, -1));
-            addView(viewport, new LinearLayout.LayoutParams(-1, 0, 1));
+            content.addView(viewport, new LinearLayout.LayoutParams(-1, 0, 1));
             footer = ui.caption("");
             footer.setMaxLines(2);
-            footer.setPadding(0, ui.dp(5), 0, 0);
-            addView(footer);
+            footer.setPadding(0, ui.dp(5), ui.dp(editing ? 22 : 0), 0);
+            content.addView(footer);
             if (editing) {
-                TextView resize = smallButton("↘", null);
-                resize.setContentDescription("Resize " + widget.title);
-                resize.setGravity(Gravity.RIGHT | Gravity.CENTER_VERTICAL);
-                resize.setOnTouchListener(
-                        new View.OnTouchListener() {
-                            float x, y;
-                            int w, h;
-                            boolean moved;
-
-                            public boolean onTouch(View v, android.view.MotionEvent event) {
-                                DashboardLayout.Cell cell = widget.layouts.get(grid.columns);
-                                if (cell == null) return false;
-                                switch (event.getActionMasked()) {
-                                    case MotionEvent.ACTION_DOWN:
-                                        x = event.getRawX();
-                                        y = event.getRawY();
-                                        w = cell.w;
-                                        h = cell.h;
-                                        moved = false;
-                                        v.getParent().requestDisallowInterceptTouchEvent(true);
-                                        return true;
-                                    case MotionEvent.ACTION_MOVE:
-                                        moved |=
-                                                Math.abs(event.getRawX() - x)
-                                                                + Math.abs(event.getRawY() - y)
-                                                        > ui.dp(8);
-                                        int
-                                                nw =
-                                                        Math.max(
-                                                                1,
-                                                                Math.min(
-                                                                        grid.columns - cell.x,
-                                                                        w
-                                                                                + Math.round(
-                                                                                        (event
-                                                                                                                .getRawX()
-                                                                                                        - x)
-                                                                                                / grid
-                                                                                                        .columnWidth()))),
-                                                nh =
-                                                        Math.max(
-                                                                widget.minimumHeight(),
-                                                                Math.min(
-                                                                        16,
-                                                                        h
-                                                                                + Math.round(
-                                                                                        (event
-                                                                                                                .getRawY()
-                                                                                                        - y)
-                                                                                                / grid
-                                                                                                        .rowHeight())));
-                                        if (cell.w != nw || cell.h != nh) {
-                                            cell.w = nw;
-                                            cell.h = nh;
-                                            grid.settle(widget.id);
-                                            config.save();
-                                        }
-                                        return true;
-                                    case MotionEvent.ACTION_UP:
-                                    case MotionEvent.ACTION_CANCEL:
-                                        v.getParent().requestDisallowInterceptTouchEvent(false);
-                                        config.save();
-                                        if (!moved
-                                                && event.getActionMasked() == MotionEvent.ACTION_UP)
-                                            options(widget);
-                                        return true;
-                                    default:
-                                        return false;
-                                }
-                            }
-                        });
-                addView(resize, new LinearLayout.LayoutParams(-1, ui.dp(40)));
+                FrameLayout resize =
+                        iconAction("resize", "Resize " + widget.title, () -> size(widget));
+                resize.setOnTouchListener(new EditorTouch(this, true));
+                addView(
+                        resize,
+                        new FrameLayout.LayoutParams(
+                                ui.dp(48), ui.dp(48), Gravity.BOTTOM | Gravity.RIGHT));
             }
             build();
         }
@@ -378,7 +358,13 @@ public final class DashboardScreen implements AppScreen {
                 case "scooter":
                     photoName = ui.text("", 19, true);
                     photoName.setGravity(Gravity.CENTER);
-                    body.addView(photoName);
+                    LinearLayout nameRow = row();
+                    nameRow.setGravity(Gravity.CENTER_VERTICAL);
+                    nameRow.addView(photoName, new LinearLayout.LayoutParams(0, -2, 1));
+                    nameRow.addView(
+                            iconAction("pencil", "Rename scooter", actions::rename),
+                            new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+                    body.addView(nameRow);
                     photo = new ImageView(host.activity());
                     photo.setScaleType(ImageView.ScaleType.FIT_CENTER);
                     photo.setContentDescription("NAVEE UT5 MAX scooter");
@@ -395,6 +381,27 @@ public final class DashboardScreen implements AppScreen {
                     photoHint.setGravity(Gravity.CENTER);
                     body.addView(photoHint);
                     photoName.setOnClickListener(v -> actions.rename());
+                    for (int i = 0; i < widget.keys.size(); i += 2) {
+                        LinearLayout stats = row();
+                        for (int n = i; n < Math.min(i + 2, widget.keys.size()); n++) {
+                            String key = widget.keys.get(n);
+                            LinearLayout item = column();
+                            item.setPadding(ui.dp(4), ui.dp(6), ui.dp(8), ui.dp(6));
+                            TextView value = ui.text("—", 18, true);
+                            value.setMaxLines(2);
+                            item.addView(value);
+                            item.addView(
+                                    ui.caption(
+                                            key.equals("capacity_throughput_ah")
+                                                    ? "Battery throughput"
+                                                    : key.equals("charge_cycles")
+                                                            ? "Reported charges"
+                                                            : label(key)));
+                            stats.addView(item, new LinearLayout.LayoutParams(0, -2, 1));
+                            amounts.put(key, value);
+                        }
+                        body.addView(stats);
+                    }
                     break;
                 case "battery":
                     LinearLayout charge = row();
@@ -533,8 +540,12 @@ public final class DashboardScreen implements AppScreen {
             if (photo != null) {
                 // A weighted image inside ScrollView can measure at its bitmap's
                 // intrinsic height. Bound it to the card so the whole scooter fits.
-                int budget = ui.dp((editing ? 200 : 110) * Math.max(1, ui.textScale));
-                photo.getLayoutParams().height = Math.max(ui.dp(40), MeasureSpec.getSize(heightSpec) - budget);
+                int budget =
+                        ui.dp(
+                                ((editing ? 175 : 136) + ((widget.keys.size() + 1) / 2) * 60)
+                                        * Math.max(1, ui.textScale));
+                photo.getLayoutParams().height =
+                        Math.max(ui.dp(72), MeasureSpec.getSize(heightSpec) - budget);
             }
             super.onMeasure(widthSpec, heightSpec);
         }
@@ -952,55 +963,112 @@ public final class DashboardScreen implements AppScreen {
         }
     }
 
+    /** Editing gestures own their hit targets; content scrolling never starts a move. */
+    private final class EditorTouch implements View.OnTouchListener {
+        final Tile tile;
+        final boolean resize;
+        float downX, downY;
+        boolean started;
+        View handle;
+        final Runnable hold = () -> start();
+
+        EditorTouch(Tile tile, boolean resize) {
+            this.tile = tile;
+            this.resize = resize;
+        }
+
+        void start() {
+            if (started || handle == null || !editing || !tile.active || !tile.hasWindowFocus()) return;
+            started = true;
+            handle.removeCallbacks(hold);
+            grid.beginGesture(tile, resize, downX, downY);
+            handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+        }
+
+        @Override
+        public boolean onTouch(View v, MotionEvent event) {
+            switch (event.getActionMasked()) {
+                case MotionEvent.ACTION_DOWN:
+                    handle = v;
+                    started = false;
+                    downX = event.getRawX();
+                    downY = event.getRawY();
+                    v.getParent().requestDisallowInterceptTouchEvent(true);
+                    if (!resize) v.postDelayed(hold, ViewConfiguration.getLongPressTimeout());
+                    return true;
+                case MotionEvent.ACTION_MOVE:
+                    if (!started
+                            && Math.hypot(event.getRawX() - downX, event.getRawY() - downY)
+                                    > ViewConfiguration.get(host.activity()).getScaledTouchSlop())
+                        start();
+                    if (started) grid.updateGesture(event.getRawX(), event.getRawY());
+                    return true;
+                case MotionEvent.ACTION_POINTER_UP:
+                    if (event.getActionIndex() != 0) return true;
+                    // End cleanly if the primary finger leaves during a multi-touch gesture.
+                case MotionEvent.ACTION_UP:
+                case MotionEvent.ACTION_CANCEL:
+                    v.removeCallbacks(hold);
+                    v.getParent().requestDisallowInterceptTouchEvent(false);
+                    if (started)
+                        grid.finishGesture(event.getActionMasked() != MotionEvent.ACTION_CANCEL);
+                    else if (handle != null && event.getActionMasked() == MotionEvent.ACTION_UP)
+                        v.performClick();
+                    handle = null;
+                    started = false;
+                    return true;
+                default:
+                    return true;
+            }
+        }
+    }
+
     private final class Grid extends ViewGroup {
         int columns = 2;
         private int measuredWidth;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private float dragX = -1, dragY = -1;
+        Tile gestureTile;
+        List<DashboardLayout.Cell> gestureSnapshot;
+        private DashboardLayout.Cell gestureOrigin, requestedCell;
+        private boolean resizing;
+        private float rawX, rawY, startRawX, startRawY, anchorX, anchorY, startGridY;
+        private int gestureColumns, gestureMinimumHeight;
+        private RectF previewBounds;
+        private android.animation.ValueAnimator previewAnimation;
+        private final Runnable scrollFrame =
+                new Runnable() {
+                    @Override
+                    public void run() {
+                        if (gestureTile == null) return;
+                        ScrollView scroll = outerScroll();
+                        if (scroll != null) {
+                            int[] p = new int[2];
+                            scroll.getLocationOnScreen(p);
+                            float y = rawY - p[1];
+                            int speed =
+                                    y < ui.dp(64)
+                                            ? -ui.dp(9)
+                                            : y > scroll.getHeight() - ui.dp(64) ? ui.dp(9) : 0;
+                            if (speed != 0) {
+                                scroll.scrollBy(0, speed);
+                                updateGesture(rawX, rawY);
+                            }
+                        }
+                        postOnAnimation(this);
+                    }
+                };
 
         Grid() {
             super(host.activity());
             setWillNotDraw(false);
-            setOnDragListener(
-                    (v, event) -> {
-                        if (!editing || !(event.getLocalState() instanceof Tile)) return false;
-                        Tile tile = (Tile) event.getLocalState();
-                        switch (event.getAction()) {
-                            case DragEvent.ACTION_DRAG_STARTED:
-                                return true;
-                            case DragEvent.ACTION_DRAG_LOCATION:
-                                dragX = event.getX();
-                                dragY = event.getY();
-                                invalidate();
-                                autoScroll(event.getY());
-                                return true;
-                            case DragEvent.ACTION_DROP:
-                                DashboardLayout.Cell cell = tile.widget.layouts.get(columns);
-                                if (cell != null) {
-                                    cell.x =
-                                            Math.max(
-                                                    0,
-                                                    Math.min(
-                                                            columns - cell.w,
-                                                            (int) (event.getX() / columnWidth())));
-                                    cell.y =
-                                            Math.max(
-                                                    0,
-                                                    Math.min(
-                                                            300,
-                                                            (int) (event.getY() / rowHeight())));
-                                    settle(tile.widget.id);
-                                    config.save();
-                                }
-                                return true;
-                            case DragEvent.ACTION_DRAG_ENDED:
-                                dragX = dragY = -1;
-                                invalidate();
-                                return true;
-                            default:
-                                return true;
-                        }
-                    });
+            setClipChildren(false);
+            setClipToPadding(false);
+        }
+
+        @Override
+        public void onWindowFocusChanged(boolean focused) {
+            super.onWindowFocusChanged(focused);
+            if (!focused) finishGesture(false);
         }
 
         float columnWidth() {
@@ -1011,24 +1079,192 @@ public final class DashboardScreen implements AppScreen {
             return ui.dp((editing ? 88 : 64) * Math.max(1, ui.textScale));
         }
 
+        private boolean motionEnabled() {
+            return android.animation.ValueAnimator.areAnimatorsEnabled();
+        }
+
+        private List<DashboardLayout.Cell> snapshot() {
+            ArrayList<DashboardLayout.Cell> result = new ArrayList<>();
+            for (DashboardConfig.Widget widget : config.widgets)
+                result.add(widget.layouts.get(columns).copy());
+            return result;
+        }
+
+        private void apply(List<DashboardLayout.Cell> cells, int layoutColumns) {
+            for (DashboardLayout.Cell cell : cells)
+                for (DashboardConfig.Widget widget : config.widgets)
+                    if (widget.id.equals(cell.id)) widget.layouts.put(layoutColumns, cell.copy());
+        }
+
+        void beginGesture(Tile tile, boolean resize, float x, float y) {
+            finishGesture(false);
+            config.layout(columns, null);
+            gestureSnapshot = snapshot();
+            gestureColumns = columns;
+            gestureTile = tile;
+            resizing = resize;
+            gestureOrigin = tile.widget.layouts.get(columns).copy();
+            gestureMinimumHeight =
+                    Math.max(
+                            gestureOrigin.y + gestureOrigin.h,
+                            Math.round(getHeight() / rowHeight()));
+            requestedCell = null;
+            startRawX = rawX = x;
+            startRawY = rawY = y;
+            int[] p = new int[2];
+            tile.getLocationOnScreen(p);
+            anchorX = x - p[0];
+            anchorY = y - p[1];
+            getLocationOnScreen(p);
+            startGridY = p[1];
+            tile.animate().cancel();
+            tile.setTranslationX(0);
+            tile.setTranslationY(0);
+            tile.setScaleX(1);
+            tile.setScaleY(1);
+            tile.setElevation(ui.dp(12));
+            tile.setAlpha(.94f);
+            tile.setBackground(ui.shape(ui.surface, 24, ui.accent));
+            updateGesture(x, y);
+            postOnAnimation(scrollFrame);
+        }
+
+        void updateGesture(float x, float y) {
+            if (gestureTile == null) return;
+            rawX = x;
+            rawY = y;
+            int[] p = new int[2];
+            getLocationOnScreen(p);
+            DashboardLayout.Cell target = gestureOrigin.copy();
+            if (resizing) {
+                target.w =
+                        Math.max(
+                                1,
+                                Math.min(
+                                        columns - target.x,
+                                        gestureOrigin.w
+                                                + Math.round((x - startRawX) / columnWidth())));
+                target.h =
+                        Math.max(
+                                gestureTile.widget.minimumHeight(),
+                                Math.min(
+                                        16,
+                                        gestureOrigin.h
+                                                + Math.round(
+                                                        (y - startRawY + startGridY - p[1])
+                                                                / rowHeight())));
+            } else {
+                target.x =
+                        Math.max(
+                                0,
+                                Math.min(
+                                        columns - target.w,
+                                        Math.round((x - p[0] - anchorX) / columnWidth())));
+                target.y =
+                        Math.max(0, Math.min(300, Math.round((y - p[1] - anchorY) / rowHeight())));
+            }
+            if (requestedCell == null
+                    || target.x != requestedCell.x
+                    || target.y != requestedCell.y
+                    || target.w != requestedCell.w
+                    || target.h != requestedCell.h) {
+                requestedCell = target;
+                ArrayList<DashboardLayout.Cell> next = new ArrayList<>();
+                for (DashboardLayout.Cell original : gestureSnapshot)
+                    next.add(original.id.equals(target.id) ? target.copy() : original.copy());
+                apply(DashboardLayout.preview(next, columns, target.id), columns);
+                animatePreview(target);
+                requestLayout();
+            }
+            followFinger();
+            invalidate();
+        }
+
+        DashboardLayout.Cell previewCell() {
+            return requestedCell == null ? null : requestedCell.copy();
+        }
+
+        private void followFinger() {
+            if (gestureTile == null || resizing) return;
+            int[] p = new int[2];
+            getLocationOnScreen(p);
+            gestureTile.setTranslationX(rawX - p[0] - anchorX - gestureTile.getLeft());
+            gestureTile.setTranslationY(rawY - p[1] - anchorY - gestureTile.getTop());
+        }
+
+        private RectF bounds(DashboardLayout.Cell cell) {
+            return new RectF(
+                    cell.x * columnWidth(),
+                    cell.y * rowHeight(),
+                    (cell.x + cell.w) * columnWidth() - ui.dp(10),
+                    (cell.y + cell.h) * rowHeight() - ui.dp(10));
+        }
+
+        private void animatePreview(DashboardLayout.Cell cell) {
+            RectF end = bounds(cell);
+            if (previewAnimation != null) previewAnimation.cancel();
+            if (previewBounds == null || !motionEnabled()) {
+                previewBounds = end;
+                return;
+            }
+            RectF start = new RectF(previewBounds);
+            previewAnimation = android.animation.ValueAnimator.ofFloat(0, 1);
+            previewAnimation.setDuration(120);
+            previewAnimation.addUpdateListener(
+                    a -> {
+                        float f = (float) a.getAnimatedValue();
+                        previewBounds =
+                                new RectF(
+                                        start.left + (end.left - start.left) * f,
+                                        start.top + (end.top - start.top) * f,
+                                        start.right + (end.right - start.right) * f,
+                                        start.bottom + (end.bottom - start.bottom) * f);
+                        invalidate();
+                    });
+            previewAnimation.start();
+        }
+
+        void finishGesture(boolean commit) {
+            if (gestureTile == null) return;
+            removeCallbacks(scrollFrame);
+            if (!commit) apply(gestureSnapshot, gestureColumns);
+            else config.save();
+            Tile tile = gestureTile;
+            gestureTile = null;
+            gestureSnapshot = null;
+            gestureOrigin = requestedCell = null;
+            if (previewAnimation != null) previewAnimation.cancel();
+            previewBounds = null;
+            tile.setAlpha(1);
+            tile.setElevation(0);
+            tile.setBackground(ui.shape(ui.surface, 24, editing ? ui.outline : 0));
+            if (motionEnabled())
+                tile.animate()
+                        .translationX(0)
+                        .translationY(0)
+                        .scaleX(1)
+                        .scaleY(1)
+                        .setDuration(200)
+                        .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                        .start();
+            else {
+                tile.setTranslationX(0);
+                tile.setTranslationY(0);
+            }
+            requestLayout();
+            invalidate();
+        }
+
         void settle(String priority) {
             config.layout(columns, priority);
             requestLayout();
             invalidate();
         }
 
-        private void autoScroll(float y) {
+        private ScrollView outerScroll() {
             ViewParent parent = getParent();
             while (parent != null && !(parent instanceof ScrollView)) parent = parent.getParent();
-            if (parent instanceof ScrollView) {
-                ScrollView scroll = (ScrollView) parent;
-                int[] ours = new int[2], theirs = new int[2];
-                getLocationOnScreen(ours);
-                scroll.getLocationOnScreen(theirs);
-                float local = y + ours[1] - theirs[1];
-                if (local > scroll.getHeight() - ui.dp(70)) scroll.smoothScrollBy(0, ui.dp(22));
-                else if (local < ui.dp(70)) scroll.smoothScrollBy(0, -ui.dp(22));
-            }
+            return parent instanceof ScrollView ? (ScrollView) parent : null;
         }
 
         @Override
@@ -1037,9 +1273,12 @@ public final class DashboardScreen implements AppScreen {
             int maximum = Math.max(1, Math.min(4, (int) (measuredWidth / ui.dp(150))));
             int requested = preferences.getInt("dashboard_columns", 0);
             int next = requested == 0 ? maximum : Math.min(maximum, Math.max(1, requested));
-            columns = next;
-            List<DashboardLayout.Cell> cells = config.layout(columns, null);
-            int end = 0;
+            // Parents can probe several widths in one measurement pass. Keep the
+            // active layout stable until an actual laid-out width changes.
+            columns = gestureTile == null ? next : gestureColumns;
+            List<DashboardLayout.Cell> cells =
+                    config.layout(columns, gestureTile == null ? null : gestureTile.widget.id);
+            int end = gestureTile == null ? 0 : gestureMinimumHeight;
             for (int i = 0; i < tiles.size(); i++) {
                 DashboardLayout.Cell cell = cells.get(i);
                 int width = Math.max(1, Math.round(cell.w * columnWidth()) - ui.dp(10));
@@ -1058,30 +1297,72 @@ public final class DashboardScreen implements AppScreen {
         }
 
         @Override
+        protected void onSizeChanged(int w, int h, int oldw, int oldh) {
+            super.onSizeChanged(w, h, oldw, oldh);
+            if (gestureTile != null && w != oldw) {
+                finishGesture(false);
+                requestLayout();
+            }
+        }
+
+        @Override
         protected void onLayout(boolean changed, int l, int t, int r, int b) {
             for (Tile tile : tiles) {
                 DashboardLayout.Cell cell = tile.widget.layouts.get(columns);
                 int x = Math.round(cell.x * columnWidth()), y = Math.round(cell.y * rowHeight());
-                tile.layout(x, y, x + tile.getMeasuredWidth(), y + tile.getMeasuredHeight());
+                int w = tile.getMeasuredWidth(), h = tile.getMeasuredHeight();
+                boolean moved =
+                        tile.getLeft() != x
+                                || tile.getTop() != y
+                                || tile.getWidth() != w
+                                || tile.getHeight() != h;
+                float oldX = tile.getLeft() + tile.getTranslationX(),
+                        oldY = tile.getTop() + tile.getTranslationY();
+                float oldW = tile.getWidth() * tile.getScaleX(),
+                        oldH = tile.getHeight() * tile.getScaleY();
+                tile.layout(x, y, x + w, y + h);
+                if (tile == gestureTile) {
+                    followFinger();
+                    continue;
+                }
+                if (editing && moved && oldW > 0 && oldH > 0 && motionEnabled()) {
+                    tile.animate().cancel();
+                    tile.setPivotX(0);
+                    tile.setPivotY(0);
+                    tile.setTranslationX(oldX - x);
+                    tile.setTranslationY(oldY - y);
+                    tile.setScaleX(oldW / w);
+                    tile.setScaleY(oldH / h);
+                    tile.animate()
+                            .translationX(0)
+                            .translationY(0)
+                            .scaleX(1)
+                            .scaleY(1)
+                            .setDuration(200)
+                            .setInterpolator(new android.view.animation.DecelerateInterpolator())
+                            .start();
+                }
             }
         }
 
         @Override
         protected void onDraw(Canvas c) {
             if (!editing) return;
-            paint.setColor(ui.outline);
-            paint.setStrokeWidth(ui.dp(1));
+            paint.setStyle(Paint.Style.FILL);
+            paint.setColor(Ui.withAlpha(ui.muted, 75));
             for (int col = 0; col <= columns; col++)
-                c.drawLine(col * columnWidth(), 0, col * columnWidth(), getHeight(), paint);
-            if (dragX >= 0) {
-                paint.setColor(Ui.withAlpha(ui.accent, 35));
-                float x = (int) (dragX / columnWidth()) * columnWidth(),
-                        y = (int) (dragY / rowHeight()) * rowHeight();
-                c.drawRoundRect(
-                        new RectF(x, y, x + columnWidth() - ui.dp(10), y + rowHeight() - ui.dp(10)),
-                        ui.dp(12),
-                        ui.dp(12),
-                        paint);
+                for (float y = 0; y < getHeight(); y += rowHeight())
+                    c.drawCircle(col * columnWidth(), y, ui.dp(1.5f), paint);
+            if (previewBounds != null) {
+                paint.setColor(Ui.withAlpha(ui.accent, 46));
+                c.drawRoundRect(previewBounds, ui.dp(24), ui.dp(24), paint);
+                paint.setColor(Ui.withAlpha(ui.accent, 180));
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(ui.dp(2));
+                paint.setPathEffect(new DashPathEffect(new float[] {ui.dp(7), ui.dp(5)}, 0));
+                c.drawRoundRect(previewBounds, ui.dp(24), ui.dp(24), paint);
+                paint.setPathEffect(null);
+                paint.setStyle(Paint.Style.FILL);
             }
         }
     }
@@ -1154,10 +1435,23 @@ public final class DashboardScreen implements AppScreen {
                                                             ? widget.title
                                                             : value.trim();
                                         })));
+        if (widget.type.equals("scooter"))
+            list.addView(
+                    ui.settingRow(
+                            "Scooter name",
+                            service == null || service.profiles.active() == null
+                                    ? ""
+                                    : service.profiles.active().name,
+                            () -> {
+                                dismiss();
+                                actions.rename();
+                            }));
         if (Arrays.asList("metric", "gauge", "live", "history").contains(widget.type))
             list.addView(
                     ui.settingRow("Parameter", label(widget.metric), () -> chooseMetric(widget)));
-        if (widget.type.equals("readings") || widget.type.equals("battery"))
+        if (widget.type.equals("readings")
+                || widget.type.equals("battery")
+                || widget.type.equals("scooter"))
             list.addView(
                     ui.settingRow(
                             "Readings",
@@ -1213,7 +1507,7 @@ public final class DashboardScreen implements AppScreen {
                         () -> {
                             dismiss();
                             dialog =
-                                    new AlertDialog.Builder(host.activity())
+                                    new AlertDialog.Builder(dialogContext)
                                             .setTitle("Widget color")
                                             .setSingleChoiceItems(
                                                     new String[] {"Sage", "Blue", "Amber", "Rose"},
@@ -1305,12 +1599,12 @@ public final class DashboardScreen implements AppScreen {
                         "Use the pack’s advertised energy in Wh, or nominal voltage × rated Ah."
                             + " Enter 0 to use the model rating when known. This only changes the"
                             + " comparison."));
-        EditText input = new EditText(host.activity());
+        EditText input = new EditText(dialogContext);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
         input.setText(Double.toString(widget.advertisedWh));
         content.addView(input);
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle("Advertised capacity (Wh)")
                         .setView(content)
                         .setNegativeButton("Cancel", null)
@@ -1374,7 +1668,7 @@ public final class DashboardScreen implements AppScreen {
             String value,
             java.util.function.Consumer<String> apply) {
         dismiss();
-        EditText input = new EditText(host.activity());
+        EditText input = new EditText(dialogContext);
         input.setText(value);
         input.setSelectAllOnFocus(true);
         input.setMaxLines(label.equals("Note") ? 6 : 2);
@@ -1383,7 +1677,7 @@ public final class DashboardScreen implements AppScreen {
                     new android.text.InputFilter.LengthFilter(label.equals("Note") ? 1200 : 80)
                 });
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle(label)
                         .setView(input)
                         .setNegativeButton("Cancel", null)
@@ -1399,7 +1693,7 @@ public final class DashboardScreen implements AppScreen {
     private void chooseMetric(DashboardConfig.Widget widget) {
         List<Telemetry.Metric> metrics = new Telemetry().metrics();
         LinearLayout content = column();
-        EditText search = new EditText(host.activity());
+        EditText search = new EditText(dialogContext);
         search.setHint("Search parameters");
         content.addView(search);
         LinearLayout rows = column();
@@ -1436,6 +1730,7 @@ public final class DashboardScreen implements AppScreen {
                 });
         fill.run();
         show("Choose parameter", content);
+        SearchFocus.bind(search, dialog.getWindow());
     }
 
     private void chooseReadings(DashboardConfig.Widget widget) {
@@ -1449,7 +1744,7 @@ public final class DashboardScreen implements AppScreen {
             checked[i] = chosen.contains(metrics.get(i).key);
         }
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle("Choose up to 12 readings")
                         .setMultiChoiceItems(
                                 names,
@@ -1509,7 +1804,7 @@ public final class DashboardScreen implements AppScreen {
         String[] labels = new String[times.length];
         for (int i = 0; i < times.length; i++) labels[i] = windowName(times[i]);
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle(
                                 widget.type.equals("capacity")
                                         ? "Ride data window"
@@ -1526,7 +1821,7 @@ public final class DashboardScreen implements AppScreen {
 
     private void scale(DashboardConfig.Widget widget, boolean maximum) {
         dismiss();
-        EditText input = new EditText(host.activity());
+        EditText input = new EditText(dialogContext);
         input.setInputType(
                 InputType.TYPE_CLASS_NUMBER
                         | InputType.TYPE_NUMBER_FLAG_DECIMAL
@@ -1535,7 +1830,7 @@ public final class DashboardScreen implements AppScreen {
                 Double.toString(
                         chartNumber(widget.metric, maximum ? widget.maximum : widget.minimum)));
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle(
                                 maximum
                                         ? "Scale maximum (display units)"
@@ -1569,11 +1864,11 @@ public final class DashboardScreen implements AppScreen {
         dismiss();
         DashboardLayout.Cell cell = widget.layouts.get(grid.columns);
         LinearLayout controls = column();
-        NumberPicker width = new NumberPicker(host.activity());
+        NumberPicker width = new NumberPicker(dialogContext);
         width.setMinValue(1);
         width.setMaxValue(grid.columns);
         width.setValue(cell.w);
-        NumberPicker height = new NumberPicker(host.activity());
+        NumberPicker height = new NumberPicker(dialogContext);
         height.setMinValue(widget.minimumHeight());
         height.setMaxValue(16);
         height.setValue(Math.max(widget.minimumHeight(), cell.h));
@@ -1582,7 +1877,7 @@ public final class DashboardScreen implements AppScreen {
         controls.addView(ui.caption("Rows"));
         controls.addView(height);
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle("Widget size")
                         .setView(controls)
                         .setNegativeButton("Cancel", null)
@@ -1602,7 +1897,7 @@ public final class DashboardScreen implements AppScreen {
         dismiss();
         DashboardLayout.Cell cell = widget.layouts.get(grid.columns);
         LinearLayout controls = column();
-        EditText x = new EditText(host.activity()), y = new EditText(host.activity());
+        EditText x = new EditText(dialogContext), y = new EditText(dialogContext);
         x.setInputType(InputType.TYPE_CLASS_NUMBER);
         y.setInputType(InputType.TYPE_CLASS_NUMBER);
         x.setText(Integer.toString(cell.x + 1));
@@ -1612,7 +1907,7 @@ public final class DashboardScreen implements AppScreen {
         controls.addView(ui.caption("Row (1–301)"));
         controls.addView(y);
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle("Move widget")
                         .setView(controls)
                         .setNegativeButton("Cancel", null)
@@ -1648,7 +1943,7 @@ public final class DashboardScreen implements AppScreen {
                         () -> {
                             dismiss();
                             dialog =
-                                    new AlertDialog.Builder(host.activity())
+                                    new AlertDialog.Builder(dialogContext)
                                             .setTitle("Dashboard columns")
                                             .setSingleChoiceItems(
                                                     new String[] {"Adaptive", "1", "2", "3", "4"},
@@ -1675,7 +1970,7 @@ public final class DashboardScreen implements AppScreen {
                         () -> {
                             dismiss();
                             dialog =
-                                    new AlertDialog.Builder(host.activity())
+                                    new AlertDialog.Builder(dialogContext)
                                             .setTitle("Restore default dashboard?")
                                             .setMessage(
                                                     "This replaces this scooter’s widget layout."
@@ -1700,12 +1995,13 @@ public final class DashboardScreen implements AppScreen {
         scroll.setPadding(p, 0, p, p);
         scroll.addView(content);
         dialog =
-                new AlertDialog.Builder(host.activity())
+                new AlertDialog.Builder(dialogContext)
                         .setTitle(title)
                         .setView(scroll)
                         .setNegativeButton("Close", null)
                         .create();
         dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(ui.accent);
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 24, 0));
             dialog.getWindow()
@@ -1743,8 +2039,6 @@ public final class DashboardScreen implements AppScreen {
         closed = true;
         for (Tile tile : tiles) tile.active = false;
         dismiss();
-        if (grid != null)
-            grid
-                    .cancelDragAndDrop(); /* ImageViews release the shared bitmap with this screen; never recycle a still-drawing bitmap. */
+        if (grid != null) grid.finishGesture(false);
     }
 }

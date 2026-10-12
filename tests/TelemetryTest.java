@@ -16,6 +16,7 @@ public final class TelemetryTest {
         signStatesCorrectExistingReadingsWithoutChangingAge();
         rideVariantsAndUnsignedOdometer();
         settingsHaveExactOffsets();
+        drivingModeNamesStayModelSpecificAndKeepRawEvidence();
         firmwareSerialAndHistory();
         snapshotsAreDefensiveAndExcludeSecrets();
         truncatedAndRandomPayloadsStayBounded();
@@ -211,6 +212,31 @@ public final class TelemetryTest {
         near(40, model.number("overspeed_alert"), "Extended settings offset40");
         near(42, model.number("drive_speed_limit"), "Drive speed limit skips reserved offset41");
         check(metric(model, "start_speed").label.contains("raw"), "Unconfirmed settings units stay raw");
+    }
+
+    private static void drivingModeNamesStayModelSpecificAndKeepRawEvidence() {
+        check("WALK".equals(Telemetry.drivingModeLabel(2538, 11.0)), "Owner-observed UT5 MAX walking code");
+        check("ECO".equals(Telemetry.drivingModeLabel(2538, 2.0)), "Owner-observed UT5 MAX economy code");
+        check("SPORT".equals(Telemetry.drivingModeLabel(2538, 3.0)), "Owner-observed UT5 MAX sport code");
+        check("3 (raw)".equals(Telemetry.drivingModeLabel(2523, 3.0)), "Conflicting other-model mode code is not labeled Sport");
+        check("11 (raw)".equals(Telemetry.drivingModeLabel(-1, 11.0)), "Unknown model does not inherit observed mapping");
+        check("5 (raw)".equals(Telemetry.drivingModeLabel(2538, 5.0)), "Unobserved UT5 MAX code stays visible");
+        check("2.5 (raw)".equals(Telemetry.drivingModeLabel(2538, 2.5)), "Fractional code cannot silently round to a known mode");
+        check("—".equals(Telemetry.drivingModeLabel(2538, null)), "Missing mode stays unavailable");
+        check("—".equals(Telemetry.drivingModeLabel(2538, Double.NaN)), "Invalid mode stays unavailable");
+        check("—".equals(Telemetry.drivingModeLabel(2538, Double.POSITIVE_INFINITY)), "Nonfinite mode stays unavailable");
+        Telemetry model = new Telemetry();
+        model.accept(0x70, response(new byte[] {0, 11}), 100);
+        near(11, model.number("driving_mode"), "Settings retains raw walking code for export");
+        check("11 (raw)".equals(metric(model, "driving_mode").value), "Raw diagnostic evidence is unchanged by display formatter");
+        model.accept(0x90, response(new byte[] {0, 3}), 200);
+        near(3, model.number("driving_mode"), "Home mode update retains original numeric value");
+        check("SPORT".equals(Telemetry.drivingModeLabel(2538, model.number("driving_mode"))), "Latest home report can render current mode");
+        model.accept(0x70, response(new byte[] {0, 2}), 150);
+        near(3, model.number("driving_mode"), "Older settings readback cannot replace newer reported mode");
+        model.accept(0x92, response(new byte[] {50, 2}), 250);
+        near(2, model.number("driving_status"), "Ride status remains its own raw field");
+        near(3, model.number("driving_mode"), "Separate ride status cannot overwrite the current mode");
     }
 
     private static void firmwareSerialAndHistory() {

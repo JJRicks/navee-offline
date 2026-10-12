@@ -10,6 +10,7 @@ import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
+import android.graphics.Color;
 import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
@@ -59,6 +60,7 @@ public final class DashboardValidation extends Instrumentation {
     private static final String[] DESTINATIONS = {"Home", "Scooter", "Stats", "Rides", "More"};
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
     private static final String RENAMED = "Synthetic renamed scooter";
+    private static final String HOME_RENAMED = "Synthetic Home rename";
     private final List<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private Bundle arguments;
     private MainActivity activity;
@@ -73,6 +75,7 @@ public final class DashboardValidation extends Instrumentation {
             requireFreshEmulator(); admitted = true;
             require(settings().edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
                     .putString("theme", "dark").putString("units", "mi").commit(), "Could not configure isolated emulator");
+            verifyScooterStatsMigration();
             seedSyntheticProfileAndHistory(); launch();
             for (String destination : DESTINATIONS) { clickDescription(destination); assertNavigationFits(); assertNoScooterWork(); }
             clickDescription("Home"); awaitDashboard();
@@ -92,9 +95,17 @@ public final class DashboardValidation extends Instrumentation {
             clickDescription("Home"); awaitDashboard();
             main(() -> require(RENAMED.contentEquals(((TextView)field(tile("scooter"), "photoName")).getText()),
                     "Dashboard scooter card did not update its name"));
-            check("Synthetic numeric and text readings return as stale; scooter name changes persist and update Home");
+            clickDescription("Rename scooter");
+            AlertDialog homeRename = (AlertDialog)field(activity, "controlDialog");
+            main(() -> first(homeRename.getWindow().getDecorView(), EditText.class).setText(HOME_RENAMED));
+            click(homeRename.getButton(AlertDialog.BUTTON_POSITIVE));
+            await(() -> HOME_RENAMED.contentEquals(((TextView)field(tile("scooter"), "photoName")).getText()),
+                    3000, "The scooter card rename did not update Home");
+            main(() -> require(HOME_RENAMED.equals(new ScooterProfiles(getTargetContext()).active().name),
+                    "The scooter card rename was not saved"));
+            check("Synthetic readings return as stale; both Scooter settings and the Home rename pencil persist the scooter name");
 
-            clickText(root(), "Edit"); await(() -> dashboard().isEditing(), 3000, "Edit mode did not open");
+            clickDescription("Edit dashboard"); await(() -> dashboard().isEditing(), 3000, "Edit pencil did not open edit mode");
             assertEditInputsInert(); screenshot("edit-dark");
             Set<String> existing = types();
             for (int i = 0; i < DashboardConfig.TYPES.length; i++) {
@@ -125,13 +136,15 @@ public final class DashboardValidation extends Instrumentation {
             setSize(metricId, 1, 4); setPosition(metricId, 1, 1);
             main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == 1 && cell(metricId).h == 4,
                     "Size/Move options did not retain the selected rectangle"));
-            assertGrid(); resizeByOneRow(metricId); assertGrid(); assertEditInputsInert();
+            assertGrid(); verifyEditAffordances(metricId); verifyOptionsContrast(metricId);
+            resizeByOneRow(metricId); assertGrid(); assertEditInputsInert();
             scrollHomeTop(); screenshot("customized-edit-dark");
-            check("A parameter, title, size and position can be configured; a resize gesture reflows neighboring cards without overlap");
+            check("A single options menu, separate move grip and visible corner handle provide distinct actions; resize previews and saves the new size");
 
-            nativeDragToNextCell(metricId); assertGrid(); assertEditInputsInert();
+            verifyCancelledDrag(metricId); directDragToNextCell(metricId); verifyLongPressCancel(metricId);
+            assertGrid(); assertEditInputsInert();
             scrollHomeTop(); screenshot("native-drag-dark");
-            check("A real touchscreen long press starts native drag-and-drop; dropping moves the card, avoids overlap and saves its placement");
+            check("Direct touchscreen drag previews the full card and reflows neighbors before release; drop saves and cancellation restores every position");
 
             verifyGaugeUnits(); assertNoScooterWork();
             check("Gauge speed limits display in mph, round-trip through editing and convert to km/h without changing the stored scale");
@@ -168,7 +181,7 @@ public final class DashboardValidation extends Instrumentation {
                 require(position.x == before.x && position.y == before.y && position.w == before.w && position.h == before.h,
                         "Widget placement did not survive recreation");
                 require(types().size() == DashboardConfig.TYPES.length && !dashboard().isEditing(), "Dashboard mode or widget list did not survive recreation");
-                require(RENAMED.equals(activity.service().profiles.active().name), "Scooter rename was lost on recreation");
+                require(HOME_RENAMED.equals(activity.service().profiles.active().name), "Scooter rename was lost on recreation");
                 require(widget("capacity").advertisedWh == 800d && widget("capacity").windowMs == 30 * 86400000L
                         && widget("capacity").title.equals("Synthetic capacity experiment"), "Capacity widget settings were lost on recreation");
             });
@@ -180,11 +193,12 @@ public final class DashboardValidation extends Instrumentation {
                     "Large light theme did not apply");
             assertGrid(); assertNavigationFits(); scrollHomeTop(); screenshot("customized-large-light");
             assertInnerScrolling(); screenshot("scrolling-note-large-light");
-            clickText(root(), "Edit"); assertEditInputsInert(); assertGrid(); scrollHomeTop(); screenshot("edit-large-light");
+            clickDescription("Edit dashboard"); assertEditInputsInert(); assertGrid();
+            verifyEditAffordances(metricId); verifyOptionsContrast(metricId); scrollHomeTop(); screenshot("edit-large-light");
             main(() -> invoke(activity, "navigateBack"));
             await(() -> !dashboard().isEditing(), 3000, "Back did not leave dashboard Edit");
             assertNoScooterWork();
-            check("140% text and light theme retain a non-overlapping dashboard, inner scrolling and visible navigation; Back exits Edit");
+            check("140% text and light theme retain usable handles, readable options, inner scrolling and navigation; Back exits Edit");
 
             restartServiceAndActivity();
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
@@ -246,6 +260,10 @@ public final class DashboardValidation extends Instrumentation {
                 syntheticReading(readings, "current_a", "-2 A", "A", -2d, wall);
                 syntheticReading(readings, "rated_capacity_ah", "14.5 Ah", "Ah", 14.5d, wall);
                 syntheticReading(readings, "charge_limit_percent", "80 %", "%", 80d, wall);
+                syntheticReading(readings, "odometer_km", "160.9344 km", "km", 160.9344d, wall);
+                syntheticReading(readings, "driving_mode", "3", "", 3d, wall);
+                syntheticReading(readings, "charge_cycles", "12 charges", "charges", 12d, wall);
+                syntheticReading(readings, "capacity_throughput_ah", "150 Ah", "Ah", 150d, wall);
                 fixtureHistory.record(profileId, new TelemetryHistory.Snapshot(readings, Collections.emptyMap(), wall), 1, true);
             }
         });
@@ -254,6 +272,40 @@ public final class DashboardValidation extends Instrumentation {
         await(() -> saved.get() != null, 5000, "Synthetic fixture did not persist");
         require(saved.get().readings.containsKey("controller_version"), "Text fixture was not saved");
         fixtureHistory.close(); fixtureHistory = null;
+    }
+    private void verifyScooterStatsMigration() throws Exception {
+        SharedPreferences isolated = getTargetContext().getSharedPreferences("dashboard_migration_validation", Context.MODE_PRIVATE);
+        require(isolated.getAll().isEmpty(), "Dashboard migration checks require empty isolated preferences");
+        List<String> oldKeys = Arrays.asList("remaining_range_km", "power_w", "battery_health_percent", "temperature_c");
+        String legacy = "[{\"id\":\"legacy-photo\",\"type\":\"scooter\",\"title\":\"Existing photo\","
+                + "\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],"
+                + "\"layouts\":{\"2\":[1,3,1,4],\"4\":[2,5,2,6]}}]";
+        try {
+            require(isolated.edit().putString("dashboard_v1_legacy", legacy).commit(), "Could not seed isolated legacy layout");
+            DashboardConfig migrated = new DashboardConfig(isolated, "legacy");
+            require(migrated.widgets.size() == 1, "Legacy migration changed widget count");
+            DashboardConfig.Widget photo = migrated.widgets.get(0);
+            require(photo.keys.equals(Arrays.asList("odometer_km", "driving_mode", "charge_cycles", "capacity_throughput_ah")),
+                    "Legacy unused photo keys did not migrate to scooter statistics");
+            require(photo.id.equals("legacy-photo") && photo.title.equals("Existing photo")
+                    && sameCell(photo.layouts.get(2), new DashboardLayout.Cell(photo.id, 1, 3, 1, 4))
+                    && sameCell(photo.layouts.get(4), new DashboardLayout.Cell(photo.id, 2, 5, 2, 6)),
+                    "Scooter statistics migration changed existing identity, title or geometry");
+            migrated.save();
+            org.json.JSONObject saved = new org.json.JSONArray(isolated.getString("dashboard_v1_legacy", "")).getJSONObject(0);
+            require(saved.getBoolean("scooterStats"), "Saving migrated scooter statistics did not mark their schema");
+
+            DashboardConfig fresh = new DashboardConfig(isolated, "fresh-custom");
+            DashboardConfig.Widget custom = null;
+            for (DashboardConfig.Widget widget : fresh.widgets) if (widget.type.equals("scooter")) custom = widget;
+            require(custom != null, "Fresh configuration lacks a scooter widget");
+            custom.keys.clear(); custom.keys.addAll(oldKeys); fresh.save();
+            DashboardConfig reloaded = new DashboardConfig(isolated, "fresh-custom");
+            DashboardConfig.Widget restored = null;
+            for (DashboardConfig.Widget widget : reloaded.widgets) if (widget.id.equals(custom.id)) restored = widget;
+            require(restored != null && restored.keys.equals(oldKeys),
+                    "Reload migrated a new widget's deliberately selected readings a second time");
+        } finally { require(isolated.edit().clear().commit(), "Could not remove isolated migration fixture"); }
     }
     private void syntheticReading(Map<String, TelemetryHistory.Reading> readings, String key, String value, String unit, Double number, long wall) {
         Telemetry.Metric metric = null; for (Telemetry.Metric m : new Telemetry().metrics()) if (m.key.equals(key)) metric = m;
@@ -293,6 +345,14 @@ public final class DashboardValidation extends Instrumentation {
                     "Nonnumeric cache is absent or incorrectly live");
             require(!activity.service().readingFresh("battery_percent") && !activity.service().featureFresh("headlight"),
                     "Cache must not provide command freshness");
+            Map<?, ?> stats = (Map<?, ?>)field(tile("scooter"), "amounts");
+            require(stats.keySet().containsAll(Arrays.asList("odometer_km", "driving_mode", "charge_cycles", "capacity_throughput_ah")),
+                    "My Scooter does not offer its default long-term readings");
+            TextView odometer = (TextView)stats.get("odometer_km"), mode = (TextView)stats.get("driving_mode");
+            require("100.00 mi".contentEquals(odometer.getText()) && "3 (raw)".contentEquals(mode.getText()),
+                    "My Scooter did not format its cached odometer and unknown-model mode");
+            require(odometer.getCurrentTextColor() == activity.ui().muted && mode.getCurrentTextColor() == activity.ui().muted,
+                    "My Scooter's disconnected stats appear live");
         });
     }
     private void assertNoScooterWork() {
@@ -362,9 +422,71 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> { inputs.get(0).setText(Integer.toString(column)); inputs.get(1).setText(Integer.toString(row)); });
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE)); waitForIdleSync();
     }
+    private void verifyEditAffordances(String id) {
+        View tile = (View)tileById(id); String title = widgetById(id).title;
+        require(countDescription(tile, "Options for " + title) == 1, "A widget must expose exactly one options menu");
+        require(findText(tile, "Options") == null && findText(tile, "Resize") == null,
+                "An extra bottom adjustment bar duplicates the corner controls");
+        View grip = findDescription(tile, "Move " + title), corner = findDescription(tile, "Resize " + title);
+        require(grip != null && corner != null, "Dedicated move and corner resize handles are missing");
+        main(() -> {
+            Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile);
+            int touch = activity.ui().dp(48), tolerance = activity.ui().dp(24);
+            require(corner.getWidth() >= touch && corner.getHeight() >= touch, "Resize hit area is smaller than 48 dp");
+            require(cornerBounds.right >= tile.getWidth() - tolerance && cornerBounds.bottom >= tile.getHeight() - tolerance,
+                    "Resize target is not in the widget's bottom-right corner");
+            require(gripBounds.left <= tolerance && gripBounds.top <= tolerance,
+                    "Move grip is not in the widget's top-left corner");
+        });
+        click(corner);
+        require(all(dialogRoot(), NumberPicker.class).size() == 2 && findText(dialogRoot(), "Color") == null,
+                "Tapping the resize handle must open size, not the options menu");
+        closeDialog();
+        click(grip);
+        require(all(dialogRoot(), EditText.class).size() == 2 && findText(dialogRoot(), "Color") == null,
+                "Tapping the move grip must open accessible placement, not widget options");
+        closeDialog();
+    }
+    private Rect relativeBounds(View child, View ancestor) {
+        Rect rect = new Rect(0, 0, child.getWidth(), child.getHeight());
+        ((ViewGroup)ancestor).offsetDescendantRectToMyCoords(child, rect); return rect;
+    }
+    private int countDescription(View root, String description) {
+        int count = description.contentEquals(root.getContentDescription() == null ? "" : root.getContentDescription()) ? 1 : 0;
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++)
+            count += countDescription(((ViewGroup)root).getChildAt(i), description);
+        return count;
+    }
+    private void verifyOptionsContrast(String id) {
+        openOptions(id);
+        main(() -> {
+            TextView label = findText(dialogRoot(), "Title");
+            TextView title = null;
+            // Android keeps alertTitle internal on some releases; inspect its resource name.
+            for (TextView candidate : all(dialogRoot(), TextView.class)) {
+                if (candidate.getId() != View.NO_ID) try {
+                    if (candidate.getResources().getResourceEntryName(candidate.getId()).equals("alertTitle")) { title = candidate; break; }
+                } catch (android.content.res.Resources.NotFoundException ignored) { }
+            }
+            require(title != null && label != null, "Options dialog title and labels must be visible");
+            for (TextView text : new TextView[] {title, label, dialog().getButton(AlertDialog.BUTTON_NEGATIVE)})
+                require(contrast(text.getCurrentTextColor(), activity.ui().surface) >= 4.5,
+                        "Options dialog text has insufficient contrast in " + (activity.ui().dark ? "dark" : "light") + " theme: " + text.getText());
+        });
+        closeDialog();
+    }
+    private double contrast(int foreground, int background) {
+        double a = luminance(foreground), b = luminance(background); return (Math.max(a, b) + .05) / (Math.min(a, b) + .05);
+    }
+    private double luminance(int color) {
+        return .2126 * linear(Color.red(color)) + .7152 * linear(Color.green(color)) + .0722 * linear(Color.blue(color));
+    }
+    private double linear(int channel) { double c = channel / 255d; return c <= .04045 ? c / 12.92 : Math.pow((c + .055) / 1.055, 2.4); }
     private void resizeByOneRow(String id) {
         DashboardConfig.Widget widget = widgetById(id); int height = cell(id).h;
         View resize = findDescription((View)tileById(id), "Resize " + widget.title); require(resize != null, "Resize handle is missing"); reveal(resize);
+        awaitSettledLayout();
+        await(() -> resize.hasWindowFocus() && resize.isShown(), 3000, "Resize handle did not regain window focus after its dialog");
         main(() -> {
             float delta = ((Number)invoke(grid(), "rowHeight")).floatValue() * 1.1f;
             long now = SystemClock.uptimeMillis(); float x = resize.getWidth() / 2f, y = resize.getHeight() / 2f;
@@ -376,51 +498,163 @@ public final class DashboardValidation extends Instrumentation {
         });
         await(() -> cell(id).h == height + 1, 3000, "Resize gesture did not add a row"); waitForIdleSync();
     }
-    private void nativeDragToNextCell(String id) {
+    private void prepareDragFixture(String id) {
+        // Two neighboring cards guarantee that the preview must show a real reflow.
+        int columns = ((Number)field(grid(), "columns")).intValue();
+        require(columns >= 2, "Gesture fixture requires at least two dashboard columns");
+        String neighbor = widget("note").id;
+        setSize(id, 1, 3); setSize(neighbor, 1, 3);
+        setPosition(id, 1, 1); setPosition(neighbor, 2, 1);
+        scrollHomeTop(); awaitSettledLayout(); assertGrid();
+        require(cell(id).x == 0 && cell(id).y == 0 && cell(neighbor).x == 1 && cell(neighbor).y == 0,
+                "Gesture fixture did not put the two cards beside one another");
+    }
+    private Map<String, DashboardLayout.Cell> layoutSnapshot() {
+        Map<String, DashboardLayout.Cell> snapshot = new LinkedHashMap<>();
+        for (DashboardConfig.Widget widget : config().widgets) snapshot.put(widget.id, cell(widget.id).copy());
+        return snapshot;
+    }
+    private boolean sameCell(DashboardLayout.Cell left, DashboardLayout.Cell right) {
+        return left != null && right != null && left.x == right.x && left.y == right.y && left.w == right.w && left.h == right.h;
+    }
+    private boolean sameLayout(Map<String, DashboardLayout.Cell> snapshot) {
+        for (Map.Entry<String, DashboardLayout.Cell> entry : snapshot.entrySet())
+            if (!sameCell(entry.getValue(), cell(entry.getKey()))) return false;
+        return true;
+    }
+    private String savedLayout() { return settings().getString("dashboard_v1_" + profileId, ""); }
+    private void awaitSettledLayout() {
+        await(() -> root().hasWindowFocus(), 3000, "Dashboard did not regain window focus after its dialog");
+        final long[] stableSince = {SystemClock.elapsedRealtime()};
+        await(() -> {
+            boolean settled = !grid().isLayoutRequested();
+            for (Object object : tiles()) {
+                View view = (View)object;
+                if (Math.abs(view.getTranslationX()) > .1f || Math.abs(view.getTranslationY()) > .1f
+                        || Math.abs(view.getScaleX() - 1) > .001f || Math.abs(view.getScaleY() - 1) > .001f) settled = false;
+            }
+            if (!settled) stableSince[0] = SystemClock.elapsedRealtime();
+            // A pending layout can start a ViewPropertyAnimator on the next frame.
+            // Require a quiet interval instead of accepting one pre-animation frame.
+            return settled && SystemClock.elapsedRealtime() - stableSince[0] >= 240;
+        }, 3000, "Widget reflow animation did not settle");
+    }
+    private void verifyCancelledDrag(String id) { prepareDragFixture(id); touchscreenDrag(id, true); }
+    private void directDragToNextCell(String id) { touchscreenDrag(id, false); }
+    private void touchscreenDrag(String id, boolean cancel) {
         scrollHomeTop();
         DashboardLayout.Cell before = cell(id).copy();
+        String neighborId = widget("note").id;
+        Map<String, DashboardLayout.Cell> snapshot = layoutSnapshot();
+        String savedBefore = savedLayout();
         View grip = findDescription((View)tileById(id), "Move " + widgetById(id).title);
-        require(grip != null, "Native drag grip is missing"); reveal(grip);
-        final float[] position = new float[4]; final int[] destination = new int[3];
+        require(grip != null, "Touchscreen move grip is missing"); reveal(grip);
+        awaitSettledLayout();
+        final float[] position = new float[4];
         main(() -> {
-            int[] source = new int[2], origin = new int[2]; grip.getLocationOnScreen(source); grid().getLocationOnScreen(origin);
-            int columns = ((Number)field(grid(), "columns")).intValue();
-            int column = columns > 1 ? 1 : 0, row = 1;
+            int[] source = new int[2]; grip.getLocationOnScreen(source);
             float columnWidth = ((Number)invoke(grid(), "columnWidth")).floatValue();
-            float rowHeight = ((Number)invoke(grid(), "rowHeight")).floatValue();
             position[0] = source[0] + grip.getWidth() / 2f; position[1] = source[1] + grip.getHeight() / 2f;
-            position[2] = origin[0] + (column + .5f) * columnWidth;
-            position[3] = origin[1] + (row + .5f) * rowHeight;
+            position[2] = position[0] + columnWidth; position[3] = position[1];
             Rect visible = new Rect(); require(grid().getGlobalVisibleRect(visible), "Drag grid is not visible");
-            require(visible.contains((int)position[2], (int)position[3]), "Native drag destination lies outside the visible grid");
-            require(grip.getGlobalVisibleRect(new Rect()), "Native drag grip is not visible");
-            destination[0] = column; destination[1] = row; destination[2] = columns;
+            require(visible.contains((int)position[2], (int)position[3]), "Touchscreen drag destination lies outside the visible grid");
+            require(grip.getGlobalVisibleRect(new Rect()), "Touchscreen move grip is not visible");
         });
+        AtomicReference<WindowTouchTrace> trace = new AtomicReference<>();
+        main(() -> trace.set(new WindowTouchTrace(activity.getWindow())));
         long downTime = SystemClock.uptimeMillis(); boolean released = false;
         try {
             injectTouch(downTime, MotionEvent.ACTION_DOWN, position[0], position[1]);
-            SystemClock.sleep(ViewConfiguration.getLongPressTimeout() + 180L);
-            for (int step = 1; step <= 12; step++) {
-                float fraction = step / 12f;
-                injectTouch(downTime, MotionEvent.ACTION_MOVE, position[0] + (position[2] - position[0]) * fraction,
-                        position[1] + (position[3] - position[1]) * fraction);
-                SystemClock.sleep(18);
+            // Deliberately no long hold: motion past touch slop must start the move.
+            for (int step = 1; step <= 8; step++) {
+                float fraction = step / 8f;
+                injectTouch(downTime, MotionEvent.ACTION_MOVE, position[0] + (position[2] - position[0]) * fraction, position[1]);
+                SystemClock.sleep(16);
             }
-            await(() -> ((Number)field(grid(), "dragX")).floatValue() >= 0, 2500,
-                    "Touchscreen long press did not deliver a native drag location to the grid");
-            injectTouch(downTime, MotionEvent.ACTION_UP, position[2], position[3]); released = true;
-            await(() -> cell(id).x == destination[0] && cell(id).y == destination[1], 3000,
-                    "Native drag drop did not move the widget to the requested cell");
+            try {
+                await(() -> field(grid(), "gestureTile") == tileById(id) && cell(id).x == 1 && cell(id).y == 0,
+                        2500, "Direct touchscreen drag did not preview the requested placement");
+            } catch (IllegalStateException error) {
+                // Capture live state before finally sends CANCEL and restores the layout.
+                throw new IllegalStateException(error.getMessage() + "; " + dragDiagnostics(id, position, cancel)
+                        + "; " + trace.get().describe(), error);
+            }
+            main(() -> {
+                DashboardLayout.Cell preview = (DashboardLayout.Cell)invoke(grid(), "previewCell");
+                require(preview != null && preview.w == before.w && preview.h == before.h && preview.x == 1 && preview.y == 0,
+                        "Drag preview does not represent the full target rectangle");
+                require(((List<?>)field(grid(), "gestureSnapshot")).size() == config().widgets.size(),
+                        "Move did not retain an original placement for every widget");
+                require(!sameCell(snapshot.get(neighborId), cell(neighborId)),
+                        "Overlapping neighbor did not reflow before release");
+                require(savedBefore.equals(savedLayout()), "A preview was saved before a successful release");
+            });
+            assertGrid();
+            injectTouch(downTime, cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, position[2], position[3]); released = true;
+            await(() -> field(grid(), "gestureTile") == null, 3000, "Touchscreen drag did not finish");
+            if (cancel) {
+                main(() -> {
+                    require(sameLayout(snapshot), "Cancelled drag did not restore every widget rectangle");
+                    require(savedBefore.equals(savedLayout()), "Cancelled drag changed saved preferences");
+                });
+            } else {
+                main(() -> {
+                    require(cell(id).x == 1 && cell(id).y == 0, "Drop did not keep the preview placement");
+                    DashboardConfig restored = new DashboardConfig(settings(), profileId);
+                    DashboardLayout.Cell saved = null;
+                    for (DashboardConfig.Widget widget : restored.widgets) if (widget.id.equals(id))
+                        saved = widget.layouts.get(((Number)field(grid(), "columns")).intValue());
+                    require(sameCell(saved, cell(id)), "Dropped placement was not saved");
+                });
+            }
         } finally {
-            if (!released) injectTouch(downTime, MotionEvent.ACTION_CANCEL, position[0], position[1]);
+            try { if (!released) injectTouch(downTime, MotionEvent.ACTION_CANCEL, position[0], position[1]); }
+            finally { main(() -> trace.get().restore()); }
         }
-        require(cell(id).x != before.x || cell(id).y != before.y, "Native drag did not change placement");
+        waitForIdleSync();
+    }
+    private String dragDiagnostics(String id, float[] injected, boolean cancel) {
+        AtomicReference<String> details = new AtomicReference<>();
         main(() -> {
-            DashboardConfig restored = new DashboardConfig(settings(), profileId);
-            DashboardLayout.Cell saved = null;
-            for (DashboardConfig.Widget widget : restored.widgets) if (widget.id.equals(id)) saved = widget.layouts.get(destination[2]);
-            require(saved != null && saved.x == destination[0] && saved.y == destination[1], "Native drag placement was not saved");
-        }); waitForIdleSync();
+            Object target = tileById(id), active = field(grid(), "gestureTile");
+            View targetView = (View)target;
+            int[] location = new int[2]; targetView.getLocationOnScreen(location);
+            DashboardLayout.Cell preview = (DashboardLayout.Cell)invoke(grid(), "previewCell");
+            DashboardLayout.Cell origin = (DashboardLayout.Cell)field(grid(), "gestureOrigin");
+            details.set("attempt=" + (cancel ? "cancel-preview" : "commit-drop")
+                    + ", expected=[1,0," + cell(id).w + "," + cell(id).h + "]"
+                    + ", actual=" + describeCell(cell(id)) + ", preview=" + describeCell(preview)
+                    + ", gestureTile=" + (active == null ? "null" : ((DashboardConfig.Widget)field(active, "widget")).id)
+                    + ", wantedTile=" + id + ", origin=" + describeCell(origin)
+                    + ", windowFocus=" + root().hasWindowFocus() + "/" + targetView.hasWindowFocus()
+                    + ", columns=" + field(grid(), "columns") + ", columnWidth=" + invoke(grid(), "columnWidth")
+                    + ", injectedStart=[" + injected[0] + "," + injected[1] + "]"
+                    + ", injectedEnd=[" + injected[2] + "," + injected[3] + "]"
+                    + ", raw=[" + field(grid(), "rawX") + "," + field(grid(), "rawY") + "]"
+                    + ", tileScreen=[" + location[0] + "," + location[1] + "]"
+                    + ", translation=[" + targetView.getTranslationX() + "," + targetView.getTranslationY() + "]"
+                    + ", scrollY=" + ((ScrollView)field(activity, "scroll")).getScrollY());
+        });
+        return details.get();
+    }
+    private String describeCell(DashboardLayout.Cell cell) {
+        return cell == null ? "null" : "[" + cell.x + "," + cell.y + "," + cell.w + "," + cell.h + "]";
+    }
+    private void verifyLongPressCancel(String id) {
+        Map<String, DashboardLayout.Cell> snapshot = layoutSnapshot(); String saved = savedLayout();
+        View grip = findDescription((View)tileById(id), "Move " + widgetById(id).title); reveal(grip);
+        awaitSettledLayout();
+        final float[] position = new float[2];
+        main(() -> { int[] origin = new int[2]; grip.getLocationOnScreen(origin);
+            position[0] = origin[0] + grip.getWidth() / 2f; position[1] = origin[1] + grip.getHeight() / 2f; });
+        long now = SystemClock.uptimeMillis();
+        try {
+            injectTouch(now, MotionEvent.ACTION_DOWN, position[0], position[1]);
+            SystemClock.sleep(ViewConfiguration.getLongPressTimeout() + 120L);
+            await(() -> field(grid(), "gestureTile") == tileById(id), 2000, "A long press on the grip did not also start movement");
+        } finally { injectTouch(now, MotionEvent.ACTION_CANCEL, position[0], position[1]); }
+        await(() -> field(grid(), "gestureTile") == null, 3000, "Long-press cancellation did not finish");
+        main(() -> require(sameLayout(snapshot) && saved.equals(savedLayout()), "Cancelling a held grip changed the layout"));
     }
     private void injectTouch(long downTime, int action, float x, float y) {
         MotionEvent event = MotionEvent.obtain(downTime, SystemClock.uptimeMillis(), action, x, y, 0);

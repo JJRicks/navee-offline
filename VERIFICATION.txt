@@ -1,7 +1,66 @@
-NAVEE OFFLINE 0.6.0 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.6.1 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-0.6.0 CURRENT RELEASE — CUSTOM DASHBOARD AND CONNECTED HISTORY
+0.6.1 — DASHBOARD EDITING REFINEMENT
+
+Editing now uses a pencil entry, a dedicated top-left grip and a visible
+48 dp bottom-right corner hit target. Direct dragging and long pressing share
+the same interaction. A full-size dashed destination previews the snapped
+rectangle; neighboring widgets reflow and compact into gaps from an unchanged
+gesture-start snapshot. Release saves; cancellation restores the complete
+original layout. Neighbor movement animates for 200 ms and the destination for
+120 ms when Android animations are enabled. Measurement probes keep the active
+column layout stable; an actual width change cancels and restores the gesture. One ellipsis opens options; tapping
+the grip or corner opens only Move or Size respectively. Scooter controls stay
+inert during editing. Theme-matched dialogs fix title/input/button contrast.
+
+The battery ring uses % and fits its number/unit group inside the arc. The
+scooter card has an explicit rename pencil and configurable defaults for total
+odometer, current mode, reported charge count and lifetime Ah throughput.
+UT5 MAX PID 2538 modes 11/2/3 display WALK/ECO/SPORT based on owner observations;
+other models/codes remain raw. Parsing and exports retain numeric evidence.
+Existing card placements are kept; a fresh scooter card is taller for its stats.
+
+SearchFocus binds only search fields in Scooter/Lights, Stats and the widget
+parameter picker. Outside taps clear focus/hide the keyboard while passing the
+touch through. Keyboard visibility observations clear focus after system IME
+dismissal. Ordinary rename, title and other form fields are not opted in.
+
+Verified for 0.6.1:
+
+- Nine pure Java suites passed 24,782 assertions: Protocol 145, Telemetry 8,682,
+  ScooterCommands 907, OwnerIdentityParser 61, RideStore 70, PhoneRideStore 38,
+  DashboardLayout 14,700, BatteryCapacityEstimate 44 and ChargingEstimate 135.
+  New layout cases cover full-rectangle preview, stable compaction, bounds,
+  collision freedom, determinism and unchanged input snapshots.
+- SearchFocusValidation passed eight grouped checks with a real visible software
+  keyboard in dark and light themes. Settings and Stats outside taps, scrolling,
+  system Back, query preservation and refocusing passed. The parameter picker
+  retained its dialog after keyboard dismissal and still accepted selections.
+  Ordinary title editing retained its normal focus behavior.
+- DashboardValidation passed twelve grouped checks at 360 dp, 411 dp and 701 dp.
+  The final measurement-probe fix was rechecked at 411 dp and 701 dp. Checks cover
+  all fifteen widget types, direct touch moves, long holds, corner resize, full
+  preview rectangles, neighboring reflow before save, cancellation restoration,
+  sole options access, light/dark contrast, 140% text, and saved-layout recreation.
+  Named scooter stats, one-time migration, units, stale state, capacity no-data
+  settings and mutually exclusive charging details passed as well.
+- The signed APK passed alignment and signature verification. An in-place Pixel
+  upgrade from 0.6.0 retained the existing scooter and custom layout and reconnected
+  automatically. A warm launch completed in 125 ms. Live odometer, SPORT mode,
+  rename pencil, scooter image, and the revised charging battery ring were observed.
+  Old custom card sizes remain unchanged; shorter cards can scroll their contents
+  or be enlarged using the new corner handle.
+
+No scooter lock/settings writes or phone internet changes were made. Source
+review found no owner credentials, signing material or private recordings in the
+release diff. Local validation evidence is in work/v061-validation outside the repo.
+
+The Android 8–10 keyboard visibility fallback has not been exercised on a physical
+phone. This update has not yet been tested on the friend's Samsung. Emulator
+fixtures use synthetic data and make no sensor or battery accuracy claims.
+
+HISTORICAL 0.6.0 — CUSTOM DASHBOARD AND CONNECTED HISTORY
 
 Home is a per-scooter dashboard with fifteen widget types, independent column
 layouts, native drag/drop, resize handles and explicit Size/Move alternatives.

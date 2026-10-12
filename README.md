@@ -2,7 +2,7 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional OpenStreetMap street layer uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.6.0**. Independent project; not affiliated with NAVEE.
+Current application version: **0.6.1**. Independent project; not affiliated with NAVEE.
 
 ## What is here
 
@@ -16,9 +16,15 @@ The named controls target the US UT5 MAX, model/PID 2538. Other models, regions,
 
 ## Make Home your own
 
-Tap **Edit** to add widgets, hold a grip to move one, or drag its corner to resize it. Each widget's options also provide **Size** and **Move** controls without dragging. Tap **Done** to use scooter controls again. Layouts are saved per scooter and separately for each column count; **Layout → Columns** offers adaptive or one to four columns, limited by the screen width.
+Tap the **pencil** to edit Home. Drag the top-left dots to move a widget, or drag its visible lower-right corner to resize it; a long press on the dots also starts a move. A dashed outline previews the full destination while neighboring cards slide aside and fill empty rows. Releasing saves the preview; cancelling restores the starting arrangement. Tap **Done** to use scooter controls again.
+
+The **…** menu is the single entry to widget options. For a drag-free alternative, tap the dots for **Move** or the corner for **Size**; both dialogs also remain in the options menu. Dialogs follow the app's light/dark theme. Layouts are saved per scooter and separately for each column count; **Layout → Columns** offers adaptive or one to four columns, limited by the screen width.
 
 The 15 choices are Lock & connection, Your scooter, Battery overview, Big reading, Gauge, Live trend, History chart, Reading list, Trip overview, Battery health, Capacity experiment, Charging, Quick access, Ride recorder, and Note. Customize titles, parameters, reading lists, colors, chart windows, and gauge ranges where applicable. Up to 32 widgets are allowed, with one lock widget. The seven defaults include the lock, a UT5 MAX photo when that model is connected, battery charge with estimated range/power/reported health/temperature, shortcuts, a recent power chart, the capacity experiment, and recording controls. While the scooter freshly reports charging, the battery card replaces its normal details with charging power, current and estimated time remaining, keeping the same battery percentage and ring. Existing custom layouts are preserved; add new widgets through Edit or restore defaults.
+
+**Your scooter** also shows configurable odometer, drive mode, reported charge count, and lifetime battery throughput readings by default. Tap its name or pencil to rename the local profile. On the UT5 MAX (PID 2538), owner-observed mode codes 11, 2, and 3 display as WALK, ECO, and SPORT; other codes and models retain raw labels. Raw diagnostics and ride exports remain unchanged. The battery ring uses a compact **%** label with more room around the number.
+
+Scooter, Lights, Stats, and the widget parameter picker’s search fields release focus when the keyboard is dismissed or you tap outside, keeping the current filter.
 
 Charts need numeric readings actually supplied by the scooter. Unsupported or text-only selections have no numeric graph. Reported battery health is the controller's value, **not a measured capacity test**.
 

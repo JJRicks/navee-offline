@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.6.0
+Current version: 0.6.1
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -145,7 +145,7 @@ state changes automatically.
 
 Earlier emulator/render checks, parked recordings and Samsung startup
 confirmation apply to the versions identified in VERIFICATION.txt. They do not
-establish full physical validation of the 0.6.0 dashboard, phone sensors,
+establish full physical validation of the current dashboard, phone sensors,
 lighting output, folding transitions or ridden assistance behavior.
 
 Ordinary diagnostics exclude owner identity and PIN digits. A private owner
@@ -154,11 +154,11 @@ Cloud activation, ownership transfer, account sharing, firmware hosting and
 Find My/Find Hub networks remain outside this offline app.
 
 
-0.6.0 DASHBOARD AND LOCAL HISTORY
+0.6.1 DASHBOARD AND LOCAL HISTORY
 
 Five main tabs: Home, Scooter, Stats, Rides and More. Scooter contains grouped
 settings and the Lights destination for tail/automatic, line and star lighting.
-Rename the local scooter profile in Scooter or by tapping its name on Home.
+Rename the local scooter profile in Scooter or using its name/pencil on Home.
 
 Home supports 15 widget types: Lock & connection, Your scooter, Battery overview,
 Big reading, Gauge, Live trend, History chart, Reading list, Trip overview,
@@ -167,11 +167,17 @@ Note. Each profile has its own dashboard, with separate saved layouts for
 adaptive/selected column counts.
 Narrow screens limit the selected number of columns to what fits.
 
-Edit reveals Add widget, Layout and widget controls. Hold a grip to move, drag
-a corner to resize, or use the options menu's Size and Move dialogs. Done
-restores normal widget actions. Up to 32 widgets are supported, with one lock
-widget. Customize titles, colors, selected parameters/readings, gauge scales,
-chart windows and notes where applicable. Seven default widgets include
+The pencil reveals Add widget, Layout and widget controls. Drag the top-left
+dots directly, or long-press them, to move a widget. A visible bottom-right
+corner resizes it. Full-size dashed previews show the drop destination while
+neighboring cards reflow and fill vertical gaps. Release saves; cancellation
+restores the starting layout. Reflow is 200 ms and outline motion 120 ms, with
+disabled system animations respected. The ... menu is the sole widget-options
+entry; tap the dots for Move or corner for Size as accessible alternatives.
+The same Size/Move dialogs remain inside options. Dialogs follow the app theme.
+Done restores normal widget actions. Up to 32 widgets are supported, with one
+lock widget. Customize titles, colors, selected parameters/readings, gauge
+scales, chart windows and notes where applicable. Seven default widgets include
 lock/connection, the connected UT5 MAX photo, a battery overview, shortcuts,
 recent power history,
 the capacity experiment and an explicit ride recorder. Existing custom layouts
@@ -180,6 +186,13 @@ The battery overview normally shows charge, estimated range, power,
 controller-reported health and temperature when available. Fresh charging status
 swaps the details to charging power, current and remaining time while retaining
 the battery percentage and ring.
+
+The ring uses % with more space around the number. Your scooter includes up to
+12 configurable readings, defaulting to odometer, drive mode, reported charge
+count and lifetime battery throughput. On PID 2538, owner-observed driving-mode
+codes 11, 2 and 3 display as WALK, ECO and SPORT. Unconfirmed codes and other
+models remain raw. Raw diagnostics and ride exports are unchanged; displayed
+lifetime counters do not become current-ride totals or capacity measurements.
 
 Stats and settings retain last-known values across disconnection and restart.
 Historical readings are grey and retain their measurement times. A cached lock
