@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.6.5
+Current version: 0.6.6
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -154,7 +154,7 @@ Cloud activation, ownership transfer, account sharing, firmware hosting and
 Find My/Find Hub networks remain outside this offline app.
 
 
-0.6.4 DASHBOARD AND LOCAL HISTORY
+0.6.6 DASHBOARD AND LOCAL HISTORY
 
 Five main tabs: Home, Scooter, Stats, Rides and More. Scooter contains grouped
 settings and the Lights destination for tail/automatic, line and star lighting.
@@ -192,11 +192,12 @@ size (up to 28 sp at normal text scale); longer lists retain the prior size cap.
 Done restores normal widget actions.
 Up to 32 widgets are supported, with one lock widget. Customize titles, colors,
 selected parameters/readings, gauge
-scales, chart windows and notes where applicable. Seven default widgets include
-lock/connection, the recognized UT5 MAX photo (kept visible offline), a battery overview, shortcuts,
-recent power history, the capacity experiment and an explicit ride recorder.
-Existing custom layouts stay intact; add Capacity experiment through Edit or
-restore defaults.
+scales, chart windows and notes where applicable. Six default widgets include
+Your scooter (with the recognized UT5 MAX photo kept visible offline), lock,
+battery overview, 15-minute power trend, Capacity experiment and Ride recorder.
+New/reset dashboards reproduce the captured two-column folded and four-column
+unfolded arrangements; one/three-column presets fit other widths. Quick access
+is available in Add widget. Existing custom/empty dashboards stay intact.
 The battery overview prioritizes a large centered percentage ring with a thicker
 arc and balanced space above its readings. Range, power,
 controller-reported health and temperature use route, lightning, heart and

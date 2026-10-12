@@ -1,7 +1,39 @@
-NAVEE OFFLINE 0.6.5 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.6.6 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-0.6.5 — STATUS SPACING AND NAME EDITING
+0.6.6 — CAPTURED DEFAULT DASHBOARDS
+
+A temporary signed read-only helper captured the active dashboard's presentation
+settings: six widget types, titles, parameter choices, chart windows, colors and
+separate two/four-column rectangles. It did not output the profile ID, name,
+owner identity, scooter address, serial or telemetry. The helper was removed
+from the Pixel after capture. Column selection was Adaptive.
+
+New/reset dashboards use those exact two/four-column arrangements, with separate
+one/three-column variants for other widths. Fresh widget IDs are created for
+each reset; valid saved dashboards, including empty ones, are not migrated.
+
+Verified for 0.6.6:
+
+- The signed production APK passed signature and alignment verification.
+- DashboardValidation passed all 13 groups at 360 dp, including exact captured
+  two/four-column rectangles and widget options, stable save/reload, fresh IDs
+  on explicit reset, and preservation of other custom/empty dashboards and
+  global column preferences. One/three-column presets remained in bounds and
+  non-overlapping. The UI checks covered all 15 widget types, both themes,
+  140% text and unchanged edit/view geometry, with zero scooter writes.
+- The same 13 groups also passed at 852 dp, using the Pixel's unfolded
+  2076 x 2152 display size at 390 dpi. Default-screen screenshots confirmed the
+  two-column compact and four-column wide arrangement; numeric fixtures remained
+  explicitly synthetic/stale. This is layout validation, not a new hardware or
+  ride/sensor test.
+- The Pixel had no active/saving ride notification before the in-place upgrade.
+  Version 0.6.6 (code 15) installed and reopened; the connected Home screenshot
+  retained its saved unfolded layout. No reset was applied to the owner profile,
+  and no scooter lock/settings writes or phone-network changes were made.
+  The friend's Samsung was not retested in this pass.
+
+HISTORICAL 0.6.5 — STATUS SPACING AND NAME EDITING
 
 The Lock & connection widget adds 8 dp below the connection status, separating
 it from the lock-state text within the centered content group. The edit-only

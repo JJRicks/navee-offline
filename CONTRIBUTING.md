@@ -52,7 +52,10 @@ Keep cached values separate from fresh authenticated state. History must not
 enable scooter controls, extend the background grace, start phone sensors, or
 change ride-energy integration. Preserve gaps between connections and do not
 store owner identity or PIN traffic. Dashboard layout is per scooter and column
-count; widget scale values are stored in canonical units and converted for display.
+count. Dashboard defaults seed explicit one/two/three/four-column rectangles
+only for new/reset dashboards; never overwrite saved custom or empty dashboards.
+The two/four-column presets reproduce the captured folded/unfolded arrangement.
+Widget scale values are stored in canonical units and converted for display.
 
 The editor uses dedicated top-left move grips and bottom-right resize
 corners, with tap-accessible Move/Size dialogs and one gear-shaped widget-options menu.

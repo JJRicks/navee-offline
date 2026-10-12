@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.6.5
+NAVEE OFFLINE — VERSION 0.6.6
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,6 +11,10 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+
+0.6.6 makes the captured folded/unfolded dashboard the six-widget default for
+new dashboards and Restore default widgets. Existing saved dashboards stay as
+configured, with one- and three-column presets for other screen widths.
 
 0.6.5 adds a little space below the connection status to separate it from the
 lock-state text in the Lock & connection widget. In edit mode, the scooter-name
@@ -126,7 +130,7 @@ FIVE ORGANIZED TABS
 Home
   Editable widgets for connection/lock, battery, readings, charts, quick access,
   the recognized UT5 MAX photo (also visible offline), and recording. While editing Home, use the scooter
-  widget's pencil to rename its local profile. The default layout puts lock first.
+  widget's pencil to rename its local profile. The default layout starts with Your scooter.
 
 Scooter
   Named settings grouped into Ride, Battery, Lights, Dashboard & sound, and
@@ -197,9 +201,14 @@ include title/color, parameter,
 selected readings, gauge limits, chart time window or note text as appropriate.
 Battery, Your scooter and reading-list widgets can contain up to 12 chosen readings.
 
-The seven defaults include lock/connection, Your scooter, battery, quick access,
-recent power trend, Capacity experiment and recording. Existing custom layouts
-are preserved; add Capacity experiment through Edit or restore defaults.
+The six defaults are Your scooter, lock/connection, battery, a 15-minute power
+trend, Capacity experiment and recording. Quick access is available in Add widget.
+The two-column layout places the scooter across the top, lock/battery side by
+side, then full-width power, capacity and recording cards. The four-column layout
+puts the scooter beside a narrower lock card, power beside battery, recording
+under power and capacity across the bottom. One- and three-column presets adapt
+the same widgets to other widths. Existing custom and empty layouts are preserved;
+use Restore default widgets to adopt the preset for an existing dashboard.
 The battery card balances a large centered percentage ring with a thicker arc
 above its readings. Route, lightning, heart and thermometer icons identify
 estimated range, power,

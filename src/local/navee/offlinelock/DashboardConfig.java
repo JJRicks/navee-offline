@@ -241,9 +241,27 @@ public final class DashboardConfig {
 
     public void reset() {
         widgets.clear();
-        for (String type :
-                new String[] {"lock", "scooter", "battery", "quick", "live", "capacity", "ride"})
-            widgets.add(new Widget(type));
+        String[] types = {"lock", "scooter", "battery", "live", "capacity", "ride"};
+        // Each widget has independent rectangles for one through four columns.
+        // Two/four columns reproduce the owner's folded/unfolded arrangement;
+        // one/three columns retain its reading order and compact side-by-side groups.
+        int[][][] placements = {
+            {{0, 4, 1, 4}, {0, 4, 1, 4}, {2, 0, 1, 4}, {3, 0, 1, 4}}, // lock
+            {{0, 0, 1, 4}, {0, 0, 2, 4}, {0, 0, 2, 4}, {0, 0, 3, 4}}, // scooter
+            {{0, 8, 1, 4}, {1, 4, 1, 4}, {2, 4, 1, 5}, {2, 4, 2, 5}}, // battery
+            {{0, 12, 1, 5}, {0, 8, 2, 5}, {0, 4, 2, 5}, {0, 4, 2, 5}}, // live
+            {{0, 17, 1, 6}, {0, 13, 2, 6}, {0, 13, 3, 6}, {0, 13, 4, 6}}, // capacity
+            {{0, 23, 1, 4}, {0, 19, 2, 4}, {0, 9, 1, 4}, {0, 9, 2, 4}} // ride
+        };
+        for (int i = 0; i < types.length; i++) {
+            Widget widget = new Widget(types[i]);
+            for (int columns = 1; columns <= 4; columns++) {
+                int[] cell = placements[i][columns - 1];
+                widget.layouts.put(columns, new DashboardLayout.Cell(
+                        widget.id, cell[0], cell[1], cell[2], cell[3]));
+            }
+            widgets.add(widget);
+        }
         save();
     }
 
