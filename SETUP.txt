@@ -1,0 +1,101 @@
+NAVEE OFFLINE — FIRST-TIME OWNER SETUP
+
+For your own, already activated NAVEE UT5 MAX. The app connects directly by
+Bluetooth and has no internet permission. Everyday use needs no NAVEE server.
+
+The one-time setup identity is six bytes (12 hexadecimal characters). It is
+Bluetooth owner information, not your NAVEE password or a cloud login token.
+Each friend should capture their own account's identity for their own scooter.
+
+BEFORE YOU START
+
+1. Install the official NAVEE app on your phone, sign into your own account,
+   and check that it can connect to your scooter.
+2. Install Android SDK Platform-Tools (ADB) and Python 3 on a computer. Extract
+   this app's source bundle; it includes setup/capture-owner.py.
+3. On your phone, open About phone and tap Build number seven times to enable
+   Developer options. In Developer options, turn on USB debugging. Connect a
+   USB data cable and approve the computer's debugging prompt on your phone.
+4. Keep the scooter safely parked and powered on. Close other scooter apps.
+
+CAPTURE ONCE
+
+From the extracted app source folder, run:
+
+    python3 setup/capture-owner.py --push
+
+The helper briefly restarts NAVEE. On your phone, select and connect to your
+scooter in NAVEE if it does not reconnect automatically. The helper waits up
+to 90 seconds for a fresh Bluetooth authentication packet.
+
+It validates that packet, closes NAVEE and restores its original logging level.
+It saves navee-owner-setup.json on your computer and copies it to your phone's
+Downloads because you selected --push. On macOS/Linux the computer file is
+created with permissions restricted to your user.
+It filters only NAVEE owner-authentication rows; it does not save general phone
+logs, HTTP tokens, passwords, or an account database.
+
+If several phones are attached, run adb devices to find yours, then use:
+
+    python3 setup/capture-owner.py -s PHONE_SERIAL --push
+
+To choose a new computer backup filename:
+
+    python3 setup/capture-owner.py --output ollie-owner.json --push
+
+Without --push, the helper only saves the private JSON on your computer; copy
+it to your phone manually. Existing computer files are never overwritten.
+
+IMPORT AND CONNECT
+
+1. Open Navee Offline and go to More → Scooters → Import owner setup file.
+2. Choose navee-owner-setup.json in Downloads.
+3. Allow Nearby devices, power on your scooter, and tap Connect.
+4. Select your scooter if it is the first connection. The app checks its serial
+   identity and remembers it for automatic connections on later launches.
+
+Keep the computer backup private. Its owner identity can control the scooter.
+You can delete the Downloads copy after import if you keep a safe backup.
+Turn off USB debugging when you no longer need it.
+
+You can also paste an existing 12-character identity or private setup backup
+under More → Scooters → Add with owner identity. Backup imports preserve owner/shared role.
+Never paste an account password or an HTTP token into this field.
+
+IF CAPTURE DOES NOT WORK
+
+- Approve USB debugging on the phone and check that adb devices shows "device".
+- Use a data-capable cable; charging-only cables cannot communicate with ADB.
+- Ensure your own account and scooter connect successfully inside NAVEE.
+- Close other scooter apps, power on the scooter, and rerun the helper.
+- If the file already exists, keep it and choose another --output filename.
+
+After an interrupted capture, the helper attempts to close NAVEE and restore
+its logging level. If USB disconnects during cleanup, it reports the remaining
+step. Reconnect the cable before retrying.
+
+WHAT THE OFFLINE APP EXPOSES
+
+- Direct lock/unlock and automatic connection to the selected scooter.
+- Local OEM controls, battery charging preferences, lighting and assistance.
+- Battery electrical readings, reported health, lifetime counters, odometer,
+  current ride data, firmware details and each field's freshness.
+- Local ride recording, charts, comparison, notes and exports.
+- Separate owner profiles, appearance and unit choices, fold-aware layouts,
+  handlebar PIN state and proximity setup.
+- A firmware lab for explained hidden commands. Fields not supplied by your
+  firmware stay unavailable; an accepted command still needs matching readback.
+
+Not every shared OEM field is implemented by UT5 MAX firmware. A missing value
+stays unavailable. Reported battery health is not an independent capacity test;
+actual ride measurements are needed to investigate range and hill consumption.
+An experimental command is clearly marked until its behavior has been verified.
+FEATURES.txt distinguishes confirmed setting changes from features that still
+need riding, charging or physical security checks. Daily use needs no ADB or
+computer after this setup; an existing private owner backup can also be imported
+on a new phone without another capture.
+
+The app does not bind/unbind scooters, reset ownership, change firmware, or
+replace cloud ownership transfers, OEM activation or Find My/Find Hub services.
+Ordinary diagnostics exclude owner identity and PIN digits. A private owner
+backup intentionally contains its setup identity.

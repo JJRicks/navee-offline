@@ -1,0 +1,237 @@
+NAVEE OFFLINE 0.4.1 — COMPLETION AND VALIDATION REPORT
+October 12, 2026
+
+GITHUB DEVELOPMENT HANDOFF
+
+The editable project is a standalone repository with README.md, contributor
+instructions, source/test/build scripts, and core-test CI. Fresh builds default
+to project-local ignored build/key directories and dist/ APK output. An ignored
+local-build.env preserves existing private signing paths in the original checkout.
+Fresh standalone app and instrumentation builds pass signature/alignment checks;
+the five core suites pass 9,833 assertions. No application behavior changed for
+this handoff. Private owner setup, signing keys, recordings, raw phone reports,
+OEM decompiled files, and this checkout's local path configuration are excluded.
+Current telemetry uncertainties and pending hardware checks are in README.md.
+
+Delivered: signed Android APK, complete source, local build scripts, automated
+tests, setup capture helper and user guides. The same signing key/package is
+retained, so installing over an earlier version preserves local app data.
+Historical scooter/device checks: owner's US UT5 MAX (2538), Pixel 10 Pro Fold.
+
+0.4.1 SAMSUNG LAUNCH FIX
+
+The supplied bug report identifies a Galaxy Z Fold5 (SM-F946U1), Android 16/API 36.
+Repeated launch crashes point to MainActivity.rebuild calling
+PhoneWindow.getInsetsController before its decor exists, producing a
+NullPointerException during onCreate. System-bar icon styling now runs through
+the attached root view after setContentView. Its null guard and current-root
+check handle unavailable controllers and rapid theme/screen replacement.
+No Bluetooth, scooter-control, recording or background-timeout logic changed.
+The friend's Samsung is not directly attached here; its fixed launch still needs
+confirmation on that device.
+
+Release checks passed on a fresh Android 16 emulator (API 36.1): two real cold
+launches plus 14 grouped regression checks across Nearby devices permission
+denied and granted with Bluetooth off. Both runs covered all five tabs, dark /
+light / system theme launches, repeated rebuilds, rapid theme replacement, and
+Activity recreation. Attached system-bar appearance followed the current theme.
+No scooter connections, setting changes or recordings occurred. No launch
+crashes were reported in the emulator crash log. The Pixel app/data were not
+changed for this fix. APK alignment, v2/v3 signatures and no-INTERNET checks pass.
+A separate fresh-emulator-only LaunchValidation runner ships with the source.
+The historical 0.4.0 and 0.3.0 validation evidence below is unchanged.
+
+
+0.4.0 NAVIGATION AND FUNCTIONALITY PASS
+
+Home retains the prominent lock control. Other tabs have a compact lock and
+connection header with feedback. Controls has seven sections and search across
+all settings. Stats separates Overview, Readings, Charts and Diagnostics, with
+search/favourites first in Readings. More has App, Scooters, Security, Lab and
+About. Sections are remembered; tapping the selected main tab returns to its top.
+Ride comparison is available beside selected recordings, and CSV/JSON export
+is at the top of ride details. Partial-direction energy is explicitly labelled.
+
+Background connection OFF uses one fixed ten-second grace from leaving the
+foreground. Returning cancels it. Failed connections, retries and late callbacks
+cannot extend the deadline. At expiration, BLE and reconnect work, service
+polling and the notification stop. Active recordings and background ON are
+explicit exceptions. Cold hidden startup receives no grace; ending an exception
+while already hidden shuts down without creating another grace period.
+
+Interrupted export preparation is cleared after process restart without
+interrupting an active copy worker during Activity recreation. Slider CANCEL
+and closed screens discard drafts; only successful release submits a setting.
+Discovery cancels an earlier connecting session and each new scan replaces its
+old timeout. Rejected selections/PIN requests retain their dialog and feedback.
+The core protocol and recorded energy math are unchanged in this pass.
+
+The historical control, battery and physical fold evidence below describes the
+0.3.0 tests. The 0.4.0 runtime checks passed on the Pixel: all five tabs, all 7 Controls /
+4 Stats / 5 More sections, search/no-match/clear, favourites and native slider
+DOWN/MOVE/CANCEL while disconnected. Navigation and cancellation submitted
+zero scooter mutations. Four native View renders were inspected on the outer
+display; these are native app renders, not physical fold movement tests.
+
+Lifecycle checks passed: full ten-second grace, resume cancellation, a fresh
+second pause that outlived the old timer, cutoff plus a two-second observation,
+a late hidden service start, and pause during connection setup. A simulated
+transport-only connection failure entered retries; its original deadline stayed
+fixed, and both BLE and notification were off at cutoff and two seconds later.
+No recordings or scooter mutations were created. A separate real Android Home
+transition also ended started/foreground service work after the grace period.
+Touched test preferences were restored and the validation APK was removed.
+No app crashes were reported. Export-orphan recovery and security/dialog
+prerequisite changes were reviewed/compiled without injecting a process-kill
+or changing the owner's PIN/bond. No firmware/PIN/profile settings changed.
+
+IMPLEMENTED SCOPE
+
+1. Interface
+   Five native tabs: Home, Controls, Stats, Rides and More. Consistent cards,
+   charts and navigation; dark/light/system themes; text-size and unit choices;
+   large lock control with accessibility state. All five compact layouts were
+   rendered and inspected using Android's actual app View tree.
+
+2. Local scooter controls
+   The OEM's understood local controls are mapped with model-specific choices,
+   availability checks and confirmation evidence. 25 routine settings were
+   changed to a representative alternative and restored with fresh readback.
+   Lock/unlock and a scheduled-charging timestamp were separately changed and
+   restored. Features and limitations are listed in FEATURES.txt.
+   PIN/proximity setup is implemented; the owner's existing PIN and Bluetooth
+   bond were not changed overnight. No firmware write or ownership-reset UI.
+
+3. Diagnostics
+   93 catalogued fields with source, age, missing/stale labels and read-only raw
+   payloads. An earlier complete capture populated 83 fields; some reports are
+   conditional and are not returned in every connection. Live voltage/current,
+   terminal power, battery details, odometer and range estimates are included.
+   Sensitive owner-auth and PIN traffic is excluded from ordinary diagnostics.
+
+4. Ride and energy recording
+   Private persistent sessions, elapsed/moving/stationary time, coverage and
+   connection gaps, paired electrical samples, notes, history, comparison,
+   charts and CSV/JSON exports. Interrupted journals recover without inventing
+   missing measurements. Unconfirmed current direction is labelled as absolute
+   electrical throughput; net consumption is not claimed without confirmation.
+   Background recording was exercised while the phone was asleep, including
+   a logical outer-to-inner display transition. Actual riding is still needed.
+
+5. Folding phones
+   Compact cover-screen navigation, expanded navigation rail, vertical hinge
+   spacing and a horizontal half-fold layout. BLE is owned by the service so
+   layout changes do not recreate the scooter connection.
+   SDK-controlled display-state and rotation checks used the Pixel's real OEM
+   window-layout callbacks. Native renders were inspected at 1080x2364 outer,
+   2076x2152 inner and 2152x2076 rotated half-open sizes. These were app View
+   renders while the phone was physically folded/asleep, not physical hinge
+   movements or camera/display photographs. Ollie's phone was not available.
+
+6. First-time setup and profiles
+   In-app owner setup guidance, bounded validated text/file import, private
+   owner backup, profile switching and saved scooter identity. The ADB helper
+   captures a fresh owner-auth frame from an already activated OEM setup;
+   it validates the frame and restores temporary logging settings.
+   Parser fixtures and isolated Android profile migration/forget/backup tests
+   passed. The existing real owner setup was not replaced for a test.
+   Each friend needs their own scooter's identity. ADB is currently needed for
+   the initial capture, not subsequent connection, controls or diagnostics.
+
+7. Launch and lock
+   Cold launch selects Home. Automatic connection to the saved scooter is
+   enabled by default. The prominent lock control submits directly without a
+   confirmation dialog. The displayed position follows confirmed fresh state;
+   motion/freshness checks guard locking. Opening the app never changes lock
+   state automatically. The BLE lock/unlock cycle was confirmed and restored.
+
+8. Connection reliability and efficiency
+   Serialized BLE setup and writes, setup callback deduplication, bounded
+   queues, serial/profile validation, reconnect backoff, command deadlines and
+   fresh readback. Uncertain writes are not replayed on reconnect. Heavy screen
+   refreshes are limited to once per second; connection/lock status updates
+   immediately. Battery polling is adjustable, idle polling slows, and the
+   wake lock is used only for active recording. The idle foreground service
+   stopped after testing with background connection disabled.
+
+9. Testing boundaries
+   Internet settings were not changed. Reversible settings were restored;
+   the scooter finished unlocked with no active test recording. No cloud
+   account changes, ownership transfer, reset or firmware changes were made.
+   Logical device-state and rotation overrides were returned to the original
+   physical/default state after fold checks. The separate validation APK is
+   removed after final checks; it is not a production app component.
+
+10. Package
+    Same Android package and signing key as the prior app; installation retains
+    private settings. Minimum Android 8, target Android 16. The APK signature
+    and alignment checks passed. The manifest requests no INTERNET permission.
+    Source/build/test/setup files are included; owner identities, PIN digits,
+    signing material and vendor decompilation are excluded from the source ZIP.
+
+0.3.1 DISPLAY-UNITS CORRECTION
+
+Kick-start, maximum speed, Lab caps and their selections now follow mi/km/dual.
+Decoded stored-trip text and ride-distance hints follow the same preference.
+Dual speed charts use an explicitly labelled mph axis as their primary unit.
+Compilation and display checks covered all three preferences: kick-start 5 km/h
+shows 3.1 mph; maximum choices show 15.5, 19.9, 24.9 and 31.1 mph. Original
+metric command values and resulting packet bytes are identical in all three
+display modes. No scooter settings were changed for this display-only update.
+The prior on-scooter control/recording evidence below is from the 0.3.0 build.
+
+AUTOMATED CHECKS
+
+Pure Java: 9,833 assertions passed across framing/checksum handling (145),
+telemetry decoding and truncation (8,665), command domains/readback (892),
+owner identity parsing (61), and persistent gap-aware ride accounting (70).
+Capture-helper fixtures and ADB shell quoting checks also passed. These tests
+exercise useful failure cases; they do not replace physical riding tests.
+
+ON-SCOOTER EVIDENCE
+
+- 25/25 routine settings: changed value confirmed, original value restored.
+- Electronic lock: lock and unlock confirmed; original unlocked state restored.
+  A later idle snapshot reported locked again; the cause was not established.
+  Source review found no automatic lock-write path. The final readback was
+  unlocked, and the full 0x70 settings payload matched the initial baseline.
+- Scheduled charging time: alternative timestamp confirmed; original restored.
+- Clock sync: command accepted; no clock readback is available for verification.
+- Existing handlebar PIN: enabled/configured metadata read successfully;
+  digits were not displayed/exported and the PIN was not changed.
+- Dual drive and prompt sound: flags changed and were restored; physical motor
+  and sound behavior remain untested, so both remain experimental.
+- Acceleration and custom speed-cap candidates: no confirmed change on this
+  firmware. Original readings remained/restored. Three additional Lab status
+  fields were absent and no writes were made to them.
+- Background stationary recording: 60.025 s, 59 samples, no gaps, 99.57%
+  electrical/speed coverage. A repeat with default background connection off:
+  20.041 s, 20 samples, no gaps, 97.64% coverage. Both saved and stopped. The
+  recording wake lock was released. Zero ridden distance was reported honestly.
+- CSV/JSON recording outputs were generated and checked. Native document-picker
+  interaction was not physically exercised while the phone was asleep.
+
+REMAINING PHYSICAL VALIDATION
+
+The app is ready for a safely parked check and real ride recording. Actual
+lighting, cruise engagement, propulsion/hill assistance, scheduled charging
+start/stop, PIN changes and proximity pairing/unlock need appropriate physical
+checks before relying on those newly added behaviors. Fold transitions should
+also be tried by hand on both owners' phones.
+
+No eight-mile range diagnosis or independent battery-capacity claim follows
+from these parked tests. A ridden recording is needed to compare Sport and
+Boost, distinguish climbing power from battery problems, and confirm current
+direction before interpreting net Wh/mile. No decoded individual cell voltage,
+cell balance, motor temperature or exact remaining battery Wh was found.
+
+READ NEXT
+
+SETUP.txt: one-time setup for another owner.
+FEATURES.txt: supported controls and evidence levels.
+README.txt: app usage, recording interpretation and local builds.
+navee-offline-home.png: final native Home View render with fresh real readings.
+
+
+DISTRIBUTED APK SHA-256
+31133eb85e9d806ff6e55732791d2cad7247ffded309fb7c70c691543888a353

@@ -1,0 +1,7 @@
+<?xml version="1.0" encoding="utf-8"?>
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="local.navee.offlinelock.tests" android:versionCode="1" android:versionName="1">
+  <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
+  <application android:allowBackup="false" android:label="Navee local validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.ParkedValidation" android:targetPackage="local.navee.offlinelock" android:label="Parked offline validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.LaunchValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator launch validation" />
+</manifest>

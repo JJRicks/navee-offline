@@ -1,0 +1,206 @@
+package local.navee.offlinelock;
+
+import java.util.Arrays;
+import java.util.HashSet;
+import java.util.Set;
+
+/** Android-free fixtures from installed OEM command formats, including negative safety boundaries. */
+public final class ScooterCommandsTest {
+    private static int assertions;
+    public static void main(String[] args) {
+        oemFixtures(); catalogDomains(); readbackMetadata(); dynamicChoices(); sensitiveWorkflow(); rejectedCommands();
+        System.out.println("ScooterCommands tests passed: "+assertions+" assertions");
+    }
+
+    private static void oemFixtures() {
+        equal("55aa0053015aadfefd",ScooterCommands.set("energy_recovery",90));
+        equal("55aa006f020450c4fefd",ScooterCommands.set("charge_limit",80));
+        equal("55aa006e02012090fefd",ScooterCommands.set("maximum_speed",32));
+        equal("55aa006d0304000174fefd",ScooterCommands.set("line_light",1));
+        equal("55aa006d0305010277fefd",ScooterCommands.set("star_pattern",2));
+        equal("55aa006f05030102030480fefd",ScooterCommands.setChargeStart(0x01020304L,0));
+        equal("55aa006f05060102030483fefd",ScooterCommands.setClock(0x01020304L,0));
+        equal("55aa006c02d0013efefd",ScooterCommands.setParams("voice",1,80,1));
+        equal("55aa00630601010102030474fefd",ScooterCommands.setPin("1234",true));
+        // OEM enabled bit is preserved by the cap builders.
+        check((ScooterCommands.set("speed_limit",25)[5]&255)==153,"Custom cap enabled bit");
+        check((ScooterCommands.set("speed_limit",0)[5]&255)==0,"Custom cap disabled");
+        check((ScooterCommands.set("drive_speed_limit",20)[6]&255)==148,"Drive cap enabled bit");
+        byte[] local=ScooterCommands.setClock(0x01020304L,3600);
+        check(local[6]==1 && local[7]==2 && (local[8]&255)==17 && (local[9]&255)==20,"Local epoch uses BE and timezone offset");
+    }
+
+    private static void catalogDomains() {
+        Set<String> keys=new HashSet<String>();
+        for(ScooterCommands.Feature f:ScooterCommands.catalog()) {
+            check(keys.add(f.key),"Unique catalog key");
+            check(!f.label.isEmpty()&&!f.group.isEmpty()&&!f.description.isEmpty(),"Readable feature metadata");
+            check(f.options.length==f.optionValues.length,"Choice labels match values");
+            check(f.readbackCmd==0x70 || f.sensitive,"All ordinary controls read vehicle status");
+            if(f.type==ScooterCommands.Type.TIME || f.type==ScooterCommands.Type.PIN) continue;
+            for(int value:f.optionValues) {
+                check(f.allows(value),"Choice is allowed "+f.key);
+                inspect(ScooterCommands.set(f.key,value),f.cmd);
+            }
+            if(f.optionValues.length==0) {
+                inspect(ScooterCommands.set(f.key,f.min),f.cmd);
+                inspect(ScooterCommands.set(f.key,f.max),f.cmd);
+            }
+            final String key=f.key;final int low=f.min-1,high=f.max+1;
+            rejects(()->ScooterCommands.set(key,low));
+            rejects(()->ScooterCommands.set(key,high));
+        }
+        check(keys.size()>=30,"Substantial feature catalog");
+        check(!ScooterCommands.find("maximum_speed").allows(60),"UT5 MAX is not sibling UT5 Pro");
+        check(!ScooterCommands.find("speed_limit").allows(4),"Cap gap rejected by metadata");
+        check(!ScooterCommands.find("drive_speed_limit").allows(4),"Drive cap gap rejected by metadata");
+        check(ScooterCommands.find("dual_drive").experimental,"OEM-hidden candidate isn't called supported");
+        check(ScooterCommands.find("long_range_mode").experimental,"Other model feature stays unverified");
+        check(!ScooterCommands.find("charge_limit").experimental,"Known UT5 charge setting");
+        rejects(()->ScooterCommands.catalog().clear());
+    }
+
+    private static void readbackMetadata() {
+        byte[] payload=new byte[43];
+        payload[1]=5;payload[2]=1;payload[5]=60;payload[10]=(byte)130;
+        payload[16]=0x10;payload[17]=(byte)129;payload[18]=0x01;payload[31]=90;
+        payload[37]=5;payload[42]=(byte)143;
+        Protocol.Frame frame=notification(0x70,0,payload);
+        check(ScooterCommands.find("lock").readback(frame)==1,"Lock offset includes response status");
+        check(ScooterCommands.find("energy_recovery").readback(frame)==60,"Recovery payload offset");
+        check(ScooterCommands.find("line_light").readback(frame)==1,"Line enabled bit");
+        check(ScooterCommands.find("line_pattern").readback(frame)==2,"Line pattern excludes enabled bit");
+        check(ScooterCommands.find("line_color").readback(frame)==0,"Line normal color low nibble");
+        check(ScooterCommands.find("line_boost_color").readback(frame)==1,"Line Boost color high nibble");
+        check(ScooterCommands.find("star_light").readback(frame)==1,"Star light offset");
+        check(ScooterCommands.find("star_pattern").readback(frame)==1,"Star pattern offset");
+        check(ScooterCommands.find("star_color").readback(frame)==1,"Star color offset");
+        check(ScooterCommands.find("hill_start_assist").readback(frame)==1,"HAC bit0");
+        check(ScooterCommands.find("parking_assist").readback(frame)==0,"PAS bit1");
+        check(ScooterCommands.find("hill_descent_control").readback(frame)==1,"HDC bit2");
+        check(ScooterCommands.find("drive_speed_limit").readback(frame)==15,"Drive cap strips enabled bit");
+        check(ScooterCommands.find("charge_limit").readback(frame)==90,"Charge cap offset");
+        payload[20]=25;payload[42]=15;
+        frame=notification(0x70,0,payload);
+        check(ScooterCommands.find("speed_limit").readback(frame)==0,"Custom cap disabled bit wins over a retained limit");
+        check(ScooterCommands.find("drive_speed_limit").readback(frame)==0,"Drive cap disabled bit wins over a retained limit");
+        payload[20]=(byte)153;payload[42]=(byte)143;
+        frame=notification(0x70,0,payload);
+        check(ScooterCommands.find("speed_limit").readback(frame)==25,"Enabled custom cap reads the actual limit");
+        payload[27]=1;payload[28]=2;payload[29]=3;payload[30]=4;
+        frame=notification(0x70,0,payload);
+        check(ScooterCommands.find("charge_start").readback(frame)==null,"Time is not truncated to a byte");
+        check(ScooterCommands.find("charge_start").timeReadback(frame)==0x01020304L,"Time readback BE32");
+        for(ScooterCommands.Feature f:ScooterCommands.catalog()) {
+            check(f.readback(notification(0x70,1,payload))==null,"Rejected response has no readback");
+            check(f.readback(notification(0x72,0,payload))==null,"Wrong command has no readback");
+            check(f.readback(notification(0x70,0,new byte[0]))==null,"Short response has no readback");
+        }
+        check(Arrays.equals(new int[]{0x70,0x72},ScooterCommands.followUpReads("charge_limit")),"Battery writes refresh battery and vehicle");
+    }
+
+    private static void sensitiveWorkflow() {
+        byte[] pin=ScooterCommands.setPin("0123",true);
+        check(Arrays.equals(Arrays.copyOfRange(pin,5,11),new byte[]{1,1,0,1,2,3}),"Leading zero retained as a digit");
+        inspect(pin,0x63);
+        check(ScooterCommands.enablePin(true,true,true)[5]==1,"Enable existing PIN");
+        check(ScooterCommands.enablePin(false,true,false)[5]==0,"Disable PIN owner workflow");
+        equal("55aa007a79fefd",ScooterCommands.readPin(true));
+        ScooterCommands.PinState state=ScooterCommands.parsePin(notification(0x7a,0,new byte[]{1,0,1,2,3}),true);
+        check(Boolean.TRUE.equals(state.enabled)&&state.configured,"PIN state parsed");
+        check(!state.toString().contains("0123"),"PIN state textual representation has no digits");
+        Protocol.Frame pinFrame=notification(0x7a,0,new byte[]{1,0,1,2,3});
+        check(ScooterCommands.pinReadbackMatches(pinFrame,true,new char[]{'0','1','2','3'},true),"PIN selected digits verified privately");
+        check(!ScooterCommands.pinReadbackMatches(pinFrame,true,new char[]{'0','1','2','4'},true),"Wrong PIN readback isn't a confirmation");
+        check(!ScooterCommands.pinReadbackMatches(pinFrame,false,null,true),"Wrong enabled state isn't a confirmation");
+        check(!ScooterCommands.pinReadbackMatches(notification(0x7a,0,new byte[]{1}),true,null,true),"Malformed PIN readback isn't a confirmation");
+        check(!ScooterCommands.pinReadbackMatches(notification(0x7a,7,new byte[0]),true,null,true),"Rejected PIN readback isn't a confirmation");
+        rejects(()->ScooterCommands.pinReadbackMatches(pinFrame,true,null,false));
+        inspect(ScooterCommands.setProximity(true,true,true,state),0x61);
+        inspect(ScooterCommands.setProximity(false,true,false,null),0x61);
+        state=ScooterCommands.parsePin(notification(0x7a,0,new byte[]{0,(byte)255,(byte)255,(byte)255,(byte)255}),true);
+        check(Boolean.FALSE.equals(state.enabled)&&!state.configured,"Unset PIN sentinel");
+        state=ScooterCommands.parsePin(notification(0x7a,7,new byte[0]),true);
+        check(state.status==7&&state.enabled==null,"PIN errors never invent state");
+        rejects(()->ScooterCommands.readPin(false));
+        rejects(()->ScooterCommands.setPin("1234",false));
+        rejects(()->ScooterCommands.setPin("12x4",true));
+        rejects(()->ScooterCommands.setPin("１２３４",true));
+        rejects(()->ScooterCommands.setPin("123",true));
+        rejects(()->ScooterCommands.enablePin(true,true,false));
+        rejects(()->ScooterCommands.setProximity(true,true,false,null));
+        rejects(()->ScooterCommands.setProximity(true,true,true,null));
+        rejects(()->ScooterCommands.setProximity(false,false,true,null));
+        rejects(()->ScooterCommands.parsePin(notification(0x7a,0,new byte[]{1,1}),true));
+        rejects(()->ScooterCommands.parsePin(notification(0x7a,0,new byte[]{1,1,2,3,4}),false));
+        for(int cmd:ScooterCommands.diagnosticReads()) check(cmd!=0x7a&&cmd!=0x63,"Diagnostics exclude credentials");
+        for(int cmd:new int[]{0x30,0x31,0x63,0x7a}) check(ScooterCommands.sensitiveCommand(cmd),"Sensitive traffic marker");
+        check(!ScooterCommands.sensitiveCommand(0x72),"Battery diagnostics aren't credentials");
+    }
+
+    private static void dynamicChoices() {
+        byte[] data=new byte[38];data[15]=1;
+        Protocol.Frame status=notification(0x70,0,data);
+        check(Arrays.equals(ScooterCommands.choiceValues("range_algorithm",status),new int[]{0,2,3}),"Mode1 theory Drive Sport choices");
+        inspect(ScooterCommands.set("range_algorithm",3,status),0x56);
+        final Protocol.Frame mode1=status;
+        rejects(()->ScooterCommands.set("range_algorithm",1,mode1));
+        rejects(()->ScooterCommands.set("range_algorithm",4,mode1));
+        data[15]=2;status=notification(0x70,0,data);
+        check(Arrays.equals(ScooterCommands.choiceValues("range_algorithm",status),new int[]{4,2,3}),"Mode2 Eco Drive Sport choices");
+        data[15]=0;status=notification(0x70,0,data);
+        check(Arrays.equals(ScooterCommands.choiceValues("range_algorithm",status),new int[]{0}),"Mode0 UT5 offers theory only");
+        final Protocol.Frame shortStatus=notification(0x70,0,data);
+        rejects(()->ScooterCommands.set("long_range_mode",1,shortStatus));
+        rejects(()->ScooterCommands.set("overspeed_control",1,shortStatus));
+        rejects(()->ScooterCommands.set("drive_speed_limit",10,shortStatus));
+        check(ScooterCommands.choiceValues("range_algorithm",null).length==0,"Missing capability mode offers no invented choice");
+        check(ScooterCommands.find("hill_start_assist").label.equals("Walk Assist"),"HAC correct OEM meaning");
+        check(ScooterCommands.find("parking_assist").label.equals("Power Assist"),"PAS correct OEM meaning");
+        check(ScooterCommands.find("low_power").label.equals("Low Battery Mode"),"Low battery behavior meaning");
+    }
+
+    private static void rejectedCommands() {
+        rejects(()->ScooterCommands.set("not_a_feature",1));
+        rejects(()->ScooterCommands.set("pin",0));
+        rejects(()->ScooterCommands.set("charge_start",1));
+        rejects(()->ScooterCommands.set("energy_recovery",3));
+        rejects(()->ScooterCommands.set("charge_limit",81));
+        rejects(()->ScooterCommands.set("maximum_speed",60));
+        rejects(()->ScooterCommands.setParams("0x50",1));
+        rejects(()->ScooterCommands.setParams("voice",1,101,1));
+        rejects(()->ScooterCommands.setParams("voice",1,80,2));
+        rejects(()->ScooterCommands.setClock(0,0));
+        rejects(()->ScooterCommands.setChargeStart(0xffffffffL,1));
+        rejects(()->ScooterCommands.setClock(1,999999));
+        for(final int cmd:new int[]{0x50,0x59,0x62,0x64,0x65,0x66,0x67,0x68,0x69,0x77,0x78,0x80,0xa0,0xb0,-1,256})
+            rejects(()->Protocol.frame(cmd,new byte[]{1}));
+        for(final byte[] payload:new byte[][]{ {0,1},{8,1},{9,1},{4,79},{4,101},{4,81},{3,0,0,0,0},{6,0,0},{1,2},{5,2},{7,2}})
+            rejects(()->Protocol.frame(0x6f,payload));
+        for(final byte[] payload:new byte[][]{{1,60},{2,2},{3,(byte)128},{3,(byte)149},{4,1}})
+            rejects(()->Protocol.frame(0x6e,payload));
+        rejects(()->Protocol.frame(0x63,new byte[]{0,1,1,2,3,4}));
+        rejects(()->Protocol.frame(0x63,new byte[]{1,0,1,2,3,4}));
+        rejects(()->Protocol.frame(0x6d,new byte[]{4,0,2}));
+        rejects(()->Protocol.frame(0x6d,new byte[]{4,1,3}));
+        rejects(()->Protocol.frame(0x6d,new byte[]{5,3,5}));
+        rejects(()->Protocol.frame(0x81,new byte[]{0,1}));
+    }
+
+    private static Protocol.Frame notification(int cmd,int status,byte[] payload) {
+        byte[] d=new byte[payload.length+1];d[0]=(byte)status;System.arraycopy(payload,0,d,1,payload.length);
+        byte[] p=new byte[d.length+8];p[0]=0x55;p[1]=(byte)0xaa;p[3]=(byte)cmd;p[4]=(byte)d.length;
+        System.arraycopy(d,0,p,5,d.length);int sum=0;for(int i=0;i<p.length-3;i++)sum+=p[i]&255;
+        p[p.length-3]=(byte)sum;p[p.length-2]=(byte)0xfe;p[p.length-1]=(byte)0xfd;return Protocol.parse(p);
+    }
+    private static void inspect(byte[] packet,int cmd) {
+        check((packet[3]&255)==cmd&&packet[2]==0,"Plain opcode/flag");
+        check(packet.length==(packet[4]&255)+8,"Outbound write length");
+        int sum=0;for(int i=0;i<packet.length-3;i++)sum+=packet[i]&255;
+        check((packet[packet.length-3]&255)==(sum&255),"Outbound checksum");
+        check((packet[packet.length-2]&255)==254&&(packet[packet.length-1]&255)==253,"Outbound footer");
+    }
+    private static void equal(String hex,byte[] bytes){check(hex.equals(Protocol.hex(bytes)),"Frame fixture "+hex);}
+    private static void check(boolean condition,String message){assertions++;if(!condition)throw new AssertionError(message);}
+    private static void rejects(Runnable action){boolean rejected=false;try{action.run();}catch(IllegalArgumentException expected){rejected=true;}catch(UnsupportedOperationException expected){rejected=true;}check(rejected,"Invalid operation was rejected");}
+}

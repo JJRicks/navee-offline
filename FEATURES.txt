@@ -1,0 +1,151 @@
+NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
+Validation date: October 12, 2026
+Tested hardware: US UT5 MAX, model 2538; OEM protocol reference: NAVEE 2.1.9
+
+The app talks directly to the scooter over Bluetooth and has no internet
+permission. First-time owner setup is covered in SETUP.txt.
+
+CONFIRMED WRITES AND FRESH READBACK
+
+The parked scooter accepted a changed value, reported that new value, and
+reported its original value after restoration for 25 routine settings, plus
+lock/unlock. A changed charging-start timestamp was also read back and restored.
+These checks prove configuration changes; they do not prove ridden behavior.
+The choices below come from the OEM interface; the tests used representative
+changed values, rather than every possible choice.
+
+Area                  Confirmed configuration fields
+--------------------  -------------------------------------------------------
+Lock                  Electronic lock and unlock
+Ride                  Cruise enable, recovery strength, traction control,
+                      startup threshold, maximum speed
+Range & dashboard     Range-estimate selector, miles/kilometers on dashboard
+Battery               Charge ceiling, scheduled-charging enable/start time,
+                      Low Battery Mode
+Security standby      Locked standby duration
+Hill assistance       Walk Assist, Power Assist, Hill Descent Control
+Primary lighting      Headlight, automatic light sensor, turn-signal sound
+Line lighting         On/off, pattern, normal color, Boost color
+Star lighting         On/off, pattern, normal color, Boost color
+
+Useful details:
+
+- Recovery offers Off, Low, Medium and High. Stronger recovery changes coasting
+  deceleration; its real energy benefit needs a ride measurement.
+- Startup threshold offers 0–5 km/h. Maximum speed uses this model's OEM choices
+  of 25, 32, 40 and 50 km/h; limits for other UT5 models are not offered.
+- Charge ceiling offers 80%, 85%, 90%, 95% and 100%. Stored schedule settings
+  were verified; actual charging start/stop behavior needs a charging cycle.
+- Low Battery Mode limits maximum speed below 20% charge. It is not an Eco mode
+  that reduces power throughout an entire ride.
+- Lock duration offers 6, 12 or 24 hours of locked standby. The OEM says the
+  scooter can remain locked after powering off; this is not a guaranteed timed
+  unlock. Keep your configured handlebar PIN available.
+- Walk Assist follows walking speed when pushed in Walk mode. Power Assist uses
+  the Boost button and full throttle uphill in Sport mode. Hill Descent Control
+  limits speed while descending without braking. These are OEM descriptions;
+  propulsion and descent behavior still need a rider check.
+- Line/star patterns offer Always On, Follow Headlight and Breathing. This
+  model's normal and Boost colors are Light Blue and Red. Readback was verified;
+  visual behavior has not been independently checked during this test run.
+- This scooter currently exposes Theoretical, Drive and Sport range estimates.
+  Changing the estimate does not change battery capacity or measured odometer.
+
+SECURITY AND CLOCK: DIFFERENT EVIDENCE
+
+Feature                Current evidence
+---------------------  -------------------------------------------------------
+Handlebar PIN state    Successful read: configured and enabled. Digits are
+                       neither displayed nor exported with diagnostics.
+Set/change/enable PIN  Implemented from the OEM protocol; no PIN was changed
+                       during overnight validation.
+Proximity unlock      OEM protocol and pairing flow implemented; pairing and
+                       proximity behavior were not changed or tested live.
+Local clock sync      Scooter accepted the command. No clock readback exists,
+                       so the app reports acceptance rather than verification.
+
+PHONE-FREE AND RIDING CHECKS STILL NEEDED
+
+Test your existing handlebar PIN while safely parked. Proximity unlock needs
+this phone paired with the scooter and an enabled fallback PIN. Cruise
+engagement, assistance while moving, physical lighting, scheduled charging,
+and real battery consumption require the appropriate rider/charger checks.
+
+STATS AND BATTERY DIAGNOSTICS
+
+An earlier complete parked capture populated 83 of the 93 listed fields,
+including response checks. A reconnect can initially supply fewer readings.
+The app distinguishes missing and stale data instead of inventing zeroes.
+
+Reported data includes:
+
+- Charge, pack voltage/current, signed terminal power, temperature, reported
+  health, charge counter, rated capacity and lifetime energy/capacity counters.
+- Battery manufacturing date, deep-discharge events and temperature-related
+  lifetime counters where the firmware supplies them.
+- Speed, estimated remaining range, current trip, average/maximum speed,
+  odometer and stored trips when driving/history reports arrive.
+- Dashboard/controller/battery firmware, scooter identity, warning/status
+  fields, raw non-secret diagnostic payloads and each reading's age.
+
+Reported health and health-adjusted capacity are not independent battery tests.
+Lifetime Wh/Ah counters are not current-ride consumption. Power is calculated
+from paired voltage/current readings. Ride energy needs fresh samples and a
+confirmed current direction before it can be called net battery consumption.
+
+No decoded per-cell voltages, cell balance, motor/controller temperature,
+torque, direct per-trip Wh or exact remaining pack Wh were found. Unknown fields
+retain honest raw labels; firmware faults are not silently cleared.
+
+FIRMWARE LAB: EXPERIMENTAL OR UNAVAILABLE
+
+Candidate              Evidence on this UT5 MAX
+---------------------  -------------------------------------------------------
+Eco/Turbo acceleration A change from 3 to 5 was not confirmed; readback stayed
+                       at the original value. Not established as functional.
+Custom speed cap       A 0→8 test had no confirmed change; readback stayed
+                       at 0. Not established as functional; baseline restored.
+Dual motor drive       Its flag changed 0→1 and returned to 0 with confirmed
+                       readback. Actual motor behavior remains untested; Lab.
+Prompt sound           Its flag changed 0→1 and returned to 0 with confirmed
+                       readback. Physical sound behavior remains untested; Lab.
+Long range mode        Status field absent on this observed firmware.
+Overspeed control      Status field absent on this observed firmware.
+Separate Drive cap     Status field absent on this observed firmware.
+
+Lab controls require an exposed status field, an understood original value,
+fresh stationary data and a matching readback after an accepted command.
+Missing or unexplained baseline values keep controls unavailable. The app has
+no arbitrary command console, ownership reset or firmware-write feature.
+
+APP TOOLS AND REMAINING VALIDATION
+
+The app includes local profiles, appearance/text/unit choices, fold-aware
+layouts, charts, ride recording, notes, comparison and exports. More uses saved
+App, Scooters, Security, Lab and About sections, showing one at a time without
+rebuilding their controls. First-time owner setup stays visible when needed.
+
+Keep idle connection in background defaults off. When off with no recording,
+hiding the app or turning the screen off starts a 10-second grace period. If
+still hidden without a recording, the deadline closes the idle session, cancels
+reconnects and removes its notification. Failed connections and retries cannot
+extend it.
+Returning to the app cancels the deadline. Changing the option while already
+hidden or stopping a hidden recording creates no new grace period. Active
+recording continues independently with its notification until stopped. No lock
+state changes automatically.
+
+All five tabs were rendered in Android at the Pixel's outer-screen size.
+Expanded and rotated half-fold Home layouts were checked using controlled
+window/hinge callbacks while the phone was folded/asleep; physical hinge
+transitions remain untested.
+
+Two parked background recordings (60 and 20 seconds) saved with no journal
+gaps. Longer recordings, road-range measurements and Ollie's phone remain
+untested. CSV/JSON export logic passed; the Android document picker was not
+physically exercised overnight. See VERIFICATION.txt for the exact scope.
+
+Ordinary diagnostics exclude owner identity and PIN digits. A private owner
+backup intentionally contains the setup identity and must stay private.
+Cloud activation, ownership transfer, account sharing, firmware hosting and
+Find My/Find Hub networks remain outside this offline app.

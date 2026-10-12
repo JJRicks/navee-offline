@@ -1,0 +1,39 @@
+# Generated builds and local signing material
+/.local/
+/dist/
+/build/
+/local-build.env
+*.apk
+*.aab
+*.idsig
+*.class
+*.jar
+*.dex
+*.jks
+*.keystore
+*.p12
+*.pem
+*.key
+*.pass
+*.password
+.env
+.env.*
+
+# Personal setup, captured data, and device reports
+*owner*setup*.json
+*owner*setup*.txt
+*owner*backup*.json
+*provisioning*.json
+*.csv
+*.log
+*.zip
+bugreport-*
+/recordings/
+
+# Editor / operating-system files
+.DS_Store
+.idea/
+*.iml
+.vscode/
+__pycache__/
+*.pyc
