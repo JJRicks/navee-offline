@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.6.4
+Current version: 0.6.5
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -176,7 +176,8 @@ restores the starting layout. Reflow is 200 ms and outline motion 120 ms, with
 disabled system animations respected. The gear is the sole widget-options
 entry; tap the dots for Move or corner for Size as accessible alternatives.
 The same Size/Move dialogs remain inside options. Menus, grips, resize corners
-and the scooter-name pencil appear only in global dashboard edit mode. Local
+and the scooter-name pencil appear only in global dashboard edit mode. The
+rename pencil sits directly beside the scooter name. Local
 renaming remains enabled there while scooter/data actions are disabled.
 Translucent edit controls float over each card, preserving exactly the same
 widget and content dimensions as normal viewing. Toggling edit mode does not

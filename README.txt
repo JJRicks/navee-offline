@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.6.4
+NAVEE OFFLINE — VERSION 0.6.5
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,6 +11,10 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+
+0.6.5 adds a little space below the connection status to separate it from the
+lock-state text in the Lock & connection widget. In edit mode, the scooter-name
+pencil sits beside the name instead of at the far edge of the card.
 
 0.6.4 gives widget options a top-right X and centered, side-by-side Duplicate
 and Remove widget buttons at the bottom. Remove uses red text and a red trash

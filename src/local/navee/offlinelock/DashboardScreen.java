@@ -352,10 +352,6 @@ public final class DashboardScreen implements AppScreen {
                         floatingAction("resize", "Resize " + widget.title, () -> size(widget));
                 resize.setOnTouchListener(new EditorTouch(this, true));
                 addFloating(resize, Gravity.BOTTOM | Gravity.RIGHT, 4);
-                if (widget.type.equals("scooter")) {
-                    renameControl = floatingAction("pencil", "Rename scooter", actions::rename);
-                    addFloating(renameControl, Gravity.TOP | Gravity.RIGHT, 56);
-                }
             }
         }
 
@@ -390,7 +386,37 @@ public final class DashboardScreen implements AppScreen {
                     photoName = new FittedValue("", 14, 19, 3);
                     scooterNameRow = row();
                     scooterNameRow.setGravity(Gravity.CENTER_VERTICAL);
-                    scooterNameRow.addView(photoName, new LinearLayout.LayoutParams(0, -2, 1));
+                    FrameLayout namePane = new FrameLayout(host.activity()) {
+                        @Override
+                        protected void onLayout(boolean changed, int l, int t, int r, int b) {
+                            super.onLayout(changed, l, t, r, b);
+                            if (renameControl == null) return;
+                            android.text.Layout text = photoName.getLayout();
+                            float textRight = 0;
+                            if (text != null)
+                                for (int line = 0; line < text.getLineCount(); line++)
+                                    textRight = Math.max(textRight, text.getLineRight(line));
+                            int size = ui.dp(48);
+                            int left = Math.max(0, Math.min(getWidth() - size,
+                                    photoName.getLeft() + photoName.getCompoundPaddingLeft()
+                                            + Math.round(textRight) + ui.dp(4)));
+                            int top = Math.max(0, (getHeight() - size) / 2);
+                            renameControl.layout(left, top, left + size, top + size);
+                        }
+                    };
+                    // Reserve the same space in both modes. The pencil floats beside
+                    // the actual name, and scrolls with it without covering wrapped text.
+                    namePane.setMinimumHeight(ui.dp(48));
+                    FrameLayout.LayoutParams nameText =
+                            new FrameLayout.LayoutParams(-1, -2, Gravity.CENTER_VERTICAL);
+                    nameText.rightMargin = ui.dp(52);
+                    namePane.addView(photoName, nameText);
+                    if (editing) {
+                        renameControl = floatingAction("pencil", "Rename scooter", actions::rename);
+                        namePane.addView(renameControl,
+                                new FrameLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+                    }
+                    scooterNameRow.addView(namePane, new LinearLayout.LayoutParams(-1, -2));
                     body.addView(scooterNameRow);
                     scooterRow = row();
                     scooterRow.setGravity(Gravity.CENTER_VERTICAL);

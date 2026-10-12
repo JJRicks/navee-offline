@@ -267,7 +267,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     private View makeDashboardLock(){
         LinearLayout content=column();content.setGravity(Gravity.CENTER_HORIZONTAL);
         connectionTitle=connectionLabel();connectionTitle.setGravity(Gravity.CENTER);
-        content.addView(connectionTitle,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout.LayoutParams status=new LinearLayout.LayoutParams(-1,-2);
+        status.bottomMargin=design.dp(8);
+        content.addView(connectionTitle,status);
         lockTitle=design.text("Lock",18,true);lockTitle.setGravity(Gravity.CENTER);lockControl=new LockControl();
         content.addView(lockTitle,new LinearLayout.LayoutParams(-1,-2));
         content.addView(new DashboardLockRow(lockControl),new LinearLayout.LayoutParams(-1,-2));

@@ -1,7 +1,32 @@
-NAVEE OFFLINE 0.6.4 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.6.5 — COMPLETION AND VALIDATION REPORT
 October 12, 2026
 
-0.6.4 — WIDGET OPTIONS POLISH
+0.6.5 — STATUS SPACING AND NAME EDITING
+
+The Lock & connection widget adds 8 dp below the connection status, separating
+it from the lock-state text within the centered content group. The edit-only
+rename pencil is positioned beside the scooter name instead of the card edge.
+
+The name row reserves the same space in view/edit mode. Its 48 dp pencil target
+sits after the widest laid-out text line, stays clear of wrapped names, and
+scrolls with the name inside the widget.
+
+Verified for 0.6.5:
+
+- The signed production APK passed signature and alignment verification.
+- Existing DashboardValidation passed all 13 groups at 360 dp, including all
+  15 widget types at minimum/default sizes, light/dark themes, 140% text,
+  working edit-only rename, and identical edit/view content geometry.
+  Synthetic fixtures submitted zero scooter writes.
+- Emulator screenshots confirmed the pencil beside the name and clear
+  separation between connection status and lock-state text.
+- The Pixel had no active/saving ride notification before the in-place update.
+  Version 0.6.5 (code 14) installed, launched and reconnected. A final unfolded
+  screenshot confirmed the saved Home layout and separated connection/lock text;
+  the pencil correctly remained hidden outside Edit. No scooter lock/settings
+  writes or phone-network changes were made. Samsung was not retested.
+
+HISTORICAL 0.6.4 — WIDGET OPTIONS POLISH
 
 Widget options use actual Duplicate and Remove widget buttons centered side by
 side in a fixed bottom row. Remove has red text, outline and a matching trash
