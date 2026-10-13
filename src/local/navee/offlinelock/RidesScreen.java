@@ -9,6 +9,7 @@ import android.graphics.ColorFilter;
 import android.graphics.Paint;
 import android.graphics.Path;
 import android.graphics.PixelFormat;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.graphics.Typeface;
 import android.graphics.drawable.ColorDrawable;
@@ -68,12 +69,23 @@ public final class RidesScreen implements AppScreen {
         @Override protected boolean removeEldestEntry(Map.Entry<String, float[]> eldest) { return size() > 96; }
     });
     private static final float[] NO_ROUTE = new float[0];
+    private static final int INLINE_MAP_DP = 300;
+    /** The wide list pane's scroll position across rebuilds; the activity restores only the page scroller, which here never moves. */
+    private static int wideListScroll;
 
     private final ScreenHost host;
     private final Ui ui;
     private final ScooterService service;
     private final SharedPreferences preferences;
     private final ScrollView scroll;
+    /** Wide screens: the list on the left, the selected ride's details on the right; null when compact. */
+    private final boolean wide;
+    private final ScrollView root, detailScroll;
+    private final LinearLayout detailPane;
+    private final Map<String, View> historyRows = new HashMap<String, View>();
+    private String selectedRide, detailKey = "";
+    private int detailGeneration;
+    private RouteMapView inlineMap;
     private final LinearLayout page, recordCard, activeCard, history;
     private final TextView recordButton, connectButton, endButton, activeTitle, activeElapsed, activeDistance,
             activeDistanceUnit, activePower, activeEnergy, activeQuality, historyCount;
@@ -94,8 +106,11 @@ public final class RidesScreen implements AppScreen {
         this.host = host; ui = host.ui(); service = host.service(); preferences = service.settings;
         selected = new LinkedHashSet<String>(preferences.getStringSet("ride_comparison", new LinkedHashSet<String>()));
         chartKey = preferences.getString("ride_chart_key", "power_w");
+        selectedRide = preferences.getString("ride_selected", "");
+        // Same trigger as the activity's side rail, so two panes appear exactly when the rail does.
+        wide = host.activity().getResources().getConfiguration().screenWidthDp >= 650;
         scroll = new ScrollView(host.activity()); scroll.setFillViewport(true); scroll.setClipToPadding(false);
-        page = vertical(); page.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24)); scroll.addView(page);
+        page = vertical(); page.setPadding(wide ? 0 : ui.dp(18), ui.dp(6), wide ? 0 : ui.dp(18), ui.dp(24)); scroll.addView(page);
 
         // Live recording: red-tinted card with elapsed time, three stats, quality, chart and Notes / End.
         activeCard = vertical(); activeCard.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
@@ -148,11 +163,18 @@ public final class RidesScreen implements AppScreen {
         historyCount = ui.caption(""); historyCount.setGravity(Gravity.END); historyCount.setPadding(ui.dp(4), ui.dp(14), ui.dp(4), ui.dp(6));
         head.addView(historyCount); page.addView(head);
         history = vertical(); page.addView(history);
+        if (wide) {
+            detailScroll = new ScrollView(host.activity()); detailScroll.setFillViewport(true); detailScroll.setClipToPadding(false);
+            detailPane = vertical(); detailPane.setPadding(0, ui.dp(6), 0, ui.dp(24)); detailScroll.addView(detailPane);
+            Panes panes = new Panes(scroll, detailScroll); panes.setPadding(ui.dp(24), 0, ui.dp(24), 0);
+            root = new PaneHost(); root.addView(panes);
+        } else { detailScroll = null; detailPane = null; root = scroll; }
         refresh();
+        if (wide) { int restore = wideListScroll; scroll.post(() -> { if (!closed) scroll.scrollTo(0, restore); }); }
     }
     private LinearLayout vertical() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.VERTICAL); return result; }
     private LinearLayout horizontal() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.HORIZONTAL); return result; }
-    @Override public View view() { return scroll; }
+    @Override public View view() { return root; }
     @Override public void refresh() {
         boolean recording = service.isRecording(), ready = service.ble.ready(), saving = service.phoneSaving();
         String error = service.recordingError();
@@ -320,7 +342,7 @@ public final class RidesScreen implements AppScreen {
         return new TextView[]{value, unit};
     }
     private void refreshHistory() {
-        if (service.rides == null) { historyCount.setText("Ride storage unavailable"); return; }
+        if (service.rides == null) { historyCount.setText("Ride storage unavailable"); if (wide) emptyDetail("unavailable"); return; }
         try {
             List<RideStore.Summary> summaries = service.rides.list();
             List<RideStore.Summary> stopped = new ArrayList<RideStore.Summary>();
@@ -328,8 +350,13 @@ public final class RidesScreen implements AppScreen {
             for (RideStore.Summary s : summaries) if (!s.active) { stopped.add(s); signature.append(s.id).append(':').append(s.sampleCount).append(';'); }
             signature.append('|').append(visibleHistory);
             savedCount = stopped.size();
-            if (signature.toString().equals(historySignature)) { updateHistoryCount(); return; }
-            historySignature = signature.toString(); history.removeAllViews(); thumbs.clear();
+            String chosen = wide ? chosenRide(stopped) : null;
+            if (signature.toString().equals(historySignature)) {
+                updateHistoryCount();
+                if (wide) { styleHistoryRows(chosen); refreshDetail(chosen, stopped); }
+                return;
+            }
+            historySignature = signature.toString(); history.removeAllViews(); thumbs.clear(); historyRows.clear();
             Set<String> available = new LinkedHashSet<String>(); for (RideStore.Summary s : stopped) available.add(s.id);
             if (selected.retainAll(available)) saveSelection();
             List<String> shown = new ArrayList<String>();
@@ -337,7 +364,7 @@ public final class RidesScreen implements AppScreen {
                 LinearLayout group = ui.groupCard();
                 for (int i = 0; i < Math.min(visibleHistory, stopped.size()); i++) {
                     if (i > 0) ui.divider(group);
-                    group.addView(historyRow(stopped.get(i))); shown.add(stopped.get(i).id);
+                    group.addView(historyRow(stopped.get(i), stopped.get(i).id.equals(chosen))); shown.add(stopped.get(i).id);
                 }
                 history.addView(group);
                 if (stopped.size() > visibleHistory) history.addView(ui.secondaryButton("Show more recordings", () -> { visibleHistory += 20; refreshHistory(); }));
@@ -347,16 +374,23 @@ public final class RidesScreen implements AppScreen {
                 empty.addView(ui.caption("Connect to your scooter, then start recording.")); history.addView(empty);
             }
             updateHistoryCount(); loadThumbnails(shown); measureStorage();
-        } catch (IOException e) { historyCount.setText("Could not read saved rides"); }
+            if (wide) refreshDetail(chosen, stopped);
+        } catch (IOException e) { historyCount.setText("Could not read saved rides"); if (wide) emptyDetail("unreadable"); }
     }
     private void updateHistoryCount() {
         String count = savedCount == 0 ? "No saved rides" : savedCount + (savedCount == 1 ? " ride" : " rides");
         historyCount.setText(storageText.isEmpty() ? count : count + " · " + storageText);
     }
     /** History row: route thumbnail, name and start time, then distance and duration. */
-    private View historyRow(RideStore.Summary s) {
+    private View historyRow(RideStore.Summary s, boolean chosen) {
         LinearLayout row = horizontal(); row.setGravity(Gravity.CENTER_VERTICAL); row.setMinimumHeight(ui.dp(64));
         row.setPadding(0, ui.dp(10), 0, ui.dp(10));
+        if (wide) {
+            // The selection tint runs nearly to the card's edges; the row keeps its content where it was.
+            int bleed = ui.dp(8); row.setPadding(bleed, ui.dp(10), bleed, ui.dp(10));
+            LinearLayout.LayoutParams bleedParams = new LinearLayout.LayoutParams(-1, -2);
+            bleedParams.leftMargin = -bleed; bleedParams.rightMargin = -bleed; row.setLayoutParams(bleedParams);
+        }
         RouteThumb thumb = new RouteThumb(); thumbs.put(s.id, thumb);
         row.addView(thumb, new LinearLayout.LayoutParams(ui.dp(52), ui.dp(40)));
         LinearLayout words = vertical();
@@ -372,9 +406,42 @@ public final class RidesScreen implements AppScreen {
         right.addView(distance); right.addView(time);
         LinearLayout.LayoutParams rightParams = new LinearLayout.LayoutParams(-2, -2); rightParams.leftMargin = ui.dp(10);
         row.addView(right, rightParams);
-        rowTouch(row, () -> showDetails(s.id));
-        row.setContentDescription(label + ", " + longDate(s.startWallMs) + ", " + distance(s.distanceKm) + ", " + duration(s.elapsedMs) + ". Opens ride details.");
+        String spoken = label + ", " + longDate(s.startWallMs) + ", " + distance(s.distanceKm) + ", " + duration(s.elapsedMs);
+        if (wide) {
+            row.setClickable(true); row.setFocusable(true); row.setOnClickListener(v -> selectRide(s.id));
+            row.setContentDescription(spoken + ". Shows its details beside the list.");
+            historyRows.put(s.id, row); styleHistoryRow(row, chosen);
+        } else {
+            rowTouch(row, () -> showDetails(s.id));
+            row.setContentDescription(spoken + ". Opens ride details.");
+        }
         return row;
+    }
+    /** Wide layout: the selected ride's row carries a red tint and reads as selected. */
+    private void styleHistoryRow(View row, boolean chosen) {
+        if (Boolean.valueOf(chosen).equals(row.getTag())) return; row.setTag(chosen);
+        Drawable fill = chosen ? ui.shape(Ui.withAlpha(ui.accent, ui.dark ? 46 : 30), 14, 0) : null;
+        row.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 26)), fill, ui.shape(Color.WHITE, 14, 0)));
+        row.setSelected(chosen);
+    }
+    private void styleHistoryRows(String chosen) {
+        for (Map.Entry<String, View> entry : historyRows.entrySet()) styleHistoryRow(entry.getValue(), entry.getKey().equals(chosen));
+    }
+    /** The remembered ride when it still exists, otherwise the newest saved ride. */
+    private String chosenRide(List<RideStore.Summary> stopped) {
+        for (RideStore.Summary s : stopped) if (s.id.equals(selectedRide)) return s.id;
+        return stopped.isEmpty() ? null : stopped.get(0).id;
+    }
+    private void selectRide(String id) {
+        if (!id.equals(selectedRide)) { selectedRide = id; preferences.edit().putString("ride_selected", id).apply(); }
+        styleHistoryRows(id);
+        boolean changed = !detailKey.startsWith(id + ":");
+        refreshHistory();
+        if (changed && detailScroll != null) {
+            detailScroll.scrollTo(0, 0);
+            View title = detailPane.findViewWithTag("ride-title");
+            if (title instanceof TextView) detailPane.announceForAccessibility("Showing " + ((TextView) title).getText());
+        }
     }
     private void rowTouch(View row, Runnable action) {
         row.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 26)), null, ui.shape(Color.WHITE, 12, 0)));
@@ -497,58 +564,154 @@ public final class RidesScreen implements AppScreen {
             LinearLayout route = ui.card(); route.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4));
             route.addView(navRow("map", "Route & phone sensors", "Map, grade, acceleration", "", () -> showPhoneRide(id)).view); body.addView(route);
 
-            body.addView(ui.sectionLabel("Electrical energy"));
-            LinearLayout energy = ui.groupCard();
-            TextView interpretation = ui.caption(s.energyInterpretation); interpretation.setPadding(0, ui.dp(12), 0, ui.dp(4)); energy.addView(interpretation);
-            boolean partialDirection = s.confirmedDirectionCoverageMs > 0 && !s.directionConfirmed;
-            valueRow(energy, partialDirection ? "Battery draw · confirmed intervals" : "Battery draw", quantity(s.drawWh, "Wh", 2));
-            valueRow(energy, partialDirection ? "Battery input / charging · confirmed intervals" : "Battery input / charging", quantity(s.returnedWh, "Wh", 2));
-            valueRow(energy, "Net measured energy", quantity(s.netConsumptionWh, "Wh", 2));
-            valueRow(energy, s.netWhPerKm == null ? "Throughput per distance" : "Net energy per distance", efficiency(s));
-            body.addView(energy);
-            if (partialDirection) note(body, "Draw and input cover " + duration(s.confirmedDirectionCoverageMs)
-                    + " of confirmed-direction measurements. " + duration(s.unconfirmedDirectionCoverageMs) + " remain absolute throughput.");
-            note(body, DisplayUnits.metricText(s.efficiencyStatus, preferences.getString("units", "mi")));
-
-            body.addView(ui.sectionLabel("Measurement quality"));
-            LinearLayout quality = ui.groupCard();
-            valueRow(quality, "Power coverage", percent(s.electricalCoverage));
-            valueRow(quality, "Energy direction", s.directionConfirmed ? "Confirmed" : s.confirmedDirectionCoverageMs > 0 ? "Partly confirmed" : "Unconfirmed");
-            valueRow(quality, "Observed / recorded", duration(s.electricalCoverageMs) + " / " + duration(s.elapsedMs));
-            valueRow(quality, "Unobserved power", duration(s.skippedElectricalMs));
-            valueRow(quality, "Samples / gaps", String.format(Locale.US, "%,d / %,d", s.sampleCount, s.gapCount));
-            valueRow(quality, "Moving / stationary", duration(s.movingMs) + " / " + duration(s.stationaryMs));
-            valueRow(quality, "Moving throughput", quantity(s.movingThroughputWh, "Wh", 2));
-            valueRow(quality, "Stationary throughput", quantity(s.stationaryThroughputWh, "Wh", 2));
-            valueRow(quality, "Unknown motion", quantity(s.unknownMotionThroughputWh, "Wh", 2));
-            valueRow(quality, "Voltage min / max", quantity(s.minimumVoltageV, "V", 2) + " / " + quantity(s.maximumVoltageV, "V", 2));
-            valueRow(quality, "Peak power", quantity(s.peakAbsolutePowerW, "W", 0));
-            valueRow(quality, "Temperature", quantity(s.minimumTemperatureC, "°C", 0) + " / " + quantity(s.maximumTemperatureC, "°C", 0));
-            body.addView(quality);
-            if (s.recovered) note(body, "This recording recovered after a process restart. The missing interval was excluded.");
-            if (s.odometerReset) note(body, "The odometer moved backwards; distance and efficiency are unavailable.");
-            note(body, "Observed voltage changes alone do not establish battery sag or health. Stationary and moving energy are separated only where speed was measured.");
-
-            body.addView(ui.sectionLabel("Recorded sensor history"));
-            LinearLayout plot = ui.card(); Ui.ChartView chart = ui.new ChartView();
-            Flow choices = new Flow(); choices.setPadding(0, 0, 0, ui.dp(6));
-            chipGroup(choices, new String[]{"Power", "Speed", "Voltage", "Battery"}, new String[]{"power_w", "speed_kmh", "voltage_v", "battery_percent"}, "power_w",
-                    key -> chart.set(points(measured, key), chartUnit(key), chartColor(key), "No measured values for this field"));
-            plot.addView(choices); plot.addView(chart); chart.set(points(measured, "power_w"), "W", ui.accent, "No paired electrical measurements"); body.addView(plot);
-            if (!s.notes.isEmpty()) { body.addView(ui.sectionLabel("Notes")); LinearLayout notes = ui.card(); notes.addView(ui.text(s.notes, 14, false)); body.addView(notes); }
-
-            TextView csv = ui.secondaryButton("Export CSV", () -> exportCsv(id)); iconize(csv, "download");
-            csv.setContentDescription("Export the complete ride sensor CSV");
-            TextView json = ui.secondaryButton("Export JSON", () -> host.saveText("ride-" + id.substring(0, 8) + "-analysis.json", "application/json", s.toJson())); iconize(json, "download");
-            json.setContentDescription("Export ride analysis JSON");
-            body.addView(pair(csv, json));
             AlertDialog[] holder = new AlertDialog[1];
-            TextView delete = ui.dangerButton("Delete ride", () -> confirmDelete(id, s.label, () -> { if (holder[0] != null) holder[0].dismiss(); }));
-            iconize(delete, "trash"); body.addView(delete);
+            detailSections(body, id, s, measured, () -> { if (holder[0] != null) holder[0].dismiss(); });
             AlertDialog dialog = new AlertDialog.Builder(host.activity()).setCustomTitle(titleView(longDate(s.startWallMs), s.label.isEmpty() ? "Ride details" : s.label))
                     .setView(bodyScroll).setPositiveButton("Done", null).create();
             holder[0] = dialog; show(dialog, PAGE, null);
         } catch (IOException e) { host.toast("Could not read this recording."); }
+    }
+    /** Energy, quality, sensor history, notes, exports and Delete: shared by the details page and the wide detail pane. */
+    private void detailSections(LinearLayout body, String id, RideStore.Summary s, List<RideStore.Point> measured, Runnable afterDelete) {
+        body.addView(ui.sectionLabel("Electrical energy"));
+        LinearLayout energy = ui.groupCard();
+        TextView interpretation = ui.caption(s.energyInterpretation); interpretation.setPadding(0, ui.dp(12), 0, ui.dp(4)); energy.addView(interpretation);
+        boolean partialDirection = s.confirmedDirectionCoverageMs > 0 && !s.directionConfirmed;
+        valueRow(energy, partialDirection ? "Battery draw · confirmed intervals" : "Battery draw", quantity(s.drawWh, "Wh", 2));
+        valueRow(energy, partialDirection ? "Battery input / charging · confirmed intervals" : "Battery input / charging", quantity(s.returnedWh, "Wh", 2));
+        valueRow(energy, "Net measured energy", quantity(s.netConsumptionWh, "Wh", 2));
+        valueRow(energy, s.netWhPerKm == null ? "Throughput per distance" : "Net energy per distance", efficiency(s));
+        body.addView(energy);
+        if (partialDirection) note(body, "Draw and input cover " + duration(s.confirmedDirectionCoverageMs)
+                + " of confirmed-direction measurements. " + duration(s.unconfirmedDirectionCoverageMs) + " remain absolute throughput.");
+        note(body, DisplayUnits.metricText(s.efficiencyStatus, preferences.getString("units", "mi")));
+
+        body.addView(ui.sectionLabel("Measurement quality"));
+        LinearLayout quality = ui.groupCard();
+        valueRow(quality, "Power coverage", percent(s.electricalCoverage));
+        valueRow(quality, "Energy direction", s.directionConfirmed ? "Confirmed" : s.confirmedDirectionCoverageMs > 0 ? "Partly confirmed" : "Unconfirmed");
+        valueRow(quality, "Observed / recorded", duration(s.electricalCoverageMs) + " / " + duration(s.elapsedMs));
+        valueRow(quality, "Unobserved power", duration(s.skippedElectricalMs));
+        valueRow(quality, "Samples / gaps", String.format(Locale.US, "%,d / %,d", s.sampleCount, s.gapCount));
+        valueRow(quality, "Moving / stationary", duration(s.movingMs) + " / " + duration(s.stationaryMs));
+        valueRow(quality, "Moving throughput", quantity(s.movingThroughputWh, "Wh", 2));
+        valueRow(quality, "Stationary throughput", quantity(s.stationaryThroughputWh, "Wh", 2));
+        valueRow(quality, "Unknown motion", quantity(s.unknownMotionThroughputWh, "Wh", 2));
+        valueRow(quality, "Voltage min / max", quantity(s.minimumVoltageV, "V", 2) + " / " + quantity(s.maximumVoltageV, "V", 2));
+        valueRow(quality, "Peak power", quantity(s.peakAbsolutePowerW, "W", 0));
+        valueRow(quality, "Temperature", quantity(s.minimumTemperatureC, "°C", 0) + " / " + quantity(s.maximumTemperatureC, "°C", 0));
+        body.addView(quality);
+        if (s.recovered) note(body, "This recording recovered after a process restart. The missing interval was excluded.");
+        if (s.odometerReset) note(body, "The odometer moved backwards; distance and efficiency are unavailable.");
+        note(body, "Observed voltage changes alone do not establish battery sag or health. Stationary and moving energy are separated only where speed was measured.");
+
+        body.addView(ui.sectionLabel("Recorded sensor history"));
+        LinearLayout plot = ui.card(); Ui.ChartView chart = ui.new ChartView();
+        Flow choices = new Flow(); choices.setPadding(0, 0, 0, ui.dp(6));
+        chipGroup(choices, new String[]{"Power", "Speed", "Voltage", "Battery"}, new String[]{"power_w", "speed_kmh", "voltage_v", "battery_percent"}, "power_w",
+                key -> chart.set(points(measured, key), chartUnit(key), chartColor(key), "No measured values for this field"));
+        plot.addView(choices); plot.addView(chart); chart.set(points(measured, "power_w"), "W", ui.accent, "No paired electrical measurements"); body.addView(plot);
+        if (!s.notes.isEmpty()) { body.addView(ui.sectionLabel("Notes")); LinearLayout notes = ui.card(); notes.addView(ui.text(s.notes, 14, false)); body.addView(notes); }
+
+        TextView csv = ui.secondaryButton("Export CSV", () -> exportCsv(id)); iconize(csv, "download");
+        csv.setContentDescription("Export the complete ride sensor CSV");
+        TextView json = ui.secondaryButton("Export JSON", () -> host.saveText("ride-" + id.substring(0, 8) + "-analysis.json", "application/json", s.toJson())); iconize(json, "download");
+        json.setContentDescription("Export ride analysis JSON");
+        body.addView(pair(csv, json));
+        TextView delete = ui.dangerButton("Delete ride", () -> confirmDelete(id, s.label, afterDelete));
+        iconize(delete, "trash"); body.addView(delete);
+    }
+    /** Wide layout: rebuilds the right pane only when the selection or that ride's saved data changes. */
+    private void refreshDetail(String id, List<RideStore.Summary> stopped) {
+        RideStore.Summary chosen = null;
+        for (RideStore.Summary s : stopped) if (s.id.equals(id)) chosen = s;
+        if (chosen == null) { emptyDetail(stopped.isEmpty() ? "none" : "missing"); return; }
+        String key = chosen.id + ":" + chosen.sampleCount + ":" + service.phoneSaving() + ":" + (service.phoneRides != null);
+        if (key.equals(detailKey)) return;
+        int keep = detailKey.startsWith(chosen.id + ":") ? detailScroll.getScrollY() : 0;
+        clearDetail(key); buildDetail(chosen);
+        if (keep > 0) detailScroll.post(() -> { if (!closed) detailScroll.scrollTo(0, keep); });
+    }
+    private void clearDetail(String key) {
+        detailKey = key; detailGeneration++; detailPane.removeAllViews();
+        if (inlineMap != null) { maps.remove(inlineMap); inlineMap.close(); inlineMap = null; }
+    }
+    /** Right pane with no ride to show: a short note instead of an empty column. */
+    private void emptyDetail(String reason) {
+        if (reason.equals(detailKey)) return;
+        clearDetail(reason);
+        LinearLayout empty = ui.card(); empty.setGravity(Gravity.CENTER_HORIZONTAL); empty.setPadding(ui.dp(20), ui.dp(28), ui.dp(20), ui.dp(28));
+        empty.addView(ui.icon("route", 30, ui.muted), new LinearLayout.LayoutParams(ui.dp(30), ui.dp(30)));
+        boolean none = reason.equals("none") || reason.equals("missing");
+        TextView title = ui.text(none ? "No ride to show yet" : "Ride details unavailable", 18, true); title.setGravity(Gravity.CENTER);
+        title.setPadding(0, ui.dp(10), 0, ui.dp(6)); heading(title); empty.addView(title);
+        TextView copy = ui.caption(none ? "Saved rides open here with their route, energy and measurement quality."
+                : reason.equals("unavailable") ? "Ride storage is unavailable on this phone." : "Saved rides could not be read.");
+        copy.setGravity(Gravity.CENTER); empty.addView(copy);
+        detailPane.addView(empty);
+    }
+    /** Wide layout: the selected ride inline: route map first, then stat tiles and the rest of the details page. */
+    private void buildDetail(RideStore.Summary s) {
+        String id = s.id;
+        TextView over = ui.text(longDate(s.startWallMs), 13, false); over.setTextColor(ui.muted); over.setMaxLines(1); over.setEllipsize(TextUtils.TruncateAt.END);
+        detailPane.addView(over);
+        TextView title = ui.text(nameOf(s), 24, true); title.setMaxLines(2); title.setEllipsize(TextUtils.TruncateAt.END);
+        title.setPadding(0, ui.dp(2), 0, ui.dp(12)); title.setTag("ride-title"); heading(title); detailPane.addView(title);
+        List<RideStore.Point> measured;
+        try { measured = service.rides.trend(id, 600); }
+        catch (IOException e) { note(detailPane, "Could not read this recording."); return; }
+        LinearLayout route = vertical(), phone = vertical();
+        detailPane.addView(route);
+        TileGrid grid = new TileGrid();
+        String[] pairs = {"Distance", distance(s.distanceKm), "Duration", duration(s.elapsedMs),
+                "Avg speed", speed(s.averageSpeedKmh), "Max speed", speed(s.maximumSpeedKmh),
+                "Throughput", quantity(s.measuredThroughputWh, "Wh", 2), "Per distance", efficiency(s),
+                "Battery", battery(s), "Power coverage", percent(s.electricalCoverage)};
+        for (int i = 0; i < pairs.length; i += 2) {
+            View tile = tile(pairs[i], pairs[i + 1]); tile.setPadding(ui.dp(10), ui.dp(9), ui.dp(10), ui.dp(10)); grid.addView(tile);
+        }
+        LinearLayout.LayoutParams gridParams = new LinearLayout.LayoutParams(-1, -2); gridParams.topMargin = ui.dp(4); gridParams.bottomMargin = ui.dp(4);
+        detailPane.addView(grid, gridParams);
+        detailPane.addView(phone);
+        detailSections(detailPane, id, s, measured, null);
+        loadInlineRoute(id, route, phone);
+    }
+    /** Loads the phone track off the main thread; the map sits above the tiles, the rest of the route page below them. */
+    private void loadInlineRoute(String id, LinearLayout route, LinearLayout phone) {
+        PhoneRideStore store = service.phoneRides; if (store == null) return;
+        if (service.phoneSaving()) { routeNotice(route, "Finishing the sensor files. The route appears once they are saved.", null); return; }
+        TextView loading = ui.caption("Loading route…"); loading.setGravity(Gravity.CENTER); loading.setBackground(ui.shape(ui.surface, 20, 0));
+        LinearLayout.LayoutParams loadingParams = new LinearLayout.LayoutParams(-1, ui.dp(INLINE_MAP_DP)); loadingParams.bottomMargin = ui.dp(2);
+        route.addView(loading, loadingParams);
+        final int generation = detailGeneration;
+        try {
+            phoneLoader.execute(() -> {
+                try {
+                    PhoneRideStore.Track track = store.load(id);
+                    host.activity().runOnUiThread(() -> {
+                        if (closed || host.activity().isDestroyed() || generation != detailGeneration) return;
+                        route.removeAllViews();
+                        PhoneRide ride = phoneRide(track, route, phone, true);
+                        LinearLayout.LayoutParams frameParams = new LinearLayout.LayoutParams(-1, ui.dp(INLINE_MAP_DP)); frameParams.bottomMargin = ui.dp(2);
+                        route.addView(ride.frame, 0, frameParams); inlineMap = ride.map;
+                    });
+                } catch (IOException e) {
+                    host.activity().runOnUiThread(() -> {
+                        if (closed || generation != detailGeneration) return;
+                        route.removeAllViews();
+                        routeNotice(route, "No phone route was saved with this ride.", () -> rawPhoneFallback(id));
+                    });
+                }
+            });
+        } catch (java.util.concurrent.RejectedExecutionException stopped) { route.removeAllViews(); }
+    }
+    private void routeNotice(LinearLayout parent, String text, Runnable files) {
+        LinearLayout card = ui.card(); card.addView(ui.caption(text));
+        if (files != null) {
+            TextView button = ui.secondaryButton("Phone data files", files); iconize(button, "download");
+            button.setContentDescription("Export the original phone data files"); card.addView(button);
+        }
+        parent.addView(card);
     }
     private String battery(RideStore.Summary s) {
         if (s.startBatteryPercent != null && s.endBatteryPercent != null)
@@ -747,12 +910,31 @@ public final class RidesScreen implements AppScreen {
         try { RideStore.Summary summary = service.rides == null ? null : service.rides.get(track.id); if (summary != null && !summary.label.isEmpty()) rideName = summary.label; }
         catch (IOException | RuntimeException ignored) { }
         ScrollView scroller = new ScrollView(host.activity()); LinearLayout outer = vertical(); scroller.addView(outer);
+        LinearLayout content = vertical(); content.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(16)); outer.addView(content);
+        PhoneRide ride = phoneRide(track, content, content, false);
+        outer.addView(ride.frame, 0, new LinearLayout.LayoutParams(-1, ui.dp(340)));
+        RouteMapView map = ride.map;
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setCustomTitle(titleView(rideName, "Route")).setView(scroller).setPositiveButton("Done", null).create();
+        show(dialog, PAGE, () -> { maps.remove(map); map.close(); });
+    }
+    /** A route map in its frame (controls and attribution float on it) plus the route page's readouts. */
+    private static final class PhoneRide {
+        final FrameLayout frame; final RouteMapView map;
+        PhoneRide(FrameLayout frame, RouteMapView map) { this.frame = frame; this.map = map; }
+    }
+    /**
+     * Builds the route page. Map colour chips and the readout go into {@code top}; the elevation chart, GPS figures,
+     * acceleration and export go into {@code bottom}. The full page passes one container for both; the wide detail
+     * pane passes two, keeps Map source / Basemap beside the map and rounds the map's corners. The caller places the frame.
+     */
+    private PhoneRide phoneRide(PhoneRideStore.Track track, LinearLayout top, LinearLayout bottom, boolean inline) {
         TextView selection = ui.text("Tap the route to inspect a reading", 14, false); selection.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(10));
         MapSource source = MapSource.load(preferences);
         RouteMapView map = new RouteMapView(ui, track, source.url, p -> selection.setText(pointReadout(p)));
         maps.add(map);
         // The map runs edge to edge; its controls and attribution float on top of it.
         FrameLayout mapFrame = new FrameLayout(host.activity());
+        if (inline) { mapFrame.setBackground(ui.shape(ui.surface, 20, 0)); mapFrame.setClipToOutline(true); }
         mapFrame.addView(map, new FrameLayout.LayoutParams(-1, -1));
         int plate = ui.dark ? ui.bg : ui.text, ink = ui.dark ? ui.text : ui.surface;
         TextView attribution = ui.text(source.attribution, 10.5f, false); attribution.setTextColor(ink); attribution.setMaxLines(3);
@@ -767,11 +949,9 @@ public final class RidesScreen implements AppScreen {
         controls.addView(mapButton("fit", "Fit route", map::fitRoute));
         FrameLayout.LayoutParams controlParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
         controlParams.setMargins(0, 0, ui.dp(6), ui.dp(6)); mapFrame.addView(controls, controlParams);
-        outer.addView(mapFrame, new LinearLayout.LayoutParams(-1, ui.dp(340)));
 
-        LinearLayout content = vertical(); content.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(16)); outer.addView(content);
         TextView mapStatus = ui.caption(""); mapStatus.setTextColor(ui.orange);
-        mapStatus.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); content.addView(mapStatus);
+        mapStatus.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); top.addView(mapStatus);
         map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
         String powerLegend = "Absolute power: dark red → bright red = 0 → 2,000 W · grey = missing";
         TextView legend = ui.caption(powerLegend); legend.setPadding(ui.dp(4), ui.dp(2), ui.dp(4), ui.dp(8));
@@ -781,7 +961,20 @@ public final class RidesScreen implements AppScreen {
             legend.setText(key.equals("grade") ? "Grade: blue downhill · green level · red uphill (±12%) · grey = missing"
                     : key.equals("accel") ? "GPS acceleration: blue slowing · green steady · red accelerating (±2 m/s²) · grey = missing" : powerLegend);
         });
-        content.addView(colors); content.addView(legend); content.addView(selection);
+        top.addView(colors); top.addView(legend); top.addView(selection);
+
+        TextView sourceButton = ui.secondaryButton("Map source", null); iconize(sourceButton, "layers");
+        sourceButton.setContentDescription("Map source · " + source.name);
+        sourceButton.setOnClickListener(v -> mapOptions(() -> {
+            if (closed) return;
+            MapSource chosen = MapSource.load(preferences);
+            map.setSource(chosen.url); attribution.setText(chosen.attribution);
+            sourceButton.setContentDescription("Map source · " + chosen.name);
+        }));
+        CheckBox streets = basemapToggle();
+        streets.setOnCheckedChangeListener((button, checked) -> { map.setStreets(checked); attribution.setVisibility(checked ? View.VISIBLE : View.GONE); });
+        LinearLayout sourceRow = pair(sourceButton, streets);
+        if (inline) { top.addView(sourceRow); bottom.addView(ui.sectionLabel("Route & phone sensors")); }
 
         LinearLayout chartCard = ui.card();
         LinearLayout chartHead = horizontal(); chartHead.setGravity(Gravity.CENTER_VERTICAL);
@@ -794,34 +987,23 @@ public final class RidesScreen implements AppScreen {
         chipGroup(choices, new String[]{"Elevation", "Grade", "GPS accel"}, new String[]{"elevation", "grade", "accel"}, "elevation",
                 key -> phoneChart(chart, chartTitle, chartRange, track, key));
         chartCard.addView(choices); chartCard.addView(chart, new LinearLayout.LayoutParams(-1, ui.dp(190)));
-        phoneChart(chart, chartTitle, chartRange, track, "elevation"); content.addView(chartCard);
+        phoneChart(chart, chartTitle, chartRange, track, "elevation"); bottom.addView(chartCard);
 
-        TextView sourceButton = ui.secondaryButton("Map source", null); iconize(sourceButton, "layers");
-        sourceButton.setContentDescription("Map source · " + source.name);
-        sourceButton.setOnClickListener(v -> mapOptions(() -> {
-            if (closed) return;
-            MapSource chosen = MapSource.load(preferences);
-            map.setSource(chosen.url); attribution.setText(chosen.attribution);
-            sourceButton.setContentDescription("Map source · " + chosen.name);
-        }));
-        CheckBox streets = basemapToggle();
-        streets.setOnCheckedChangeListener((button, checked) -> { map.setStreets(checked); attribution.setVisibility(checked ? View.VISIBLE : View.GONE); });
-        content.addView(pair(sourceButton, streets));
-        note(content, track.status);
-        tiles(content, new String[]{"GPS distance", distance(track.distanceMeters == null ? null : track.distanceMeters / 1000),
+        if (!inline) bottom.addView(sourceRow);
+        note(bottom, track.status);
+        tiles(bottom, new String[]{"GPS distance", distance(track.distanceMeters == null ? null : track.distanceMeters / 1000),
                 "Ascent / descent", height(track.ascentMeters) + " / " + height(track.descentMeters)});
-        content.addView(ui.sectionLabel("Acceleration · experimental"));
+        bottom.addView(ui.sectionLabel("Acceleration · experimental"));
         LinearLayout movement = ui.groupCard();
         valueRow(movement, "GPS speed change · min / max", acceleration(track.minGpsAccelerationMps2) + " / " + acceleration(track.maxGpsAccelerationMps2));
         valueRow(movement, "Scooter speed change · min / max", acceleration(track.minScooterAccelerationMps2) + " / " + acceleration(track.maxScooterAccelerationMps2));
         valueRow(movement, "Phone linear acceleration · peak", acceleration(track.maxLinearAccelerationMps2));
-        content.addView(movement);
-        note(content, ("mounted".equals(track.placement) ? "Mounted" : "Pocket") + " · " + track.motionSampleCount + " motion samples. Phone motion includes bumps and body movement; it is not forward scooter acceleration.");
-        note(content, "Grade is a smoothed estimate over distance, not an instantaneous tilt. Pressure changes and poor GPS can distort it. Compare similar riding modes and conditions when judging route efficiency.");
+        bottom.addView(movement);
+        note(bottom, ("mounted".equals(track.placement) ? "Mounted" : "Pocket") + " · " + track.motionSampleCount + " motion samples. Phone motion includes bumps and body movement; it is not forward scooter acceleration.");
+        note(bottom, "Grade is a smoothed estimate over distance, not an instantaneous tilt. Pressure changes and poor GPS can distort it. Compare similar riding modes and conditions when judging route efficiency.");
         TextView export = ui.secondaryButton("Export phone data", () -> exportPhone(track)); iconize(export, "download");
-        content.addView(export);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setCustomTitle(titleView(rideName, "Route")).setView(scroller).setPositiveButton("Done", null).create();
-        show(dialog, PAGE, () -> { maps.remove(map); map.close(); });
+        bottom.addView(export);
+        return new PhoneRide(mapFrame, map);
     }
     /** Basemap is a toggle: red when map tiles may load, dark otherwise. */
     private CheckBox basemapToggle() {
@@ -1242,6 +1424,93 @@ public final class RidesScreen implements AppScreen {
             canvas.drawPath(path, paint);
         }
     }
+    /**
+     * Wide layout root. It is a ScrollView so the activity does not wrap the page in another scroller, but it
+     * never scrolls itself: it gives the two panes exactly its own size and each pane scrolls independently.
+     */
+    private final class PaneHost extends ScrollView {
+        PaneHost() { super(host.activity()); setVerticalScrollBarEnabled(false); setOverScrollMode(OVER_SCROLL_NEVER); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
+            if (MeasureSpec.getMode(heightSpec) == MeasureSpec.UNSPECIFIED) { super.onMeasure(widthSpec, heightSpec); return; }
+            setMeasuredDimension(width, height);
+            if (getChildCount() > 0) getChildAt(0).measure(
+                    MeasureSpec.makeMeasureSpec(Math.max(0, width - getPaddingLeft() - getPaddingRight()), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(Math.max(0, height - getPaddingTop() - getPaddingBottom()), MeasureSpec.EXACTLY));
+        }
+        @Override public boolean onInterceptTouchEvent(android.view.MotionEvent event) { return false; }
+        @Override public boolean onTouchEvent(android.view.MotionEvent event) { return false; }
+    }
+    /** List (about 45%) and detail side by side, 20dp apart; on a vertical hinge the gap covers the hinge instead. */
+    private final class Panes extends LinearLayout {
+        private final View list, gutter, detail;
+        Panes(View list, View detail) {
+            super(host.activity()); setOrientation(HORIZONTAL); setBaselineAligned(false);
+            this.list = list; this.detail = detail; gutter = new View(host.activity());
+            addView(list, new LinearLayout.LayoutParams(0, -1)); addView(gutter, new LinearLayout.LayoutParams(ui.dp(20), -1)); addView(detail, new LinearLayout.LayoutParams(0, -1));
+        }
+        // The hinge test needs this view's position in the window, which is known only once attached.
+        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); post(this::requestLayout); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int size = Math.max(0, MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight());
+            int gap = ui.dp(20), first = Math.round((size - gap) * .45f);
+            Rect hinge = verticalHinge();
+            if (hinge != null && isAttachedToWindow()) {
+                int[] position = new int[2]; getLocationInWindow(position);
+                int relative = hinge.left - position[0] - getPaddingLeft(), hingeGap = Math.max(ui.dp(20), hinge.width() + ui.dp(16));
+                int proposed = relative - ui.dp(8);
+                if (proposed >= ui.dp(200) && size - proposed - hingeGap >= ui.dp(220)) { first = proposed; gap = hingeGap; }
+            }
+            ((LinearLayout.LayoutParams) list.getLayoutParams()).width = Math.max(0, first);
+            ((LinearLayout.LayoutParams) gutter.getLayoutParams()).width = gap;
+            ((LinearLayout.LayoutParams) detail.getLayoutParams()).width = Math.max(0, size - first - gap);
+            super.onMeasure(widthSpec, heightSpec);
+        }
+    }
+    /**
+     * The activity's fold bounds (window coordinates) when a vertical hinge splits the screen, else null.
+     * Read the same way MainActivity's own two-pane gutter reads them; there is no public accessor.
+     */
+    private Rect verticalHinge() {
+        try {
+            java.lang.reflect.Field field = host.activity().getClass().getDeclaredField("fold"); field.setAccessible(true);
+            Object fold = field.get(host.activity());
+            Rect hinge = fold instanceof FoldMonitor ? ((FoldMonitor) fold).hinge : null;
+            return hinge != null && hinge.height() > hinge.width() && hinge.left > 0 && hinge.height() > 0 ? hinge : null;
+        } catch (ReflectiveOperationException | RuntimeException unavailable) { return null; }
+    }
+    /** Stat tiles in four columns when there is room (about 85dp a tile), otherwise two; tiles in a row share a height. */
+    private final class TileGrid extends ViewGroup {
+        TileGrid() { super(host.activity()); }
+        private int columns(int available) { return available >= ui.dp(340) ? 4 : 2; }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec), available = Math.max(0, width - getPaddingLeft() - getPaddingRight());
+            int columns = columns(available), gap = ui.dp(8), cell = Math.max(0, (available - gap * (columns - 1)) / columns);
+            int y = getPaddingTop(), count = getChildCount();
+            for (int start = 0; start < count; start += columns) {
+                int end = Math.min(count, start + columns), rowHeight = 0;
+                for (int i = start; i < end; i++) {
+                    getChildAt(i).measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                    rowHeight = Math.max(rowHeight, getChildAt(i).getMeasuredHeight());
+                }
+                for (int i = start; i < end; i++)
+                    getChildAt(i).measure(MeasureSpec.makeMeasureSpec(cell, MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(rowHeight, MeasureSpec.EXACTLY));
+                y += rowHeight + (end < count ? gap : 0);
+            }
+            setMeasuredDimension(width, resolveSize(y + getPaddingBottom(), heightSpec));
+        }
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int available = getWidth() - getPaddingLeft() - getPaddingRight(), columns = columns(available), gap = ui.dp(8);
+            int cell = Math.max(0, (available - gap * (columns - 1)) / columns), y = getPaddingTop();
+            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i); int column = i % columns;
+                if (column == 0 && i > 0) y += getChildAt(i - 1).getMeasuredHeight() + gap;
+                int x = column * (cell + gap), left = rtl ? getWidth() - getPaddingRight() - x - cell : getPaddingLeft() + x;
+                child.layout(left, y, left + cell, y + child.getMeasuredHeight());
+            }
+        }
+    }
     /** Wrapping row for chips. */
     private final class Flow extends ViewGroup {
         Flow() { super(host.activity()); }
@@ -1346,6 +1615,7 @@ public final class RidesScreen implements AppScreen {
         }
     }
     @Override public void close() {
+        if (wide && !closed) wideListScroll = scroll.getScrollY();
         closed = true; phoneLoader.shutdownNow(); thumbLoader.shutdownNow(); for (RouteMapView map : maps) map.close(); maps.clear();
         for (AlertDialog dialog : new ArrayList<AlertDialog>(dialogs)) dialog.dismiss(); dialogs.clear();
     }
