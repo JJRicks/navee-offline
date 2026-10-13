@@ -1,5 +1,6 @@
 package local.navee.offlinelock;
 
+import android.content.Context;
 import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 
@@ -17,10 +18,13 @@ final class MapTiles {
     private static final int MAX_BYTES = 2 * 1024 * 1024;
     private final File directory;
     private final String template;
+    private final String userAgent;
 
-    MapTiles(File cache, String url) {
+    MapTiles(Context context, String url) {
         template = validUrl(url) ? url : DEFAULT_URL;
-        directory = new File(cache, "map-tiles/" + digest(template));
+        userAgent = "NaveeOffline/" + AppVersion.name(context)
+                + " (Android; https://github.com/JJRicks/navee-offline)";
+        directory = new File(context.getCacheDir(), "map-tiles/" + digest(template));
         directory.mkdirs();
     }
 
@@ -65,7 +69,7 @@ final class MapTiles {
             connection.setInstanceFollowRedirects(false);
             connection.setRequestProperty(
                     "User-Agent",
-                    "NaveeOffline/0.6.0 (Android; https://github.com/JJRicks/navee-offline)");
+                    userAgent);
             if (cached != null) {
                 if (info.getProperty("etag") != null)
                     connection.setRequestProperty("If-None-Match", info.getProperty("etag"));

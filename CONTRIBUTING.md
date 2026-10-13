@@ -8,7 +8,7 @@ bash tests/run.sh
 bash build.sh
 ```
 
-The core Java tests require a JDK; the APK build additionally needs SDK platform 36 and build-tools 36.1.0. A fresh clone builds with its own ignored local key. Source contributors do not need the private release signing key.
+Use JDK 17 or newer for development. The core Java tests require only that JDK; the APK build additionally needs SDK platform 36 and build-tools 36.1.0. A fresh clone builds with its own ignored local key. Source contributors do not need the private release signing key.
 
 ## Device checks
 

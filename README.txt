@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.6.6
+NAVEE OFFLINE — VERSION 0.7.0
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,6 +11,11 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+
+0.7.0 packages the reviewed phone sensors, maps, customizable dashboard and
+connected-history work into a signed release. Update over the previous official
+APK to retain setup, dashboards and rides. Diagnostic exports and map requests
+now identify the installed version. See CHANGELOG.md for release changes.
 
 0.6.6 makes the captured folded/unfolded dashboard the six-widget default for
 new dashboards and Restore default widgets. Existing saved dashboards stay as
@@ -520,8 +525,8 @@ BUILD AND TEST
 
 Android 8.0 or newer with Bluetooth LE; source targets Android 36.
 
-Run ./build.sh with installed SDK platform 36/build-tools 36.1.0 and JDK 9+;
-JDK 17+ is recommended. Android Studio's Java runtime works.
+Run ./build.sh with installed SDK platform 36/build-tools 36.1.0 and JDK 17+.
+Android Studio's bundled Java runtime works.
 ANDROID_SDK_ROOT/JAVA_HOME override paths. No Gradle or dependency downloads
 are required. Default output: dist/navee-offline-lock.apk. Launcher name:
 Navee Offline. The build verifies APK signatures and alignment. INTERNET supports

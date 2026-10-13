@@ -138,12 +138,17 @@ public final class SearchFocusValidation extends Instrumentation {
                 "Parameter search lacks its expected inert bottom margin");
         float marginX = field.centerX(), marginY = field.bottom + activity.ui().dp(6);
         lastTapScreenBounds = new Rect((int)marginX, (int)marginY, (int)marginX + 1, (int)marginY + 1);
-        long marginDown = SystemClock.uptimeMillis();
-        inject(marginDown, MotionEvent.ACTION_DOWN, marginX, marginY);
-        inject(marginDown, MotionEvent.ACTION_UP, marginX, marginY);
-        assertDismissed(search, picker.getWindow(), "voltage", "Dialog search margin tap");
-        require(picker.isShowing(), "A tap below search dismissed the parameter picker; nativeField=" + field
-                + ", tapped=" + lastTapScreenBounds);
+        main(() -> trace.set(new WindowTouchTrace(picker.getWindow())));
+        try {
+            long marginDown = SystemClock.uptimeMillis();
+            inject(marginDown, MotionEvent.ACTION_DOWN, marginX, marginY);
+            inject(marginDown, MotionEvent.ACTION_UP, marginX, marginY);
+            assertDismissed(search, picker.getWindow(), "voltage", "Dialog search margin tap");
+            require(picker.isShowing(), "A tap below search dismissed the parameter picker; nativeField=" + field
+                    + ", tapped=" + lastTapScreenBounds + ", metric=" + widget.metric);
+        } catch (IllegalStateException error) {
+            throw new IllegalStateException(error.getMessage() + "; " + trace.get().describe(), error);
+        } finally { main(() -> trace.get().restore()); }
         showKeyboard(search, picker.getWindow(), "voltage"); sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
         assertDismissed(search, picker.getWindow(), "voltage", "Dialog system Back");
         require(picker.isShowing(), "Hiding the picker keyboard also dismissed the dialog");

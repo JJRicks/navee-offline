@@ -77,7 +77,7 @@ navee_find_java() {
     fi
     if [[ -n "${JAVA_HOME:-}" ]]; then
         [[ -x "$JAVA_HOME/bin/javac" && -x "$JAVA_HOME/bin/java" ]] || {
-            echo "JAVA_HOME must point to a locally installed JDK 9 or newer." >&2
+            echo "JAVA_HOME must point to a locally installed JDK 17 or newer." >&2
             return 1
         }
         export JAVA_HOME
@@ -85,7 +85,7 @@ navee_find_java() {
     fi
     for tool in java javac jar keytool; do
         command -v "$tool" >/dev/null 2>&1 || {
-            echo "Install a JDK 9 or newer, or set JAVA_HOME to an existing JDK." >&2
+            echo "Install a JDK 17 or newer, or set JAVA_HOME to an existing JDK." >&2
             return 1
         }
     done

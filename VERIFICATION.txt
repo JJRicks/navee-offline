@@ -1,7 +1,66 @@
-NAVEE OFFLINE 0.6.6 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.7.0 — RELEASE VALIDATION
 October 12, 2026
 
-0.6.6 — CAPTURED DEFAULT DASHBOARDS
+0.7.0 — REVIEWED RELEASE
+
+Reviewed the full changes from 0.4.1, including Bluetooth command guards,
+connection and recording lifecycle, phone journals, history/privacy boundaries,
+per-scooter layouts, battery/charging estimates, release packaging and docs.
+The final pass corrected stale hardcoded diagnostic/map version strings and
+aligned the documented build requirement with JDK 17 or newer.
+
+The real-keyboard regression exposed an intermittent search refocus failure.
+IME visibility from an earlier focus session and overlapping hide/show transitions
+could blur a newly tapped field. SearchFocus now scopes observations to the
+current focus session and settled IME animations, preserves explicit Back and
+outside taps, handles Android 11 canceled preparation and clears animation state
+when a window detaches. Tests gained failure diagnostics; their assertions and
+waits were not weakened. The final animation-aware fix passed repeated narrow
+runs and the expanded run, including both themes and ordinary form editors.
+
+Verified for the final 0.7.0 release candidate (version code 16):
+
+- Nine portable core Java suites passed 24,782 assertions.
+- Signed app and separate instrumentation APK builds passed. The app passed
+  v2/v3 signing and alignment verification. Its certificate matches the APK
+  downloaded from the published 0.4.1 release. No validation or temporary capture
+  classes are packaged in the release APK.
+- Eleven Android 16 emulator configurations passed 87 check groups:
+  LaunchValidation with Nearby devices denied/granted (7 each);
+  PhoneRideValidation with location denied/granted (6 each);
+  HistoryValidation (5); UiOrganizationValidation at 360/852 dp (7 each);
+  DashboardValidation at 360/852 dp (13 each); and SearchFocusValidation at
+  360/852 dp with the real software keyboard and both themes (8 each).
+- Dashboard/UI fixtures covered light/dark themes, 140% app text, all 15 widgets,
+  minimum/default sizes, native drag/resize/cancel behavior, edit/view geometry,
+  captured default layouts, saved custom/empty layouts, cached stale readings,
+  settings navigation and a synthetic offline route. Search checks covered
+  refocus, title/margin taps, system Back, scrolling, parameter selection and
+  ordinary text forms. Width 852 dp used 2076 x 2152 pixels at 390 dpi.
+- History fixtures checked profile isolation, credential exclusion, restart
+  staleness, disabled-history caching, reconnect gaps, retention, bounded
+  queries, storage pressure and clearing. Phone fixtures checked recorder
+  startup/shutdown, background survival, permission handling and exports. They
+  do not invoke the production startRide path that requires a connected scooter.
+- No physical phone installation, real scooter command, owner-data reset or
+  phone-network change was part of this release pass. All device tests above
+  ran on an isolated emulator with Bluetooth off and synthetic profiles/readings.
+
+Remaining physical validation limits:
+
+The owner's previous Pixel checks through 0.6.6 remain recorded below. The friend
+confirmed 0.4.1 starts on Samsung; this is not a fresh 0.7.0 Samsung check. The
+release matrix used Android 16, not separate Android 8/11 emulators. Outdoor
+GPS/barometer/motion accuracy and a controlled usable battery-capacity/range test
+remain outstanding. Battery health is scooter-reported; charging time, capacity,
+grade and pocket motion are estimates. A parked Boost observation found no
+reliable active-state flag in the captured status messages.
+
+Release packaging uses the same private signing identity and a source archive
+from the tagged Git tree. Local build configuration, signing secrets, owner
+setup, recordings, raw captures and OEM decompilation remain excluded.
+
+HISTORICAL 0.6.6 — CAPTURED DEFAULT DASHBOARDS
 
 A temporary signed read-only helper captured the active dashboard's presentation
 settings: six widget types, titles, parameter choices, chart windows, colors and

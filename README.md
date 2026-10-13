@@ -2,7 +2,9 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional OpenStreetMap street layer uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.6.6**. Independent project; not affiliated with NAVEE.
+Current application version: **0.7.0**. Independent project; not affiliated with NAVEE.
+
+Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
 
@@ -77,7 +79,7 @@ All lighting controls are under **Scooter → Lights**. The former “Headlight�
 This is a Java Android project with an SDK-only shell build, rather than a Gradle project. No Gradle dependency downloads are needed. Use macOS, Linux, or a suitable shell environment with:
 
 - Android SDK platform **36**, build-tools **36.1.0**, and platform-tools for installation.
-- A JDK supporting `javac --release` (JDK 17 or newer recommended).
+- A JDK supporting `javac --release` (JDK 17 or newer).
 
 ```sh
 git clone https://github.com/JJRicks/navee-offline.git
@@ -129,7 +131,7 @@ Old recordings have no phone route to reconstruct. Exported route/phone files co
 
 ## Known follow-up work
 
-- The friend confirmed that **0.4.1 opens on Samsung**. That does not establish the physical behavior of every newer feature. The 0.6.0 dashboard and automatic reconnection were checked on the owner’s Pixel. Outdoor GPS/barometer/IMU accuracy and the new dashboard on the friend’s Samsung still need the checks listed in [VERIFICATION.txt](VERIFICATION.txt).
+- The friend confirmed that **0.4.1 opens on Samsung**. That does not establish the physical behavior of every newer feature. The dashboard and automatic reconnection have been checked through 0.6.6 on the owner’s Pixel. Outdoor GPS/barometer/IMU accuracy and the new dashboard on the friend’s Samsung still need the checks listed in [VERIFICATION.txt](VERIFICATION.txt).
 - Investigate the telemetry field `energy_throughput_wh`, displayed as **Energy counter (unverified)**. Observed values can decrease on this firmware, so its lifetime-counter meaning is unverified. Do not use its delta for battery-capacity conclusions. RideStore's sampled voltage/current integration is separate.
 - Three short real ride recordings have been checked for electrical integration consistency. A controlled full usable-capacity or range test remains outstanding. Reported health and rated Ah are not capacity measurements.
 

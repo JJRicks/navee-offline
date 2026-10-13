@@ -2,7 +2,9 @@ package local.navee.offlinelock.tests;
 
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.Window;
+import android.widget.EditText;
 import java.lang.reflect.InvocationTargetException;
 import java.lang.reflect.Proxy;
 import java.util.ArrayList;
@@ -28,7 +30,9 @@ final class WindowTouchTrace {
                                 events.add("action=" + event.getActionMasked() + ", raw=[" + event.getRawX()
                                         + "," + event.getRawY() + "], local=[" + event.getX() + "," + event.getY()
                                         + "], focus=" + (focus == null ? "null" : focus.getClass().getSimpleName()
-                                        + ":" + focus.getContentDescription()));
+                                        + ":" + focus.getContentDescription())
+                                        + (event.getActionMasked() == MotionEvent.ACTION_DOWN
+                                                ? ", targets=" + targets(window.getDecorView()) : ""));
                             }
                         }
                     }
@@ -50,6 +54,23 @@ final class WindowTouchTrace {
         window.setCallback(proxy);
     }
     void restore() { if (window.getCallback() == proxy) window.setCallback(original); }
+    private String targets(View view) {
+        StringBuilder result = new StringBuilder();
+        if (view.isShown() && (view instanceof EditText || view.isClickable())) {
+            int[] location = new int[2]; view.getLocationInWindow(location);
+            result.append(view.getClass().getSimpleName()).append('[').append(location[0])
+                    .append(',').append(location[1]).append(',').append(view.getWidth())
+                    .append(',').append(view.getHeight()).append(']');
+        }
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup)view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                String child = targets(group.getChildAt(i));
+                if (!child.isEmpty()) result.append(' ').append(child);
+            }
+        }
+        return result.toString().trim();
+    }
     String describe() {
         synchronized (events) { return "delegate=" + original.getClass().getName() + ", deliveredTouches=" + events; }
     }

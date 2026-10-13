@@ -14,13 +14,18 @@ import android.view.ViewGroup;
 import android.view.ViewTreeObserver;
 import android.view.Window;
 import android.view.WindowInsets;
+import android.view.WindowInsetsAnimation;
 import android.view.WindowManager;
 import android.view.accessibility.AccessibilityEvent;
 import android.view.inputmethod.InputMethodManager;
 import android.widget.EditText;
 
 import java.lang.ref.WeakReference;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.IdentityHashMap;
 import java.util.List;
+import java.util.Set;
 import java.util.WeakHashMap;
 
 /** Keyboard dismissal for opted-in search fields, without changing ordinary form editors. */
@@ -39,18 +44,21 @@ public final class SearchFocus {
         }
         if (observer.searches.put(search, Boolean.TRUE) != null) return;
         Binding binding = new Binding(search, observer);
+        observer.bindings.add(new WeakReference<>(binding));
         search.addOnAttachStateChangeListener(binding);
         if (search.isAttachedToWindow()) binding.onViewAttachedToWindow(search);
     }
 
     private static final class Binding
             implements View.OnAttachStateChangeListener,
+                    ViewTreeObserver.OnGlobalFocusChangeListener,
                     ViewTreeObserver.OnGlobalLayoutListener,
                     ViewTreeObserver.OnPreDrawListener {
         private final EditText search;
         private final TouchObserver observer;
         private ViewTreeObserver tree;
         private boolean keyboardWasVisible;
+        private long focusGeneration;
         private int largestHeight, lastWidth;
         private final Rect visibleFrame = new Rect();
 
@@ -63,8 +71,10 @@ public final class SearchFocus {
         public void onViewAttachedToWindow(View view) {
             removeObserver();
             keyboardWasVisible = false;
+            focusGeneration++;
             largestHeight = lastWidth = 0;
             tree = search.getRootView().getViewTreeObserver();
+            tree.addOnGlobalFocusChangeListener(this);
             tree.addOnGlobalLayoutListener(this);
             tree.addOnPreDrawListener(this);
         }
@@ -73,14 +83,27 @@ public final class SearchFocus {
         public void onViewDetachedFromWindow(View view) {
             removeObserver();
             keyboardWasVisible = false;
+            focusGeneration++;
         }
 
         private void removeObserver() {
             if (tree != null && tree.isAlive()) {
+                tree.removeOnGlobalFocusChangeListener(this);
                 tree.removeOnGlobalLayoutListener(this);
                 tree.removeOnPreDrawListener(this);
             }
             tree = null;
+        }
+
+        @Override
+        public void onGlobalFocusChanged(View oldFocus, View newFocus) {
+            if (oldFocus == search || newFocus == search) {
+                // A hide animation may finish after this editor loses focus and is
+                // tapped again. Its previous IME visibility belongs to that older
+                // focus session, not to the new tap's request to open the keyboard.
+                keyboardWasVisible = false;
+                focusGeneration++;
+            }
         }
 
         @Override
@@ -93,11 +116,19 @@ public final class SearchFocus {
             // A floating dialog can receive an IME visibility update without changing its
             // layout. Observe the frames Android already draws; do not schedule more frames.
             observeKeyboard();
+            if (observer.imeAnimations != null) observer.imeAnimations.afterPreDraw();
             return true;
         }
 
         private void observeKeyboard() {
-            if (!search.isAttachedToWindow()) return;
+            if (!search.isAttachedToWindow() || !search.hasFocus() || !search.hasWindowFocus()) {
+                keyboardWasVisible = false;
+                return;
+            }
+            // Insets can change to an animation's end state before its first frame,
+            // or briefly describe a replaced hide/show request. Only settled states
+            // may arm or dismiss this focus session. Explicit Back/taps stay immediate.
+            if (observer.imeAnimations != null && observer.imeAnimations.running()) return;
             View root = search.getRootView();
             WindowInsets insets = root.getRootWindowInsets();
             boolean visible;
@@ -129,11 +160,76 @@ public final class SearchFocus {
         }
     }
 
+    /** API 30+ window-level tracking; never consumes or modifies an inset. */
+    private static final class ImeAnimations extends WindowInsetsAnimation.Callback {
+        private final TouchObserver observer;
+        private final Set<WindowInsetsAnimation> started =
+                Collections.newSetFromMap(new IdentityHashMap<WindowInsetsAnimation, Boolean>());
+        private WindowInsetsAnimation prepared, pendingFrameCheck;
+
+        ImeAnimations(TouchObserver observer) {
+            super(DISPATCH_MODE_CONTINUE_ON_SUBTREE);
+            this.observer = observer;
+        }
+
+        boolean running() { return prepared != null || !started.isEmpty(); }
+
+        void reset() {
+            prepared = pendingFrameCheck = null;
+            started.clear();
+        }
+
+        @Override public void onPrepare(WindowInsetsAnimation animation) {
+            if ((animation.getTypeMask() & WindowInsets.Type.ime()) != 0) prepared = animation;
+        }
+
+        @Override public WindowInsetsAnimation.Bounds onStart(
+                WindowInsetsAnimation animation, WindowInsetsAnimation.Bounds bounds) {
+            if ((animation.getTypeMask() & WindowInsets.Type.ime()) != 0) {
+                if (prepared == animation) prepared = null;
+                started.add(animation);
+            }
+            return bounds;
+        }
+
+        @Override public WindowInsets onProgress(
+                WindowInsets insets, List<WindowInsetsAnimation> runningAnimations) {
+            return insets;
+        }
+
+        @Override public void onEnd(WindowInsetsAnimation animation) {
+            if (prepared == animation) prepared = null;
+            started.remove(animation);
+            if (!running()) observer.observeSettledKeyboard();
+        }
+
+        void afterPreDraw() {
+            // Android 11 omits onEnd if an animation is canceled before onStart.
+            // Retire that preparation only after the traversal has given every
+            // pre-draw listener (including Android's onStart dispatch) its turn.
+            // This uses a frame boundary, never a guessed keyboard-duration delay.
+            if (Build.VERSION.SDK_INT != 30 || prepared == null || pendingFrameCheck == prepared) return;
+            Window target = observer.window.get();
+            if (target == null) return;
+            final WindowInsetsAnimation candidate = prepared;
+            pendingFrameCheck = candidate;
+            target.getDecorView().post(() -> {
+                if (pendingFrameCheck == candidate) pendingFrameCheck = null;
+                if (prepared == candidate && !started.contains(candidate)) {
+                    prepared = null;
+                    if (!running()) observer.observeSettledKeyboard();
+                }
+            });
+        }
+    }
+
     /** Passes all touches through; the first Back only blurs a focused, registered search. */
     private static final class TouchObserver implements Window.Callback {
         private final WeakReference<Window> window;
         private final Window.Callback delegate;
         private final WeakHashMap<EditText, Boolean> searches = new WeakHashMap<>();
+        private final List<WeakReference<Binding>> bindings = new ArrayList<>();
+        private final ImeAnimations imeAnimations;
         private boolean dismissing;
         private WeakReference<EditText> backSearch;
         private long backDownTime;
@@ -142,6 +238,21 @@ public final class SearchFocus {
         TouchObserver(Window window, Window.Callback delegate) {
             this.window = new WeakReference<>(window);
             this.delegate = delegate;
+            // Decor receives the whole window's animations even when a dialog's
+            // fitting content container stops dispatch to individual editors.
+            imeAnimations = Build.VERSION.SDK_INT >= 30 ? new ImeAnimations(this) : null;
+            if (imeAnimations != null) window.getDecorView().setWindowInsetsAnimationCallback(imeAnimations);
+        }
+
+        void observeSettledKeyboard() {
+            for (int i = bindings.size() - 1; i >= 0; i--) {
+                Binding binding = bindings.get(i).get();
+                if (binding == null) { bindings.remove(i); continue; }
+                final long generation = binding.focusGeneration;
+                binding.search.post(() -> {
+                    if (generation == binding.focusGeneration) binding.observeKeyboard();
+                });
+            }
         }
 
         void dismiss(EditText search) {
@@ -301,6 +412,9 @@ public final class SearchFocus {
         @Override
         public void onDetachedFromWindow() {
             backSearch = null;
+            // A removed window may not receive the old animation's onEnd. Reusing
+            // that window must not inherit a permanently active transition.
+            if (imeAnimations != null) imeAnimations.reset();
             delegate.onDetachedFromWindow();
         }
 

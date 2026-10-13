@@ -662,7 +662,7 @@ public final class ScooterService extends Service {
     private void updateNotification(){if(foregroundStarted&&workAllowed())getSystemService(NotificationManager.class).notify(71,notification());}
     public String snapshot(){try{JSONObject o=new JSONObject();
             o.put("format", "navee-offline-diagnostics-v1");
-            o.put("app_version", "0.6.0");
+            o.put("app_version", AppVersion.name(this));
             o.put("captured_at_ms", System.currentTimeMillis());
             o.put("connected", ble.ready());
             o.put("connection", ble.state().name());
