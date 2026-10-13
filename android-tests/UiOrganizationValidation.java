@@ -486,8 +486,15 @@ public final class UiOrganizationValidation extends Instrumentation {
                 View item = findDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
                 requireFullyVisibleNow(item, "Navigation " + name);
                 TextView label = first(item, TextView.class);
-                require(label != null && label.getLayout() != null, "Navigation caption did not lay out");
-                require(label.getLayout().getHeight() <= label.getHeight() + 2, "Navigation caption clipped vertically: " + name);
+                if (label != null) {
+                    // The expanded side rail keeps text captions.
+                    require(label.getLayout() != null, "Navigation caption did not lay out");
+                    require(label.getLayout().getHeight() <= label.getHeight() + 2, "Navigation caption clipped vertically: " + name);
+                } else {
+                    // The compact floating tab bar is icon-only; each target must still be 48dp.
+                    int minimum = Math.round(48 * item.getResources().getDisplayMetrics().density);
+                    require(item.getWidth() >= minimum && item.getHeight() >= minimum, "Navigation target smaller than 48dp: " + name);
+                }
             }
         });
     }
