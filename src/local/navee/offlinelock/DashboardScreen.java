@@ -1426,7 +1426,10 @@ public final class DashboardScreen implements AppScreen {
                 cell.setTooltipText(spoken);
                 cell.setClickable(true);
                 cell.setFocusable(true);
-                cell.setOnClickListener(v -> actions.navigate(page));
+                // Cells attach during measure, after disableInputs() ran, so they set their own
+                // edit-mode state and the listener refuses to navigate while arranging widgets.
+                cell.setEnabled(!editing);
+                cell.setOnClickListener(v -> { if (!editing) actions.navigate(page); });
                 cells.add(cell);
             }
 

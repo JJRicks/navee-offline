@@ -362,7 +362,16 @@ public final class OnboardingScreen implements AppScreen {
         if (service == null || service.isRecording()) return;
         ScooterProfiles.Profile active = service.profiles.active();
         if (active == null || !active.configured() || pendingOwnerFile().isFile()) return;
-        if (service.ble.state() != BleController.State.DISCONNECTED) { prefs.edit().remove(KEY_CONNECT).apply(); return; }
+        BleController.State state = service.ble.state();
+        if (state != BleController.State.DISCONNECTED) {
+            // Startup may already be scanning for a profile with no saved scooter. Only
+            // host.connect() opens the chooser, so restart that scan through it; any other
+            // in-progress connection is left alone.
+            boolean scanningWithoutChooser = active.mac.isEmpty()
+                    && (state == BleController.State.SCANNING || state == BleController.State.WAITING);
+            if (!scanningWithoutChooser) { prefs.edit().remove(KEY_CONNECT).apply(); return; }
+            service.ble.disconnect();
+        }
         prefs.edit().remove(KEY_CONNECT).putBoolean(KEY_TRIED, true).apply();
         host.connect();
     }
@@ -851,6 +860,13 @@ public final class OnboardingScreen implements AppScreen {
         ScooterProfiles store = profiles();
         if (store == null) { host.toast("Your local scooter service is starting. Try again in a moment."); return; }
         if (!prepareProfileChange()) return;
+        // A typed identity supersedes an owner file picked earlier in this flow but not yet
+        // applied; otherwise granting Nearby devices later would import and select that file.
+        File abandoned = pendingOwnerFile();
+        if (abandoned.isFile() && !abandoned.delete()) {
+            host.toast("The earlier owner file could not be discarded. Try again.");
+            return;
+        }
         String name = nameField == null ? "" : nameField.getText().toString();
         try {
             // Replace only a profile this flow created earlier, never one the owner already had.
