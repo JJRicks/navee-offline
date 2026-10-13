@@ -71,7 +71,7 @@ public final class Ui {
         // Keep the original line's height as auto-size settles, including across Edit rebuilds.
         Paint.FontMetrics metrics = view.getPaint().getFontMetrics();
         view.setMinHeight((int)Math.ceil(metrics.descent - metrics.ascent));
-        view.setGravity(view.getGravity() | Gravity.CENTER_VERTICAL);
+        view.setGravity((view.getGravity() & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.CENTER_VERTICAL);
         view.setMaxLines(1);
         view.setEllipsize(android.text.TextUtils.TruncateAt.END);
         view.setAutoSizeTextTypeUniformWithConfiguration(
