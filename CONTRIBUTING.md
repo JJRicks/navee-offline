@@ -5,6 +5,7 @@ Create a branch from `main`, make the change, and open a pull request with the b
 ```sh
 git switch -c your-change
 bash tests/run.sh
+python3 setup/shizuku-dependencies.py --fetch  # explicit one-time pinned download
 bash build.sh
 ```
 

@@ -86,7 +86,7 @@ public final class OnboardingScreen implements AppScreen {
 
     static final int WELCOME = 0, PATH = 1, PREPARE = 2, USB = 3, COMPUTER = 4, HELPER = 5,
             IMPORT = 6, IDENTITY = 7, NEARBY = 8, CONNECT = 9, DONE = 10;
-    private static final String CAPTURE = "capture", BACKUP = "backup", TYPED = "identity";
+    private static final String CAPTURE = "capture", BACKUP = "backup", TYPED = "identity", SHIZUKU = "shizuku";
     private static final String[] STEP_NAMES = {"Prepare", "USB debugging", "Connect computer",
             "Run helper", "Import", "Nearby devices", "Connect scooter"};
     private static final String COMMAND = "python3 setup/capture-owner.py --push";
@@ -171,6 +171,11 @@ public final class OnboardingScreen implements AppScreen {
             if (step == IDENTITY || step <= PATH) prefs.edit().putString(KEY_PATH, BACKUP).apply();
             go(IMPORT);
         } else refresh();
+    }
+
+    /** A separately consented capture has been staged privately, before Nearby permission. */
+    public void onOwnerImportStaged() {
+        if (!closed) go(IMPORT);
     }
 
     /** System Back: closes the sheet or returns to the previous step. False on the first screen. */
@@ -635,6 +640,7 @@ public final class OnboardingScreen implements AppScreen {
         String selected = path();
         String[][] options = {
                 {CAPTURE, "screen", "Capture it from the NAVEE app", "First time. Uses a computer once, about 10 min."},
+                {SHIZUKU, "screen", "Use Shizuku on this phone", "Android 11+. Guided debugging access; no computer."},
                 {BACKUP, "download", "Import a backup file", "You saved navee-owner-setup.json before."},
                 {TYPED, "lock", "Enter a 12-character identity", "Someone gave you the code for your scooter."}};
         LinearLayout group = column();
@@ -648,7 +654,11 @@ public final class OnboardingScreen implements AppScreen {
         }
         primary("Continue", () -> {
             String chosen = path();
-            go(CAPTURE.equals(chosen) ? PREPARE : BACKUP.equals(chosen) ? IMPORT : IDENTITY);
+            if (SHIZUKU.equals(chosen)) {
+                if (pendingOwnerFile().exists()) { host.toast("Finish importing your selected owner file first."); go(IMPORT); return; }
+                if (!prepareProfileChange()) return;
+                host.activity().startActivityForResult(new Intent(host.activity(), ShizukuSetupActivity.class), ShizukuSetupActivity.REQUEST);
+            } else go(CAPTURE.equals(chosen) ? PREPARE : BACKUP.equals(chosen) ? IMPORT : IDENTITY);
         });
     }
 
@@ -793,7 +803,7 @@ public final class OnboardingScreen implements AppScreen {
 
     private void importFile() {
         scaffold(true);
-        heading("Import your owner file", false, false);
+        heading(SHIZUKU.equals(path()) ? "Your owner setup" : "Import your owner file", false, false);
         String mode = importMode();
         if (mode.equals("choose") || mode.equals("loading")) {
             paragraph(CAPTURE.equals(path())
@@ -817,7 +827,7 @@ public final class OnboardingScreen implements AppScreen {
         boolean applied = mode.equals("applied");
         ScooterProfiles.Profile p = applied ? find(profiles(), prefs.getString(KEY_PROFILE, "")) : null;
         String[] summary = applied && p != null ? new String[] {p.name, p.role == 1 ? "shared role" : "owner role"} : pendingSummary();
-        LinearLayout card = fileCard("Owner setup file", applied ? "Imported privately on this phone" : "Saved privately on this phone", true);
+        LinearLayout card = fileCard(SHIZUKU.equals(path()) ? "Captured owner setup" : "Owner setup file", applied ? "Imported privately on this phone" : "Saved privately on this phone", true);
         LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2); fp.topMargin = ui.dp(18);
         content.addView(card, fp);
         LinearLayout found = row(); found.setGravity(Gravity.CENTER_VERTICAL);
@@ -837,8 +847,8 @@ public final class OnboardingScreen implements AppScreen {
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(12);
         content.addView(found, gp);
         nameField = nameInput(prefs.getString(KEY_PENDING_NAME, summary[0]));
-        fine("This file can control your scooter. Keep the computer copy private; you can delete the "
-                + "Downloads copy after import.");
+        fine(SHIZUKU.equals(path()) ? "This identity can control your scooter. It stays in Volt's private storage. You can revoke Shizuku access now."
+                : "This file can control your scooter. Keep the computer copy private; you can delete the Downloads copy after import.");
         primary("Save and continue", () -> {
             String name = nameField.getText().toString().trim();
             if (applied) {

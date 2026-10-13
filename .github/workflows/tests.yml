@@ -18,4 +18,6 @@ jobs:
           distribution: temurin
           java-version: '17'
       - name: Run core suites
-        run: bash tests/run.sh
+        run: |
+          bash tests/run.sh
+          python3 tests/owner-capture-guard-test.py

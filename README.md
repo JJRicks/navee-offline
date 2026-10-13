@@ -93,16 +93,18 @@ All lighting controls are under **Scooter → Lights**. The former “Headlight�
 
 ## Build
 
-This is a Java Android project with an SDK-only shell build, rather than a Gradle project. No Gradle dependency downloads are needed. Use macOS, Linux, or a suitable shell environment with:
+This is a Java Android project with an SDK-only shell build, rather than a Gradle project. Shizuku dependencies are fetched explicitly once and verified against pinned SHA-256 hashes; normal builds remain offline. Use macOS, Linux, or a suitable shell environment with:
 
 - Android SDK platform **36**, build-tools **36.1.0**, and platform-tools for installation.
 - A JDK supporting `javac --release` (JDK 17 or newer).
+- Python 3 for the explicit dependency fetch/verification and generated safety-guard source.
 
 ```sh
 git clone https://github.com/JJRicks/navee-offline.git
 cd navee-offline
 export ANDROID_SDK_ROOT=/path/to/Android/sdk
 export JAVA_HOME=/path/to/jdk
+python3 setup/shizuku-dependencies.py --fetch
 bash build.sh
 ```
 
@@ -118,6 +120,7 @@ Run the existing core suites without an Android device or Android SDK:
 
 ```sh
 bash tests/run.sh
+python3 tests/owner-capture-guard-test.py
 ```
 
 They cover framing/authentication, telemetry decoding, named commands, owner identity parsing, ride persistence/energy integration, phone route quality/continuity, and dashboard placement. GitHub Actions runs these suites on pushes and pull requests.
@@ -132,7 +135,9 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before using instrumentation: some parke
 
 ## First setup and everyday use
 
-Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. The current first-capture method uses a computer and ADB; daily use does not. No owner credentials are embedded in this repository or APK.
+Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the existing computer/ADB helper or the optional **Use Shizuku on this phone** route on Android 11+. Daily use needs neither. No owner credentials are embedded in this repository or APK.
+
+The Shizuku route guides installation/start, explicit permission for broad debugging access, capture consent, and a separate import confirmation. It accepts shell-backed Shizuku 13+ only, reads fresh authentication frames from NAVEE's verified Android UID, restores the previous logging setting and stops NAVEE before making the identity available. The identity remains in memory until an explicit import; it is not uploaded or copied to Downloads. A detached safety guard and non-secret cleanup journal handle interruption. See [setup/SHIZUKU.md](setup/SHIZUKU.md) for its permissions, lifecycle and limitations. Never run the legacy computer capture helper simultaneously with another capture method.
 
 On first launch the app opens a step-by-step setup: choose to capture an identity, import a backup file or enter a 12-character identity, then follow one short step per screen through USB debugging, the capture helper, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
 
