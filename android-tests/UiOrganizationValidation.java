@@ -174,8 +174,8 @@ public final class UiOrganizationValidation extends Instrumentation {
                 require(findTextContaining(dialogRoot, "Power ") != null, "Tapping the route did not expose synchronized readings");
             });
             verifyMapGestures(map);
-            clickText(dialogRoot, "Grade"); clickText(dialogRoot, "Accel"); clickText(dialogRoot, "Power");
-            clickText(dialogRoot, "+"); clickText(dialogRoot, "−"); clickText(dialogRoot, "Fit");
+            clickText(dialogRoot, "Grade"); clickText(dialogRoot, "GPS accel"); clickText(dialogRoot, "Power");
+            clickDescription(dialogRoot, "Zoom in"); clickDescription(dialogRoot, "Zoom out"); clickDescription(dialogRoot, "Fit route");
             ScrollView scroller = first(dialogRoot, ScrollView.class);
             main(() -> scroller.fullScroll(View.FOCUS_UP)); waitForIdleSync();
             screenshot("synthetic-route-top-dark");
@@ -309,10 +309,10 @@ public final class UiOrganizationValidation extends Instrumentation {
         String usgs = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}";
         String osm = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
         String usgsName = "Map source · USGS Topo · United States";
-        require(findText(dialogRoot, usgsName) != null, "Fresh map preview did not default to USGS");
-        chooseMapSource(rides, dialogRoot, usgsName, 1);
+        require(findDescription(dialogRoot, usgsName) != null, "Fresh map preview did not default to USGS");
+        chooseMapSource(rides, dialogRoot, usgsName, "OpenStreetMap");
         assertOfflineMapSource(dialogRoot, map, streets, "Map source · OpenStreetMap", "© OpenStreetMap contributors", osm, 19);
-        chooseMapSource(rides, dialogRoot, "Map source · OpenStreetMap", 0);
+        chooseMapSource(rides, dialogRoot, "Map source · OpenStreetMap", "USGS Topo");
         assertOfflineMapSource(dialogRoot, map, streets, usgsName, "U.S. Geological Survey, National Geospatial Program", usgs, 16);
 
         // Hold both existing workers so the old request can be canceled before any network work.
@@ -351,19 +351,22 @@ public final class UiOrganizationValidation extends Instrumentation {
         try { if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Tile queue fixture timed out"); }
         catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException(error); }
     }
-    private void chooseMapSource(Object rides, View dialogRoot, String label, int option) {
-        clickText(dialogRoot, label);
+    private void chooseMapSource(Object rides, View dialogRoot, String label, String option) {
+        clickDescription(dialogRoot, label);
+        AtomicReference<View> pickerRoot = new AtomicReference<>();
         main(() -> {
             @SuppressWarnings("unchecked") List<AlertDialog> dialogs = (List<AlertDialog>)field(rides, "dialogs");
             AlertDialog picker = dialogs.get(dialogs.size()-1);
-            require(picker.isShowing() && picker.getListView() != null, "Map source picker did not open");
-            picker.getListView().performItemClick(picker.getListView().getChildAt(option), option, option);
-        }); waitForIdleSync();
+            require(picker.isShowing() && picker.getWindow() != null, "Map source picker did not open");
+            pickerRoot.set(picker.getWindow().getDecorView());
+        });
+        // Each source is a radio row; clicking its name selects it and closes the sheet.
+        clickText(pickerRoot.get(), option);
     }
     private void assertOfflineMapSource(View dialogRoot, RouteMapView map, CheckBox streets, String label,
             String credit, String url, int maximumZoom) {
         main(() -> {
-            require(findText(dialogRoot, label) != null, "Map source label did not change to " + label);
+            require(findDescription(dialogRoot, label) != null, "Map source label did not change to " + label);
             TextView attribution = findTextIncludingHidden(dialogRoot, credit);
             require(attribution != null && attribution.getVisibility() == View.GONE, "Map attribution did not follow the selected offline source");
             require(settings().getString("map_tile_url", "").equals(url), "Map source URL was not saved");
@@ -499,6 +502,7 @@ public final class UiOrganizationValidation extends Instrumentation {
     }
     private static boolean isLight(String key) { return key.startsWith("line_") || key.startsWith("star_") || key.equals("headlight") || key.equals("auto_sensor"); }
     private void clickDescription(String description) { View view = findDescription(root(), description); require(view != null, "Missing navigation " + description); click(view); }
+    private void clickDescription(View tree, String description) { View view = findDescription(tree, description); require(view != null, "Missing control " + description); click(view); }
     private void clickText(View tree, String text) { TextView view = findText(tree, text); require(view != null, "Missing UI label " + text); click(view); }
     private void requireScreenText(String text) { main(() -> require(findText(root(), text) != null, "Expected screen label " + text)); }
     private void click(View target) {
