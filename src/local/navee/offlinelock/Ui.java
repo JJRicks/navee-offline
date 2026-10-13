@@ -118,6 +118,21 @@ public final class Ui {
         search.setMinimumHeight(dp(52));
         search.setTypeface(REGULAR);
         search.setBackground(shape(surface, 14, 0));
+        // A muted magnifier at the start, drawn with the same line icons as the rest of the app.
+        Drawable glass = new Drawable() {
+            private final Paint glyph = new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override public void draw(Canvas canvas) {
+                canvas.save(); canvas.translate(getBounds().left, getBounds().top);
+                canvas.scale(getBounds().width() / 24f, getBounds().height() / 24f);
+                drawSymbol(canvas, "search", muted, glyph); canvas.restore();
+            }
+            @Override public void setAlpha(int alpha) { glyph.setAlpha(alpha); }
+            @Override public void setColorFilter(ColorFilter filter) { glyph.setColorFilter(filter); }
+            @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+        };
+        int glassSize = dp(18); glass.setBounds(0, 0, glassSize, glassSize);
+        search.setCompoundDrawablesRelative(glass, null, null, null);
+        search.setCompoundDrawablePadding(dp(10));
     }
     public LinearLayout.LayoutParams searchLayout() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
@@ -921,6 +936,8 @@ public final class Ui {
             else if (key.equals("close")) { canvas.drawLine(5, 5, 19, 19, paint); canvas.drawLine(5, 19, 19, 5, paint); }
             else if (key.equals("chevron") || key.equals("back")) {
                 p.moveTo(key.equals("back") ? 15 : 9, 5); p.lineTo(key.equals("back") ? 8 : 16, 12); p.lineTo(key.equals("back") ? 15 : 9, 19); canvas.drawPath(p, paint);
+            } else if (key.equals("search")) {
+                canvas.drawCircle(10.5f, 10.5f, 6.5f, paint); canvas.drawLine(15.5f, 15.5f, 20.5f, 20.5f, paint);
             } else if (key.equals("shield")) {
                 p.moveTo(12, 2); p.lineTo(21, 6); p.lineTo(19, 15); p.quadTo(17, 20, 12, 22); p.quadTo(7, 20, 5, 15); p.lineTo(3, 6); p.close(); canvas.drawPath(p, paint);
             } else {
