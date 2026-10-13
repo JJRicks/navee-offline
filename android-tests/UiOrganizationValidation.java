@@ -127,8 +127,14 @@ public final class UiOrganizationValidation extends Instrumentation {
 
             clickDescription("More"); clickText(root(), "App preferences");
             requireScreenText("Connect automatically"); screenshot("preferences-dark");
-            main(() -> invoke(activity, "navigateBack")); requireScreenText("My scooters");
-            check("More opens compact preferences and Back returns to its settings index");
+            main(() -> invoke(activity, "navigateBack"));
+            if (wideMore()) {
+                // Wide menu-submenu layout: Back leaves the tab like Home; the menu is there on return.
+                main(() -> require("home".equals(field(activity, "selectedPage")), "Wide More Back did not leave the tab"));
+                clickDescription("More");
+            }
+            requireScreenText("My scooters");
+            check("More opens preferences; Back returns to its settings index (phone) or leaves the tab beside its menu (wide)");
             verifyMoreReturn(settings);
 
             clickDescription("Stats");
@@ -433,7 +439,10 @@ public final class UiOrganizationValidation extends Instrumentation {
         }); waitForIdleSync();
         require(settings.getString("more_section", "").equals("Security"), "Security shortcut was replaced by an expired More index");
         requireScreenText("Handlebar PIN");
-        main(() -> invoke(activity, "navigateBack")); requireScreenText("App preferences");
+        main(() -> invoke(activity, "navigateBack"));
+        if (wideMore()) main(() -> require("home".equals(field(activity, "selectedPage"))
+                && settings.getString("more_section", "").equals("Security"), "Wide More Back must leave the tab and keep its submenu"));
+        else requireScreenText("App preferences");
         check("More handles brief and expired background returns, preserves an earlier tab-away time, and honors the Security shortcut");
     }
 
@@ -528,6 +537,8 @@ public final class UiOrganizationValidation extends Instrumentation {
         main(() -> view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true));
         waitForIdleSync();
     }
+    /** More shows its menu and submenu side by side (no submenu Back step) at unfolded widths. */
+    private boolean wideMore() { return activity.getResources().getConfiguration().screenWidthDp >= 650; }
     private void requireFullyVisible(View view, String name) { main(() -> requireFullyVisibleNow(view, name)); }
     private void requireFullyVisibleNow(View view, String name) {
         Rect rect = new Rect(); require(view.getGlobalVisibleRect(rect), name + " is not visible");

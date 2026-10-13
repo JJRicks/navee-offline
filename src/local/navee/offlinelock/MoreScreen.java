@@ -57,6 +57,11 @@ public final class MoreScreen implements AppScreen {
     private final Ui ui;
     private final ScrollView scroll;
     private final LinearLayout content;
+    /** Unfolded/tablet width: the menu stays on the left and the chosen submenu opens on the right. */
+    private final boolean wide;
+    /** Wide mode only: each pane scrolls on its own. */
+    private ScrollView menuScroll, sectionScroll;
+    private final Row[] menuRows = new Row[SECTIONS.length];
     private LinearLayout cardDestination, onboardingCard, sectionMenu, indexView, sectionHeader;
     private View sectionBack;
     private TextView sectionTitle;
@@ -103,21 +108,34 @@ public final class MoreScreen implements AppScreen {
 
     public MoreScreen(ScreenHost host) {
         this.host = host; ui = host.ui();
-        scroll = new ScrollView(host.activity());
+        wide = host.activity().getResources().getConfiguration().screenWidthDp >= 650;
+        scroll = new PageScroll();
         scroll.setFillViewport(true); scroll.setClipToPadding(false);
-        content = column(); content.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24));
-        scroll.addView(content, new ScrollView.LayoutParams(-1, -2));
+        content = column();
+        if (wide) content.setPadding(ui.dp(24), ui.dp(6), ui.dp(24), 0);
+        else content.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24));
+        scroll.addView(content, new ScrollView.LayoutParams(-1, wide ? -1 : -2));
         selectedSection = settings().getString("more_section", "");
         if (!knownSection(selectedSection)) selectedSection = "";
 
-        indexView = column(); content.addView(indexView, new LinearLayout.LayoutParams(-1, -2));
+        LinearLayout menuParent = content, sectionParent = content;
+        if (wide) {
+            menuParent = column(); sectionParent = column();
+            menuScroll = paneScroll(menuParent); sectionScroll = paneScroll(sectionParent);
+            content.addView(new Panes(menuScroll, sectionScroll), new LinearLayout.LayoutParams(-1, -1));
+        }
+        indexView = column(); menuParent.addView(indexView, new LinearLayout.LayoutParams(-1, -2));
         cardDestination = indexView;
         indexProfile();
         onboarding();
         sectionMenu = group();
+        if (wide) sectionMenu.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
         for (int i = 0; i < SECTIONS.length; i++) {
             final String section = SECTIONS[i];
             Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i], null, () -> selectSection(section));
+            // Room for the selected row's red tint to frame its icon in the wide menu.
+            if (wide) row.view.setPadding(ui.dp(8), ui.dp(9), ui.dp(8), ui.dp(9));
+            menuRows[i] = row;
             if (section.equals("Scooters")) scootersIndexRow = row;
             else if (section.equals("Data")) dataIndexRow = row;
             else if (section.equals("Lab")) badge(row.value, "LAB");
@@ -127,15 +145,19 @@ public final class MoreScreen implements AppScreen {
         footer.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(8));
         indexView.addView(footer, new LinearLayout.LayoutParams(-1, -2));
 
-        sectionHeader = column(); content.addView(sectionHeader, new LinearLayout.LayoutParams(-1, -2));
+        sectionHeader = column(); sectionParent.addView(sectionHeader, new LinearLayout.LayoutParams(-1, -2));
         sectionBack = backLink(); sectionHeader.addView(sectionBack, new LinearLayout.LayoutParams(-2, -2));
+        // The menu beside the submenu is the way back, so the wide layout has no "‹ More" link.
+        if (wide) sectionBack.setVisibility(View.GONE);
         sectionTitle = ui.text("", 24, true); sectionTitle.setPadding(ui.dp(2), 0, 0, ui.dp(4));
         if (Build.VERSION.SDK_INT >= 28) sectionTitle.setAccessibilityHeading(true);
+        // Picking a row on the left changes the right pane in place; announce its new title.
+        if (wide) sectionTitle.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         sectionHeader.addView(sectionTitle);
 
         for (String section : SECTIONS) {
             cardDestination = column(); sections.put(section, cardDestination);
-            content.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
+            sectionParent.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
             if (section.equals("App")) preferences();
             else if (section.equals("Scooters")) profiles();
             else if (section.equals("Security")) security();
@@ -154,29 +176,46 @@ public final class MoreScreen implements AppScreen {
         dialogs.clear();
     }
 
-    public boolean back() { if (selectedSection.isEmpty()) return false; selectSection(""); return true; }
+    /** Wide mode has no submenu to close: Back leaves the tab the way Home would, keeping the submenu. */
+    public boolean back() { if (wide || selectedSection.isEmpty()) return false; selectSection(""); return true; }
 
     private boolean knownSection(String section) {
         for (String candidate : SECTIONS) if (candidate.equals(section)) return true;
         return false;
     }
+    /**
+     * The submenu on screen. Wide mode always shows one: with none chosen (first visit, or one expired
+     * after a minute away) it opens App preferences without storing it, so the retention rules are unchanged.
+     */
+    private String shownSection() { return wide && selectedSection.isEmpty() ? SECTIONS[0] : selectedSection; }
+    private ScrollView sectionScroller() { return wide ? sectionScroll : scroll; }
     private void showSelectedSection() {
-        boolean index = selectedSection.isEmpty();
-        indexView.setVisibility(index ? View.VISIBLE : View.GONE);
+        String shown = shownSection();
+        boolean index = shown.isEmpty();
+        indexView.setVisibility(index || wide ? View.VISIBLE : View.GONE);
         sectionHeader.setVisibility(index ? View.GONE : View.VISIBLE);
-        for (int i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].equals(selectedSection)) sectionTitle.setText(SECTION_TITLES[i]);
+        for (int i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].equals(shown)) sectionTitle.setText(SECTION_TITLES[i]);
         for (Map.Entry<String,LinearLayout> section : sections.entrySet())
-            section.getValue().setVisibility(section.getKey().equals(selectedSection) ? View.VISIBLE : View.GONE);
-        if (index) dataIndexRow.value(historyFileSize());
+            section.getValue().setVisibility(section.getKey().equals(shown) ? View.VISIBLE : View.GONE);
+        if (index || wide) dataIndexRow.value(historyFileSize());
+        if (wide) for (int i = 0; i < SECTIONS.length; i++) markMenuRow(menuRows[i], SECTIONS[i].equals(shown));
+    }
+    /** Wide menu: the row whose submenu is open on the right gets a red tint and the selected state. */
+    private void markMenuRow(Row row, boolean selected) {
+        row.view.setSelected(selected);
+        row.view.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 26)),
+                selected ? ui.shape(Ui.withAlpha(ui.accent, ui.dark ? 46 : 30), 14, 0) : null, ui.shape(Color.WHITE, 14, 0)));
     }
     private void selectSection(String section) {
         if (closed || (!section.isEmpty() && !knownSection(section)) || section.equals(selectedSection)) return;
-        sectionScrollPositions.put(selectedSection, scroll.getScrollY());
+        final ScrollView pane = sectionScroller();
+        sectionScrollPositions.put(shownSection(), pane.getScrollY());
         selectedSection = section;
         settings().edit().putString("more_section", section).apply();
         showSelectedSection(); refresh();
-        final int position = sectionScrollPositions.containsKey(section) ? sectionScrollPositions.get(section) : 0;
-        scroll.post(() -> { if (!closed && section.equals(selectedSection)) scroll.scrollTo(0, position); });
+        String shown = shownSection();
+        final int position = sectionScrollPositions.containsKey(shown) ? sectionScrollPositions.get(shown) : 0;
+        pane.post(() -> { if (!closed && section.equals(selectedSection)) pane.scrollTo(0, position); });
     }
 
     private ScooterService service() { return host.service(); }
@@ -188,6 +227,73 @@ public final class MoreScreen implements AppScreen {
     private LinearLayout row() {
         LinearLayout view = new LinearLayout(host.activity()); view.setOrientation(LinearLayout.HORIZONTAL);
         view.setGravity(Gravity.CENTER_VERTICAL); return view;
+    }
+
+    // ---- Wide (unfolded) layout ------------------------------------------------------------
+
+    /**
+     * The page's scroller. On a phone it scrolls the whole page as before. In wide mode it holds its
+     * content at exactly its own height so the two panes inside can each scroll on their own.
+     */
+    private final class PageScroll extends ScrollView {
+        PageScroll() { super(host.activity()); }
+        @Override protected void measureChildWithMargins(View child, int widthSpec, int widthUsed, int heightSpec, int heightUsed) {
+            if (!wide || MeasureSpec.getMode(heightSpec) == MeasureSpec.UNSPECIFIED) {
+                super.measureChildWithMargins(child, widthSpec, widthUsed, heightSpec, heightUsed); return;
+            }
+            MarginLayoutParams lp = (MarginLayoutParams) child.getLayoutParams();
+            int childWidth = getChildMeasureSpec(widthSpec,
+                    getPaddingLeft() + getPaddingRight() + lp.leftMargin + lp.rightMargin + widthUsed, lp.width);
+            int height = Math.max(0, MeasureSpec.getSize(heightSpec) - getPaddingTop() - getPaddingBottom()
+                    - lp.topMargin - lp.bottomMargin - heightUsed);
+            child.measure(childWidth, MeasureSpec.makeMeasureSpec(height, MeasureSpec.EXACTLY));
+        }
+    }
+    private ScrollView paneScroll(LinearLayout column) {
+        ScrollView pane = new ScrollView(host.activity());
+        pane.setClipToPadding(false); pane.setPadding(0, 0, 0, ui.dp(24));
+        pane.addView(column, new ScrollView.LayoutParams(-1, -2));
+        return pane;
+    }
+    /**
+     * Menu on the left, submenu on the right, 20dp apart. The gap sits on the window's centre line, where
+     * a book-posture hinge falls, so no row lies under the fold; this also gives the menu the narrower
+     * column of the approved mockup. Each pane keeps a usable minimum width.
+     */
+    private final class Panes extends LinearLayout {
+        final View first, gutter, second;
+        int split = -1;
+        Panes(View left, View right) {
+            super(host.activity()); setOrientation(HORIZONTAL); setBaselineAligned(false);
+            first = left; second = right; gutter = new View(host.activity());
+            addView(first, new LinearLayout.LayoutParams(0, -1));
+            addView(gutter, new LinearLayout.LayoutParams(ui.dp(20), -1));
+            addView(second, new LinearLayout.LayoutParams(0, -1));
+        }
+        private int split(int size) {
+            int gap = ui.dp(20), min = ui.dp(220), max = size - gap - ui.dp(260);
+            if (max < min) return Math.max(0, (size - gap) / 2);
+            int want = Math.round((size - gap) * 0.42f);
+            View window = getRootView();
+            if (isAttachedToWindow() && window != null && window.getWidth() > 0) {
+                int[] at = new int[2]; getLocationInWindow(at);
+                want = window.getWidth() / 2 - gap / 2 - at[0];
+            }
+            return Math.max(min, Math.min(max, want));
+        }
+        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); post(this::requestLayout); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int size = MeasureSpec.getSize(widthSpec), gap = ui.dp(20);
+            split = split(size);
+            ((LinearLayout.LayoutParams) first.getLayoutParams()).width = split;
+            ((LinearLayout.LayoutParams) second.getLayoutParams()).width = Math.max(0, size - split - gap);
+            super.onMeasure(widthSpec, heightSpec);
+        }
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            super.onLayout(changed, l, t, r, b);
+            // The window position is only final now; re-split once if it moved the centre line.
+            if (split(r - l) != split) post(this::requestLayout);
+        }
     }
 
     // ---- Volt building blocks -------------------------------------------------------------
@@ -1223,7 +1329,7 @@ public final class MoreScreen implements AppScreen {
 
     @Override public void refresh() {
         ScooterService s = service(); if (s == null) return;
-        if (selectedSection.equals("Data")) refreshHistoryStorage();
+        if (shownSection().equals("Data")) refreshHistoryStorage();
         for (Runnable refresh : valueRefreshers) refresh.run();
         ScooterProfiles.Profile p = active();
         boolean configured = p != null && p.configured();

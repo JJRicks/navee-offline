@@ -41,7 +41,7 @@ public final class ParkedValidation extends Instrumentation {
             runMain(()->service.ble.refresh(true));Thread.sleep(2200);
         }
         if(mode.equals("navigation")){
-            navigationSmoke(activity);output.putString("navigation","All five tabs, 7 Controls / 4 Stats / 5 More sections, search and optional favourite passed without scooter mutations");
+            navigationSmoke(activity);output.putString("navigation","All five tabs, 7 Controls / 4 Stats / 6 More sections, search and optional favourite passed without scooter mutations");
         }else if(mode.equals("background")){
             backgroundSmoke();output.putString("background","Full 10s grace, cancelled old deadline, fresh second pause, hard cutoff, late hidden start and connecting cutoff checked");
         }else if(mode.equals("bgreset")){
@@ -130,6 +130,15 @@ public final class ParkedValidation extends Instrumentation {
     private void clickSection(Activity activity,String section)throws Exception{
         runMain(()->{ScrollView scroll=(ScrollView)field(activity,"scroll");scroll.scrollTo(0,0);View tab=findText(screenView(activity),section);require(tab!=null&&tab.isClickable(),"Visible section picker missing: "+section);tab.performClick();});waitForIdleSync();
     }
+    /** Opens a More submenu from its menu row: on a phone Back first returns to the menu; the wide layout keeps it beside the submenu. */
+    private void clickMoreSection(Activity activity,String label)throws Exception{
+        runMain(()->{Object more=currentScreen(activity);
+            try{java.lang.reflect.Method back=more.getClass().getDeclaredMethod("back");back.setAccessible(true);back.invoke(more);}catch(ReflectiveOperationException e){throw new IllegalStateException("Cannot invoke More Back",e);}
+            View row=findText(screenView(activity),label);require(row!=null,"Visible More menu row missing: "+label);
+            while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();
+            require(row.isClickable(),"More menu row is not clickable: "+label);row.performClick();});
+        waitForIdleSync();
+    }
     private void require(boolean condition,String failure){if(!condition)throw new IllegalStateException(failure);}
     private void assertNoUserRecording(){require(service!=null&&!service.isRecording(),"Smoke test stopped: a user recording is active; no stop/disconnect was requested");require(service.ble.pending()==null,"Smoke test stopped: a scooter change is pending");}
     @SuppressWarnings("unchecked") private void assertSectionMap(Object screen,String selected,int size){
@@ -177,12 +186,12 @@ public final class ParkedValidation extends Instrumentation {
         runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");require(input!=null,"Stats search missing");input.setText("voltage");require(findText(screenView(activity),"Battery voltage")!=null,"Voltage search result missing");
             Map<?,?> rows=(Map<?,?>)field(currentScreen(activity),"rows");Object voltage=rows.get("voltage_v");require(voltage!=null,"Voltage favourite row missing");View star=(View)field(voltage,"star");require(star.isShown(),"Voltage favourite is not reachable");star.performClick();star.performClick();});
         render(activity,"navigation-stats-readings.png");runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");input.setText("");require(input.getText().length()==0&&"".equals(field(currentScreen(activity),"query")),"Clearing Stats search did not clear its input/query");});clickSection(activity,"Overview");render(activity,"navigation-stats-overview.png");
-        navigate(activity,"more");for(String section:new String[]{"App","Scooters","Security","Lab","About"}){clickSection(activity,section);runMain(()->assertSectionMap(currentScreen(activity),section,5));}
-        clickSection(activity,"App");render(activity,"navigation-more-app.png");
+        navigate(activity,"more");for(String[] section:new String[][]{{"App","App preferences"},{"Scooters","My scooters"},{"Security","PIN & proximity unlock"},{"Lab","Experimental controls"},{"Data","Data & history"},{"About","About & permissions"}}){clickMoreSection(activity,section[1]);runMain(()->assertSectionMap(currentScreen(activity),section[0],6));}
+        clickMoreSection(activity,"App preferences");render(activity,"navigation-more-app.png");
         runMain(()->require(mutations()==initial.get(),"Navigation/search/favourite actions submitted a scooter mutation"));
         offlineSliderCancel(activity);
         runMain(()->require(mutations()==initial.get(),"Slider cancellation submitted a scooter mutation"));
-        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_groups",8);evidence.put("stats_sections",4);evidence.put("more_sections",5);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Native DOWN/MOVE/CANCEL while explicitly disconnected; events and message unchanged");results.put(evidence);
+        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_groups",8);evidence.put("stats_sections",4);evidence.put("more_sections",6);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Native DOWN/MOVE/CANCEL while explicitly disconnected; events and message unchanged");results.put(evidence);
     }
     @SuppressWarnings("unchecked") private void offlineSliderCancel(Activity activity)throws Exception{
         runMain(()->{assertNoUserRecording();reconnectAfterSmoke=service.ble.connected()||service.ble.state()==BleController.State.CONNECTING||service.ble.state()==BleController.State.AUTHENTICATING;service.ble.disconnect();service.settings.edit().putString("controls_query","").putString("controls_section","Ride").commit();});
