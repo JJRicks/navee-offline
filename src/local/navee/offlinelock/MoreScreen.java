@@ -375,7 +375,7 @@ public final class MoreScreen implements AppScreen {
         final String profileId = all ? null : profile.id;
         String subject = all ? "all scooters" : profile.name;
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Clear connected history?")
-                .setMessage("Remove the saved timeline and last-known readings for " + subject + ". Ride recordings and owner setup stay saved. New history can accumulate again while connected.")
+                .setMessage("Remove the saved timeline and last-seen readings for " + subject + ". Ride recordings and owner setup stay saved. New history can accumulate again while connected.")
                 .setNegativeButton("Cancel", null).setPositiveButton("Clear history", (d, which) -> {
                     if (service() == null || service().history == null) return;
                     service().clearHistory(profileId, () -> {

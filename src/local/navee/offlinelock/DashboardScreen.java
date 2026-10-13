@@ -74,6 +74,7 @@ public final class DashboardScreen implements AppScreen {
         tools.addView(layoutButton, new LinearLayout.LayoutParams(0, -2, 1));
         view.addView(tools);
         stale = ui.caption("");
+        ui.fitStatusLine(stale);
         stale.setPadding(ui.dp(3), ui.dp(5), ui.dp(3), ui.dp(10));
         view.addView(stale);
         grid = new Grid();
@@ -174,13 +175,14 @@ public final class DashboardScreen implements AppScreen {
         Map<String, TelemetryHistory.Reading> readings = readings();
         for (TelemetryHistory.Reading r : readings.values())
             last = Math.max(last, r.capturedWallMs);
+        stale.setMaxLines(editing ? Integer.MAX_VALUE : 1);
         if (editing) stale.setText("Drag the dots to move · Drag the lower-right corner to resize");
         else
             stale.setText(
                     live
                             ? ""
                             : last > 0
-                                    ? "Last known · " + when(last)
+                                    ? "Last seen · " + when(last)
                                     : "");
         stale.setVisibility(stale.getText().length() == 0 ? View.GONE : View.VISIBLE);
         for (Tile tile : tiles) tile.refresh(readings);
@@ -1032,7 +1034,7 @@ public final class DashboardScreen implements AppScreen {
                                     + ", "
                                     + format(r)
                                     + (r != null && !live
-                                            ? ", last known " + when(r.capturedWallMs)
+                                            ? ", last seen " + when(r.capturedWallMs)
                                             : ""));
                     if (batteryData != null && amount.getParent() instanceof View)
                         ((View) amount.getParent()).setTooltipText(amount.getContentDescription());
@@ -1047,7 +1049,7 @@ public final class DashboardScreen implements AppScreen {
                 if (widget.metric.equals("driving_mode")) {
                     big.setContentDescription("Drive mode, " + format(selected)
                             + (selected != null && !selected.live
-                                    ? ", last known " + when(selected.capturedWallMs) : ""));
+                                    ? ", last seen " + when(selected.capturedWallMs) : ""));
                     ui.styleDriveMode(big, format(selected), selected != null && selected.live);
                 }
             }
@@ -1088,8 +1090,8 @@ public final class DashboardScreen implements AppScreen {
                                         summary.elapsedMs / 60000,
                                         summary.elapsedMs / 1000 % 60));
             }
-            footer.setText(anyStale ? "Last known" : "");
-            footer.setContentDescription(anyStale ? "Last known · " + when(oldest) : "");
+            footer.setText(anyStale ? "Last seen" : "");
+            footer.setContentDescription(anyStale ? "Last seen · " + when(oldest) : "");
             footer.setVisibility(footer.getText().length() == 0 ? View.GONE : View.VISIBLE);
             footer.setTextColor(anyStale ? ui.muted : ui.accent);
             if (chargingData != null && chargingData.getVisibility() == View.VISIBLE)
@@ -1265,7 +1267,7 @@ public final class DashboardScreen implements AppScreen {
                                 + windowName(widget.windowMs));
             }
             footer.setText(widget.type.equals("live") && !wasLive && !points.isEmpty()
-                    ? "Last known" : "");
+                    ? "Last seen" : "");
             footer.setTextColor(ui.muted);
             footer.setVisibility(footer.getText().length() == 0 ? View.GONE : View.VISIBLE);
         }

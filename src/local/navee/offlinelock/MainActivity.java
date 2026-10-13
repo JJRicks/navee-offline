@@ -300,6 +300,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private TextView connectionLabel(){
         TextView label=design.text("Disconnected",13,true);
+        design.fitStatusLine(label);
         label.setOnClickListener(v->showConnectionDetails());
         label.setTooltipText("Connection details");
         return label;
@@ -565,7 +566,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&(feature.type!=ScooterCommands.Type.CHOICE||ble.featureChoices(feature.key).length>0));
             action.setContentDescription(feature.label+", "+value.getText()+". "+feature.description);
             if(toggle!=null){toggle.setEnabled(available);toggle.setChecked(actual!=null&&actual==1);if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(actual==null?"Not reported":actual==1?"On":"Off");}
-            String feedback=ble==null?null:ble.commandResults().get(feature.key);if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;if(actual!=null&&!available&&(ble==null||!ble.ready()))feedback="Last known setting · connect to change";if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
+            String feedback=ble==null?null:ble.commandResults().get(feature.key);if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;if(actual!=null&&!available&&(ble==null||!ble.ready()))feedback="Last seen setting · connect to change";if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
         }
     }
     private void editFeature(ScooterCommands.Feature feature){

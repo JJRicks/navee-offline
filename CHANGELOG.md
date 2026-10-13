@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.7.1 — 2026-10-12
+
+- Cached readings now say “Last seen.” Dates outside today use a compact uppercase day/month before the time, such as `05 MAR · 13:05`, retaining the selected system/12/24-hour clock.
+- Compact connection status and dashboard timestamps shrink to stay on one line when space is tight.
+
 ## 0.7.0 — 2026-10-12
 
 This release brings the phone recording and customizable dashboard work together after the 0.4.1 release.
