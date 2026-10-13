@@ -199,6 +199,16 @@ public final class MoreScreen implements AppScreen {
         final int menu = prefs.getInt(WIDE_MENU_SCROLL, 0);
         sectionScroll.post(() -> { if (!closed) { sectionScroll.scrollTo(0, section); menuScroll.scrollTo(0, menu); } });
     }
+    /**
+     * The submenu expired while this screen stayed alive (the app was in the background for more
+     * than a minute). Put the live panes back at the top so neither this screen nor the close()
+     * of an expiry rebuild carries the old offsets forward.
+     */
+    public void resetScroll() {
+        sectionScrollPositions.clear();
+        if (sectionScroll != null) sectionScroll.scrollTo(0, 0);
+        if (menuScroll != null) menuScroll.scrollTo(0, 0);
+    }
     private static int parseScroll(String value) {
         try { return Math.max(0, Integer.parseInt(value)); } catch (NumberFormatException e) { return 0; }
     }

@@ -423,6 +423,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 .remove("more_wide_section_scroll").remove("more_wide_menu_scroll").apply();
         scrollPositions.put("more",0);
         if(scroll!=null&&scrollPage.equals("more"))scroll.scrollTo(0,0);
+        if(screen instanceof MoreScreen)((MoreScreen)screen).resetScroll();
         return hadSection;
     }
     private void openMoreSection(String section){
