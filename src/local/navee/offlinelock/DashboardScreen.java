@@ -1146,17 +1146,31 @@ public final class DashboardScreen implements AppScreen {
                     body.addView(subtitle);
                     break;
                 case "health":
-                    LinearLayout top = row();
-                    top.setGravity(Gravity.BOTTOM);
-                    TextView health = new FittedValue("—", 14, 34, 1);
-                    amounts.put("battery_health_percent", health);
-                    top.addView(health, new LinearLayout.LayoutParams(0, -2, 1));
+                    final TextView health = new FittedValue("—", 14, 34, 1);
                     healthDetail = ui.caption("");
-                    healthDetail.setGravity(Gravity.END);
-                    LinearLayout.LayoutParams detailSpace = new LinearLayout.LayoutParams(-2, -2);
-                    detailSpace.setMarginStart(ui.dp(8));
-                    detailSpace.bottomMargin = ui.dp(4);
-                    top.addView(healthDetail, detailSpace);
+                    final TextView detail = healthDetail;
+                    LinearLayout top =
+                            new LinearLayout(host.activity()) {
+                                @Override
+                                protected void onMeasure(int widthSpec, int heightSpec) {
+                                    // The percentage is the card's main reading: in a narrow card
+                                    // (or with large text) the details stack underneath it instead
+                                    // of taking the row, and side by side they never take over half.
+                                    int width = MeasureSpec.getSize(widthSpec);
+                                    float scale = Math.max(1f, ui.textScale
+                                            * getResources().getConfiguration().fontScale);
+                                    boolean stack = width < ui.dp(220 * scale);
+                                    if (stack != (getOrientation() == VERTICAL)) layoutHealth(this, health, detail, stack);
+                                    int limit = stack ? Integer.MAX_VALUE : Math.max(ui.dp(48), (int) (width * .5f));
+                                    // setMaxWidth requests layout, so only change it when it differs.
+                                    if (detail.getMaxWidth() != limit) detail.setMaxWidth(limit);
+                                    super.onMeasure(widthSpec, heightSpec);
+                                }
+                            };
+                    amounts.put("battery_health_percent", health);
+                    top.addView(health);
+                    top.addView(healthDetail);
+                    layoutHealth(top, health, detail, false);
                     body.addView(top, new LinearLayout.LayoutParams(-1, -2));
                     watched.add("charge_cycles");
                     watched.add("rated_capacity_ah");
@@ -1922,6 +1936,18 @@ public final class DashboardScreen implements AppScreen {
                     miles = String.format(Locale.US, "%.1f mi", km / 1.609344);
             String units = units();
             return units.equals("km") ? metric : units.equals("dual") ? miles + " / " + metric : miles;
+        }
+
+        /** Side by side, or the details stacked under the percentage for narrow cards. */
+        private void layoutHealth(LinearLayout top, TextView health, TextView detail, boolean stack) {
+            top.setOrientation(stack ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
+            top.setGravity(stack ? Gravity.START : Gravity.BOTTOM);
+            health.setLayoutParams(stack ? new LinearLayout.LayoutParams(-1, -2) : new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(-2, -2);
+            if (stack) space.topMargin = ui.dp(2);
+            else { space.setMarginStart(ui.dp(8)); space.bottomMargin = ui.dp(4); }
+            detail.setGravity(stack ? Gravity.START : Gravity.END);
+            detail.setLayoutParams(space);
         }
 
         private void disableInputs(View v) {

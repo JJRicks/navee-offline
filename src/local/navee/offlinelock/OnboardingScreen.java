@@ -867,6 +867,8 @@ public final class OnboardingScreen implements AppScreen {
             host.toast("The earlier owner file could not be discarded. Try again.");
             return;
         }
+        // Its pending display name goes too, so the typed identity keeps the name entered here.
+        prefs.edit().remove(KEY_PENDING_NAME).apply();
         String name = nameField == null ? "" : nameField.getText().toString();
         try {
             // Replace only a profile this flow created earlier, never one the owner already had.

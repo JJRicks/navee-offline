@@ -486,8 +486,13 @@ public final class Ui {
             final int index = i; boolean on = i == selected;
             LinearLayout item = new LinearLayout(context);
             item.setOrientation(LinearLayout.VERTICAL); item.setGravity(Gravity.CENTER);
-            item.setContentDescription(labels[i]); item.setFocusable(true); item.setSelected(on);
-            if (Build.VERSION.SDK_INT >= 30) item.setStateDescription(on ? "Selected" : "");
+            if (i == center) {
+                // A plain spacer under the raised button, which carries the label and the action.
+                item.setFocusable(false); item.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            } else {
+                item.setContentDescription(labels[i]); item.setFocusable(true); item.setSelected(on);
+                if (Build.VERSION.SDK_INT >= 30) item.setStateDescription(on ? "Selected" : "");
+            }
             if (i != center) {
                 item.addView(icon(icons[i], 21, on ? text : muted), new LinearLayout.LayoutParams(dp(21), dp(21)));
                 View dot = new View(context); dot.setBackground(shape(accent, 3, 0));
