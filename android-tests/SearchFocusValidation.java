@@ -37,13 +37,14 @@ import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.DashboardConfig;
 import local.navee.offlinelock.DashboardScreen;
 import local.navee.offlinelock.MainActivity;
+import local.navee.offlinelock.OnboardingScreen;
 import local.navee.offlinelock.ScooterService;
 import local.navee.offlinelock.StatsScreen;
 import local.navee.offlinelock.Telemetry;
 
 /** Real IME and touch checks on a fresh emulator; no scooter or radio changes. */
 public final class SearchFocusValidation extends Instrumentation {
-    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
+    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents", "onboarding"};
     private final List<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private MainActivity activity;
     private boolean admitted;
@@ -60,6 +61,8 @@ public final class SearchFocusValidation extends Instrumentation {
             getUiAutomation().setServiceInfo(accessibility);
             require(settings().edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
                     .putString("theme", "dark").commit(), "Could not prepare emulator preferences");
+            // These runners check the tabs, so skip the first-run onboarding a fresh install shows.
+            OnboardingScreen.markDone(getTargetContext());
             activity = (MainActivity)startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000, "Workspace did not initialize");
             for (String theme : new String[] {"dark", "light"}) {

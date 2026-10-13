@@ -71,6 +71,8 @@ public final class OnboardingScreen implements AppScreen {
         default void onSkipped() { onFinished(); }
     }
 
+    /** Set by {@link #restart}: the owner chose to run setup again from More. */
+    private static final String KEY_RERUN = "rerun";
     /** Preference file holding only setup progress; never identities. */
     public static final String PREFS = "onboarding";
     /** True once the flow was finished or skipped; {@link #needed} then stays false. */
@@ -128,13 +130,15 @@ public final class OnboardingScreen implements AppScreen {
     public static boolean needed(Context context, ScooterService service) {
         SharedPreferences p = prefs(context);
         if (p.getBoolean(KEY_DONE, false)) return false;
+        // "Run setup again" keeps the flow open on every step, including Welcome, until it is left.
+        if (p.getBoolean(KEY_RERUN, false)) return true;
         if (p.getInt(KEY_STEP, WELCOME) > WELCOME) return true;
         return !hasConfiguredProfile(context, service);
     }
 
     /** Re-opens the flow at "Choose a path" (for a "Run setup again" entry). Call rebuild() after. */
     public static void restart(Context context) {
-        prefs(context).edit().clear().putInt(KEY_STEP, PATH).commit();
+        prefs(context).edit().clear().putInt(KEY_STEP, PATH).putBoolean(KEY_RERUN, true).commit();
     }
 
     /** Marks setup complete without showing it, e.g. for test fixtures. */
@@ -170,7 +174,10 @@ public final class OnboardingScreen implements AppScreen {
         if (closed) return false;
         if (sheet != null) { closeSheet(); return true; }
         switch (step) {
-            case WELCOME: return false;
+            case WELCOME:
+                // A re-run from More returns to the tabs instead of closing the app.
+                if (prefs.getBoolean(KEY_RERUN, false)) { finish(true); return true; }
+                return false;
             case PATH: go(WELCOME); return true;
             case PREPARE: go(PATH); return true;
             case IMPORT: go(CAPTURE.equals(path()) ? HELPER : PATH); return true;

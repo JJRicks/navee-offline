@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.MainActivity;
+import local.navee.offlinelock.OnboardingScreen;
 import local.navee.offlinelock.PhoneRideStore;
 import local.navee.offlinelock.RidesScreen;
 import local.navee.offlinelock.RouteMapView;
@@ -51,7 +52,7 @@ import local.navee.offlinelock.Ui;
 
 /** UI checks on a fresh emulator only. No owner profile, sensor recording, radio or network work. */
 public final class UiOrganizationValidation extends Instrumentation {
-    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
+    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents", "onboarding"};
     private final List<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private Bundle arguments;
     private MainActivity activity;
@@ -67,6 +68,8 @@ public final class UiOrganizationValidation extends Instrumentation {
             SharedPreferences settings = settings();
             require(settings.edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
                     .putString("theme", "dark").putString("more_section", "App").commit(), "Cannot set emulator UI preferences");
+            // These runners check the tabs, so skip the first-run onboarding a fresh install shows.
+            OnboardingScreen.markDone(getTargetContext());
             activity = (MainActivity) startActivitySync(new Intent(getTargetContext(), MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000,

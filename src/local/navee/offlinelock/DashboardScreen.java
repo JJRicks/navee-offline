@@ -3080,6 +3080,12 @@ public final class DashboardScreen implements AppScreen {
         final int color;
         boolean selected;
 
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            // A fixed 48dp target; the flow layout measures children without their LayoutParams.
+            setMeasuredDimension(resolveSize(ui.dp(48), widthSpec), resolveSize(ui.dp(48), heightSpec));
+        }
+
         Swatch(int color, String name) {
             super(host.activity());
             this.color = color;

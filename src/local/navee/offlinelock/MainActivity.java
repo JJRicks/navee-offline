@@ -324,22 +324,6 @@ public final class MainActivity extends Activity implements ScreenHost {
         connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);
         updateHeader();return content;
     }
-    /** A taller centered track leaves a little breathing room without shrinking narrow touch targets. */
-    private final class DashboardLockRow extends FrameLayout {
-        private final LockControl control;
-        DashboardLockRow(LockControl control){
-            super(MainActivity.this);this.control=control;
-            addView(control,new FrameLayout.LayoutParams(-1,design.dp(68),Gravity.CENTER));
-        }
-        @Override protected void onMeasure(int widthSpec,int heightSpec){
-            int available=Math.max(0,MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight());
-            int width=available>=design.dp(160)?Math.round(available*.9f):available;
-            int height=Math.min(design.dp(68),width);
-            FrameLayout.LayoutParams size=(FrameLayout.LayoutParams)control.getLayoutParams();
-            if(size.width!=width||size.height!=height){size.width=width;size.height=height;control.setLayoutParams(size);}
-            super.onMeasure(widthSpec,heightSpec);
-        }
-    }
     private TextView connectionLabel(){
         TextView label=design.text("Disconnected",13,true);
         design.fitStatusLine(label);
@@ -379,7 +363,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void renameScooter(){
         if(scooterService==null||scooterService.profiles.active()==null){toast("Set up a scooter profile first.");return;}ScooterProfiles.Profile profile=scooterService.profiles.active();EditText input=new EditText(this);input.setSingleLine(true);input.setText(profile.name);input.setSelectAllOnFocus(true);input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(48)});
-        design.styleSearch(input);input.setBackground(design.shape(design.raised,14,design.outline));input.setContentDescription("Scooter name");
+        design.styleSearch(input);input.setCompoundDrawablesRelative(null,null,null,null);input.setBackground(design.shape(design.raised,14,design.outline));input.setContentDescription("Scooter name");
         FrameLayout field=new FrameLayout(this);field.setPadding(design.dp(24),design.dp(8),design.dp(24),design.dp(4));field.addView(input,new FrameLayout.LayoutParams(-1,-2));
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Scooter name")).setView(field).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create();controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String name=input.getText().toString().trim();if(name.isEmpty()){input.setError("Enter a name.");return;}profile.name=name;scooterService.profiles.update(profile);dialog.dismiss();rebuild();});
     }
