@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.7.1
+NAVEE OFFLINE — VERSION 0.7.2
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,6 +11,11 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+
+0.7.2 returns More to its index after one minute away. USGS Topo is the
+default optional basemap; OSM and custom sources remain selectable. Blocked
+responses show a status instead of an error picture over your route. Pinch to
+zoom smoothly or drag with one or two fingers; zoom buttons and Fit remain.
 
 0.7.1 uses “Last seen” for cached readings, with a 05 MAR-style date before
 times outside today. Compact status lines shrink to fit the available width.
@@ -164,8 +169,9 @@ Rides
 
 More
   App, Scooters, Security, Lab, Data and About sections, with one visible at a time.
-  The section is remembered; switching sections keeps their existing views and
-  scroll positions. Owner setup remains prominent until a profile is ready.
+  The section is remembered for one minute away from More or the app; longer
+  absences return to the index. Active submenus do not expire. Switching sections
+  keeps their existing views and scroll positions. Owner setup remains prominent until a profile is ready.
   App holds preferences; Scooters holds profiles/setup/backups; Security holds
   PIN/proximity tools; Lab holds experimental controls; Data & history holds
   connected-history preferences/storage/cleanup; About explains privacy.
@@ -387,14 +393,19 @@ changes and GPS noise can still distort estimates. Route comparison includes GPS
 distance, ascent/descent and the existing scooter energy measurements. It does not
 plan or declare an optimal route before comparable rides have been collected.
 
-Street map is optional in the route viewer and starts off. The default tiles are
-OpenStreetMap, with visible attribution, normal caching and viewport-only requests.
-No map account or API key is needed; another HTTPS raster provider can be selected
-under Phone sensors > Map source. The provider sees the viewed area and IP address.
-No scooter credentials or journal uploads occur. Routes still draw without tiles;
-there is no bulk offline map-download feature. Map service/privacy details:
-https://operations.osmfoundation.org/policies/tiles/
-https://osmfoundation.org/wiki/Privacy_Policy
+Pinch to zoom around your fingers, drag to pan, or use the zoom and Fit buttons.
+Basemap is optional in the route viewer and starts off. USGS Topo is the default
+U.S. street/terrain map, with visible attribution, caching and viewport requests.
+No account/key is required. At close zooms, level-16 tiles are enlarged.
+Map source is available in the route viewer and Phone sensors settings; it offers
+USGS, OpenStreetMap and custom HTTPS sources. Existing custom sources stay saved.
+The provider sees the viewed area and IP address, not a ride journal or identity.
+USGS terms: https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map
+OSM terms: https://operations.osmfoundation.org/policies/tiles/
+Blocked responses (including HTTP 200 X-Blocked pictures) are rejected with a
+clear status, while local route drawing remains available. Previously unverified
+cache entries require a successful refresh before use. Denied providers pause
+network requests instead of repeatedly retrying tiles. No bulk prefetch exists.
 
 Older rides cannot acquire a route retroactively. GPS exports contain coordinates.
 GPX contains time/position only; measured GNSS altitude/accuracy stays in CSV/JSON.

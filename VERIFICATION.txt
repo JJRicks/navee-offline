@@ -1,5 +1,50 @@
-NAVEE OFFLINE 0.7.1 — RELEASE VALIDATION
+NAVEE OFFLINE 0.7.2 — RELEASE VALIDATION
 October 12, 2026
+
+0.7.2 — MORE TIMEOUT AND ROUTE MAPS
+
+More retains its submenu during active use and for less than 60 seconds away
+from the tab/app. A monotonic timestamp and boot marker bound persisted state;
+expired returns clear the submenu/scroll while explicit Security shortcuts win.
+
+USGS Topo replaces OSM as the default optional basemap. Explicit OSM/custom
+choices are preserved and a source picker updates the open route preview.
+USGS native tile requests stop at level 16; route zoom can enlarge those tiles.
+Local routes remain available when optional network imagery is unavailable.
+Fractional pinch zoom and simultaneous panning preserve the point under the
+gesture focus. Pointer changes rebase without a jump or accidental selection.
+
+The original OSM failure was reproduced with the app's identifying header:
+HTTP 200 carried X-Blocked and a PNG displaying a 403 policy rejection. The
+exact server-side blocking rule is unknown. The new loader rejects these images,
+pauses denied/rate-limited requests and requires legacy cache entries to refresh
+before reuse. It retains its honest app identity and does not bypass the block.
+
+Validation for this update:
+
+- Nine portable core suites passed 24,782 assertions.
+- Five Android emulator configurations passed 43 check groups: MapTilesValidation
+  (7), LaunchValidation with Bluetooth permission denied/granted (7 each), and
+  UiOrganizationValidation at 360/852 dp (11 each). The UI suites were rerun on
+  the final pinch build; transport and launch checks preceded that gesture-only
+  change. All use isolated synthetic
+  profiles/readings; tile transport tests use fake connections and a fake clock.
+- Checks covered exact timeout boundaries, background/reboot transitions,
+  active/rebuilt More, provider switching and stale callbacks, truthful request
+  headers, cache validation, 200/304, X-Blocked, denial/rate-limit backoff and
+  offline fallback. Both UI widths also covered themes, large text, local route
+  interaction and exports, with zero scooter writes or network tile requests.
+- Final gesture checks cover fractional focal anchoring, two-finger panning,
+  pointer reordering/handoff, continued single-finger panning, zoom limits,
+  cancellation, ordinary tap recovery and no network loading in offline mode.
+  Physical two-finger feel still needs the owner's hands-on check.
+- The final signed 0.7.2 APK (code 18) passes signature/alignment verification,
+  matches the 0.7.0 signing identity, and excludes instrumentation code.
+- A public Rexburg USGS tile returned HTTP 200 with valid imagery. An in-place
+  0.7.2 installation on the Pixel rendered the saved ride over the USGS map.
+  The final build adding pinch zoom was then installed and reopened successfully.
+  The phone's data and network settings were preserved; no scooter command was
+  sent as part of the check. No new Samsung or outdoor sensor test is claimed.
 
 0.7.1 — LAST SEEN TIMESTAMPS
 

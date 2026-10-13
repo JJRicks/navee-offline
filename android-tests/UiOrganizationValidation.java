@@ -33,7 +33,12 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.ExecutorService;
+import java.util.concurrent.Future;
+import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.MainActivity;
@@ -61,7 +66,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             requireFreshEmulator(); admitted = true;
             SharedPreferences settings = settings();
             require(settings.edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
-                    .putString("theme", "dark").commit(), "Cannot set emulator UI preferences");
+                    .putString("theme", "dark").putString("more_section", "App").commit(), "Cannot set emulator UI preferences");
             activity = (MainActivity) startActivitySync(new Intent(getTargetContext(), MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000,
@@ -69,6 +74,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             for (String name : new String[]{"Home", "Scooter", "Stats", "Rides", "More"}) {
                 clickDescription(name); waitForIdleSync(); assertNoScooterWork(); assertNavigationFits();
             }
+            requireScreenText("App preferences");
             check("All five destinations are reachable; navigation targets remain visible");
             screenshot("more-index-dark");
 
@@ -107,6 +113,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             requireScreenText("Connect automatically"); screenshot("preferences-dark");
             main(() -> invoke(activity, "navigateBack")); requireScreenText("My scooters");
             check("More opens compact preferences and Back returns to its settings index");
+            verifyMoreReturn(settings);
 
             clickDescription("Stats"); clickText(root(), "Readings");
             Object stats = field(activity, "screen");
@@ -143,7 +150,8 @@ public final class UiOrganizationValidation extends Instrumentation {
             View dialogRoot = preview.getWindow().getDecorView();
             RouteMapView map = first(dialogRoot, RouteMapView.class);
             CheckBox streets = first(dialogRoot, CheckBox.class);
-            require(streets != null && !streets.isChecked(), "Street map must stay off during the offline preview test");
+            require(streets != null && !streets.isChecked(), "Basemap must stay off during the offline preview test");
+            verifyMapSources(rides, dialogRoot, map, streets);
             reveal(map);
             main(() -> {
                 long now = SystemClock.uptimeMillis();
@@ -152,6 +160,7 @@ public final class UiOrganizationValidation extends Instrumentation {
                 try { map.dispatchTouchEvent(down); map.dispatchTouchEvent(up); } finally { down.recycle(); up.recycle(); }
                 require(findTextContaining(dialogRoot, "Power ") != null, "Tapping the route did not expose synchronized readings");
             });
+            verifyMapGestures(map);
             clickText(dialogRoot, "Grade"); clickText(dialogRoot, "Accel"); clickText(dialogRoot, "Power");
             clickText(dialogRoot, "+"); clickText(dialogRoot, "−"); clickText(dialogRoot, "Fit");
             ScrollView scroller = first(dialogRoot, ScrollView.class);
@@ -183,6 +192,228 @@ public final class UiOrganizationValidation extends Instrumentation {
             try { cleanup(); } catch (Throwable failure) { result.putString("cleanup_error", failure.toString()); }
             finish(1, result);
         }
+    }
+
+    private void verifyMapGestures(RouteMapView map) {
+        main(() -> {
+            AtomicInteger taps = new AtomicInteger(); map.setOnClickListener(v -> taps.incrementAndGet());
+            try {
+                long now = SystemClock.uptimeMillis();
+                float cx = map.getWidth()*.6f, cy = map.getHeight()*.45f;
+                float half = Math.min(map.getWidth()*.12f, map.getHeight()*.1f);
+                float dx = activity.ui().dp(13), dy = activity.ui().dp(9);
+                double oldZoom = number(map, "zoom");
+                double anchorX = mapCoordinate(map, cx, true), anchorY = mapCoordinate(map, cy, false);
+                mapTouch(map, now, 0, MotionEvent.ACTION_DOWN, new int[]{3}, cx-half,cy);
+                mapTouch(map, now, 1, MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                        new int[]{3,7}, cx-half,cy,cx+half,cy);
+                float fx = cx+dx, fy = cy+dy, spread = half*1.4f;
+                mapTouch(map, now, 2, MotionEvent.ACTION_MOVE, new int[]{3,7}, fx-spread,fy,fx+spread,fy);
+                double nextZoom = number(map, "zoom");
+                require(Math.abs(nextZoom-(oldZoom+Math.log(1.4)/Math.log(2))) < .00001,
+                        "Pinch did not produce smooth fractional zoom");
+                require(Math.abs(nextZoom-Math.rint(nextZoom)) > .05, "Pinch snapped to a whole zoom level");
+                assertMapAnchor(map, fx, fy, anchorX, anchorY, "Pinch focal point drifted");
+
+                // Reorder pointer indices while moving the centroid, with their separation unchanged.
+                fx += dx; fy -= dy;
+                mapTouch(map, now, 3, MotionEvent.ACTION_MOVE, new int[]{7,3}, fx+spread,fy,fx-spread,fy);
+                require(Math.abs(number(map, "zoom")-nextZoom) < .00001, "Two-finger pan changed zoom");
+                assertMapAnchor(map, fx, fy, anchorX, anchorY, "Two-finger pan lost its anchor");
+                double beforeX = number(map,"centerX"), beforeY = number(map,"centerY");
+                // Lift pointer 3 and continue with pointer 7 at its own coordinates.
+                mapTouch(map, now, 4, MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                        new int[]{7,3}, fx+spread,fy,fx-spread,fy);
+                mapTouch(map, now, 5, MotionEvent.ACTION_MOVE, new int[]{7}, fx+spread,fy);
+                require(Math.abs(number(map,"centerX")-beforeX) < 1e-10 && Math.abs(number(map,"centerY")-beforeY) < 1e-10,
+                        "Map jumped when the first finger lifted");
+                double handoffX = mapCoordinate(map, fx+spread, true), handoffY = mapCoordinate(map, fy, false);
+                mapTouch(map, now, 6, MotionEvent.ACTION_MOVE, new int[]{7}, fx+spread+dx,fy+dy);
+                assertMapAnchor(map, fx+spread+dx, fy+dy, handoffX, handoffY, "Remaining finger did not pan naturally");
+                mapTouch(map, now, 7, MotionEvent.ACTION_UP, new int[]{7}, fx+spread+dx,fy+dy);
+                require(taps.get() == 0, "Pinching or handing off a pointer selected a route point");
+                require(((Integer)field(map,"activePointer")) == -1, "Final pointer-up did not end the gesture");
+
+                map.zoomBy(100); pinchAtBound(map, now+200, cx, cy, half, 1.5f, 19);
+                map.zoomBy(-100); pinchAtBound(map, now+400, cx, cy, half, .6f, 2);
+                require(taps.get() == 0, "A clamped pinch selected a route point");
+
+                // Cancellation must leave the next one-finger tap usable and keep small jitter still.
+                mapTouch(map, now+600, 0, MotionEvent.ACTION_DOWN, new int[]{3}, cx-half,cy);
+                mapTouch(map, now+600, 1, MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                        new int[]{3,7}, cx-half,cy,cx+half,cy);
+                mapTouch(map, now+600, 2, MotionEvent.ACTION_CANCEL, new int[]{3,7}, cx-half,cy,cx+half,cy);
+                require(((Integer)field(map,"activePointer")) == -1, "Cancel did not release the active pointer");
+                beforeX = number(map,"centerX"); beforeY = number(map,"centerY");
+                mapTouch(map, now+800, 0, MotionEvent.ACTION_DOWN, new int[]{4}, cx,cy);
+                mapTouch(map, now+800, 1, MotionEvent.ACTION_MOVE, new int[]{4}, cx+1,cy+1);
+                mapTouch(map, now+800, 2, MotionEvent.ACTION_UP, new int[]{4}, cx+1,cy+1);
+                require(taps.get() == 1, "A normal tap stopped selecting after a canceled pinch");
+                require(Math.abs(number(map,"centerX")-beforeX) < 1e-10 && Math.abs(number(map,"centerY")-beforeY) < 1e-10,
+                        "Tap jitter moved the map before touch slop");
+                require(!((Boolean)field(map,"streets")) && ((Set<?>)field(map,"pending")).isEmpty(),
+                        "Offline gestures enabled map tile requests");
+            } finally { map.setOnClickListener(null); map.fitRoute(); }
+        }); waitForIdleSync();
+        check("Pinch zoom and two-finger pan keep their focal point, pointer handoff stays steady, bounds clamp, and canceled pinches preserve taps");
+    }
+    private void pinchAtBound(RouteMapView map, long now, float x, float y, float half, float factor, double expected) {
+        mapTouch(map, now, 0, MotionEvent.ACTION_DOWN, new int[]{3}, x-half,y);
+        mapTouch(map, now, 1, MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                new int[]{3,7}, x-half,y,x+half,y);
+        mapTouch(map, now, 2, MotionEvent.ACTION_MOVE, new int[]{3,7}, x-half*factor,y,x+half*factor,y);
+        require(number(map,"zoom") == expected, "Pinch exceeded the zoom bound " + expected);
+        mapTouch(map, now, 3, MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                new int[]{3,7}, x-half*factor,y,x+half*factor,y);
+        mapTouch(map, now, 4, MotionEvent.ACTION_UP, new int[]{3}, x-half*factor,y);
+    }
+    private static double number(Object object, String name) { return ((Number)field(object,name)).doubleValue(); }
+    private static double mapCoordinate(RouteMapView map, float pixel, boolean horizontal) {
+        return number(map, horizontal ? "centerX" : "centerY")
+                + (pixel-(horizontal ? map.getWidth() : map.getHeight())/2.0)/((Number)invoke(map,"world")).doubleValue();
+    }
+    private static void assertMapAnchor(RouteMapView map, float x, float y, double expectedX, double expectedY, String message) {
+        double dx = mapCoordinate(map,x,true)-expectedX; dx -= Math.rint(dx);
+        double dy = mapCoordinate(map,y,false)-expectedY;
+        double world = ((Number)invoke(map,"world")).doubleValue();
+        require(Math.abs(dx)*world < .01 && Math.abs(dy)*world < .01, message);
+    }
+    private static void mapTouch(RouteMapView map, long down, int step, int action, int[] ids, float... xy) {
+        MotionEvent.PointerProperties[] properties = new MotionEvent.PointerProperties[ids.length];
+        MotionEvent.PointerCoords[] coordinates = new MotionEvent.PointerCoords[ids.length];
+        for (int i=0; i<ids.length; i++) {
+            properties[i] = new MotionEvent.PointerProperties(); properties[i].id = ids[i]; properties[i].toolType = MotionEvent.TOOL_TYPE_FINGER;
+            coordinates[i] = new MotionEvent.PointerCoords(); coordinates[i].x = xy[2*i]; coordinates[i].y = xy[2*i+1];
+            coordinates[i].pressure = 1; coordinates[i].size = 1;
+        }
+        MotionEvent event = MotionEvent.obtain(down,down+step*16L,action,ids.length,properties,coordinates,0,0,1,1,0,0,
+                android.view.InputDevice.SOURCE_TOUCHSCREEN,0);
+        try { require(map.dispatchTouchEvent(event), "Map did not consume touch action " + action); }
+        finally { event.recycle(); }
+    }
+
+    private void verifyMapSources(Object rides, View dialogRoot, RouteMapView map, CheckBox streets) throws Exception {
+        String usgs = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}";
+        String osm = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
+        String usgsName = "Map source · USGS Topo · United States";
+        require(findText(dialogRoot, usgsName) != null, "Fresh map preview did not default to USGS");
+        chooseMapSource(rides, dialogRoot, usgsName, 1);
+        assertOfflineMapSource(dialogRoot, map, streets, "Map source · OpenStreetMap", "© OpenStreetMap contributors", osm, 19);
+        chooseMapSource(rides, dialogRoot, "Map source · OpenStreetMap", 0);
+        assertOfflineMapSource(dialogRoot, map, streets, usgsName, "U.S. Geological Survey, National Geospatial Program", usgs, 16);
+
+        // Hold both existing workers so the old request can be canceled before any network work.
+        ExecutorService executor = (ExecutorService)field(map, "TILES");
+        CountDownLatch occupied = new CountDownLatch(2), releaseOne = new CountDownLatch(1), releaseTwo = new CountDownLatch(1);
+        Future<?> firstWorker = executor.submit(() -> waitForWorker(occupied, releaseOne));
+        Future<?> secondWorker = executor.submit(() -> waitForWorker(occupied, releaseTwo));
+        String key = "2/1/1";
+        try {
+            require(occupied.await(5, TimeUnit.SECONDS), "Tile workers did not reach the queue fixture");
+            main(() -> {
+                map.setStreets(true);
+                invoke(map, "request", new Class<?>[]{String.class, int.class, int.class, int.class}, key, 2, 1, 1);
+                require(((Set<?>)field(map, "pending")).contains(key), "Old-provider request was not queued");
+                map.setSource(usgs); map.setStreets(false);
+                @SuppressWarnings("unchecked") Set<String> pending = (Set<String>)field(map, "pending");
+                pending.add(key); // Stand in for the new source's matching key while keeping network loading off.
+            });
+            Future<?> drained = executor.submit(() -> {});
+            releaseOne.countDown(); drained.get(5, TimeUnit.SECONDS); waitForIdleSync();
+            main(() -> {
+                require(((Set<?>)field(map, "pending")).contains(key), "A stale provider callback cleared the new source's pending tile");
+                require(((android.util.LruCache<?,?>)field(map, "tiles")).size() == 0, "Stale provider supplied a tile");
+                require(((Map<?,?>)field(map, "failed")).isEmpty(), "Stale provider supplied a failure");
+            });
+        } finally {
+            main(() -> { map.setStreets(false); map.setSource(usgs); });
+            releaseOne.countDown(); releaseTwo.countDown();
+            firstWorker.get(5, TimeUnit.SECONDS); secondWorker.get(5, TimeUnit.SECONDS);
+        }
+        assertOfflineMapSource(dialogRoot, map, streets, usgsName, "U.S. Geological Survey, National Geospatial Program", usgs, 16);
+        check("USGS and OpenStreetMap source changes update labels and attribution offline; stale queued callbacks cannot alter the replacement source");
+    }
+    private static void waitForWorker(CountDownLatch occupied, CountDownLatch release) {
+        occupied.countDown();
+        try { if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Tile queue fixture timed out"); }
+        catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException(error); }
+    }
+    private void chooseMapSource(Object rides, View dialogRoot, String label, int option) {
+        clickText(dialogRoot, label);
+        main(() -> {
+            @SuppressWarnings("unchecked") List<AlertDialog> dialogs = (List<AlertDialog>)field(rides, "dialogs");
+            AlertDialog picker = dialogs.get(dialogs.size()-1);
+            require(picker.isShowing() && picker.getListView() != null, "Map source picker did not open");
+            picker.getListView().performItemClick(picker.getListView().getChildAt(option), option, option);
+        }); waitForIdleSync();
+    }
+    private void assertOfflineMapSource(View dialogRoot, RouteMapView map, CheckBox streets, String label,
+            String credit, String url, int maximumZoom) {
+        main(() -> {
+            require(findText(dialogRoot, label) != null, "Map source label did not change to " + label);
+            TextView attribution = findTextIncludingHidden(dialogRoot, credit);
+            require(attribution != null && attribution.getVisibility() == View.GONE, "Map attribution did not follow the selected offline source");
+            require(settings().getString("map_tile_url", "").equals(url), "Map source URL was not saved");
+            require(((Integer)field(map, "maximumTileZoom")) == maximumZoom, "Map source zoom limit was not updated");
+            require(!streets.isChecked() && !((Boolean)field(map, "streets")), "Changing map source enabled network loading");
+            require(((Set<?>)field(map, "pending")).isEmpty(), "Changing an offline map source queued tile downloads");
+        });
+    }
+
+    private void verifyMoreReturn(SharedPreferences settings) {
+        clickText(root(), "App preferences");
+        clickDescription("Home"); clickDescription("More");
+        requireScreenText("Connect automatically");
+        main(() -> activity.rebuild()); waitForIdleSync();
+        requireScreenText("Connect automatically");
+        main(() -> {
+            require(!settings.contains("more_away_elapsed"), "Active More must not have an absence timer");
+            invoke(activity, "expireMoreSection", new Class<?>[]{boolean.class, long.class}, true, Long.MAX_VALUE);
+        });
+        requireScreenText("Connect automatically");
+        require(settings.getString("more_section", "").equals("App"), "Reading a submenu must not expire it");
+
+        clickDescription("Home");
+        long left = settings.getLong("more_away_elapsed", -1);
+        require(left >= 0, "Leaving More did not start its retention timer");
+        main(() -> {
+            require(!(Boolean) invoke(activity, "expireMoreSection", new Class<?>[]{boolean.class, long.class}, true, left + 59_999),
+                    "More expired before one minute");
+            require((Boolean) invoke(activity, "expireMoreSection", new Class<?>[]{boolean.class, long.class}, true, left + 60_000),
+                    "More did not expire at one minute");
+        });
+        clickDescription("More"); requireScreenText("App preferences");
+        require(settings.getString("more_section", "").isEmpty(), "Expired More did not return to its index");
+        check("More retains brief tab returns and rebuilds, stays open while active, and expires at exactly one minute away");
+
+        clickText(root(), "App preferences");
+        main(() -> callActivityOnPause(activity));
+        require(settings.contains("more_away_elapsed"), "Pausing on More did not start retention");
+        main(() -> callActivityOnResume(activity)); waitForIdleSync();
+        requireScreenText("Connect automatically");
+        require(!settings.contains("more_away_elapsed"), "Resuming More did not end the absence");
+
+        // A different boot invalidates a persisted monotonic timestamp without a long test sleep.
+        main(() -> {
+            callActivityOnPause(activity);
+            settings.edit().putInt("more_away_boot", -2).commit();
+            callActivityOnResume(activity);
+        }); waitForIdleSync();
+        requireScreenText("App preferences");
+        require(settings.getString("more_section", "").isEmpty(), "Expired background return left the old submenu visible");
+
+        clickText(root(), "App preferences"); clickDescription("Home");
+        long originalLeft = settings.getLong("more_away_elapsed", -1);
+        main(() -> { callActivityOnPause(activity); callActivityOnResume(activity); });
+        require(settings.getLong("more_away_elapsed", -2) == originalLeft, "Backgrounding another tab extended More's absence timer");
+        main(() -> {
+            settings.edit().putInt("more_away_boot", -2).commit();
+            invoke(activity, "openMoreSection", new Class<?>[]{String.class}, "Security");
+        }); waitForIdleSync();
+        require(settings.getString("more_section", "").equals("Security"), "Security shortcut was replaced by an expired More index");
+        requireScreenText("Handlebar PIN");
+        main(() -> invoke(activity, "navigateBack")); requireScreenText("App preferences");
+        check("More handles brief and expired background returns, preserves an earlier tab-away time, and honors the Security shortcut");
     }
 
     private void requireFreshEmulator() {
@@ -334,6 +565,13 @@ public final class UiOrganizationValidation extends Instrumentation {
     private static TextView findTextContaining(View root, String text) {
         if (root.isShown() && root instanceof TextView && ((TextView)root).getText().toString().contains(text)) return (TextView)root;
         if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) { TextView found = findTextContaining(((ViewGroup)root).getChildAt(i), text); if (found != null) return found; }
+        return null;
+    }
+    private static TextView findTextIncludingHidden(View root, String text) {
+        if (root instanceof TextView && text.contentEquals(((TextView)root).getText())) return (TextView)root;
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) {
+            TextView found = findTextIncludingHidden(((ViewGroup)root).getChildAt(i), text); if (found != null) return found;
+        }
         return null;
     }
     private static <T> T first(View root, Class<T> type) {

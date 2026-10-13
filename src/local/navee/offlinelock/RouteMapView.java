@@ -8,6 +8,7 @@ import android.graphics.RectF;
 import android.util.LruCache;
 import android.view.MotionEvent;
 import android.view.View;
+import android.view.ViewConfiguration;
 
 import java.util.*;
 import java.util.concurrent.ExecutorService;
@@ -27,7 +28,9 @@ public final class RouteMapView extends View {
     private final Ui ui;
     private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final List<PhoneRideStore.Point> points;
-    private final MapTiles provider;
+    private MapTiles provider;
+    private int maximumTileZoom;
+    private Consumer<String> statusListener;
     private final LruCache<String, Bitmap> tiles =
             new LruCache<String, Bitmap>(12 * 1024 * 1024) {
                 @Override
@@ -38,9 +41,13 @@ public final class RouteMapView extends View {
     private final Set<String> pending = new HashSet<String>();
     private final Map<String, Long> failed = new HashMap<String, Long>();
     private final Consumer<PhoneRideStore.Point> selection;
-    private int zoom = 15, selected = -1;
+    private int selected = -1, activePointer = -1;
+    private double zoom = 15;
     private double centerX, centerY;
     private float lastX, lastY, downX, downY;
+    private float focusX, focusY, span, lastFocusX, lastFocusY, lastSpan;
+    private final int touchSlop;
+    private boolean dragged, multiplePointers;
     private String metric = "power";
     private boolean fitted;
     private volatile boolean streets, attached;
@@ -55,14 +62,16 @@ public final class RouteMapView extends View {
             Consumer<PhoneRideStore.Point> selection) {
         super(ui.context);
         this.ui = ui;
+        touchSlop = ViewConfiguration.get(ui.context).getScaledTouchSlop();
         this.selection = selection;
         this.points = track.points;
         provider = new MapTiles(ui.context, tileUrl);
+        maximumTileZoom = MapSource.maximumTileZoom(tileUrl);
         setMinimumHeight(ui.dp(290));
         setFocusable(true);
         setClickable(true);
         setContentDescription(
-                "Ride route. Drag to pan, use zoom buttons, tap a point to inspect its readings.");
+                "Ride route. Pinch to zoom, drag to pan, tap a point to inspect its readings.");
     }
 
     public void setMetric(String value) {
@@ -73,7 +82,26 @@ public final class RouteMapView extends View {
     public void setStreets(boolean value) {
         streets = value;
         generation++;
+        notifyStatus();
         invalidate();
+    }
+
+    public void setSource(String tileUrl) {
+        generation++;
+        provider = new MapTiles(ui.context, tileUrl);
+        maximumTileZoom = MapSource.maximumTileZoom(tileUrl);
+        pending.clear(); failed.clear(); tiles.evictAll();
+        notifyStatus();
+        invalidate();
+    }
+
+    public void setStatusListener(Consumer<String> listener) {
+        statusListener = listener;
+        notifyStatus();
+    }
+
+    private void notifyStatus() {
+        if (statusListener != null && !closed) statusListener.accept(streets ? provider.status() : "");
     }
 
     public void zoomBy(int delta) {
@@ -89,6 +117,7 @@ public final class RouteMapView extends View {
     }
 
     public void close() {
+        endGesture();
         closed = true;
         generation++;
         pending.clear();
@@ -103,6 +132,7 @@ public final class RouteMapView extends View {
 
     @Override
     protected void onDetachedFromWindow() {
+        endGesture();
         attached = false;
         generation++;
         super.onDetachedFromWindow();
@@ -292,11 +322,13 @@ public final class RouteMapView extends View {
     }
 
     private void drawTiles(Canvas canvas) {
-        double size = ui.dp(256),
+        int tileZoom = Math.min((int)Math.floor(zoom), maximumTileZoom);
+        // Enlarge available tiles without limiting close-up route inspection.
+        double size = ui.dp(256) * Math.pow(2, zoom - tileZoom),
                 w = world(),
                 left = centerX * w - getWidth() / 2.0,
                 top = centerY * w - getHeight() / 2.0;
-        int n = 1 << zoom,
+        int n = 1 << tileZoom,
                 startX = (int) Math.floor(left / size),
                 endX = (int) Math.floor((left + getWidth()) / size),
                 startY = (int) Math.floor(top / size),
@@ -305,7 +337,7 @@ public final class RouteMapView extends View {
             for (int tx = startX; tx <= endX; tx++) {
                 if (ty < 0 || ty >= n) continue;
                 int wrapX = ((tx % n) + n) % n;
-                String key = zoom + "/" + wrapX + "/" + ty;
+                String key = tileZoom + "/" + wrapX + "/" + ty;
                 Bitmap tile = tiles.get(key);
                 if (tile != null) {
                     paint.setStyle(Paint.Style.FILL);
@@ -319,7 +351,7 @@ public final class RouteMapView extends View {
                                     (float) ((tx + 1) * size - left),
                                     (float) ((ty + 1) * size - top)),
                             paint);
-                } else request(key, zoom, wrapX, ty);
+                } else request(key, tileZoom, wrapX, ty);
             }
     }
 
@@ -330,19 +362,25 @@ public final class RouteMapView extends View {
         if (failedAt != null && android.os.SystemClock.elapsedRealtime() - failedAt < 60000) return;
         pending.add(key);
         final long revision = generation;
+        final MapTiles requestedProvider = provider;
         TILES.execute(
                 () -> {
                     if (closed || revision != generation || !attached || !streets) {
-                        post(() -> { pending.remove(key); if (attached && streets && !closed) invalidate(); });
+                        post(() -> {
+                            if (provider != requestedProvider) return;
+                            pending.remove(key); if (attached && streets && !closed) invalidate();
+                        });
                         return;
                     }
-                    Bitmap result = provider.get(z, tx, ty);
+                    Bitmap result = requestedProvider.get(z, tx, ty);
                     post(
                             () -> {
+                                if (provider != requestedProvider) return;
                                 pending.remove(key);
                                 if (closed) return;
                                 if (result != null) tiles.put(key, result);
                                 else failed.put(key, android.os.SystemClock.elapsedRealtime());
+                                notifyStatus();
                                 if (attached) invalidate();
                             });
                 });
@@ -350,25 +388,58 @@ public final class RouteMapView extends View {
 
     @Override
     public boolean onTouchEvent(MotionEvent event) {
-        if (points.isEmpty()) return super.onTouchEvent(event);
-        if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
-            lastX = downX = event.getX();
-            lastY = downY = event.getY();
-            getParent().requestDisallowInterceptTouchEvent(true);
+        if (closed || points.isEmpty()) return super.onTouchEvent(event);
+        if (!fitted) fit();
+        int action = event.getActionMasked();
+        if (action == MotionEvent.ACTION_DOWN) {
+            activePointer = event.getPointerId(0);
+            lastX = downX = event.getX(0);
+            lastY = downY = event.getY(0);
+            dragged = multiplePointers = false;
+            lastSpan = 0;
+            if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
             return true;
         }
-        if (event.getActionMasked() == MotionEvent.ACTION_MOVE) {
-            centerX -= (event.getX() - lastX) / world();
+        if (action == MotionEvent.ACTION_POINTER_DOWN) {
+            multiplePointers = true;
+            rebasePointers(event, -1);
+            return true;
+        }
+        if (action == MotionEvent.ACTION_POINTER_UP) {
+            multiplePointers = true;
+            rebasePointers(event, event.getActionIndex());
+            return true;
+        }
+        if (action == MotionEvent.ACTION_MOVE) {
+            if (event.getPointerCount() > 1) {
+                multiplePointers = true;
+                measureFocus(event, -1);
+                double oldWorld = world();
+                double anchorX = centerX + (lastFocusX - getWidth()/2.0) / oldWorld;
+                double anchorY = centerY + (lastFocusY - getHeight()/2.0) / oldWorld;
+                // Avoid unstable scale factors when fingers meet; panning still works.
+                if (lastSpan >= ui.dp(8) && span >= ui.dp(8))
+                    zoom = Math.max(2, Math.min(19, zoom + Math.log(span / lastSpan) / Math.log(2)));
+                double newWorld = world();
+                centerX = anchorX - (focusX - getWidth()/2.0) / newWorld;
+                centerY = anchorY - (focusY - getHeight()/2.0) / newWorld;
+                lastFocusX = focusX; lastFocusY = focusY; lastSpan = span;
+                dragged = true;
+            } else {
+                int pointer = event.findPointerIndex(activePointer);
+                if (pointer < 0) { rebasePointers(event, -1); return true; }
+                float px = event.getX(pointer), py = event.getY(pointer);
+                if (!dragged && !multiplePointers && Math.hypot(px-downX, py-downY) <= touchSlop) return true;
+                centerX -= (px-lastX)/world(); centerY -= (py-lastY)/world();
+                lastX = px; lastY = py; dragged = true;
+            }
             centerX -= Math.floor(centerX);
-            centerY = Math.max(0, Math.min(1, centerY - (event.getY() - lastY) / world()));
-            lastX = event.getX();
-            lastY = event.getY();
-            generation++;
-            invalidate();
+            centerY = Math.max(0, Math.min(1, centerY));
+            generation++; invalidate();
             return true;
         }
-        if (event.getActionMasked() == MotionEvent.ACTION_UP) {
-            if (Math.hypot(event.getX() - downX, event.getY() - downY) < ui.dp(9)) {
+        if (action == MotionEvent.ACTION_UP) {
+            if (!multiplePointers && !dragged && Math.hypot(event.getX()-downX, event.getY()-downY) <= touchSlop) {
                 double best = Double.MAX_VALUE;
                 for (int i = 0; i < points.size(); i++) {
                     double d =
@@ -384,14 +455,39 @@ public final class RouteMapView extends View {
                 performClick();
                 invalidate();
             }
-            getParent().requestDisallowInterceptTouchEvent(false);
+            endGesture();
             return true;
         }
-        if (event.getActionMasked() == MotionEvent.ACTION_CANCEL) {
-            getParent().requestDisallowInterceptTouchEvent(false);
+        if (action == MotionEvent.ACTION_CANCEL) {
+            endGesture();
             return true;
         }
         return true;
+    }
+
+    /** Seed a new finger set without interpreting a finger arriving/leaving as map movement. */
+    private void rebasePointers(MotionEvent event, int excluded) {
+        measureFocus(event, excluded);
+        lastFocusX = focusX; lastFocusY = focusY; lastSpan = span;
+        for (int i=0; i<event.getPointerCount(); i++) if (i != excluded) {
+            activePointer = event.getPointerId(i); lastX = event.getX(i); lastY = event.getY(i); break;
+        }
+    }
+
+    private void measureFocus(MotionEvent event, int excluded) {
+        int count = event.getPointerCount() - (excluded >= 0 ? 1 : 0);
+        double sx = 0, sy = 0, variance = 0;
+        for (int i=0; i<event.getPointerCount(); i++) if (i != excluded) { sx += event.getX(i); sy += event.getY(i); }
+        focusX = (float)(sx/count); focusY = (float)(sy/count);
+        for (int i=0; i<event.getPointerCount(); i++) if (i != excluded) {
+            double dx = event.getX(i)-focusX, dy = event.getY(i)-focusY; variance += dx*dx + dy*dy;
+        }
+        span = (float)(2*Math.sqrt(variance/count));
+    }
+
+    private void endGesture() {
+        activePointer = -1; lastSpan = 0;
+        if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
     }
 
     @Override

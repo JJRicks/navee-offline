@@ -274,18 +274,28 @@ public final class RidesScreen implements AppScreen {
         CheckBox box = new CheckBox(host.activity()); box.setText(name); box.setTextColor(ui.text); box.setTextSize(14 * ui.textScale);
         box.setMinHeight(ui.dp(48)); box.setButtonTintList(android.content.res.ColorStateList.valueOf(ui.accent)); box.setChecked(checked); return box;
     }
-    private void mapOptions() {
+    private void mapOptions() { mapOptions(null); }
+    private void mapOptions(Runnable onChanged) {
+        String[] labels = {"USGS Topo · United States (default)", "OpenStreetMap", "Custom HTTPS provider…"};
+        show(new AlertDialog.Builder(host.activity()).setTitle("Map source")
+                .setItems(labels, (dialog, which) -> {
+                    if (which == 2) { customMapOptions(onChanged); return; }
+                    (which == 0 ? MapSource.USGS : MapSource.OSM).save(preferences);
+                    if (onChanged != null) onChanged.run();
+                }).setNegativeButton("Cancel", null).create());
+    }
+    private void customMapOptions(Runnable onChanged) {
+        MapSource current = MapSource.load(preferences);
         LinearLayout content = vertical(); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(12));
-        content.addView(ui.caption("Street maps fetch the area you view from the selected provider. Routes and scooter controls work without them. Default: OpenStreetMap."));
-        EditText url = input("HTTPS tile URL with {z}, {x}, {y}"); url.setSingleLine(false); url.setText(preferences.getString("map_tile_url", MapTiles.DEFAULT_URL)); content.addView(url);
+        content.addView(ui.caption("Only the map area you view is requested. Your recorded route stays on this phone."));
+        EditText url = input("HTTPS tile URL with {z}, {x}, {y}"); url.setSingleLine(false); url.setText(current.url); content.addView(url);
         content.addView(ui.caption("Attribution text"));
-        EditText credit = input("Provider attribution"); credit.setSingleLine(false); credit.setText(preferences.getString("map_tile_attribution", "© OpenStreetMap contributors")); content.addView(credit);
+        EditText credit = input("Provider attribution"); credit.setSingleLine(false); credit.setText(current.attribution); content.addView(credit);
         content.addView(ui.caption("Attribution link"));
-        EditText creditUrl = input("HTTPS copyright or license page"); creditUrl.setSingleLine(false); creditUrl.setText(preferences.getString("map_tile_attribution_url", "https://www.openstreetmap.org/copyright")); content.addView(creditUrl);
-        content.addView(ui.secondaryButton("OpenStreetMap privacy & attribution", () -> openWeb("https://osmfoundation.org/wiki/Privacy_Policy")));
+        EditText creditUrl = input("HTTPS copyright or license page"); creditUrl.setSingleLine(false); creditUrl.setText(current.attributionUrl); content.addView(creditUrl);
         ScrollView scroller = new ScrollView(host.activity()); scroller.addView(content);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Map source").setView(scroller).setNegativeButton("Cancel", null)
-                .setNeutralButton("Reset", (d,w) -> preferences.edit().remove("map_tile_url").remove("map_tile_attribution").remove("map_tile_attribution_url").apply()).setPositiveButton("Save", null).create();
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Custom map source").setView(scroller).setNegativeButton("Cancel", null)
+                .setPositiveButton("Save", null).create();
         show(dialog); dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String value = url.getText().toString().trim();
             if (!MapTiles.validUrl(value)) { url.setError("Use an HTTPS URL containing {z}, {x}, and {y}."); return; }
@@ -293,8 +303,8 @@ public final class RidesScreen implements AppScreen {
             if (attribution.isEmpty()) { credit.setError("Add the provider's required attribution."); return; }
             try { java.net.URI link = new java.net.URI(attributionUrl); if (!"https".equalsIgnoreCase(link.getScheme()) || link.getHost() == null || link.getUserInfo() != null) throw new IllegalArgumentException(); }
             catch (Exception invalid) { creditUrl.setError("Use an HTTPS license or copyright link."); return; }
-            preferences.edit().putString("map_tile_url", value).putString("map_tile_attribution", attribution)
-                    .putString("map_tile_attribution_url", attributionUrl).apply(); dialog.dismiss();
+            new MapSource("Custom map", value, attribution, attributionUrl).save(preferences);
+            dialog.dismiss(); if (onChanged != null) onChanged.run();
         });
     }
     private void openWeb(String url) {
@@ -324,14 +334,26 @@ public final class RidesScreen implements AppScreen {
         ScrollView scroller = new ScrollView(host.activity()); LinearLayout content = vertical();
         content.setPadding(ui.dp(14), ui.dp(8), ui.dp(14), ui.dp(16)); scroller.addView(content);
         TextView selection = ui.text("Tap the route to inspect a reading", 14, false); selection.setPadding(0, ui.dp(10), 0, ui.dp(10));
-        RouteMapView map = new RouteMapView(ui, track, preferences.getString("map_tile_url", MapTiles.DEFAULT_URL), p -> selection.setText(pointReadout(p)));
+        MapSource source = MapSource.load(preferences);
+        RouteMapView map = new RouteMapView(ui, track, source.url, p -> selection.setText(pointReadout(p)));
         maps.add(map); content.addView(map, new LinearLayout.LayoutParams(-1, ui.dp(340)));
-        TextView attribution = ui.caption(preferences.getString("map_tile_attribution", "© OpenStreetMap contributors")); attribution.setPadding(ui.dp(4), ui.dp(7), 0, ui.dp(7));
-        attribution.setTextColor(ui.blue); attribution.setOnClickListener(v -> openWeb(preferences.getString("map_tile_attribution_url", "https://www.openstreetmap.org/copyright")));
+        TextView attribution = ui.caption(source.attribution); attribution.setPadding(ui.dp(4), ui.dp(7), 0, ui.dp(7));
+        attribution.setTextColor(ui.blue); attribution.setOnClickListener(v -> openWeb(MapSource.load(preferences).attributionUrl));
         attribution.setVisibility(View.GONE); content.addView(attribution);
+        TextView mapStatus = ui.caption(""); mapStatus.setTextColor(ui.orange);
+        mapStatus.setPadding(ui.dp(4), ui.dp(7), ui.dp(4), ui.dp(7)); content.addView(mapStatus);
+        map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
+        TextView sourceButton = ui.secondaryButton("Map source · " + source.name, null);
+        sourceButton.setOnClickListener(v -> mapOptions(() -> {
+            if (closed) return;
+            MapSource chosen = MapSource.load(preferences);
+            map.setSource(chosen.url); attribution.setText(chosen.attribution);
+            sourceButton.setText("Map source · " + chosen.name);
+        }));
+        content.addView(sourceButton);
         LinearLayout navigation = new LinearLayout(host.activity()); navigation.setGravity(Gravity.CENTER_VERTICAL);
         addSmallAction(navigation, "−", () -> map.zoomBy(-1)); addSmallAction(navigation, "+", () -> map.zoomBy(1)); addSmallAction(navigation, "Fit", map::fitRoute);
-        CheckBox streets = option("Street map", false); streets.setOnCheckedChangeListener((button, checked) -> { map.setStreets(checked); attribution.setVisibility(checked ? View.VISIBLE : View.GONE); });
+        CheckBox streets = option("Basemap", false); streets.setOnCheckedChangeListener((button, checked) -> { map.setStreets(checked); attribution.setVisibility(checked ? View.VISIBLE : View.GONE); });
         navigation.addView(streets); content.addView(navigation);
         LinearLayout colors = new LinearLayout(host.activity());
         TextView legend = ui.caption("Absolute power: blue → amber = 0 → 2,000 W; grey = missing");
