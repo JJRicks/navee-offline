@@ -1,5 +1,53 @@
-NAVEE OFFLINE 0.7.2 — RELEASE VALIDATION
-October 12, 2026
+NAVEE OFFLINE 0.8.0 — RELEASE VALIDATION
+October 13, 2026
+
+0.8.0 — VOLT REDESIGN
+
+Released from reviewed PR #5, final head f0556c6, plus release version/docs.
+The redesign includes guided setup, all five screens, responsive wide panes,
+floating navigation, widget presentation and setup/lifecycle fixes. All nine
+review discussions were resolved before merging the unchanged reviewed head.
+
+Final release checks:
+
+- Nine core Java suites passed 24,782 assertions. App and separate Android
+  validation builds passed. Existing Java 8 target/native-access warnings remain.
+- Final release APK passed 38 native check groups on isolated Android 16:
+  LaunchValidation denied/granted (8 each), and UiOrganizationValidation at
+  411 dp/686 dp widths (11 each). Checks cover first-run screens, all tabs,
+  themes, 140% text, rebuilding/recreation, settings/search navigation,
+  More retention/expiry, local map sources and pinch/pan/route interaction.
+  Synthetic data only; zero scooter mutations.
+- Signed APK version 0.8.0 (code 19) passes signing and alignment verification;
+  its certificate matches the published 0.7.2 APK. Test/probe code is excluded.
+- The identical signed APK installed over 0.7.2 on the Pixel without uninstalling
+  or clearing data. Cold launch completed successfully; the existing scooter
+  name, dashboard and cached readings render. Package first-install time is
+  unchanged. No scooter command was issued; the scooter was out of range.
+
+PR review checks and limits:
+
+- Expanded UiOrganizationValidation passed all 11 groups at 686 dp. Native
+  probes verified narrow health values, one accessible Scooter tab, tabletop
+  rebuilding, larger text, whole-label wrapping and wide-pane navigation.
+- At the final reviewed head, 686 dp/140% native probes confirmed that both
+  default and explicitly selected App preferences preserve menu/detail offsets
+  on immediate tab returns, rebuilds and brief actual Home/foreground returns.
+  Returns with verified positive away timestamps aged 60,001 ms reset both
+  panes to zero; explicit App also clears to default. Tab-away expiry and the
+  reachable Security shortcut reset correctly. These were targeted checks.
+- The broad DashboardValidation run passed 11 compact checks before stopping
+  at its 140% Scooter edit-geometry assertion; no concrete visible regression
+  was established by that assertion. SearchFocusValidation passed Stats swipe,
+  keyboard dismissal/query retention and dark settings/picker checks before an
+  ordinary widget-title IME timeout stopped the full/light run. These suites
+  are not claimed as complete passes for Volt.
+- Initial setup identity/chooser fixes were source-traced; there was no new
+  hardware pairing test. Prior physical settings/recording checks below retain
+  their dated scope. No new Samsung, live-scooter or outdoor-sensor validation
+  is claimed. Initial ADB setup remains required.
+- Remote CI diagnostics returned HTTP 404 through the checks provider during
+  review. Local results are reported separately and do not imply a CI pass.
 
 0.7.2 — MORE TIMEOUT AND ROUTE MAPS
 

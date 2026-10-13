@@ -1,11 +1,15 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.7.2
+Current version: 0.8.0
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
 The app talks directly to the scooter over Bluetooth. Optional map tiles use
 internet; authentication, controls and recording require no server. First-time
 owner setup is covered in SETUP.txt.
+
+0.8.0 adds the Volt visual design, guided setup and expanded-screen panes.
+It adds no new scooter command or telemetry field; earlier physical checks
+below retain their original scope. New owner capture still requires ADB.
 
 EARLIER CONFIRMED WRITES AND FRESH READBACK
 

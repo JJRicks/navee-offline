@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased — Volt redesign
+## 0.8.0 — 2026-10-13
 
 A full visual redesign of every screen. Bluetooth, commands, storage, exports and preference keys are unchanged.
 
@@ -18,6 +18,13 @@ A full visual redesign of every screen. Bluetooth, commands, storage, exports an
 - **Stats:** red section tabs, battery overview with favourites, readings with tappable favourite stars, charts and diagnostics.
 - **Rides:** record card, route thumbnails in history, a live recording card with Notes and End, full-page ride details, route map and comparison, and bottom-sheet sensor and map-source pickers.
 - **More:** profile card and grouped menu, restyled submenus, and a two-step handlebar PIN entry (enter, then repeat).
+
+### Layout and upgrade
+
+- Expanded screens use two-column Scooter settings and separate menu/detail panes in Stats, Rides and More. More preserves both scroll positions during quick returns and resets them after one minute away from the tab or app.
+- Chart choices wrap as whole labels, and diagnostic actions stack when needed. Narrow battery-health cards keep their percentage visible, and the raised Scooter tab has one accessible target.
+- Setup correctly opens the scooter chooser after scanning has begun, and a newly typed owner identity replaces any abandoned pending import and name. Quick access commands remain disabled while editing the dashboard.
+- Install over the previous official APK to retain profiles, layouts and rides. Initial owner capture still requires ADB; battery and phone-sensor estimates remain experimental. See VERIFICATION.txt for validation scope.
 
 ## 0.7.2 — 2026-10-12
 
