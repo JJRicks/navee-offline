@@ -1,5 +1,25 @@
-NAVEE OFFLINE 0.7.0 — RELEASE VALIDATION
+NAVEE OFFLINE 0.7.1 — RELEASE VALIDATION
 October 12, 2026
+
+0.7.1 — LAST SEEN TIMESTAMPS
+
+Cached-reading labels now say Last seen. DisplayTime.recent uses the local
+calendar day: today shows the selected system/12/24-hour clock, other days
+show an uppercase English dd MMM prefix. Full detail dates remain unchanged.
+Compact timestamps auto-size on one line; their original line height keeps
+edit/view controls stable, while edit guidance can still wrap.
+
+- Reviewed the small UI-only diff. Existing date/stale-label expectations were
+  updated; the dashboard fixture now includes a prior-day connection time.
+- DashboardValidation passed at 360 and 852 dp (13 check groups each), with
+  both themes, 140% app text, minimum-size cards, native editing and clock
+  preferences. Full timestamps remained visible in the narrow lock card.
+  These passes preceded the final vertical-gravity bitmask correction; the
+  final source and separate instrumentation APK were rebuilt successfully.
+- The signed 0.7.1 APK (code 17) passes signature/alignment verification,
+  matches the 0.7.0 signing certificate and excludes instrumentation code.
+- GitHub core tests pass. This focused patch did not rerun the entire 0.7.0
+  release matrix. No physical phone data or scooter state was changed.
 
 0.7.0 — REVIEWED RELEASE
 
