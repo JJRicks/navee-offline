@@ -62,7 +62,8 @@ public final class Ui {
         raised = Color.parseColor(dark ? "#2A2B28" : "#ECECE8");
         text = Color.parseColor(dark ? "#F4F5F0" : "#161716");
         muted = Color.parseColor(dark ? "#9A9C95" : "#62645E");
-        dim = Color.parseColor(dark ? "#6E706A" : "#9A9C95");
+        // Last-seen grey: quieter than muted but still about 4.5:1 on cards for small text.
+        dim = Color.parseColor(dark ? "#878982" : "#7A7C76");
         accent = Color.parseColor(dark ? "#E32B2F" : "#D3252A");
         accentDeep = Color.parseColor(dark ? "#B81B22" : "#A8161C");
         onAccent = Color.WHITE;

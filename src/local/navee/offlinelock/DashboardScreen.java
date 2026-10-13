@@ -55,8 +55,8 @@ public final class DashboardScreen implements AppScreen {
                 new ContextThemeWrapper(
                         host.activity(),
                         ui.dark
-                                ? android.R.style.Theme_Material_Dialog_Alert
-                                : android.R.style.Theme_Material_Light_Dialog_Alert);
+                                ? R.style.VoltDialog
+                                : R.style.VoltDialogLight);
         service = host.service();
         preferences = host.activity().getSharedPreferences("app_settings", Context.MODE_PRIVATE);
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
