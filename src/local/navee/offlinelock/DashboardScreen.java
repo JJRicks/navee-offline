@@ -146,6 +146,21 @@ public final class DashboardScreen implements AppScreen {
         return view;
     }
 
+    /**
+     * Tabletop posture: hands Home's header (status, name, edit tools, last-seen line and the
+     * charging card) to MainActivity's upper pane above the hinge, leaving the widgets below it.
+     * The same views keep updating; only their parent changes.
+     */
+    public View takeHeader() {
+        LinearLayout pane = column();
+        for (View part : new View[] {toolbar, tools, hint, stale, chargingHero}) {
+            ViewGroup.LayoutParams params = part.getLayoutParams();
+            view.removeView(part);
+            pane.addView(part, params);
+        }
+        return pane;
+    }
+
     private LinearLayout column() {
         LinearLayout v = new LinearLayout(host.activity());
         v.setOrientation(LinearLayout.VERTICAL);

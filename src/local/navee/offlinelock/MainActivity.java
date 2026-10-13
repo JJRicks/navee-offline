@@ -258,6 +258,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         }else content.addView(header);
         pageFrame=new FrameLayout(this);content.addView(pageFrame,new LinearLayout.LayoutParams(-1,0,1));
         screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(){return makeDashboardLock();}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void rename(){renameScooter();}public void connectionDetails(){showConnectionDetails();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
+        if(horizontalHinge()&&screen instanceof DashboardScreen){
+            // Tabletop posture: Home's header sits in the upper pane, the widgets below the hinge.
+            header.setPadding(design.dp(expanded?24:18),design.dp(8),design.dp(expanded?24:18),design.dp(8));
+            header.addView(((DashboardScreen)screen).takeHeader(),new LinearLayout.LayoutParams(-1,-2));
+        }
         View screenView=screen.view();if(screenView.getParent() instanceof ViewGroup)((ViewGroup)screenView.getParent()).removeView(screenView);
         if(screenView instanceof ScrollView){scroll=(ScrollView)screenView;}
         else{scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setPadding(design.dp(expanded?24:18),design.dp(6),design.dp(expanded?24:18),design.dp(16));scroll.addView(screenView,new ScrollView.LayoutParams(-1,-2));}
