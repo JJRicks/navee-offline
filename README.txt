@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.7.2
+NAVEE OFFLINE — VERSION 0.8.0
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,6 +11,13 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+
+0.8.0 introduces the Volt design across Home, Stats, Scooter, Rides and More,
+with rounded cards, Saira type, a red accent, and a floating tab bar. Guided
+first-run setup keeps the existing ADB owner-capture requirement. Expanded
+screens show related menus and details side by side. Update over the previous
+official APK to retain profiles, dashboards and rides. See VERIFICATION.txt
+for the tested scope and remaining physical-device checks.
 
 0.7.2 returns More to its index after one minute away. USGS Topo is the
 default optional basemap; OSM and custom sources remain selectable. Blocked
@@ -223,15 +230,13 @@ puts the scooter beside a narrower lock card, power beside battery, recording
 under power and capacity across the bottom. One- and three-column presets adapt
 the same widgets to other widths. Existing custom and empty layouts are preserved;
 use Restore default widgets to adopt the preset for an existing dashboard.
-The battery card balances a large centered percentage ring with a thicker arc
-above its readings. Route, lightning, heart and thermometer icons identify
-estimated range, power,
-controller-reported health and temperature along the bottom. These four readings
-share a row where they fit; small cards and large text wrap them instead of
-hiding values. Fresh charging status replaces that row with charging power,
-current, estimated time remaining and temperature, keeping the percentage ring.
-The extra Battery label beside the ring and repeated Live footers are removed.
-Last-known readings remain grey and retain their timestamps.
+The battery card uses a red battery cell showing percentage and estimated range,
+with power, controller-reported health and temperature underneath. Small cards
+and large text wrap readings instead of hiding values. Fresh charging status
+replaces the normal readings with charging power, current, estimated time
+remaining and temperature, keeping the percentage cell. A separate charging card
+above the widgets shows the scooter, progress to the charge limit, time remaining
+and battery-side power. Last-known readings stay grey with their timestamps.
 
 Your scooter shows a larger UT5 MAX photo on the left for a recognized model,
 including while disconnected, with configurable readings stacked vertically on the right.
@@ -242,18 +247,18 @@ positions/sizes are retained. New scooter cards use four rows and can shrink to
 three. Use its pencil while editing Home to rename the local scooter profile.
 
 As cards resize, narrow rows stack, values fit within readable font limits and
-photos/rings/gauges/charts use the available space. Short content is balanced
+photos/battery cells/gauges/charts use the available space. Short content is balanced
 within its card rather than gathering at the top. Saved card geometry remains
 unchanged. Swipe anywhere inside long widget content to scroll it. Your scooter, Lock & connection, Gauge and
 Ride recorder need at least three rows. Editing uses the same content geometry.
 
-The taller lock slider is centered and slightly inset from the card edges.
-Narrow cards retain the full available width for its touch target. Its connection
-status is simply Connected, Connecting with an inline spinner, or Disconnected
-with the last verified
-connection time. Older connections include a date. Tap this line for connection
-details or errors. Successful authenticated connection timestamps are already
-saved per scooter; launching the app or a failed attempt does not invent one.
+Lock & connection is a full-width bar: tap it or slide to lock/unlock. Locked
+places the white knob on the right; unlocked places the red knob on the left.
+While disconnected or connecting, the card shows the last verified lock time
+and a Connect or Cancel action. The page header shows connection status and
+the last-seen time, including a date for older connections. Tap it for details,
+errors, or connection actions. Only successful authenticated connections update
+the saved connection time; launching or a failed attempt does not invent one.
 
 On UT5 MAX/PID 2538, owner-observed mode codes 11, 2 and 3 display as WALK, ECO
 and SPORT. Other codes and models retain raw labels. This presentation does not
