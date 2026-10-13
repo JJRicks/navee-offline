@@ -41,7 +41,7 @@ public final class ParkedValidation extends Instrumentation {
             runMain(()->service.ble.refresh(true));Thread.sleep(2200);
         }
         if(mode.equals("navigation")){
-            navigationSmoke(activity);output.putString("navigation","All five tabs, 7 Controls / 4 Stats / 5 More sections, search and optional favourite passed without scooter mutations");
+            navigationSmoke(activity);output.putString("navigation","All five tabs, 7 Controls / 4 Stats / 6 More sections, search and optional favourite passed without scooter mutations");
         }else if(mode.equals("background")){
             backgroundSmoke();output.putString("background","Full 10s grace, cancelled old deadline, fresh second pause, hard cutoff, late hidden start and connecting cutoff checked");
         }else if(mode.equals("bgreset")){
@@ -130,49 +130,72 @@ public final class ParkedValidation extends Instrumentation {
     private void clickSection(Activity activity,String section)throws Exception{
         runMain(()->{ScrollView scroll=(ScrollView)field(activity,"scroll");scroll.scrollTo(0,0);View tab=findText(screenView(activity),section);require(tab!=null&&tab.isClickable(),"Visible section picker missing: "+section);tab.performClick();});waitForIdleSync();
     }
+    /** Opens a More submenu from its menu row: on a phone Back first returns to the menu; the wide layout keeps it beside the submenu. */
+    private void clickMoreSection(Activity activity,String label)throws Exception{
+        runMain(()->{Object more=currentScreen(activity);
+            try{java.lang.reflect.Method back=more.getClass().getDeclaredMethod("back");back.setAccessible(true);back.invoke(more);}catch(ReflectiveOperationException e){throw new IllegalStateException("Cannot invoke More Back",e);}
+            View row=findText(screenView(activity),label);require(row!=null,"Visible More menu row missing: "+label);
+            while(!row.isClickable()&&row.getParent() instanceof View)row=(View)row.getParent();
+            require(row.isClickable(),"More menu row is not clickable: "+label);row.performClick();});
+        waitForIdleSync();
+    }
     private void require(boolean condition,String failure){if(!condition)throw new IllegalStateException(failure);}
     private void assertNoUserRecording(){require(service!=null&&!service.isRecording(),"Smoke test stopped: a user recording is active; no stop/disconnect was requested");require(service.ble.pending()==null,"Smoke test stopped: a scooter change is pending");}
     @SuppressWarnings("unchecked") private void assertSectionMap(Object screen,String selected,int size){
         Map<String,View> sections=(Map<String,View>)field(screen,"sections");require(sections.size()==size,"Unexpected section catalogue size");
         for(Map.Entry<String,View> section:sections.entrySet())require(section.getValue().getVisibility()==(section.getKey().equals(selected)?View.VISIBLE:View.GONE),"Wrong section visibility: "+section.getKey()+" while "+selected+" selected");
     }
-    private String controlCategory(ScooterCommands.Feature f){return LINE_KEYS.contains(f.key)?"Line lights":STAR_KEYS.contains(f.key)?"Star lights":f.group.equals("Ride")?"Ride":f.group.equals("Battery")?"Battery":f.group.equals("Preferences")?"Display":f.group.equals("Security")?"Security":"Lights";}
-    @SuppressWarnings("unchecked") private void assertControls(Object screen,String category,String search){
+    /** Scooter tab: null is the main page, "lights" the Lights page, otherwise a search query. */
+    @SuppressWarnings("unchecked") private void assertControls(Object screen,String mode){
         List<Object> rows=(List<Object>)field(screen,"rows");int shown=0;
-        for(Object row:rows){ScooterCommands.Feature feature=(ScooterCommands.Feature)field(row,"feature");View card=(View)field(row,"card");boolean expected=search==null?controlCategory(feature).equals(category):search.equals("kickstart")&&feature.key.equals("start_speed");require(card.isShown()==expected,"Unexpected control card visibility: "+feature.key);if(card.isShown())shown++;}
-        if(search==null){assertSectionMap(screen,category,7);if(category.equals("Line lights")||category.equals("Star lights"))require(shown==4,"Lighting zone must show its four independent controls");else if(!category.equals("Security"))require(shown>0,"Selected Controls section has no cards");}
-        else if(search.equals("kickstart"))require(shown==1,"Kickstart search must show exactly the start-speed control");
+        for(Object row:rows){
+            ScooterCommands.Feature feature=(ScooterCommands.Feature)field(row,"feature");View card=(View)field(row,"card");
+            require(!feature.key.equals("maximum_speed"),"Maximum speed belongs to the top speed card, not a settings row");
+            boolean zone=LINE_KEYS.contains(feature.key)||STAR_KEYS.contains(feature.key),light=zone||feature.key.equals("headlight")||feature.key.equals("auto_sensor");
+            boolean expected=mode==null?!zone:mode.equals("lights")?light:mode.equals("kickstart")&&feature.key.equals("start_speed");
+            require(card.isShown()==expected,"Unexpected control row visibility: "+feature.key);if(card.isShown())shown++;
+        }
+        View topSpeed=(View)field(field(screen,"topSpeed"),"card");require(topSpeed.isShown()==(mode==null),"Unexpected top speed card visibility");
+        if(mode==null)require(shown>0,"Scooter page has no settings rows");
+        else if(mode.equals("lights"))require(shown==LINE_KEYS.size()+STAR_KEYS.size()+2,"Lights page must show both headlight controls and every zone control");
+        else if(mode.equals("kickstart"))require(shown==1,"Kickstart search must show exactly the start-speed control");
         else require(shown==0,"No-match query left a control visible");
-        Map<View,String[]> extras=(Map<View,String[]>)field(screen,"extraCards");for(Map.Entry<View,String[]> e:extras.entrySet())require(e.getKey().isShown()==(search==null&&e.getValue()[0].equals(category)),"Unexpected extra Controls card visibility");
+        Map<View,String[]> extras=(Map<View,String[]>)field(screen,"extras");for(Map.Entry<View,String[]> e:extras.entrySet())require(e.getKey().isShown()==(mode==null),"Unexpected extra settings row visibility");
     }
+    /** Wide Stats keeps Readings in its own right-hand pane, so it has no Readings tab and that section is always shown. */
+    private boolean statsWide(Object screen){return Boolean.TRUE.equals(field(screen,"wide"));}
     private void assertStatsSections(Object screen,String selected){
-        String[] names={"Overview","Readings","Charts","Diagnostics"};String[] fields={"overviewSection","readingsSection","chartsSection","diagnosticsSection"};
-        for(int i=0;i<names.length;i++)require(((View)field(screen,fields[i])).getVisibility()==(names[i].equals(selected)?View.VISIBLE:View.GONE),"Unexpected Stats section visibility: "+names[i]);
+        String[] names={"Overview","Readings","Charts","Diagnostics"};String[] fields={"overviewSection","readingsSection","chartsSection","diagnosticsSection"};boolean wide=statsWide(screen);
+        for(int i=0;i<names.length;i++){boolean shown=names[i].equals(selected)||wide&&names[i].equals("Readings");require(((View)field(screen,fields[i])).getVisibility()==(shown?View.VISIBLE:View.GONE),"Unexpected Stats section visibility: "+names[i]);}
     }
     private long mutations(){return ((Number)field(service.ble,"mutationSequence")).longValue();}
     private void navigationSmoke(Activity activity)throws Exception{
         AtomicReference<Long> initial=new AtomicReference<>();runMain(()->{assertNoUserRecording();initial.set(mutations());service.settings.edit().putString("controls_query","").putString("stats_query","").putBoolean("stats_favourites_only",false).commit();});
         for(String page:new String[]{"home","controls","stats","rides","more"}){navigate(activity,page);status("Read-only navigation: "+page);}
         navigate(activity,"controls");
-        for(String category:new String[]{"Ride","Battery","Lights","Line lights","Star lights","Display","Security"}){clickSection(activity,category);runMain(()->assertControls(currentScreen(activity),category,null));}
-        runMain(()->{EditText input=findInput(screenView(activity),"Search scooter settings");require(input!=null,"Controls search missing");input.setText("kickstart");assertControls(currentScreen(activity),"Ride","kickstart");input.setText("no-match");assertControls(currentScreen(activity),"Ride","no-match");require(findText(screenView(activity),"No matching settings. Try another word.")!=null,"No-match explanation missing");input.setText("");});
-        clickSection(activity,"Ride");runMain(()->assertControls(currentScreen(activity),"Ride",null));render(activity,"navigation-controls-ride.png");
+        runMain(()->assertControls(currentScreen(activity),null));
+        runMain(()->{EditText input=findInput(screenView(activity),"Search scooter settings");require(input!=null,"Controls search missing");input.setText("kickstart");assertControls(currentScreen(activity),"kickstart");input.setText("no-match");assertControls(currentScreen(activity),"no-match");require(findText(screenView(activity),"No matching settings")!=null,"No-match explanation missing");input.setText("");});
+        runMain(()->selectOnMain(activity,"lights"));waitForIdleSync();runMain(()->assertControls(currentScreen(activity),"lights"));
+        runMain(()->{Object controls=currentScreen(activity);try{java.lang.reflect.Method back=controls.getClass().getDeclaredMethod("back");back.setAccessible(true);require(Boolean.TRUE.equals(back.invoke(controls)),"Lights page Back was not handled");}catch(ReflectiveOperationException e){throw new IllegalStateException("Cannot invoke Lights Back",e);}});
+        waitForIdleSync();runMain(()->assertControls(currentScreen(activity),null));render(activity,"navigation-controls.png");
         navigate(activity,"stats");
-        for(String section:new String[]{"Overview","Readings","Charts","Diagnostics"}){clickSection(activity,section);runMain(()->assertStatsSections(currentScreen(activity),section));}
-        clickSection(activity,"Readings");
+        AtomicReference<Boolean> wideStats=new AtomicReference<>();runMain(()->wideStats.set(statsWide(currentScreen(activity))));
+        for(String section:new String[]{"Overview","Readings","Charts","Diagnostics"}){if(wideStats.get()&&section.equals("Readings"))continue;clickSection(activity,section);runMain(()->assertStatsSections(currentScreen(activity),section));}
+        if(wideStats.get())runMain(()->require(findText(screenView(activity),"Readings")==null,"Wide Stats must not offer a Readings tab beside the Readings pane"));
+        else clickSection(activity,"Readings");
         runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");require(input!=null,"Stats search missing");input.setText("voltage");require(findText(screenView(activity),"Battery voltage")!=null,"Voltage search result missing");
             Map<?,?> rows=(Map<?,?>)field(currentScreen(activity),"rows");Object voltage=rows.get("voltage_v");require(voltage!=null,"Voltage favourite row missing");View star=(View)field(voltage,"star");require(star.isShown(),"Voltage favourite is not reachable");star.performClick();star.performClick();});
         render(activity,"navigation-stats-readings.png");runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");input.setText("");require(input.getText().length()==0&&"".equals(field(currentScreen(activity),"query")),"Clearing Stats search did not clear its input/query");});clickSection(activity,"Overview");render(activity,"navigation-stats-overview.png");
-        navigate(activity,"more");for(String section:new String[]{"App","Scooters","Security","Lab","About"}){clickSection(activity,section);runMain(()->assertSectionMap(currentScreen(activity),section,5));}
-        clickSection(activity,"App");render(activity,"navigation-more-app.png");
+        navigate(activity,"more");for(String[] section:new String[][]{{"App","App preferences"},{"Scooters","My scooters"},{"Security","PIN & proximity unlock"},{"Lab","Experimental controls"},{"Data","Data & history"},{"About","About & permissions"}}){clickMoreSection(activity,section[1]);runMain(()->assertSectionMap(currentScreen(activity),section[0],6));}
+        clickMoreSection(activity,"App preferences");render(activity,"navigation-more-app.png");
         runMain(()->require(mutations()==initial.get(),"Navigation/search/favourite actions submitted a scooter mutation"));
         offlineSliderCancel(activity);
         runMain(()->require(mutations()==initial.get(),"Slider cancellation submitted a scooter mutation"));
-        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_sections",7);evidence.put("stats_sections",4);evidence.put("more_sections",5);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Native DOWN/MOVE/CANCEL while explicitly disconnected; events and message unchanged");results.put(evidence);
+        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_groups",8);evidence.put("stats_sections",4);evidence.put("more_sections",6);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Native DOWN/MOVE/CANCEL while explicitly disconnected; events and message unchanged");results.put(evidence);
     }
     @SuppressWarnings("unchecked") private void offlineSliderCancel(Activity activity)throws Exception{
         runMain(()->{assertNoUserRecording();reconnectAfterSmoke=service.ble.connected()||service.ble.state()==BleController.State.CONNECTING||service.ble.state()==BleController.State.AUTHENTICATING;service.ble.disconnect();service.settings.edit().putString("controls_query","").putString("controls_section","Ride").commit();});
-        navigate(activity,"controls");clickSection(activity,"Ride");
+        navigate(activity,"controls");
         runMain(()->{
             require(service.ble.state()==BleController.State.DISCONNECTED&&!service.ble.connected(),"Slider cancel regression requires no live GATT");
             Object target=null;for(Object row:(List<Object>)field(currentScreen(activity),"rows"))if(((ScooterCommands.Feature)field(row,"feature")).key.equals("start_speed")){target=row;break;}

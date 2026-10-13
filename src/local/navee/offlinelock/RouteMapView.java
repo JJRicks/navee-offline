@@ -41,6 +41,7 @@ public final class RouteMapView extends View {
     private final Set<String> pending = new HashSet<String>();
     private final Map<String, Long> failed = new HashMap<String, Long>();
     private final Consumer<PhoneRideStore.Point> selection;
+    private final int powerLow, powerHigh;
     private int selected = -1, activePointer = -1;
     private double zoom = 15;
     private double centerX, centerY;
@@ -65,6 +66,8 @@ public final class RouteMapView extends View {
         touchSlop = ViewConfiguration.get(ui.context).getScaledTouchSlop();
         this.selection = selection;
         this.points = track.points;
+        powerLow = blend(ui.accentDeep, Color.BLACK, .4);
+        powerHigh = blend(ui.accent, Color.WHITE, .25);
         provider = new MapTiles(ui.context, tileUrl);
         maximumTileZoom = MapSource.maximumTileZoom(tileUrl);
         setMinimumHeight(ui.dp(290));
@@ -229,77 +232,182 @@ public final class RouteMapView extends View {
             }
         }
         if (!points.isEmpty()) {
-            marker(canvas, points.get(0), "S", ui.accent);
-            marker(canvas, points.get(points.size() - 1), "E", ui.blue);
+            marker(canvas, points.get(0), "S", true);
+            marker(canvas, points.get(points.size() - 1), "E", false);
             if (selected >= 0) {
+                PhoneRideStore.Point chosen = points.get(selected);
                 paint.setStyle(Paint.Style.FILL);
-                paint.setColor(ui.text);
-                canvas.drawCircle(
-                        screenX(points.get(selected)),
-                        screenY(points.get(selected)),
-                        ui.dp(7),
-                        paint);
-                paint.setColor(ui.surface);
-                canvas.drawCircle(
-                        screenX(points.get(selected)),
-                        screenY(points.get(selected)),
-                        ui.dp(3),
-                        paint);
+                paint.setColor(Color.WHITE);
+                canvas.drawCircle(screenX(chosen), screenY(chosen), ui.dp(7), paint);
+                paint.setStyle(Paint.Style.STROKE);
+                paint.setStrokeWidth(ui.dp(3));
+                paint.setColor(ui.accent);
+                canvas.drawCircle(screenX(chosen), screenY(chosen), ui.dp(6), paint);
+                drawTooltip(canvas, chosen);
             }
         } else {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(ui.muted);
             paint.setTextAlign(Paint.Align.CENTER);
+            paint.setTypeface(ui.regular());
             paint.setTextSize(ui.sp(14));
             canvas.drawText("No GPS route recorded", getWidth() / 2f, getHeight() / 2f, paint);
         }
-        paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.argb(210, 255, 255, 255));
-        canvas.drawRoundRect(
-                new RectF(ui.dp(9), getHeight() - ui.dp(32), ui.dp(149), getHeight() - ui.dp(9)),
-                ui.dp(6),
-                ui.dp(6),
-                paint);
-        paint.setColor(Color.rgb(42, 42, 42));
-        paint.setTextSize(ui.sp(10));
-        paint.setTextAlign(Paint.Align.LEFT);
+        // Scale chip, top-left: the bottom-left corner belongs to the attribution chip.
         double meters =
                 Math.cos(Math.atan(Math.sinh(Math.PI * (1 - 2 * centerY))))
                         * 40075016.686
                         / world()
                         * ui.dp(80);
-        boolean feet =
-                !"km"
-                        .equals(
-                                ui.context
-                                        .getSharedPreferences("app_settings", 0)
-                                        .getString("units", "mi"));
-        canvas.drawText(
+        boolean feet = imperial();
+        String scale =
                 String.format(
                         Locale.US,
                         feet ? "%.0f ft" : "%.0f m",
-                        feet ? meters * 3.280839895 : meters),
-                ui.dp(16),
-                getHeight() - ui.dp(19),
-                paint);
-        paint.setStrokeWidth(ui.dp(1));
-        canvas.drawLine(
-                ui.dp(16), getHeight() - ui.dp(14), ui.dp(96), getHeight() - ui.dp(14), paint);
-    }
-
-    private void marker(Canvas canvas, PhoneRideStore.Point p, String label, int color) {
-        float px = screenX(p), py = screenY(p);
+                        feet ? meters * 3.280839895 : meters);
         paint.setStyle(Paint.Style.FILL);
-        paint.setColor(Color.WHITE);
-        canvas.drawCircle(px, py, ui.dp(10), paint);
-        paint.setColor(color);
-        canvas.drawCircle(px, py, ui.dp(8), paint);
-        paint.setColor(ui.dark ? ui.bg : Color.WHITE);
-        paint.setTextSize(ui.sp(10));
-        paint.setTextAlign(Paint.Align.CENTER);
-        canvas.drawText(label, px, py + ui.dp(3), paint);
+        paint.setColor(Ui.withAlpha(paper(), 205));
+        canvas.drawRoundRect(
+                new RectF(ui.dp(8), ui.dp(8), ui.dp(104), ui.dp(38)), ui.dp(8), ui.dp(8), paint);
+        paint.setColor(ink());
+        paint.setTypeface(ui.medium());
+        paint.setTextSize(Math.min(ui.sp(10), ui.dp(14)));
+        paint.setTextAlign(Paint.Align.LEFT);
+        canvas.drawText(scale, ui.dp(16), ui.dp(23), paint);
+        paint.setStrokeWidth(ui.dp(1.5f));
+        canvas.drawLine(ui.dp(16), ui.dp(30), ui.dp(96), ui.dp(30), paint);
     }
 
+    /** Volt map plate: near-black with light text in both themes, so it reads on any basemap. */
+    private int paper() {
+        return ui.dark ? ui.bg : ui.text;
+    }
+
+    private int ink() {
+        return ui.dark ? ui.text : ui.surface;
+    }
+
+    private boolean imperial() {
+        return !"km"
+                .equals(ui.context.getSharedPreferences("app_settings", 0).getString("units", "mi"));
+    }
+
+    private void marker(Canvas canvas, PhoneRideStore.Point p, String label, boolean start) {
+        float px = screenX(p), py = screenY(p);
+        int dark = paper();
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(start ? dark : Color.WHITE);
+        canvas.drawCircle(px, py, ui.dp(10), paint);
+        paint.setColor(start ? Color.WHITE : dark);
+        canvas.drawCircle(px, py, ui.dp(8), paint);
+        paint.setColor(start ? dark : Color.WHITE);
+        paint.setTypeface(ui.bold());
+        paint.setTextSize(ui.dp(10));
+        paint.setTextAlign(Paint.Align.CENTER);
+        canvas.drawText(label, px, py + ui.dp(3.5f), paint);
+    }
+
+    /** A dark tooltip beside the tapped point: the selected colour metric first, then context. */
+    private void drawTooltip(Canvas canvas, PhoneRideStore.Point p) {
+        String primary, power = power(p.powerW), grade = grade(p.gradePercent),
+                speed = speed(p.speedMps), accel = accel(p.gpsAccelerationMps2);
+        List<String> rest = new ArrayList<String>();
+        if ("grade".equals(metric)) {
+            primary = grade == null ? "Grade not measured" : grade;
+            if (power != null) rest.add(power);
+        } else if ("accel".equals(metric)) {
+            primary = accel == null ? "GPS accel not measured" : accel;
+            if (power != null) rest.add(power);
+        } else {
+            primary = power == null ? "Power not measured" : power;
+            if (grade != null) rest.add(grade);
+        }
+        if (speed != null) rest.add(speed);
+        String secondary = android.text.TextUtils.join(" · ", rest);
+        android.text.TextPaint big = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG),
+                small = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+        big.setTypeface(ui.bold());
+        big.setTextSize(Math.min(ui.sp(14), ui.dp(20)));
+        small.setTypeface(ui.regular());
+        small.setTextSize(Math.min(ui.sp(10.5f), ui.dp(15)));
+        float padX = ui.dp(10), padY = ui.dp(7), gap = secondary.isEmpty() ? 0 : ui.dp(3);
+        Paint.FontMetrics bm = big.getFontMetrics(), sm = small.getFontMetrics();
+        float h1 = bm.descent - bm.ascent, h2 = secondary.isEmpty() ? 0 : sm.descent - sm.ascent;
+        float maxWidth = Math.max(ui.dp(60), getWidth() - ui.dp(16));
+        float width =
+                Math.min(
+                        maxWidth,
+                        Math.max(
+                                        big.measureText(primary),
+                                        secondary.isEmpty() ? 0 : small.measureText(secondary))
+                                + 2 * padX);
+        float height = h1 + gap + h2 + 2 * padY;
+        float px = screenX(p), py = screenY(p);
+        float left = Math.max(ui.dp(8), Math.min(getWidth() - ui.dp(8) - width, px - width / 2));
+        float top = py - ui.dp(16) - height;
+        if (top < ui.dp(44)) top = py + ui.dp(16);
+        top = Math.max(ui.dp(8), Math.min(getHeight() - ui.dp(8) - height, top));
+        RectF box = new RectF(left, top, left + width, top + height);
+        paint.setStyle(Paint.Style.FILL);
+        paint.setColor(paper());
+        canvas.drawRoundRect(box, ui.dp(10), ui.dp(10), paint);
+        if (ui.dark) {
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(ui.dp(1));
+            paint.setColor(ui.outline);
+            canvas.drawRoundRect(box, ui.dp(10), ui.dp(10), paint);
+        }
+        float textWidth = width - 2 * padX;
+        big.setColor(ink());
+        canvas.drawText(
+                android.text.TextUtils.ellipsize(
+                                primary, big, textWidth, android.text.TextUtils.TruncateAt.END)
+                        .toString(),
+                left + padX,
+                top + padY - bm.ascent,
+                big);
+        if (!secondary.isEmpty()) {
+            small.setColor(Ui.withAlpha(ink(), 185));
+            canvas.drawText(
+                    android.text.TextUtils.ellipsize(
+                                    secondary, small, textWidth, android.text.TextUtils.TruncateAt.END)
+                            .toString(),
+                    left + padX,
+                    top + padY + h1 + gap - sm.ascent,
+                    small);
+        }
+    }
+
+    private static String power(Double watts) {
+        if (watts == null) return null;
+        return Math.abs(watts) >= 1000
+                ? String.format(Locale.US, "%.2f kW", watts / 1000)
+                : String.format(Locale.US, "%.0f W", watts);
+    }
+
+    private static String grade(Double percent) {
+        return percent == null ? null : String.format(Locale.US, "%+.1f%% grade", percent);
+    }
+
+    private static String accel(Double mps2) {
+        return mps2 == null ? null : String.format(Locale.US, "%+.2f m/s² GPS accel", mps2);
+    }
+
+    private String speed(Double mps) {
+        if (mps == null) return null;
+        double kmh = mps * 3.6, mph = kmh / RideStore.KM_PER_MILE;
+        String units = ui.context.getSharedPreferences("app_settings", 0).getString("units", "mi");
+        return units.equals("km")
+                ? String.format(Locale.US, "%.0f km/h", kmh)
+                : units.equals("dual")
+                        ? String.format(Locale.US, "%.0f mph / %.0f km/h", mph, kmh)
+                        : String.format(Locale.US, "%.0f mph", mph);
+    }
+
+    /**
+     * Power uses the Volt red ramp: dark red at 0 W to bright red at 2,000 W (absolute). Grade and
+     * GPS acceleration keep a diverging scale: blue below zero, green level, red above.
+     */
     private int color(PhoneRideStore.Point p) {
         Double value =
                 "grade".equals(metric)
@@ -308,13 +416,13 @@ public final class RouteMapView extends View {
         if (value == null) return ui.muted;
         if (!"power".equals(metric)) {
             double bound = "grade".equals(metric) ? 12 : 2;
-            if (value < 0) return blend(ui.accent, ui.blue, Math.min(1, -value / bound));
-            return blend(ui.accent, ui.danger, Math.min(1, value / bound));
+            if (value < 0) return blend(ui.ok, ui.blue, Math.min(1, -value / bound));
+            return blend(ui.ok, ui.accent, Math.min(1, value / bound));
         }
-        return blend(ui.blue, ui.orange, Math.min(1, Math.abs(value) / 2000));
+        return blend(powerLow, powerHigh, Math.min(1, Math.abs(value) / 2000));
     }
 
-    private int blend(int a, int b, double fraction) {
+    private static int blend(int a, int b, double fraction) {
         return Color.rgb(
                 (int) (Color.red(a) + (Color.red(b) - Color.red(a)) * fraction),
                 (int) (Color.green(a) + (Color.green(b) - Color.green(a)) * fraction),

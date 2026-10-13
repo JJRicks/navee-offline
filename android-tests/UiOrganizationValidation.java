@@ -42,6 +42,7 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.MainActivity;
+import local.navee.offlinelock.OnboardingScreen;
 import local.navee.offlinelock.PhoneRideStore;
 import local.navee.offlinelock.RidesScreen;
 import local.navee.offlinelock.RouteMapView;
@@ -51,7 +52,7 @@ import local.navee.offlinelock.Ui;
 
 /** UI checks on a fresh emulator only. No owner profile, sensor recording, radio or network work. */
 public final class UiOrganizationValidation extends Instrumentation {
-    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
+    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents", "onboarding"};
     private final List<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private Bundle arguments;
     private MainActivity activity;
@@ -67,6 +68,8 @@ public final class UiOrganizationValidation extends Instrumentation {
             SharedPreferences settings = settings();
             require(settings.edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
                     .putString("theme", "dark").putString("more_section", "App").commit(), "Cannot set emulator UI preferences");
+            // These runners check the tabs, so skip the first-run onboarding a fresh install shows.
+            OnboardingScreen.markDone(getTargetContext());
             activity = (MainActivity) startActivitySync(new Intent(getTargetContext(), MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000,
@@ -79,21 +82,27 @@ public final class UiOrganizationValidation extends Instrumentation {
             screenshot("more-index-dark");
 
             clickDescription("Scooter");
-            requireScreenText("Ride"); clickText(root(), "Ride");
-            requireVisibleControl("maximum_speed"); requireVisibleControl("start_speed");
-            screenshot("scooter-ride-dark");
-            main(() -> invoke(activity, "navigateBack"));
-            requireScreenText("Battery");
+            requireScreenText("RIDE"); requireScreenText("BATTERY"); requireScreenText("PROFILE");
+            requireVisibleControl("start_speed"); requireVisibleControl("energy_recovery");
+            main(() -> {
+                require(topSpeedShown(), "Top speed card missing from the Scooter page");
+                require(!allFeatures().contains("maximum_speed"), "Maximum speed must live only in the top speed card");
+                for (String key : visibleFeatures()) require(!key.startsWith("line_") && !key.startsWith("star_"), "Line and star zones belong to the Lights page");
+                require(findText(root(), "Line & star lights") != null, "Lights group must link to the line and star zones");
+            });
+            screenshot("scooter-dark");
             main(() -> first(root(), EditText.class).setText("speed"));
             main(() -> {
                 Set<String> visible = visibleFeatures();
-                require(visible.contains("maximum_speed") && visible.contains("start_speed"), "Speed search lost primary speed controls");
+                require(topSpeedShown() && visible.contains("start_speed"), "Speed search lost primary speed controls");
                 require(!visible.contains("energy_recovery"), "Speed search did not hide an unrelated setting");
                 for (String key : visible) require(!isLight(key), "Speed search should hide lighting settings");
+                require(findText(root(), "LIGHTS") == null, "Speed search should hide the empty Lights group");
             });
             main(() -> invoke(activity, "navigateBack"));
-            requireScreenText("Battery");
-            check("Scooter categories, nested Back and search expose the requested settings without control writes");
+            main(() -> require(topSpeedShown() && "".equals(field(field(activity, "screen"), "query")), "Back did not clear the settings search"));
+            requireScreenText("BATTERY");
+            check("Scooter page shows the top speed card and every group; search hides empty groups and Back clears it without control writes");
 
             main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "lights")); waitForIdleSync();
             main(() -> {
@@ -101,21 +110,36 @@ public final class UiOrganizationValidation extends Instrumentation {
                         "line_color", "line_boost_color", "star_light", "star_pattern", "star_color", "star_boost_color"));
                 require(allFeatures().containsAll(expected), "Scooter must retain all lighting settings");
                 require(visibleFeatures().equals(expected), "A lighting zone is hidden without a search");
+                require(!topSpeedShown(), "The Lights page should not show the top speed card");
+                require(findText(root(), "HEADLIGHTS") != null && findText(root(), "LINE LIGHTS") != null
+                        && findText(root(), "STAR LIGHTS") != null, "Lights page groups are missing");
+                require(findDescription(root(), "Back to Scooter settings") != null, "Lights page has no way back to Scooter");
             });
             screenshot("lights-dark");
             main(() -> first(root(), EditText.class).setText("boost"));
             main(() -> require(visibleFeatures().equals(new HashSet<>(Arrays.asList("line_boost_color", "star_boost_color", "parking_assist"))),
                     "Global scooter search should find both Boost colors and Power Assist"));
             main(() -> invoke(activity, "navigateBack"));
-            check("Lights groups tail, automatic, line and star controls; search covers all lighting zones");
+            main(() -> invoke(activity, "navigateBack"));
+            main(() -> require(topSpeedShown() && findText(root(), "LINE LIGHTS") == null && settings.getString("scooter_section", "").isEmpty(),
+                    "Back from Lights did not return to the Scooter page"));
+            check("Lights page groups headlights, line and star zones; search covers all settings; Back returns to Scooter");
 
             clickDescription("More"); clickText(root(), "App preferences");
             requireScreenText("Connect automatically"); screenshot("preferences-dark");
-            main(() -> invoke(activity, "navigateBack")); requireScreenText("My scooters");
-            check("More opens compact preferences and Back returns to its settings index");
+            main(() -> invoke(activity, "navigateBack"));
+            if (wideMore()) {
+                // Wide menu-submenu layout: Back leaves the tab like Home; the menu is there on return.
+                main(() -> require("home".equals(field(activity, "selectedPage")), "Wide More Back did not leave the tab"));
+                clickDescription("More");
+            }
+            requireScreenText("My scooters");
+            check("More opens preferences; Back returns to its settings index (phone) or leaves the tab beside its menu (wide)");
             verifyMoreReturn(settings);
 
-            clickDescription("Stats"); clickText(root(), "Readings");
+            clickDescription("Stats");
+            // Wide Stats keeps Readings in its own pane beside the sections, without a Readings tab.
+            if (!Boolean.TRUE.equals(field(field(activity, "screen"), "wide"))) clickText(root(), "Readings");
             Object stats = field(activity, "screen");
             @SuppressWarnings("unchecked") Map<String, Object> readings = (Map<String, Object>) field(stats, "rows");
             View voltage = (View) field(readings.get("voltage_v"), "layout"); click(voltage);
@@ -161,8 +185,8 @@ public final class UiOrganizationValidation extends Instrumentation {
                 require(findTextContaining(dialogRoot, "Power ") != null, "Tapping the route did not expose synchronized readings");
             });
             verifyMapGestures(map);
-            clickText(dialogRoot, "Grade"); clickText(dialogRoot, "Accel"); clickText(dialogRoot, "Power");
-            clickText(dialogRoot, "+"); clickText(dialogRoot, "−"); clickText(dialogRoot, "Fit");
+            clickText(dialogRoot, "Grade"); clickText(dialogRoot, "GPS accel"); clickText(dialogRoot, "Power");
+            clickDescription(dialogRoot, "Zoom in"); clickDescription(dialogRoot, "Zoom out"); clickDescription(dialogRoot, "Fit route");
             ScrollView scroller = first(dialogRoot, ScrollView.class);
             main(() -> scroller.fullScroll(View.FOCUS_UP)); waitForIdleSync();
             screenshot("synthetic-route-top-dark");
@@ -296,10 +320,10 @@ public final class UiOrganizationValidation extends Instrumentation {
         String usgs = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}";
         String osm = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
         String usgsName = "Map source · USGS Topo · United States";
-        require(findText(dialogRoot, usgsName) != null, "Fresh map preview did not default to USGS");
-        chooseMapSource(rides, dialogRoot, usgsName, 1);
+        require(findDescription(dialogRoot, usgsName) != null, "Fresh map preview did not default to USGS");
+        chooseMapSource(rides, dialogRoot, usgsName, "OpenStreetMap");
         assertOfflineMapSource(dialogRoot, map, streets, "Map source · OpenStreetMap", "© OpenStreetMap contributors", osm, 19);
-        chooseMapSource(rides, dialogRoot, "Map source · OpenStreetMap", 0);
+        chooseMapSource(rides, dialogRoot, "Map source · OpenStreetMap", "USGS Topo");
         assertOfflineMapSource(dialogRoot, map, streets, usgsName, "U.S. Geological Survey, National Geospatial Program", usgs, 16);
 
         // Hold both existing workers so the old request can be canceled before any network work.
@@ -338,19 +362,22 @@ public final class UiOrganizationValidation extends Instrumentation {
         try { if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Tile queue fixture timed out"); }
         catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException(error); }
     }
-    private void chooseMapSource(Object rides, View dialogRoot, String label, int option) {
-        clickText(dialogRoot, label);
+    private void chooseMapSource(Object rides, View dialogRoot, String label, String option) {
+        clickDescription(dialogRoot, label);
+        AtomicReference<View> pickerRoot = new AtomicReference<>();
         main(() -> {
             @SuppressWarnings("unchecked") List<AlertDialog> dialogs = (List<AlertDialog>)field(rides, "dialogs");
             AlertDialog picker = dialogs.get(dialogs.size()-1);
-            require(picker.isShowing() && picker.getListView() != null, "Map source picker did not open");
-            picker.getListView().performItemClick(picker.getListView().getChildAt(option), option, option);
-        }); waitForIdleSync();
+            require(picker.isShowing() && picker.getWindow() != null, "Map source picker did not open");
+            pickerRoot.set(picker.getWindow().getDecorView());
+        });
+        // Each source is a radio row; clicking its name selects it and closes the sheet.
+        clickText(pickerRoot.get(), option);
     }
     private void assertOfflineMapSource(View dialogRoot, RouteMapView map, CheckBox streets, String label,
             String credit, String url, int maximumZoom) {
         main(() -> {
-            require(findText(dialogRoot, label) != null, "Map source label did not change to " + label);
+            require(findDescription(dialogRoot, label) != null, "Map source label did not change to " + label);
             TextView attribution = findTextIncludingHidden(dialogRoot, credit);
             require(attribution != null && attribution.getVisibility() == View.GONE, "Map attribution did not follow the selected offline source");
             require(settings().getString("map_tile_url", "").equals(url), "Map source URL was not saved");
@@ -412,7 +439,10 @@ public final class UiOrganizationValidation extends Instrumentation {
         }); waitForIdleSync();
         require(settings.getString("more_section", "").equals("Security"), "Security shortcut was replaced by an expired More index");
         requireScreenText("Handlebar PIN");
-        main(() -> invoke(activity, "navigateBack")); requireScreenText("App preferences");
+        main(() -> invoke(activity, "navigateBack"));
+        if (wideMore()) main(() -> require("home".equals(field(activity, "selectedPage"))
+                && settings.getString("more_section", "").equals("Security"), "Wide More Back must leave the tab and keep its submenu"));
+        else requireScreenText("App preferences");
         check("More handles brief and expired background returns, preserves an earlier tab-away time, and honors the Security shortcut");
     }
 
@@ -467,11 +497,19 @@ public final class UiOrganizationValidation extends Instrumentation {
                 View item = findDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
                 requireFullyVisibleNow(item, "Navigation " + name);
                 TextView label = first(item, TextView.class);
-                require(label != null && label.getLayout() != null, "Navigation caption did not lay out");
-                require(label.getLayout().getHeight() <= label.getHeight() + 2, "Navigation caption clipped vertically: " + name);
+                if (label != null) {
+                    // The expanded side rail keeps text captions.
+                    require(label.getLayout() != null, "Navigation caption did not lay out");
+                    require(label.getLayout().getHeight() <= label.getHeight() + 2, "Navigation caption clipped vertically: " + name);
+                } else {
+                    // The compact floating tab bar is icon-only; each target must still be 48dp.
+                    int minimum = Math.round(48 * item.getResources().getDisplayMetrics().density);
+                    require(item.getWidth() >= minimum && item.getHeight() >= minimum, "Navigation target smaller than 48dp: " + name);
+                }
             }
         });
     }
+    private boolean topSpeedShown() { return ((View)field(field(field(activity, "screen"), "topSpeed"), "card")).isShown(); }
     private void requireVisibleControl(String key) { main(() -> require(visibleFeatures().contains(key), "Missing visible control " + key)); }
     private Set<String> allFeatures() { return features(false); }
     private Set<String> visibleFeatures() { return features(true); }
@@ -485,6 +523,7 @@ public final class UiOrganizationValidation extends Instrumentation {
     }
     private static boolean isLight(String key) { return key.startsWith("line_") || key.startsWith("star_") || key.equals("headlight") || key.equals("auto_sensor"); }
     private void clickDescription(String description) { View view = findDescription(root(), description); require(view != null, "Missing navigation " + description); click(view); }
+    private void clickDescription(View tree, String description) { View view = findDescription(tree, description); require(view != null, "Missing control " + description); click(view); }
     private void clickText(View tree, String text) { TextView view = findText(tree, text); require(view != null, "Missing UI label " + text); click(view); }
     private void requireScreenText(String text) { main(() -> require(findText(root(), text) != null, "Expected screen label " + text)); }
     private void click(View target) {
@@ -498,6 +537,8 @@ public final class UiOrganizationValidation extends Instrumentation {
         main(() -> view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true));
         waitForIdleSync();
     }
+    /** More shows its menu and submenu side by side (no submenu Back step) at unfolded widths. */
+    private boolean wideMore() { return activity.getResources().getConfiguration().screenWidthDp >= 650; }
     private void requireFullyVisible(View view, String name) { main(() -> requireFullyVisibleNow(view, name)); }
     private void requireFullyVisibleNow(View view, String name) {
         Rect rect = new Rect(); require(view.getGlobalVisibleRect(rect), name + " is not visible");

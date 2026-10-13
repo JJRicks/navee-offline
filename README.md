@@ -36,7 +36,7 @@ Card contents adapt as you resize: rows stack at narrow widths, values fit withi
 
 The battery overview gives its large centered percentage ring a thicker arc and balanced room within the card, with range, power, reported health and temperature represented by route, lightning, heart and thermometer icons along the bottom. The default four readings share a row where they fit; narrow cards or large text wrap them rather than hide values. The extra “Battery” label beside the ring and repeated “Live” footers are removed. Last-known readings still stay grey and retain their timestamps.
 
-Lock & connection keeps a consistent vertical order: Connected, Connecting or Disconnected status at the top, the centered lock slider, then a centered Connect/Disconnect button below. Extra space below the connection status separates it from the lock-state text. The taller slider is slightly inset from the card edges. Narrow cards give the slider the full available width to preserve its touch target. Connecting includes an inline spinner; Disconnected shows the last verified connection time, with a date for older connections. Tap the status for details or errors. **More → App preferences → Time format** follows the phone by default, or selects 12-hour/24-hour clocks for displayed times.
+Lock & connection is a full-width bar: tap anywhere on it or slide it to lock or unlock. When locked, the white knob sits on the right; when unlocked, the red knob sits on the left. While disconnected or connecting, the card shows the last verified lock time with a Connect or Cancel button instead. The connection line in each page header shows Connected, Connecting or Disconnected with the last-seen time; tap it for details and to connect or disconnect. **More → App preferences → Time format** follows the phone by default, or selects 12-hour/24-hour clocks for displayed times.
 
 The existing Live trend widget supports a **2 minutes** window, including for battery power. Redundant “signed” and “Recent readings • live” labels are removed from the chart presentation; the underlying values and recorded sign remain unchanged. Stats also omits repeated instructions while retaining technical explanations that affect interpretation.
 
@@ -116,6 +116,8 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before using instrumentation: some parke
 ## First setup and everyday use
 
 Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. The current first-capture method uses a computer and ADB; daily use does not. No owner credentials are embedded in this repository or APK.
+
+On first launch the app opens a step-by-step setup: choose to capture an identity, import a backup file or enter a 12-character identity, then follow one short step per screen through USB debugging, the capture helper, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
 
 See [SETUP.txt](SETUP.txt) for the capture helper and private backup/import instructions, and [README.txt](README.txt) for detailed app behavior and recording interpretation.
 

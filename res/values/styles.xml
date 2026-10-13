@@ -1,12 +1,54 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-    <style name="AppTheme" parent="android:style/Theme.Material.Light.NoActionBar">
+    <!-- Volt launch theme: matches the dark page so the app does not flash white while it starts.
+         MainActivity applies the light or dark runtime theme from the Appearance preference. -->
+    <style name="AppTheme" parent="android:style/Theme.Material.NoActionBar">
         <item name="android:fontFamily">sans</item>
-        <item name="android:colorAccent">#2563EB</item>
-        <item name="android:windowLightStatusBar">true</item>
-        <item name="android:windowLightNavigationBar">true</item>
-        <item name="android:statusBarColor">#F5F7FB</item>
-        <item name="android:navigationBarColor">#F5F7FB</item>
+        <item name="android:colorAccent">#E32B2F</item>
+        <item name="android:colorPrimary">#111211</item>
+        <item name="android:colorPrimaryDark">#111211</item>
+        <item name="android:windowBackground">@color/volt_bg</item>
+        <item name="android:windowLightStatusBar">false</item>
+        <item name="android:windowLightNavigationBar">false</item>
+        <item name="android:statusBarColor">#111211</item>
+        <item name="android:navigationBarColor">#111211</item>
         <item name="android:windowActionModeOverlay">true</item>
+    </style>
+
+    <!-- Runtime themes MainActivity applies from the Appearance preference. Every AlertDialog
+         built from the activity picks up the Volt dialog style through alertDialogTheme. -->
+    <style name="VoltDark" parent="android:style/Theme.Material.NoActionBar">
+        <item name="android:colorAccent">#E32B2F</item>
+        <item name="android:colorControlActivated">#E32B2F</item>
+        <item name="android:windowBackground">@color/volt_bg</item>
+        <item name="android:alertDialogTheme">@style/VoltDialog</item>
+        <item name="android:timePickerDialogTheme">@style/VoltDialog</item>
+        <item name="android:datePickerDialogTheme">@style/VoltDialog</item>
+    </style>
+    <style name="VoltLight" parent="android:style/Theme.Material.Light.NoActionBar">
+        <item name="android:colorAccent">#D3252A</item>
+        <item name="android:colorControlActivated">#D3252A</item>
+        <item name="android:windowBackground">@android:color/white</item>
+        <item name="android:alertDialogTheme">@style/VoltDialogLight</item>
+        <item name="android:timePickerDialogTheme">@style/VoltDialogLight</item>
+        <item name="android:datePickerDialogTheme">@style/VoltDialogLight</item>
+    </style>
+
+    <!-- Dialogs: dark card surface with red buttons, matching the Volt cards. -->
+    <style name="VoltDialog" parent="android:style/Theme.Material.Dialog.Alert">
+        <item name="android:colorAccent">#E32B2F</item>
+        <item name="android:colorBackground">#1F201E</item>
+        <item name="android:windowBackground">@drawable/volt_dialog_dark</item>
+        <item name="android:textColorPrimary">#F4F5F0</item>
+        <item name="android:textColorSecondary">#9A9C95</item>
+        <item name="android:colorControlActivated">#E32B2F</item>
+    </style>
+    <style name="VoltDialogLight" parent="android:style/Theme.Material.Light.Dialog.Alert">
+        <item name="android:colorAccent">#D3252A</item>
+        <item name="android:colorBackground">#FFFFFF</item>
+        <item name="android:windowBackground">@drawable/volt_dialog_light</item>
+        <item name="android:textColorPrimary">#161716</item>
+        <item name="android:textColorSecondary">#62645E</item>
+        <item name="android:colorControlActivated">#D3252A</item>
     </style>
 </resources>

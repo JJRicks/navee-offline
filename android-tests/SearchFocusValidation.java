@@ -37,13 +37,14 @@ import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.DashboardConfig;
 import local.navee.offlinelock.DashboardScreen;
 import local.navee.offlinelock.MainActivity;
+import local.navee.offlinelock.OnboardingScreen;
 import local.navee.offlinelock.ScooterService;
 import local.navee.offlinelock.StatsScreen;
 import local.navee.offlinelock.Telemetry;
 
 /** Real IME and touch checks on a fresh emulator; no scooter or radio changes. */
 public final class SearchFocusValidation extends Instrumentation {
-    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
+    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents", "onboarding"};
     private final List<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private MainActivity activity;
     private boolean admitted;
@@ -60,6 +61,8 @@ public final class SearchFocusValidation extends Instrumentation {
             getUiAutomation().setServiceInfo(accessibility);
             require(settings().edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
                     .putString("theme", "dark").commit(), "Could not prepare emulator preferences");
+            // These runners check the tabs, so skip the first-run onboarding a fresh install shows.
+            OnboardingScreen.markDone(getTargetContext());
             activity = (MainActivity)startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000, "Workspace did not initialize");
             for (String theme : new String[] {"dark", "light"}) {
@@ -93,13 +96,16 @@ public final class SearchFocusValidation extends Instrumentation {
         checks.add(theme + ": outside taps and system Back clear settings search focus, preserve the filter, and deliver navigation actions");
     }
     private void statsChecks(String theme) {
-        clickText(root(), "Readings"); Object stats = screen(); EditText search = (EditText)field(stats, "search");
+        // Wide Stats shows Readings in its own pane (no tab) and scrolls that pane rather than the page.
+        boolean wide = Boolean.TRUE.equals(field(screen(), "wide"));
+        if (!wide) clickText(root(), "Readings");
+        Object stats = screen(); EditText search = (EditText)field(stats, "search");
         showKeyboard(search, activity.getWindow(), "battery");
         boolean original = settings().getBoolean("stats_favourites_only", false); tap((View)field(stats, "filterButton"));
         assertDismissed(search, activity.getWindow(), "battery", "Stats filter tap");
         require(settings().getBoolean("stats_favourites_only", false) != original, "Dismissing search consumed the Favourites action");
         if (settings().getBoolean("stats_favourites_only", false)) click((View)field(stats, "filterButton"));
-        showKeyboard(search, activity.getWindow(), "battery"); ScrollView scroll = (ScrollView)field(activity, "scroll");
+        showKeyboard(search, activity.getWindow(), "battery"); ScrollView scroll = (ScrollView)field(wide ? stats : activity, wide ? "readingsScroll" : "scroll");
         int before = scroll.getScrollY(); Rect bounds = new Rect(), fieldBounds = new Rect();
         main(() -> { require(scroll.getGlobalVisibleRect(bounds), "Stats scroller is not visible");
             require(search.getGlobalVisibleRect(fieldBounds), "Stats search is not visible"); });
@@ -158,13 +164,16 @@ public final class SearchFocusValidation extends Instrumentation {
         checks.add(theme + ": IME-panned picker clears focus from title and search-margin taps without clearing its query or consuming a selection");
 
         tile = liveTile(dashboard); DashboardConfig.Widget current = (DashboardConfig.Widget)field(tile, "widget");
-        click(findDescription((View)tile, "Options for " + current.title)); clickText(dialogRoot(dashboard), "Title");
+        // The title is an inline field in the widget options sheet; it saves when the sheet closes.
+        String originalTitle = current.title;
+        click(findDescription((View)tile, "Options for " + current.title));
         AlertDialog title = dialog(dashboard); EditText ordinary = first(title.getWindow().getDecorView(), EditText.class);
         showKeyboard(ordinary, title.getWindow(), "Ordinary title form"); tap(findText(title.getWindow().getDecorView(), "Title"));
         waitForIdleSync(); SystemClock.sleep(180);
         main(() -> require(ordinary.hasFocus() && "Ordinary title form".contentEquals(ordinary.getText()),
                 "Search-only dismissal changed focus or text in an ordinary title form"));
-        screenshot(theme + "-title-form"); click(title.getButton(AlertDialog.BUTTON_NEGATIVE));
+        screenshot(theme + "-title-form"); main(() -> ordinary.setText(originalTitle));
+        click(findDescription(title.getWindow().getDecorView(), "Close widget options"));
         main(() -> getTargetContext().getSystemService(InputMethodManager.class).hideSoftInputFromWindow(root().getWindowToken(), 0));
         await(() -> !imeVisible(activity.getWindow()), 4000, "Form keyboard did not close"); clickText(root(), "Done");
         checks.add(theme + ": ordinary widget title editing retains its normal focus and text behavior");

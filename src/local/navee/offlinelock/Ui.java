@@ -37,32 +37,54 @@ import java.util.List;
 import java.util.Locale;
 import java.util.function.Consumer;
 
-/** Small, dependency-free native design system. Shared by compact and unfolded layouts. */
+/**
+ * Small, dependency-free native design system ("Volt"). Shared by compact and unfolded layouts.
+ * Dark-first: near-black page, soft rounded cards, Saira type and one scooter-red accent.
+ * Red marks things a rider can change or act on; grey marks information and last-seen values.
+ */
 public final class Ui {
     public final Context context;
     public final boolean dark;
+    /** Page background, card surface, raised control fill, text, secondary text and the red accent. */
     public final int bg, surface, text, muted, accent, blue, orange, outline, danger, raised;
+    /** Deeper red for gradients and pressed states, white text on red, confirmed-good green, faint last-seen grey. */
+    public final int accentDeep, onAccent, ok, dim;
     public final float textScale;
     private final float density;
-    private static final Typeface REGULAR = Typeface.create("sans-serif", Typeface.NORMAL);
-    private static final Typeface MEDIUM = Typeface.create("sans-serif-medium", Typeface.NORMAL);
-    private static final Typeface BOLD = Typeface.create("sans-serif", Typeface.BOLD);
+    private final Typeface REGULAR, MEDIUM, SEMIBOLD, BOLD;
 
     public Ui(Context context, boolean dark, float textScale) {
         this.context = context; this.dark = dark;
         this.textScale = Math.max(0.75f, Math.min(1.8f, textScale));
         density = context.getResources().getDisplayMetrics().density;
-        bg = Color.parseColor(dark ? "#101210" : "#F3F2ED");
-        surface = Color.parseColor(dark ? "#1C201D" : "#FFFFFF");
-        raised = Color.parseColor(dark ? "#282E29" : "#E8EBE3");
-        text = Color.parseColor(dark ? "#F5F5EF" : "#20261F");
-        muted = Color.parseColor(dark ? "#ADB6AB" : "#616B5D");
-        accent = Color.parseColor(dark ? "#C6E5A1" : "#416B30");
-        blue = Color.parseColor(dark ? "#A7C9EB" : "#376184");
-        orange = Color.parseColor(dark ? "#E8C590" : "#865B20");
-        outline = Color.parseColor(dark ? "#30382F" : "#DDE2D7");
-        danger = Color.parseColor(dark ? "#FF929F" : "#B3263E");
+        bg = Color.parseColor(dark ? "#111211" : "#F3F3F0");
+        surface = Color.parseColor(dark ? "#1F201E" : "#FFFFFF");
+        raised = Color.parseColor(dark ? "#2A2B28" : "#ECECE8");
+        text = Color.parseColor(dark ? "#F4F5F0" : "#161716");
+        muted = Color.parseColor(dark ? "#9A9C95" : "#62645E");
+        // Last-seen grey: quieter than muted but still about 4.5:1 on cards for small text.
+        dim = Color.parseColor(dark ? "#878982" : "#7A7C76");
+        accent = Color.parseColor(dark ? "#E32B2F" : "#D3252A");
+        accentDeep = Color.parseColor(dark ? "#B81B22" : "#A8161C");
+        onAccent = Color.WHITE;
+        ok = Color.parseColor(dark ? "#5FCB7E" : "#1E8A47");
+        blue = Color.parseColor(dark ? "#8FC2FF" : "#2F6DB5");
+        orange = Color.parseColor(dark ? "#E8A23A" : "#A8650F");
+        outline = Color.parseColor(dark ? "#3A3B37" : "#DADAD5");
+        danger = Color.parseColor(dark ? "#FF6B6E" : "#C21F2E");
+        REGULAR = font(context, R.font.saira_regular, Typeface.NORMAL);
+        MEDIUM = font(context, R.font.saira_medium, Typeface.NORMAL);
+        SEMIBOLD = font(context, R.font.saira_semibold, Typeface.NORMAL);
+        BOLD = font(context, R.font.saira_bold, Typeface.BOLD);
     }
+    private static Typeface font(Context context, int id, int fallbackStyle) {
+        try { return context.getResources().getFont(id); }
+        catch (RuntimeException e) { return Typeface.create("sans-serif", fallbackStyle); }
+    }
+    public Typeface regular() { return REGULAR; }
+    public Typeface medium() { return MEDIUM; }
+    public Typeface semibold() { return SEMIBOLD; }
+    public Typeface bold() { return BOLD; }
     public int dp(float value) { return Math.round(value * density); }
     public float sp(float value) { return value * context.getResources().getDisplayMetrics().scaledDensity * textScale; }
     /** Keep compact status timestamps on one line, shrinking only when their width requires it. */
@@ -95,7 +117,23 @@ public final class Ui {
         search.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 * textScale);
         search.setPadding(dp(16), dp(14), dp(16), dp(14));
         search.setMinimumHeight(dp(52));
-        search.setBackground(shape(raised, 16, outline));
+        search.setTypeface(REGULAR);
+        search.setBackground(shape(surface, 14, 0));
+        // A muted magnifier at the start, drawn with the same line icons as the rest of the app.
+        Drawable glass = new Drawable() {
+            private final Paint glyph = new Paint(Paint.ANTI_ALIAS_FLAG);
+            @Override public void draw(Canvas canvas) {
+                canvas.save(); canvas.translate(getBounds().left, getBounds().top);
+                canvas.scale(getBounds().width() / 24f, getBounds().height() / 24f);
+                drawSymbol(canvas, "search", muted, glyph); canvas.restore();
+            }
+            @Override public void setAlpha(int alpha) { glyph.setAlpha(alpha); }
+            @Override public void setColorFilter(ColorFilter filter) { glyph.setColorFilter(filter); }
+            @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+        };
+        int glassSize = dp(18); glass.setBounds(0, 0, glassSize, glassSize);
+        search.setCompoundDrawablesRelative(glass, null, null, null);
+        search.setCompoundDrawablePadding(dp(10));
     }
     public LinearLayout.LayoutParams searchLayout() {
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
@@ -104,23 +142,22 @@ public final class Ui {
     public LinearLayout card() {
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
-        layout.setPadding(dp(18), dp(18), dp(18), dp(18));
-        layout.setBackground(shape(surface, 24, 0));
+        layout.setPadding(dp(14), dp(14), dp(14), dp(14));
+        layout.setBackground(shape(surface, 20, 0));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
-        params.bottomMargin = dp(12); layout.setLayoutParams(params); return layout;
+        params.bottomMargin = dp(10); layout.setLayoutParams(params); return layout;
     }
     public TextView button(String label, Runnable action) {
         TextView button = text(label, 14, true);
-        button.setTypeface(MEDIUM); button.setGravity(Gravity.CENTER);
-        button.setPadding(dp(20), dp(13), dp(20), dp(13));
+        button.setTypeface(SEMIBOLD); button.setGravity(Gravity.CENTER);
+        button.setPadding(dp(18), dp(12), dp(18), dp(12));
         button.setMinHeight(dp(48));
-        int foreground = dark ? bg : Color.WHITE;
         button.setTextColor(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}},
-                new int[] {muted, foreground}));
+                new int[] {dim, onAccent}));
         StateListDrawable fill = new StateListDrawable();
-        fill.addState(new int[] {-android.R.attr.state_enabled}, shape(raised, 100, outline));
-        fill.addState(new int[] {}, shape(accent, 100, 0));
-        button.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(dark ? bg : Color.WHITE, 45)), fill, null));
+        fill.addState(new int[] {-android.R.attr.state_enabled}, shape(raised, 14, 0));
+        fill.addState(new int[] {}, shape(accent, 14, 0));
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(Color.WHITE, 45)), fill, null));
         button.setClickable(true); button.setFocusable(true);
         button.setContentDescription(label);
         button.setOnClickListener(v -> { if (action != null) action.run(); });
@@ -131,32 +168,83 @@ public final class Ui {
     public TextView secondaryButton(String label, Runnable action) {
         TextView button = button(label, action);
         button.setTextColor(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}},
-                new int[] {muted, accent}));
-        button.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)), shape(raised, 100, outline), null));
+                new int[] {dim, text}));
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)), shape(raised, 14, outline), null));
         return button;
+    }
+    /** Destructive action: outlined in red, never filled, so it reads differently from the main action. */
+    public TextView dangerButton(String label, Runnable action) {
+        TextView button = button(label, action);
+        button.setTextColor(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}},
+                new int[] {dim, danger}));
+        button.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(danger, 30)),
+                shape(Color.TRANSPARENT, 14, withAlpha(danger, 110)), null));
+        return button;
+    }
+    /** Small uppercase group label placed above a group card, e.g. RIDE, BATTERY. */
+    public TextView sectionLabel(String label) {
+        TextView view = text(label == null ? "" : label.toUpperCase(Locale.ROOT), 11, false);
+        view.setTypeface(SEMIBOLD); view.setTextColor(muted); view.setLetterSpacing(0.08f);
+        view.setPadding(dp(4), dp(14), dp(4), dp(6));
+        if (Build.VERSION.SDK_INT >= 28) view.setAccessibilityHeading(true);
+        return view;
+    }
+    /** A card that holds divided rows: tight vertical padding so rows sit edge to edge. */
+    public LinearLayout groupCard() {
+        LinearLayout layout = card();
+        layout.setPadding(dp(12), dp(2), dp(12), dp(2));
+        return layout;
+    }
+    /** Selectable pill; red when selected, dark otherwise. Call {@link #styleChip} to change state. */
+    public TextView chip(String label, boolean selected, Runnable action) {
+        TextView chip = text(label, 12.5f, false);
+        chip.setGravity(Gravity.CENTER); chip.setMinHeight(dp(36)); chip.setMinWidth(dp(48));
+        chip.setPadding(dp(14), dp(6), dp(14), dp(6)); chip.setFocusable(true); chip.setClickable(true);
+        chip.setContentDescription(label);
+        styleChip(chip, selected);
+        chip.setOnClickListener(v -> { if (action != null) action.run(); });
+        return chip;
+    }
+    public void styleChip(TextView chip, boolean selected) {
+        chip.setSelected(selected);
+        chip.setTypeface(selected ? SEMIBOLD : REGULAR);
+        chip.setTextColor(selected ? onAccent : text);
+        chip.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 40)),
+                shape(selected ? accent : raised, 100, 0), null));
+        if (Build.VERSION.SDK_INT >= 30) chip.setStateDescription(selected ? "Selected" : "");
+    }
+    /** A rounded square holding an icon, used at the start of rows and cards. */
+    public View iconSquare(String key, int color) {
+        android.widget.FrameLayout box = new android.widget.FrameLayout(context);
+        box.setBackground(shape(dark ? bg : raised, 10, 0));
+        android.widget.FrameLayout.LayoutParams inner = new android.widget.FrameLayout.LayoutParams(dp(17), dp(17), Gravity.CENTER);
+        box.addView(icon(key, 17, color), inner);
+        box.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        return box;
     }
     public View icon(String key, int size, int color) { return new IconView(key, size, color); }
     /** A compound symbol preserves row child indices and the label's spoken text. */
     public void decorate(TextView label, String iconKey) {
         if (iconKey == null || iconKey.isEmpty()) return;
-        Drawable symbol = new LabelIcon(label, iconKey);
-        int size = dp(20); symbol.setBounds(0, 0, size, size);
+        Drawable symbol = new LabelIcon(label, iconKey, true);
+        int size = dp(30); symbol.setBounds(0, 0, size, size);
         Drawable[] old = label.getCompoundDrawablesRelative();
         label.setCompoundDrawablesRelative(symbol, old[1], old[2], old[3]);
-        label.setCompoundDrawablePadding(dp(10));
+        label.setCompoundDrawablePadding(dp(12));
     }
     /** Display-only mode cues; callers supply the formatted text, base color and spoken context. */
     public void styleDriveMode(TextView value, String formattedMode, boolean live) {
         value.setCompoundDrawablesRelative(null, null, null, null);
         value.setCompoundDrawablePadding(0);
-        if ("SPORT".equals(formattedMode)) value.setTextColor(live ? blue : muted);
-        else if ("ECO".equals(formattedMode)) value.setTextColor(live ? accent : muted);
+        // Volt: Sport is red, Eco is green and Walk is plain text; last-known modes stay grey.
+        if ("SPORT".equals(formattedMode)) value.setTextColor(live ? accent : muted);
+        else if ("ECO".equals(formattedMode)) value.setTextColor(live ? ok : muted);
         else if ("WALK".equals(formattedMode)) {
-            value.setTextColor(live ? accent : muted);
+            value.setTextColor(live ? text : muted);
             CharSequence spoken = value.getContentDescription();
             if (spoken == null || spoken.length() == 0) value.setContentDescription("WALK");
             value.setText("");
-            Drawable walker = new LabelIcon(value, "walk");
+            Drawable walker = new LabelIcon(value, "walk", false);
             float fontScale = context.getResources().getConfiguration().fontScale;
             int size = dp(Math.max(24, Math.min(36, 24 * textScale * fontScale)));
             walker.setBounds(0, 0, size, size);
@@ -205,14 +293,23 @@ public final class Ui {
         return "";
     }
     private final class LabelIcon extends Drawable {
-        private final TextView owner; private final String key;
+        private final TextView owner; private final String key; private final boolean boxed;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private int alpha = 255;
-        LabelIcon(TextView owner, String key) { this.owner = owner; this.key = key; }
+        LabelIcon(TextView owner, String key, boolean boxed) { this.owner = owner; this.key = key; this.boxed = boxed; }
         @Override public void draw(Canvas canvas) {
             canvas.save(); canvas.translate(getBounds().left, getBounds().top);
-            canvas.scale(getBounds().width() / 24f, getBounds().height() / 24f);
             int color = owner.getCurrentTextColor();
+            if (boxed) {
+                // A dark rounded square with a red glyph; disabled or last-seen labels keep a grey glyph.
+                float w = getBounds().width(), h = getBounds().height();
+                paint.setStyle(Paint.Style.FILL); paint.setColor(withAlpha(dark ? bg : raised, alpha));
+                canvas.drawRoundRect(new RectF(0, 0, w, h), dp(10), dp(10), paint);
+                boolean quiet = color == muted || color == dim || !owner.isEnabled();
+                color = quiet ? dim : accent;
+                float glyph = w * .56f; canvas.translate((w - glyph) / 2, (h - glyph) / 2);
+                canvas.scale(glyph / 24f, glyph / 24f);
+            } else canvas.scale(getBounds().width() / 24f, getBounds().height() / 24f);
             drawSymbol(canvas, key, withAlpha(color, Color.alpha(color) * alpha / 255), paint);
             canvas.restore();
         }
@@ -251,10 +348,7 @@ public final class Ui {
         toggle.setChecked(Boolean.TRUE.equals(value));
         toggle.setEnabled(enabled && value != null);
         toggle.setMinimumWidth(dp(56)); toggle.setMinimumHeight(dp(48));
-        toggle.setThumbTintList(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled},
-                new int[] {android.R.attr.state_checked}, new int[] {}}, new int[] {muted, accent, muted}));
-        toggle.setTrackTintList(new ColorStateList(new int[][] {new int[] {android.R.attr.state_checked}, new int[] {}},
-                new int[] {withAlpha(accent, 75), outline}));
+        styleSwitch(toggle);
         toggle.setContentDescription(label + (value == null ? ", state not reported" : ""));
         if (Build.VERSION.SDK_INT >= 30) toggle.setStateDescription(value == null ? "Not reported"
                 : value ? "On" : "Off");
@@ -266,6 +360,14 @@ public final class Ui {
         if (!enabled || value == null) heading.setTextColor(muted);
         return row;
     }
+    /** Red track with a white thumb when on; a dark track with a grey thumb when off. */
+    public void styleSwitch(Switch toggle) {
+        toggle.setThumbTintList(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled},
+                new int[] {android.R.attr.state_checked}, new int[] {}}, new int[] {dim, Color.WHITE, muted}));
+        toggle.setTrackTintList(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled},
+                new int[] {android.R.attr.state_checked}, new int[] {}}, new int[] {raised, accent, raised}));
+        if (Build.VERSION.SDK_INT >= 29) toggle.setTrackTintMode(android.graphics.PorterDuff.Mode.SRC_IN);
+    }
     /** Quiet, aligned navigation row. Child 1 is the value text for live updates. */
     public LinearLayout settingRow(String label, String value, Runnable action) {
         LinearLayout row = new LinearLayout(context) {
@@ -276,8 +378,8 @@ public final class Ui {
                 super.onMeasure(widthSpec, heightSpec);
             }
         }; row.setOrientation(LinearLayout.HORIZONTAL);
-        row.setGravity(Gravity.CENTER_VERTICAL); row.setMinimumHeight(dp(62));
-        row.setPadding(dp(2), dp(13), dp(2), dp(13));
+        row.setGravity(Gravity.CENTER_VERTICAL); row.setMinimumHeight(dp(56));
+        row.setPadding(dp(2), dp(10), dp(2), dp(10));
         TextView title = text(label, 15, false); decorate(title, labelIcon(label));
         row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
         TextView amount = text(value == null ? "" : value, 14, false);
@@ -295,7 +397,7 @@ public final class Ui {
         return row;
     }
     public void divider(LinearLayout parent) {
-        View line = new View(context); line.setBackgroundColor(withAlpha(outline, 125));
+        View line = new View(context); line.setBackgroundColor(raised);
         parent.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
     }
     public View nav(String label, String iconKey, boolean selected, Runnable action) {
@@ -303,9 +405,9 @@ public final class Ui {
         item.setOrientation(LinearLayout.VERTICAL); item.setGravity(Gravity.CENTER);
         item.setPadding(dp(2), dp(8), dp(2), dp(8)); item.setMinimumHeight(dp(64));
         item.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)),
-                shape(selected ? withAlpha(accent, dark ? 28 : 20) : Color.TRANSPARENT, 18, 0), null));
-        item.addView(icon(iconKey, 24, selected ? accent : muted), new LinearLayout.LayoutParams(dp(24), dp(24)));
-        TextView caption = text(label, 10, selected); caption.setMaxLines(2); caption.setTextColor(selected ? accent : muted);
+                shape(selected ? withAlpha(accent, dark ? 40 : 26) : Color.TRANSPARENT, 18, 0), null));
+        item.addView(icon(iconKey, 24, selected ? text : muted), new LinearLayout.LayoutParams(dp(24), dp(24)));
+        TextView caption = text(label, 10, selected); caption.setMaxLines(2); caption.setTextColor(selected ? text : muted);
         caption.setGravity(Gravity.CENTER); caption.setPadding(0, dp(5), 0, 0); item.addView(caption);
         item.setContentDescription(label); item.setSelected(selected); item.setFocusable(true);
         if (Build.VERSION.SDK_INT >= 30) item.setStateDescription(selected ? "Selected" : "");
@@ -321,10 +423,10 @@ public final class Ui {
                 for (int i = 0; i < getChildCount(); i++) {
                     TextView button = (TextView) getChildAt(i);
                     boolean active = button.getText().toString().equals(current);
-                    button.setSelected(active); button.setTextColor(active ? accent : muted);
+                    button.setSelected(active); button.setTextColor(active ? onAccent : muted);
+                    button.setTypeface(active ? SEMIBOLD : REGULAR);
                     button.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)),
-                            shape(active ? withAlpha(accent, dark ? 28 : 20) : raised, 15,
-                                    active ? accent : outline), null));
+                            shape(active ? accent : surface, 12, 0), null));
                     if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(active ? "Selected" : "");
                 }
             }
@@ -362,6 +464,66 @@ public final class Ui {
         }
         tabs.style(); return tabs;
     }
+    /** Draws one of the shared line icons centred at (cx, cy), for custom-drawn controls. */
+    public void drawIcon(Canvas canvas, String key, int color, float cx, float cy, float size) {
+        Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        canvas.save(); canvas.translate(cx - size / 2, cy - size / 2); canvas.scale(size / 24f, size / 24f);
+        drawSymbol(canvas, key, color, paint); canvas.restore();
+    }
+    /**
+     * Floating tab bar: a rounded pill with a raised red button for the centre destination.
+     * The selected side tab shows white with a small red dot; the selected centre button gains a ring.
+     */
+    public View floatingNav(String[] labels, String[] icons, int selected, int center, java.util.function.IntConsumer onSelect) {
+        android.widget.FrameLayout bar = new android.widget.FrameLayout(context);
+        bar.setClipChildren(false); bar.setClipToPadding(false);
+        LinearLayout pill = new LinearLayout(context);
+        pill.setOrientation(LinearLayout.HORIZONTAL); pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setBackground(shape(surface, 26, raised));
+        pill.setElevation(dp(6));
+        bar.addView(pill, new android.widget.FrameLayout.LayoutParams(-1, dp(56), Gravity.BOTTOM));
+        for (int i = 0; i < labels.length; i++) {
+            final int index = i; boolean on = i == selected;
+            LinearLayout item = new LinearLayout(context);
+            item.setOrientation(LinearLayout.VERTICAL); item.setGravity(Gravity.CENTER);
+            if (i == center) {
+                // A plain spacer under the raised button, which carries the label and the action.
+                item.setFocusable(false); item.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            } else {
+                item.setContentDescription(labels[i]); item.setFocusable(true); item.setSelected(on);
+                if (Build.VERSION.SDK_INT >= 30) item.setStateDescription(on ? "Selected" : "");
+            }
+            if (i != center) {
+                item.addView(icon(icons[i], 21, on ? text : muted), new LinearLayout.LayoutParams(dp(21), dp(21)));
+                View dot = new View(context); dot.setBackground(shape(accent, 3, 0));
+                LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(dp(5), dp(5)); dp.topMargin = dp(4);
+                dot.setVisibility(on ? View.VISIBLE : View.INVISIBLE); item.addView(dot, dp);
+                item.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)), null, shape(Color.WHITE, 22, 0)));
+                item.setOnClickListener(v -> { if (onSelect != null) onSelect.accept(index); });
+            }
+            pill.addView(item, new LinearLayout.LayoutParams(0, -1, 1));
+        }
+        if (center >= 0 && center < labels.length) {
+            final boolean on = center == selected;
+            android.widget.FrameLayout button = new android.widget.FrameLayout(context);
+            GradientDrawable disc = new GradientDrawable(); disc.setShape(GradientDrawable.OVAL);
+            disc.setColor(accent); disc.setStroke(dp(5), bg);
+            GradientDrawable ring = new GradientDrawable(); ring.setShape(GradientDrawable.OVAL);
+            ring.setColor(Color.TRANSPARENT); ring.setStroke(dp(2), on ? withAlpha(accent, 150) : Color.TRANSPARENT);
+            android.graphics.drawable.LayerDrawable layers = new android.graphics.drawable.LayerDrawable(new Drawable[] {ring, disc});
+            layers.setLayerInset(1, dp(3), dp(3), dp(3), dp(3));
+            button.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(Color.WHITE, 50)), layers, null));
+            button.addView(icon(icons[center], 25, onAccent), new android.widget.FrameLayout.LayoutParams(dp(25), dp(25), Gravity.CENTER));
+            button.setContentDescription(labels[center]); button.setFocusable(true); button.setSelected(on);
+            if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(on ? "Selected" : "");
+            button.setElevation(dp(8));
+            button.setOnClickListener(v -> { if (onSelect != null) onSelect.accept(center); });
+            bar.addView(button, new android.widget.FrameLayout.LayoutParams(dp(68), dp(68), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
+        }
+        return bar;
+    }
+    /** Height the floating tab bar needs, so scrolling pages can pad their bottom edge. */
+    public int floatingNavHeight() { return dp(72); }
     public GradientDrawable shape(int fill, float radius, int border) {
         GradientDrawable drawable = new GradientDrawable(); drawable.setColor(fill); drawable.setCornerRadius(dp(radius));
         if (border != 0) drawable.setStroke(dp(1), border); return drawable;
@@ -404,8 +566,9 @@ public final class Ui {
             RectF circle = new RectF(cx - radius, cy - radius, cx + radius, cy + radius);
             float stroke = Math.min(dp(12.5f), radius * .25f);
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(stroke); paint.setStrokeCap(Paint.Cap.ROUND);
-            paint.setColor(outline); canvas.drawArc(circle, 135, 270, false, paint);
-            int color = !live ? muted : !Double.isNaN(percent) && percent < 15 ? danger : !Double.isNaN(percent) && percent < 30 ? orange : accent;
+            paint.setColor(raised); canvas.drawArc(circle, 135, 270, false, paint);
+            // The ring is red (the accent) normally; a low charge switches to amber so it reads as a warning.
+            int color = !live ? muted : !Double.isNaN(percent) && percent < 15 ? orange : accent;
             if (!Double.isNaN(percent)) { paint.setColor(color); canvas.drawArc(circle, 135, (float) (270 * percent / 100), false, paint); }
             paint.setStyle(Paint.Style.FILL); paint.setTextAlign(Paint.Align.CENTER);
             String amount = Double.isNaN(percent) ? "—" : Long.toString(Math.round(percent));
@@ -535,7 +698,7 @@ public final class Ui {
             paint.setStrokeWidth(dp(1)); paint.setStyle(Paint.Style.FILL);
             for (int i = 0; i < 4; i++) {
                 float yy = top + (bottom - top) * i / 3;
-                paint.setColor(outline); canvas.drawLine(left, yy, right, yy, paint);
+                paint.setColor(raised); canvas.drawLine(left, yy, right, yy, paint);
                 if (!points.isEmpty()) {
                     paint.setColor(muted); paint.setTextAlign(Paint.Align.RIGHT);
                     canvas.drawText(axisNumber(max - (max - min) * i / 3), left - dp(7), yy + dp(3), paint);
@@ -779,6 +942,8 @@ public final class Ui {
             else if (key.equals("close")) { canvas.drawLine(5, 5, 19, 19, paint); canvas.drawLine(5, 19, 19, 5, paint); }
             else if (key.equals("chevron") || key.equals("back")) {
                 p.moveTo(key.equals("back") ? 15 : 9, 5); p.lineTo(key.equals("back") ? 8 : 16, 12); p.lineTo(key.equals("back") ? 15 : 9, 19); canvas.drawPath(p, paint);
+            } else if (key.equals("search")) {
+                canvas.drawCircle(10.5f, 10.5f, 6.5f, paint); canvas.drawLine(15.5f, 15.5f, 20.5f, 20.5f, paint);
             } else if (key.equals("shield")) {
                 p.moveTo(12, 2); p.lineTo(21, 6); p.lineTo(19, 15); p.quadTo(17, 20, 12, 22); p.quadTo(7, 20, 5, 15); p.lineTo(3, 6); p.close(); canvas.drawPath(p, paint);
             } else {

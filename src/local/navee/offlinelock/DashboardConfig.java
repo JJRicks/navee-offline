@@ -44,7 +44,7 @@ public final class DashboardConfig {
     };
     public static final String[] DESCRIPTIONS = {
         "A large lock switch and connection controls",
-        "Your name and UT5 MAX photo",
+        "Photo with odometer and drive mode",
         "Charge, estimated range, power and reported health",
         "Any available parameter in a large display",
         "A parameter with your chosen scale",
