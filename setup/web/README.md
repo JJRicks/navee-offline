@@ -1,8 +1,10 @@
 # Volt USB setup helper
 
-A static, browser-local owner-capture wizard for `https://jjricks.com/pairscooter/`.
-That is the intended hosting address; this PR supplies the source and deployment
-instructions. Publication is a separate operation and is not verified by a build.
+A static, browser-local owner-capture wizard for the testing preview at
+`https://jjricks.com/pairscooter/`. This is a testing deployment, not a general
+release. A successful real browser capture with a nearby scooter is still awaiting
+validation. Publication and deployed security headers must be verified separately
+from a local build.
 Chrome or Edge on a computer talks directly to the selected Android phone over
 WebUSB. No Python, installed ADB executable, account login endpoint, upload API,
 analytics, CDN scripts, or server-side capture processing is involved. Some
@@ -175,6 +177,10 @@ timeouts/cancellation, each failure stage, unverified cleanup, damaged recovery
 records and wrong phones. Real POSIX-shell tests with fake Android commands exercise
 exact restoration, independent watchdog cleanup, concurrent-helper refusal,
 start/timeout races, a signal during a bounded child, stale tokens and failed cleanup.
+
+An Android 16 emulator also passed normal capture with synthetic NAVEE messages,
+UID filtering, exact property restoration, explicit cancellation, and independent
+watchdog cleanup after transport loss followed by verified reconnect recovery.
 
 These tests do not by themselves prove a real WebUSB handshake, a real NAVEE owner
 capture, or all Samsung/Pixel firmware behavior. The app and page must still be
