@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Home's Layout sheet has three named save slots per scooter. Each keeps the widget list and options, column choice, and folded/unfolded arrangements together. Restore defaults and current edits preserve the saved slots; replacing or restoring a slot asks for confirmation.
+
 ## 0.8.0 — 2026-10-13
 
 A full visual redesign of every screen. Bluetooth, commands, storage, exports and preference keys are unchanged.

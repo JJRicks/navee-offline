@@ -29,6 +29,16 @@ The **gear** is the single entry to widget options. For a drag-free alternative,
 
 Editing keeps each widget and its content at the same dimensions as normal viewing. Translucent controls float over the card, so entering or leaving edit mode does not expand cards or rearrange their contents.
 
+**Edit → Layout → Saved layouts** offers three named slots for each scooter.
+Save captures every widget and its options, the column choice, and all saved
+one- through four-column arrangements together, including folded and unfolded
+layouts. You can restore defaults or experiment with the current dashboard
+without changing the slots, then restore a slot to return to that setup. Saving
+over an occupied slot and restoring a slot ask for confirmation. Save your
+current dashboard in another slot before replacing it if you want to keep both.
+Slots are local to this phone and scooter; they contain layout settings, not
+readings, recordings, or owner credentials. Even an empty dashboard can be saved.
+
 The 15 choices are Lock & connection, Your scooter, Battery overview, Big reading, Gauge, Live trend, History chart, Reading list, Trip overview, Battery health, Capacity experiment, Charging, Quick access, Ride recorder, and Note. Customize titles, parameters, reading lists, colors, chart windows, and gauge ranges where applicable. Up to 32 widgets are allowed, with one lock widget. The six defaults include the lock, a UT5 MAX photo for a recognized model that stays visible when disconnected, battery charge with estimated range/power/reported health/temperature, a 15-minute power chart, the capacity experiment, and recording controls. Quick access remains available in Add widget. While the scooter freshly reports charging, the battery card replaces its normal details with charging power, current and estimated time remaining, keeping the same battery percentage and cell. Existing custom layouts are preserved; add new widgets through Edit or restore defaults.
 
 New dashboards and **Layout → Restore default widgets** use the saved phone/foldable preset. At two columns, Your scooter spans the top, lock and battery sit side by side, followed by Live trend, Capacity experiment, and Ride recorder. At four columns, the scooter card takes three columns beside the lock; power and battery share the next row, with recording below the power chart and the capacity experiment across the bottom. One- and three-column variants fit other screen widths. Existing custom dashboards, including empty ones, retain their saved widgets and layouts.

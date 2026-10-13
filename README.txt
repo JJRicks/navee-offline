@@ -230,6 +230,15 @@ puts the scooter beside a narrower lock card, power beside battery, recording
 under power and capacity across the bottom. One- and three-column presets adapt
 the same widgets to other widths. Existing custom and empty layouts are preserved;
 use Restore default widgets to adopt the preset for an existing dashboard.
+Edit > Layout also offers three named saved-layout slots for this scooter.
+Each saves the widget list/options, the column choice, and all one- through
+four-column arrangements together, including folded and unfolded layouts.
+Default reset and edits to the current dashboard leave these slots intact.
+Save the current layout before experimenting, then Restore to return to it.
+Replacing an occupied slot or restoring over the current dashboard asks first.
+Slots stay on this phone and belong to the selected scooter. They contain no
+readings, rides or owner credentials; empty dashboards can be saved too.
+
 The battery card uses a red battery cell showing percentage and estimated range,
 with power, controller-reported health and temperature underneath. Small cards
 and large text wrap readings instead of hiding values. Fresh charging status

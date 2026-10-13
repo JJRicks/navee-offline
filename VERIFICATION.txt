@@ -1,3 +1,30 @@
+UNRELEASED — DASHBOARD LAYOUT SLOTS
+October 13, 2026
+
+Three named per-scooter slots save/restore all stored column layouts and full
+widget definitions together, plus the column choice. Slots survive live edits
+and Restore defaults. Empty snapshots remain empty; malformed snapshots are
+rejected before restoring. Saved slots contain no owner identity or ride data.
+
+- All nine portable core suites passed 24,782 assertions. App and separate
+  instrumentation APKs built successfully; signing/alignment checks passed.
+- DashboardSlotsValidation passed 7 groups / 220 assertions on isolated Android
+  16 preferences: all 15 widget types/options/IDs, independent 1–4-column
+  rectangles, restart/restore/save, overwrite/reset isolation, missing widths,
+  empty dashboards, 40 malformed snapshot cases, three-slot limits, Unicode
+  names, per-profile/unrelated-preference isolation and existing migrations.
+- DashboardValidation's focused layout-slots mode passed 5 groups each at
+  360, 411 and 686 dp (15 groups total), including dark/light and 140% text.
+  Actual dialogs exercised save, rename-on-replace, cancellation, default reset,
+  restore, persistence after activity recreation and action reachability.
+  Native screenshots were inspected; these were synthetic disconnected fixtures.
+- Independent source review found no actionable issue. The change adds no
+  scooter commands and no phone-sensor or recording behavior. No physical phone
+  installation or hardware control test was performed. Existing broad-dashboard,
+  search and field-validation limits below retain their scope; these new focused
+  passes do not imply a complete rerun of those suites. Disk-full/commit-failure
+  rollback was source-reviewed but not fault-injected on a device.
+
 NAVEE OFFLINE 0.8.0 — RELEASE VALIDATION
 October 13, 2026
 
