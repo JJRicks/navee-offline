@@ -93,7 +93,7 @@ public final class Telemetry {
         define("Battery", "battery_status", "Battery status");
         define("Battery", "charging_state", "Charging state (raw)");
         define("Battery", "charge_cycles", "Reported charge count");
-        define("Battery", "energy_throughput_wh", "Lifetime energy throughput");
+        define("Battery", "energy_throughput_wh", "Energy counter (unverified)");
         define("Battery", "capacity_throughput_ah", "Lifetime capacity throughput");
         define("Battery", "deep_discharge", "Deep discharge counter");
         define("Battery", "self_discharge_raw", "Self discharge rate (raw; unit unknown)");

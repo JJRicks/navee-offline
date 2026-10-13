@@ -27,3 +27,22 @@ AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
+
+
+OPTIONAL STREET MAPS (0.5.0 AND LATER)
+
+Map data © OpenStreetMap contributors. Attribution and licence information:
+  https://www.openstreetmap.org/copyright
+
+The default raster tile provider is https://tile.openstreetmap.org/. The app
+loads only the visible map area after the user enables Street map. It identifies
+requests with an application User-Agent, caches tiles with response metadata
+and uses conditional revalidation. It does not bulk-download or prefetch map
+regions. Cached tiles are a viewing cache, not a promised offline map package.
+Provider policy: https://operations.osmfoundation.org/policies/tiles/
+
+A different HTTPS tile provider can be configured in the app. Its service, usage
+and attribution terms apply to that provider's content. Map tiles and map data
+are separate from the application source and are not relicensed by the MIT
+licence reproduced above. Scooter controls and recording do not depend on a
+street-map provider.

@@ -168,13 +168,8 @@ navee_build_app() {
         --out "$APK_PATH" "$BUILD_DIR/aligned.apk"
     "$BUILD_TOOLS/apksigner" verify --verbose "$APK_PATH"
     "$BUILD_TOOLS/zipalign" -c -P 16 4 "$APK_PATH"
-    APK_PERMISSIONS="$("$BUILD_TOOLS/aapt" dump permissions "$APK_PATH")"
-    case "$APK_PERMISSIONS" in
-        *android.permission.INTERNET*)
-            echo "Build rejected: the APK unexpectedly requests internet access." >&2
-            return 1
-            ;;
-    esac
+    # v0.5 adds optional map tiles. Bluetooth/authentication and recording remain
+    # local; INTERNET is used only by the route viewer's replaceable tile source.
     echo "Built and verified: $APK_PATH"
 }
 

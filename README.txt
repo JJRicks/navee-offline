@@ -1,9 +1,9 @@
-NAVEE OFFLINE — VERSION 0.4.1
+NAVEE OFFLINE — VERSION 0.5.0
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
-Bluetooth. The production app has no INTERNET permission or cloud login. It
-leaves the phone's Wi-Fi and mobile-data settings alone.
+Bluetooth, with no cloud login. Optional map tiles use internet; route capture
+and local drawing do not. The app leaves Wi-Fi and mobile-data settings alone.
 
 This independent app is not affiliated with NAVEE. Its protocol reference is the
 installed NAVEE Android app 2.1.9, checked against pepperonas/navee-st3-pro.
@@ -12,16 +12,17 @@ regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
 
-0.4.1 fixes a launch crash on Samsung Android 16 by applying system bar styling
-only after the app screen is attached. Install this APK over the previous version
-to retain local setup and recordings.
+0.5.0 adds GPS, barometer and experimental motion recording, route maps, and
+cleaner grouped settings with a dedicated Lights tab. The 0.4.1 Samsung launch
+fix is retained and the friend has confirmed startup works. Install over the
+previous version to retain local setup and recordings.
 
 GET CONNECTED
 
 1. Power on the scooter and close NAVEE so it releases Bluetooth.
 2. Open Navee Offline and allow Nearby devices. Android 8–11 calls its Bluetooth
-   discovery permission Location; this app does not collect GPS coordinates or
-   routes. Allow notifications to see the connection/recording Stop actions.
+   discovery permission Location. GPS route recording asks for Location separately
+   on newer Android versions. Allow notifications for connection/recording actions.
 3. With a configured profile, launch connects to the last verified scooter by
    default. Without a saved address, use Connect and select the nearby scooter.
    Owner authentication, matching serial and fresh status establish readiness.
@@ -102,19 +103,22 @@ firmware exposes no clock readback. See FEATURES.txt and VERIFICATION.txt for
 the evidence behind each feature.
 
 
-FIVE ORGANIZED TABS
+SIX ORGANIZED TABS
 
 Home
   Battery, speed, estimated range, odometer, quick controls and connection/
   recording status. The large lock control stays easy to reach.
 
-Controls
-  Named OEM settings grouped by purpose. The catalogue includes lock, cruise,
+Scooter
+  Named settings grouped into Ride, Battery, Dashboard & sound, and Security. The catalogue includes lock, cruise,
   energy recovery, headlight/automatic lights, line/star light effects, turn
   sound, traction control, dashboard units, range-estimate mode, kick-start
   speed, configured maximum speed, charge ceiling/scheduling, Low Battery Mode,
   lock duration, Walk Assist, Power Assist and hill descent. Choices use the
   explained OEM domains and available firmware fields.
+
+Lights
+  Headlight, automatic sensor, and all line/star settings in one destination.
 
 Stats
   All catalogued measurements, search, favourites, collapsible groups, source
@@ -123,9 +127,10 @@ Stats
   diagnostics export.
 
 Rides
-  Persistent labelled recordings, notes, history, quality/coverage, charts,
-  two-ride comparison and sensor CSV/analysis JSON export. Save separate Sport
-  and Sport + Boost recordings to compare observations from your own rides.
+  Persistent labelled recordings, notes, history, power coverage and comparison.
+  Optional GPS, barometer and phone motion have separate raw journals. Saved
+  rides show a local route, estimated grade and synchronized electrical readings.
+  Export scooter CSV, route CSV, raw phone/motion CSV, combined JSON or GPX.
 
 More
   App, Scooters, Security, Lab and About sections, with one visible at a time.
@@ -144,6 +149,37 @@ evidence, parked readback tests and untested physical behavior.
 The app does not expose arbitrary opcodes, unbinding, factory reset, firmware
 updates, cloud accounts/sharing, remote tracking or firmware downloads.
 
+
+PHONE SENSORS AND ROUTE MAPS
+
+Start a ride from Rides while the app is visible. Precise Location gives the best
+route; denied or approximate permissions do not prevent scooter recording.
+GPS continues during Bluetooth gaps. Phone sensors run only during explicit
+recordings and stop after the final buffered measurements are saved.
+
+Phone sensors includes GPS route, motion on/off and Pocket/Mounted placement.
+A barometer records when available. GPS/scooter acceleration is a speed derivative
+in m/s²; raw accelerometer includes gravity, while linear acceleration removes it.
+Earth-frame components require current orientation data. Pocket movement and
+bumps can dominate phone readings; treat them as experimental.
+
+Grade uses smoothed elevation across distance, not phone tilt. GPS altitude needs
+strict accuracy and distance conditions, so some sections have no grade. Pressure
+changes and GPS noise can still distort estimates. Route comparison includes GPS
+distance, ascent/descent and the existing scooter energy measurements. It does not
+plan or declare an optimal route before comparable rides have been collected.
+
+Street map is optional in the route viewer and starts off. The default tiles are
+OpenStreetMap, with visible attribution, normal caching and viewport-only requests.
+No map account or API key is needed; another HTTPS raster provider can be selected
+under Phone sensors > Map source. The provider sees the viewed area and IP address.
+No scooter credentials or journal uploads occur. Routes still draw without tiles;
+there is no bulk offline map-download feature. Map service/privacy details:
+https://operations.osmfoundation.org/policies/tiles/
+https://osmfoundation.org/wiki/Privacy_Policy
+
+Older rides cannot acquire a route retroactively. GPS exports contain coordinates.
+GPX contains time/position only; measured GNSS altitude/accuracy stays in CSV/JSON.
 
 UNDERSTAND BATTERY READINGS
 

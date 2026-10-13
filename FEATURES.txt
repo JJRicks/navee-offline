@@ -2,8 +2,9 @@ NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
 Validation date: October 12, 2026
 Tested hardware: US UT5 MAX, model 2538; OEM protocol reference: NAVEE 2.1.9
 
-The app talks directly to the scooter over Bluetooth and has no internet
-permission. First-time owner setup is covered in SETUP.txt.
+The app talks directly to the scooter over Bluetooth. Optional map tiles use
+internet; authentication, controls and recording require no server. First-time
+owner setup is covered in SETUP.txt.
 
 CONFIRMED WRITES AND FRESH READBACK
 
@@ -149,3 +150,21 @@ Ordinary diagnostics exclude owner identity and PIN digits. A private owner
 backup intentionally contains the setup identity and must stay private.
 Cloud activation, ownership transfer, account sharing, firmware hosting and
 Find My/Find Hub networks remain outside this offline app.
+
+
+0.5.0 PHONE RECORDING AND INTERFACE
+
+Six destinations: Home, Scooter, Lights, Stats, Rides and More. Settings use compact
+groups and value rows; all headlight, line and star controls are under Lights.
+
+New explicit recordings can save GPS, pressure and experimental motion separately
+from electrical-energy sampling. Route preview colors power, grade and GPS speed
+derivative; tap for synchronized readings. Phone raw, linear and earth-frame
+acceleration are retained in CSV when the relevant sensors are available.
+
+Grade and ascent are estimates with signal-quality gates. GPS and Bluetooth gaps
+remain gaps. No inferred accelerometer distance is used. Older rides do not gain
+GPS. Pocket IMU quality and outdoor GPS/pressure need physical ride validation.
+
+Optional interactive OpenStreetMap tiles have caching and linked attribution,
+with a replaceable HTTPS source. Route capture/drawing work without a map server.

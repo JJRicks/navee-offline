@@ -25,3 +25,17 @@ For a bug report, include app version, phone model, Android version, the relevan
 Keep signing keys, passwords, owner setup/backup files, captures, local paths, and recordings outside Git. `.gitignore` covers common filenames, but review staged files before pushing. The optional `local-build.env` is a local shell configuration file, not a shared project requirement.
 
 Historical verification is in `VERIFICATION.txt`. Current follow-up work is listed in `README.md`; do not describe a feature as hardware-tested merely because it compiles or receives a Bluetooth acknowledgment.
+
+## Phone sensor changes
+
+Keep phone callbacks out of `RideStore.sample()`: a phone-only frame would break
+paired electrical coverage. `PhoneRideRecorder` owns background callbacks and
+batched writes; `PhoneRideStore` analyzes its sidecar journals. Preserve source
+monotonic timestamps, uncertainty, unavailable readings, and segment boundaries.
+Don't use accelerometer integration as route distance. Never add a map request to
+the Bluetooth or recording path. Map tiles are explicitly enabled in the viewer.
+
+`PhoneRideValidation` and `UiOrganizationValidation` are fresh-emulator-only. They
+refuse owner phones and existing app data; synthetic routes are test fixtures, not
+physical sensor validation. Grant test permissions externally only on the emulator.
+Use the existing release signing key privately for an in-place owner update.

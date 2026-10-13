@@ -47,15 +47,15 @@ public final class Ui {
         this.context = context; this.dark = dark;
         this.textScale = Math.max(0.75f, Math.min(1.8f, textScale));
         density = context.getResources().getDisplayMetrics().density;
-        bg = Color.parseColor(dark ? "#08131D" : "#F0F6F8");
-        surface = Color.parseColor(dark ? "#132534" : "#FFFFFF");
-        raised = Color.parseColor(dark ? "#1C3344" : "#E7F0F4");
-        text = Color.parseColor(dark ? "#F3F8FC" : "#132A38");
-        muted = Color.parseColor(dark ? "#9BB0C1" : "#526D7D");
-        accent = Color.parseColor(dark ? "#4EF0C8" : "#007C67");
-        blue = Color.parseColor(dark ? "#7CA8FF" : "#315CB7");
-        orange = Color.parseColor(dark ? "#F3B67B" : "#925410");
-        outline = Color.parseColor(dark ? "#263D4F" : "#D8E5EB");
+        bg = Color.parseColor(dark ? "#101210" : "#F3F2ED");
+        surface = Color.parseColor(dark ? "#1C201D" : "#FFFFFF");
+        raised = Color.parseColor(dark ? "#282E29" : "#E8EBE3");
+        text = Color.parseColor(dark ? "#F5F5EF" : "#20261F");
+        muted = Color.parseColor(dark ? "#ADB6AB" : "#616B5D");
+        accent = Color.parseColor(dark ? "#C6E5A1" : "#416B30");
+        blue = Color.parseColor(dark ? "#A7C9EB" : "#376184");
+        orange = Color.parseColor(dark ? "#E8C590" : "#865B20");
+        outline = Color.parseColor(dark ? "#30382F" : "#DDE2D7");
         danger = Color.parseColor(dark ? "#FF929F" : "#B3263E");
     }
     public int dp(float value) { return Math.round(value * density); }
@@ -76,8 +76,7 @@ public final class Ui {
         LinearLayout layout = new LinearLayout(context);
         layout.setOrientation(LinearLayout.VERTICAL);
         layout.setPadding(dp(18), dp(18), dp(18), dp(18));
-        layout.setBackground(shape(surface, 22, outline));
-        layout.setElevation(dp(dark ? 1 : 2));
+        layout.setBackground(shape(surface, 24, 0));
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.bottomMargin = dp(12); layout.setLayoutParams(params); return layout;
     }
@@ -151,14 +150,39 @@ public final class Ui {
         if (!enabled || value == null) heading.setTextColor(muted);
         return row;
     }
+    /** Quiet, aligned navigation row. Child 1 is the value text for live updates. */
+    public LinearLayout settingRow(String label, String value, Runnable action) {
+        LinearLayout row = new LinearLayout(context); row.setOrientation(LinearLayout.HORIZONTAL);
+        row.setGravity(Gravity.CENTER_VERTICAL); row.setMinimumHeight(dp(62));
+        row.setPadding(dp(2), dp(13), dp(2), dp(13));
+        TextView title = text(label, 15, false);
+        row.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView amount = text(value == null ? "" : value, 14, false);
+        amount.setTextColor(muted); amount.setGravity(Gravity.END); amount.setMaxLines(2);
+        amount.setMaxWidth(dp(148));
+        LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(-2, -2); vp.leftMargin = dp(12);
+        row.addView(amount, vp);
+        if (action != null) {
+            View chevron = icon("chevron", 15, muted);
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(dp(15), dp(15)); cp.leftMargin = dp(10);
+            row.addView(chevron, cp); row.setFocusable(true);
+            row.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 26)), shape(Color.TRANSPARENT, 10, 0), null));
+            row.setOnClickListener(v -> action.run());
+        }
+        return row;
+    }
+    public void divider(LinearLayout parent) {
+        View line = new View(context); line.setBackgroundColor(withAlpha(outline, 125));
+        parent.addView(line, new LinearLayout.LayoutParams(-1, dp(1)));
+    }
     public View nav(String label, String iconKey, boolean selected, Runnable action) {
         LinearLayout item = new LinearLayout(context);
         item.setOrientation(LinearLayout.VERTICAL); item.setGravity(Gravity.CENTER);
-        item.setPadding(dp(6), dp(8), dp(6), dp(8)); item.setMinimumHeight(dp(64));
+        item.setPadding(dp(2), dp(8), dp(2), dp(8)); item.setMinimumHeight(dp(64));
         item.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)),
                 shape(selected ? withAlpha(accent, dark ? 28 : 20) : Color.TRANSPARENT, 18, 0), null));
         item.addView(icon(iconKey, 24, selected ? accent : muted), new LinearLayout.LayoutParams(dp(24), dp(24)));
-        TextView caption = text(label, 11, selected); caption.setTextColor(selected ? accent : muted);
+        TextView caption = text(label, 10, selected); caption.setMaxLines(2); caption.setTextColor(selected ? accent : muted);
         caption.setGravity(Gravity.CENTER); caption.setPadding(0, dp(5), 0, 0); item.addView(caption);
         item.setContentDescription(label); item.setSelected(selected); item.setFocusable(true);
         if (Build.VERSION.SDK_INT >= 30) item.setStateDescription(selected ? "Selected" : "");
@@ -269,7 +293,9 @@ public final class Ui {
     public static final class Point {
         public final long millis;
         public final double value;
-        public Point(long millis, double value) { this.millis = millis; this.value = value; }
+        public final boolean gapBefore;
+        public Point(long millis, double value) { this(millis, value, false); }
+        public Point(long millis, double value, boolean gapBefore) { this.millis = millis; this.value = value; this.gapBefore = gapBefore; }
     }
     /** Actual sensor values only. Gaps break the path; touch reads a measured point. */
     public final class ChartView extends View {
@@ -293,10 +319,16 @@ public final class Ui {
             this.empty = empty == null ? "No measured data yet" : empty;
             if (source != null && !source.isEmpty()) {
                 int count = Math.min(MAX_POINTS, source.size());
+                int previousIndex = -1;
                 for (int i = 0; i < count; i++) {
                     int index = count <= 1 ? 0 : (int) ((long) i * (source.size() - 1) / (count - 1));
                     Point point = source.get(index);
-                    if (point != null && !Double.isNaN(point.value) && !Double.isInfinite(point.value)) points.add(point);
+                    boolean gap = false;
+                    for (int skipped = previousIndex + 1; skipped <= index; skipped++) {
+                        Point candidate = source.get(skipped);
+                        if (candidate == null || candidate.gapBefore || !Double.isFinite(candidate.value)) gap = true;
+                    }
+                    if (point != null && Double.isFinite(point.value)) { points.add(new Point(point.millis, point.value, gap)); previousIndex = index; }
                 }
                 Collections.sort(points, new Comparator<Point>() { public int compare(Point a, Point b) {
                     return a.millis < b.millis ? -1 : a.millis > b.millis ? 1 : 0;
@@ -354,7 +386,7 @@ public final class Ui {
             Point previous = null;
             for (Point p : points) {
                 float xx = x(p.millis), yy = y(p.value);
-                if (previous == null || p.millis - previous.millis > 3500) {
+                if (previous == null || p.gapBefore || p.millis - previous.millis > 3500) {
                     if (previous != null) { fill.lineTo(x(previous.millis), zero); fill.close(); }
                     line.moveTo(xx, yy); fill.moveTo(xx, zero); fill.lineTo(xx, yy);
                 } else { line.lineTo(xx, yy); fill.lineTo(xx, yy); }
@@ -370,8 +402,8 @@ public final class Ui {
             if (points.size() == 1) canvas.drawCircle(x(points.get(0).millis), y(points.get(0).value), dp(4), paint);
             else for (int i = 0; i < points.size(); i++) {
                 Point p = points.get(i);
-                boolean gapBefore = i == 0 || p.millis - points.get(i - 1).millis > 3500;
-                boolean gapAfter = i == points.size() - 1 || points.get(i + 1).millis - p.millis > 3500;
+                boolean gapBefore = i == 0 || p.gapBefore || p.millis - points.get(i - 1).millis > 3500;
+                boolean gapAfter = i == points.size() - 1 || points.get(i + 1).gapBefore || points.get(i + 1).millis - p.millis > 3500;
                 if (gapBefore && gapAfter) canvas.drawCircle(x(p.millis), y(p.value), dp(2.5f), paint);
             }
             if (selected >= 0 && selected < points.size()) {
@@ -441,6 +473,9 @@ public final class Ui {
             Path p = new Path();
             if (key.equals("home") || key.equals("dashboard")) {
                 p.moveTo(3, 10); p.lineTo(12, 3); p.lineTo(21, 10); p.moveTo(5, 9); p.lineTo(5, 21); p.lineTo(10, 21); p.lineTo(10, 15); p.lineTo(14, 15); p.lineTo(14, 21); p.lineTo(19, 21); p.lineTo(19, 9); canvas.drawPath(p, paint);
+            } else if (key.equals("lights")) {
+                p.moveTo(13, 5); p.cubicTo(21, 4, 22, 20, 13, 19); p.close(); canvas.drawPath(p, paint);
+                canvas.drawLine(3, 6, 9, 8, paint); canvas.drawLine(2, 12, 9, 12, paint); canvas.drawLine(3, 18, 9, 16, paint);
             } else if (key.equals("stats") || key.equals("chart") || key.equals("analytics")) {
                 canvas.drawLine(4, 3, 4, 20, paint); canvas.drawLine(4, 20, 21, 20, paint);
                 p.moveTo(7, 15); p.lineTo(11, 10); p.lineTo(15, 13); p.lineTo(21, 5); canvas.drawPath(p, paint);

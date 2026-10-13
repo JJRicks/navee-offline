@@ -4,4 +4,6 @@
   <application android:allowBackup="false" android:label="Navee local validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ParkedValidation" android:targetPackage="local.navee.offlinelock" android:label="Parked offline validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.LaunchValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator launch validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.PhoneRideValidation" android:targetPackage="local.navee.offlinelock" android:label="Emulator phone sensor recording validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.UiOrganizationValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator UI organization validation" />
 </manifest>
