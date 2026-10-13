@@ -168,12 +168,39 @@ public final class MoreScreen implements AppScreen {
         cardDestination = content;
         showSelectedSection();
         refresh();
+        restoreWideScroll();
     }
     @Override public View view() { return scroll; }
     @Override public void close() {
+        saveWideScroll();
         closed = true;
         for (AlertDialog dialog : new ArrayList<>(dialogs)) if (dialog.isShowing()) dialog.dismiss();
         dialogs.clear();
+    }
+
+    /**
+     * Wide mode: MainActivity only remembers the outer page scroller, which stays put while the two
+     * panes scroll. Keep the panes' positions across a brief tab return or rebuild. When the submenu
+     * has expired (more_section cleared after a minute away) nothing is restored.
+     */
+    private static final String WIDE_SECTION_SCROLL = "more_wide_section_scroll", WIDE_MENU_SCROLL = "more_wide_menu_scroll";
+    private void saveWideScroll() {
+        if (!wide || closed || service() == null || sectionScroll == null || menuScroll == null) return;
+        settings().edit().putString(WIDE_SECTION_SCROLL, shownSection() + ":" + sectionScroll.getScrollY())
+                .putInt(WIDE_MENU_SCROLL, menuScroll.getScrollY()).apply();
+    }
+    private void restoreWideScroll() {
+        if (!wide || service() == null || sectionScroll == null || menuScroll == null) return;
+        SharedPreferences prefs = settings();
+        if (selectedSection.isEmpty()) { prefs.edit().remove(WIDE_SECTION_SCROLL).remove(WIDE_MENU_SCROLL).apply(); return; }
+        String saved = prefs.getString(WIDE_SECTION_SCROLL, "");
+        int split = saved.lastIndexOf(':');
+        final int section = split > 0 && saved.substring(0, split).equals(shownSection()) ? parseScroll(saved.substring(split + 1)) : 0;
+        final int menu = prefs.getInt(WIDE_MENU_SCROLL, 0);
+        sectionScroll.post(() -> { if (!closed) { sectionScroll.scrollTo(0, section); menuScroll.scrollTo(0, menu); } });
+    }
+    private static int parseScroll(String value) {
+        try { return Math.max(0, Integer.parseInt(value)); } catch (NumberFormatException e) { return 0; }
     }
 
     /** Wide mode has no submenu to close: Back leaves the tab the way Home would, keeping the submenu. */

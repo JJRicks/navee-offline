@@ -169,7 +169,8 @@ public final class StatsScreen implements AppScreen {
         if (Build.VERSION.SDK_INT >= 28) chartTitle.setAccessibilityHeading(true);
         livePower = ui.caption("Direction remains unconfirmed until you establish what the scooter's sign means.");
         livePower.setPadding(0, ui.dp(5), 0, ui.dp(8)); chartCard.addView(livePower);
-        LinearLayout choices = new LinearLayout(host.activity()); choices.setOrientation(LinearLayout.HORIZONTAL); choices.setGravity(Gravity.CENTER_VERTICAL);
+        // Chips keep their natural width and wrap whole onto another row in narrow panes.
+        ViewGroup choices = new WrapRow();
         addChartChoice(choices, "Power", "power_w"); addChartChoice(choices, "Voltage", "voltage_v"); addChartChoice(choices, "Speed", "speed_kmh");
         chartCard.addView(choices, new LinearLayout.LayoutParams(-1, -2)); chart = ui.new ChartView(); chartCard.addView(chart);
         TextView window = ui.caption("2-minute window"); window.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11 * ui.textScale);
@@ -207,7 +208,7 @@ public final class StatsScreen implements AppScreen {
         if (Build.VERSION.SDK_INT >= 28) diagnosticsTitle.setAccessibilityHeading(true);
         TextView explanation = ui.caption("Payloads include the response status followed by data. Unsupported fields and units stay raw. Owner credentials and PIN responses are excluded from these diagnostics.");
         explanation.setPadding(0, ui.dp(5), 0, ui.dp(6)); evidence.addView(explanation);
-        LinearLayout actions = new LinearLayout(host.activity()); actions.setOrientation(LinearLayout.HORIZONTAL);
+        LinearLayout actions = new StackingRow();
         refreshButton = ui.secondaryButton("Refresh", () -> { service.ble.refresh(true); host.toast("Requested all supported diagnostic reads."); });
         ui.decorate(refreshButton, "recovery"); refreshButton.setContentDescription("Refresh diagnostic reads");
         TextView export = ui.secondaryButton("Export", () -> host.saveText("navee-diagnostics.json", "application/json", service.snapshot()));
@@ -313,7 +314,53 @@ public final class StatsScreen implements AppScreen {
         // When wide only the left pane changes, so only it returns to the top.
         refresh(); sectionScroll.post(() -> sectionScroll.scrollTo(0, 0));
     }
-    private void addChartChoice(LinearLayout row, String label, String key) {
+    /** Lays children out left to right at their natural size, wrapping whole children to new rows. */
+    private final class WrapRow extends ViewGroup {
+        WrapRow() { super(host.activity()); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec), x = 0, y = 0, rowHeight = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i);
+                measureChild(child, MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                int w = child.getMeasuredWidth() + ui.dp(6);
+                if (x > 0 && x + child.getMeasuredWidth() > width) { y += rowHeight; x = 0; rowHeight = 0; }
+                x += w; rowHeight = Math.max(rowHeight, child.getMeasuredHeight());
+            }
+            setMeasuredDimension(resolveSize(width, widthSpec), resolveSize(y + rowHeight, heightSpec));
+        }
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int width = r - l, x = 0, y = 0, rowHeight = 0;
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i); int w = child.getMeasuredWidth(), h = child.getMeasuredHeight();
+                if (x > 0 && x + w > width) { y += rowHeight; x = 0; rowHeight = 0; }
+                child.layout(x, y, x + w, y + h); x += w + ui.dp(6); rowHeight = Math.max(rowHeight, h);
+            }
+        }
+    }
+    /** Two equal buttons side by side, stacked full width when either label would have to break. */
+    private final class StackingRow extends LinearLayout {
+        StackingRow() { super(host.activity()); setOrientation(HORIZONTAL); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int half = (MeasureSpec.getSize(widthSpec) - ui.dp(8)) / 2;
+            boolean stack = false;
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i);
+                child.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                if (child.getMeasuredWidth() > half) stack = true;
+            }
+            if (stack != (getOrientation() == VERTICAL)) {
+                setOrientation(stack ? VERTICAL : HORIZONTAL);
+                for (int i = 0; i < getChildCount(); i++) {
+                    LayoutParams p = stack ? new LayoutParams(-1, -2) : new LayoutParams(0, -2, 1);
+                    p.topMargin = ui.dp(6);
+                    if (!stack) { if (i == 0) p.rightMargin = ui.dp(4); else p.leftMargin = ui.dp(4); }
+                    getChildAt(i).setLayoutParams(p);
+                }
+            }
+            super.onMeasure(widthSpec, heightSpec);
+        }
+    }
+    private void addChartChoice(ViewGroup row, String label, String key) {
         TextView chip = ui.chip(label, key.equals(chartKey), () -> {
             chartKey = key; preferences.edit().putString("stats_chart_key", key).apply();
             for (Map.Entry<String, TextView> e : chartChips.entrySet()) ui.styleChip(e.getValue(), e.getKey().equals(chartKey));
@@ -325,7 +372,7 @@ public final class StatsScreen implements AppScreen {
         target.addView(chip, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL));
         target.setOnClickListener(v -> chip.performClick());
         target.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-2, -2); p.rightMargin = ui.dp(6); row.addView(target, p);
+        row.addView(target, new ViewGroup.LayoutParams(-2, -2));
     }
     private void addMetric(TelemetryHistory.Reading metric) {
         Group group = groups.get(metric.group);

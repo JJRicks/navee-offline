@@ -427,7 +427,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void openMoreSection(String section){
         // A deliberate shortcut wins over the older submenu's expired return state.
         expireMoreSection(true);markMoreActive();
-        preferences.edit().putString("more_section",section).apply();scrollPositions.put("more",0);
+        preferences.edit().putString("more_section",section).remove("more_wide_section_scroll").remove("more_wide_menu_scroll").apply();scrollPositions.put("more",0);
         if(selectedPage.equals("more")){if(scroll!=null)scroll.scrollTo(0,0);rebuild();}else select("more");
     }
     private void captureScroll(){if(scroll!=null)scrollPositions.put(scrollPage,scroll.getScrollY());}
