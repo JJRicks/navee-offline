@@ -1,5 +1,16 @@
 This independent application is not affiliated with NAVEE or its app vendor.
 
+UT5 MAX PHOTO (0.6.0 AND LATER)
+
+The project user supplied the scooter image bundled at:
+  res/drawable-nodpi/ut5max.webp
+
+The supplied file had a .png name but contains WebP image data. It is bundled
+in WebP form with identifying metadata removed and compressed pixels/alpha
+unchanged. Its original author and asset licence were not supplied.
+This image is separate from the MIT-licensed application source; the source
+licence does not grant additional rights to the photo or NAVEE marks shown in it.
+
 Protocol research and implementation references:
   https://github.com/pepperonas/navee-st3-pro
 

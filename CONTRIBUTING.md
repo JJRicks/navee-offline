@@ -8,7 +8,7 @@ bash tests/run.sh
 bash build.sh
 ```
 
-The core Java tests require a JDK; the APK build additionally needs SDK platform 36 and build-tools 36.1.0. A fresh clone builds with its own ignored local key. Source contributors do not need the private release signing key.
+Use JDK 17 or newer for development. The core Java tests require only that JDK; the APK build additionally needs SDK platform 36 and build-tools 36.1.0. A fresh clone builds with its own ignored local key. Source contributors do not need the private release signing key.
 
 ## Device checks
 
@@ -39,3 +39,66 @@ the Bluetooth or recording path. Map tiles are explicitly enabled in the viewer.
 refuse owner phones and existing app data; synthetic routes are test fixtures, not
 physical sensor validation. Grant test permissions externally only on the emulator.
 Use the existing release signing key privately for an in-place owner update.
+
+## Dashboard and connected history
+
+`DashboardValidation` exercises the actual widget palette, edit controls, cached
+readings, and saved layout. Run it on a fresh emulator at narrow, compact, and
+expanded widths. `HistoryValidation` uses isolated synthetic databases to check
+profile separation, retention, query bounds, and storage pressure. Neither runner
+belongs on an owner's phone; both reject physical devices.
+
+Keep cached values separate from fresh authenticated state. History must not
+enable scooter controls, extend the background grace, start phone sensors, or
+change ride-energy integration. Preserve gaps between connections and do not
+store owner identity or PIN traffic. Dashboard layout is per scooter and column
+count. Dashboard defaults seed explicit one/two/three/four-column rectangles
+only for new/reset dashboards; never overwrite saved custom or empty dashboards.
+The two/four-column presets reproduce the captured folded/unfolded arrangement.
+Widget scale values are stored in canonical units and converted for display.
+
+The editor uses dedicated top-left move grips and bottom-right resize
+corners, with tap-accessible Move/Size dialogs and one gear-shaped widget-options menu.
+Gesture previews must use an untouched start snapshot, pin the full requested
+rectangle, compact neighbors without overlap, save only on release and restore
+on cancellation or teardown. Preserve scrolling outside the handles. Reflow is
+200 ms and the dashed destination transition 120 ms; respect system animation
+settings. Check direct drag, long press, corner resize, cancellation, theme
+contrast and interrupted animations at each tested width. Executed results
+belong in `VERIFICATION.txt`, not inferred from an implementation change.
+
+Edit controls float over unchanged card content. Compare card, title, footer and
+body-text geometry before/after entering Edit. The responsive matrix covers every
+widget at minimum/default heights and narrow/default/full widths, including 140%
+text. Keep the scooter's two default stats stacked vertically beside its larger
+photo, and preserve scrolling from within longer custom content. Keep saved
+positions/sizes and genuinely custom reading lists; the 0.6.3 migration changes
+only the former default lists. Fit text from current available space rather than
+a previously measured text height, so shrinking and growing a card is repeatable.
+Balance short content within its viewport without forcing overflowing content
+outside the reachable scroll area.
+
+Your scooter's selected readings and local rename are presentation features.
+Keep the owner-observed WALK/ECO/SPORT labels restricted to PID 2538 and the
+confirmed mode codes (11/2/3). Unknown codes/models and raw diagnostics/exports
+must retain their original values. Reported charge/throughput counters are not
+measured capacity or current-ride consumption.
+
+The battery ring should use the space remaining after its icon readings, with a
+thicker arc and balanced visual placement. Check four readings in one row where
+they fit, then wrapping at narrow widths or large text. Preserve charging context switches, missing/stale semantics and spoken
+labels for icon-only readings. Live footer removal must not hide stale timestamps.
+
+Connection status remains concise; errors stay reachable by tapping it. Reuse the
+profile's verified lastConnected timestamp rather than launch/attempt times.
+DisplayTime applies time_format (system/12h/24h) to user-facing clocks. Keep
+unknown timestamps empty and include dates for older connections. Dashboard
+validation covers the taller centered, slightly inset slider, its full-width
+narrow-card fallback, connection states and time formats using isolated synthetic
+state; it must never issue a scooter command.
+
+`SearchFocusValidation` uses a real visible software keyboard on a fresh emulator
+to verify outside taps, scrolling, system Back, query preservation, and ordinary
+form focus in both themes. Enable the emulator software keyboard; this runner
+refuses physical phones and existing app data. Search bindings must pass touches
+through, release listeners with the field, and leave ordinary form editors alone.

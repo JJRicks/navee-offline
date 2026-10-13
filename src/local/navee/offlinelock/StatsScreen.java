@@ -6,6 +6,11 @@ import android.graphics.Typeface;
 import android.os.SystemClock;
 import android.text.Editable;
 import android.text.TextWatcher;
+import android.text.SpannableStringBuilder;
+import android.text.Spanned;
+import android.text.style.ForegroundColorSpan;
+import java.text.SimpleDateFormat;
+import java.util.Date;
 import android.view.Gravity;
 import android.view.View;
 import android.view.inputmethod.InputMethodManager;
@@ -80,11 +85,11 @@ public final class StatsScreen implements AppScreen {
             section.setPadding(0, ui.dp(12), 0, 0); page.addView(section);
         }
 
-        boolean compactBattery = host.activity().getResources().getConfiguration().screenWidthDp < 360;
+        int widthDp = host.activity().getResources().getConfiguration().screenWidthDp;
+        boolean compactBattery = widthDp < 360 || (widthDp < 430 && ui.textScale * host.activity().getResources().getConfiguration().fontScale > 1.2f);
         LinearLayout battery = ui.card(); battery.setOrientation(compactBattery ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL); battery.setGravity(Gravity.CENTER_VERTICAL);
         batteryRing = ui.new BatteryRing(); battery.addView(batteryRing, new LinearLayout.LayoutParams(ui.dp(144), ui.dp(160)));
         LinearLayout batteryWords = vertical(); batteryWords.setPadding(compactBattery ? 0 : ui.dp(12), compactBattery ? ui.dp(10) : 0, 0, 0);
-        batteryWords.addView(ui.caption("Battery"));
         batteryHeadline = ui.text("Waiting for readings", 20, true); batteryHeadline.setPadding(0, ui.dp(8), 0, ui.dp(10)); batteryWords.addView(batteryHeadline);
         batteryDetails = ui.text("", 13, false); batteryDetails.setTextColor(ui.muted); batteryWords.addView(batteryDetails);
         battery.addView(batteryWords, compactBattery ? new LinearLayout.LayoutParams(-1, -2) : new LinearLayout.LayoutParams(0, -2, 1)); overviewSection.addView(battery);
@@ -97,25 +102,21 @@ public final class StatsScreen implements AppScreen {
         LinearLayout choices = new LinearLayout(host.activity()); choices.setOrientation(LinearLayout.HORIZONTAL);
         addChartChoice(choices, "Power", "power_w"); addChartChoice(choices, "Voltage", "voltage_v"); addChartChoice(choices, "Speed", "speed_kmh");
         chartCard.addView(choices); chart = ui.new ChartView(); chartCard.addView(chart);
-        chartCard.addView(ui.caption("Two minutes of measured data. Gaps remain visible. Record a ride for a persistent history.")); chartsSection.addView(chartCard);
+        chartCard.addView(ui.caption("2-minute window")); chartsSection.addView(chartCard);
 
-        LinearLayout guidance = ui.card(); guidance.addView(ui.text("Compare rides", 16, true));
-        TextView help = ui.caption("Record a ride to compare distance, battery use and energy per mile. Battery health above is reported by the scooter; measured capacity needs a longer test.");
-        help.setPadding(0, ui.dp(8), 0, 0); guidance.addView(help); overviewSection.addView(guidance);
-        TextView heading = ui.caption("Tap a reading for its source and favourite setting."); heading.setPadding(0, ui.dp(4), 0, ui.dp(12));
         search = new EditText(host.activity()); search.setSingleLine(true); search.setHint("Search voltage, odometer, firmware…");
-        search.setTextColor(ui.text); search.setHintTextColor(ui.muted); search.setTextSize(14 * ui.textScale);
-        search.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12)); search.setMinimumHeight(ui.dp(48));
-        search.setBackground(ui.shape(ui.raised, 16, ui.outline)); search.setContentDescription("Search scooter measurements"); search.setText(query);
-        readingsSection.addView(search, new LinearLayout.LayoutParams(-1, -2));
+        ui.styleSearch(search); search.setContentDescription("Search scooter measurements"); search.setText(query);
+        readingsSection.addView(search, ui.searchLayout());
+        SearchFocus.bind(search, host.activity().getWindow());
         LinearLayout filters = new LinearLayout(host.activity()); filters.setOrientation(LinearLayout.HORIZONTAL); filters.setGravity(Gravity.CENTER_VERTICAL);
         filterButton = ui.secondaryButton("Favourites", () -> {
             favouritesOnly = !favouritesOnly; preferences.edit().putBoolean("stats_favourites_only", favouritesOnly).apply(); applyFilter();
         });
         filters.addView(filterButton, new LinearLayout.LayoutParams(-2, -2));
-        resultCount = ui.caption(""); resultCount.setPadding(ui.dp(12), 0, 0, 0); filters.addView(resultCount, new LinearLayout.LayoutParams(0, -2, 1)); readingsSection.addView(filters);
-        readingsSection.addView(heading);
-        for (Telemetry.Metric metric : service.ble.telemetry.metrics()) addMetric(metric);
+        resultCount = ui.caption(""); resultCount.setPadding(ui.dp(12), 0, 0, 0); filters.addView(resultCount, new LinearLayout.LayoutParams(0, -2, 1));
+        LinearLayout.LayoutParams filterSpacing = new LinearLayout.LayoutParams(-1, -2); filterSpacing.bottomMargin = ui.dp(8);
+        readingsSection.addView(filters, filterSpacing);
+        for (TelemetryHistory.Reading reading : service.displayReadings().values()) addMetric(reading);
         search.addTextChangedListener(new TextWatcher() {
             public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
             public void onTextChanged(CharSequence s, int start, int before, int count) {
@@ -127,8 +128,8 @@ public final class StatsScreen implements AppScreen {
         LinearLayout evidence = ui.card(); evidence.addView(ui.text("Diagnostics", 18, true));
         TextView explanation = ui.caption("Payloads include the response status followed by data. Unsupported fields and units stay raw. Owner credentials and PIN responses are excluded from these diagnostics.");
         explanation.setPadding(0, ui.dp(8), 0, ui.dp(10)); evidence.addView(explanation);
-        refreshButton = ui.secondaryButton("Refresh diagnostic reads", () -> { service.ble.refresh(true); host.toast("Requested all supported diagnostic reads."); }); evidence.addView(refreshButton);
-        evidence.addView(ui.button("Export diagnostics JSON", () -> host.saveText("navee-diagnostics.json", "application/json", service.snapshot())));
+        refreshButton = ui.secondaryButton("Refresh diagnostic reads", () -> { service.ble.refresh(true); host.toast("Requested all supported diagnostic reads."); }); ui.decorate(refreshButton, "recovery"); evidence.addView(refreshButton);
+        TextView export = ui.button("Export diagnostics JSON", () -> host.saveText("navee-diagnostics.json", "application/json", service.snapshot())); ui.decorate(export, "export"); evidence.addView(export);
         rawValues = ui.text("No accepted read payloads yet.", 11, false); rawValues.setTypeface(Typeface.MONOSPACE); rawValues.setTextColor(ui.muted);
         rawValues.setTextIsSelectable(true); rawValues.setPadding(0, ui.dp(12), 0, 0); evidence.addView(rawValues); diagnosticsSection.addView(evidence);
         LinearLayout events = ui.card(); events.addView(ui.text("Recent connection events", 16, true));
@@ -161,11 +162,11 @@ public final class StatsScreen implements AppScreen {
         button.setTextSize(12 * ui.textScale); button.setPadding(ui.dp(8), ui.dp(10), ui.dp(8), ui.dp(10));
         LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1); p.rightMargin = ui.dp(5); row.addView(button, p);
     }
-    private void addMetric(Telemetry.Metric metric) {
+    private void addMetric(TelemetryHistory.Reading metric) {
         Group group = groups.get(metric.group);
         if (group == null) {
             LinearLayout card = ui.card(), body = vertical();
-            TextView title = ui.text(metric.group, 16, true); title.setMinimumHeight(ui.dp(48)); title.setGravity(Gravity.CENTER_VERTICAL);
+            TextView title = ui.text(metric.group, 16, true); ui.decorate(title, groupIcon(metric.group)); title.setMinimumHeight(ui.dp(48)); title.setGravity(Gravity.CENTER_VERTICAL);
             boolean expanded = preferences.getBoolean("stats_group_" + metric.group, metric.group.equals("Battery") || metric.group.equals("Ride"));
             group = new Group(metric.group, card, body, title, expanded); final Group created = group;
             title.setContentDescription(metric.group + " measurements, expand or collapse");
@@ -174,7 +175,7 @@ public final class StatsScreen implements AppScreen {
         }
         LinearLayout row = new LinearLayout(host.activity()); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, ui.dp(dense ? 8 : 14), 0, ui.dp(dense ? 8 : 14)); row.setMinimumHeight(ui.dp(dense ? 52 : 64));
-        LinearLayout words = vertical(); TextView label = ui.text(metric.label, dense ? 13 : 14, false); words.addView(label);
+        LinearLayout words = vertical(); TextView label = ui.text(isKnownDriveMode(metric.key) ? "Drive mode" : metric.label, dense ? 13 : 14, false); words.addView(label);
         TextView source = ui.caption(""); source.setTextSize(11 * ui.textScale); source.setPadding(0, ui.dp(4), 0, 0); words.addView(source);
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
         TextView amount = ui.text("Not reported", dense ? 13 : 14, true); amount.setGravity(Gravity.END); amount.setMaxWidth(ui.dp(150));
@@ -208,34 +209,44 @@ public final class StatsScreen implements AppScreen {
             }
             group.title.setText(group.name + (open ? "  −" : "  +"));
         }
-        filterButton.setText(favouritesOnly ? "Show all" : "Favourites"); filterButton.setTextColor(favouritesOnly ? ui.accent : ui.muted);
+        filterButton.setText(favouritesOnly ? "Show all" : "Favourites"); ui.decorate(filterButton, "star"); filterButton.setTextColor(favouritesOnly ? ui.accent : ui.muted);
         resultCount.setText(count == 0 ? "No matching measurements" : count + (count == 1 ? " measurement" : " measurements"));
     }
     @Override public View view() { return scroll; }
     @Override public void refresh() {
-        long now = SystemClock.elapsedRealtime();
-        Map<String, Telemetry.Metric> metrics = new LinkedHashMap<String, Telemetry.Metric>();
-        for (Telemetry.Metric m : service.ble.telemetry.metrics()) {
-            metrics.put(m.key, m);
+        Map<String, TelemetryHistory.Reading> readings = service.displayReadings();
+        int saved = 0, live = 0;
+        for (TelemetryHistory.Reading reading : readings.values()) {
+            if (reading.value != null) { saved++; if (reading.live) live++; }
             if (!selectedSection.equals("Readings")) continue;
-            Row row = rows.get(m.key); if (row == null) continue;
-            row.amount.setText(display(m)); row.amount.setTextColor(m.value == null ? ui.muted : ui.text);
-            boolean stale = m.updatedMs >= 0 && now - m.updatedMs > 15000;
-            row.evidence.setText(m.updatedMs < 0 ? "Not supplied" : age(now - m.updatedMs));
-            row.evidence.setVisibility(stale ? View.VISIBLE : View.GONE);
-            row.star.setVisibility(favourites.contains(m.key) ? View.VISIBLE : View.GONE);
-            row.layout.setContentDescription(m.label + ", " + display(m) + ", " + row.evidence.getText() + ". Tap for details.");
+            Row row = rows.get(reading.key); if (row == null) continue;
+            row.amount.setText(display(reading)); row.amount.setTextColor(reading.live ? ui.text : ui.muted);
+            String age = reading.value == null ? "Not supplied" : reading.live ? "Live" : savedTime(reading.capturedWallMs);
+            row.evidence.setText(age);
+            row.evidence.setVisibility(reading.value != null && !reading.live ? View.VISIBLE : View.GONE);
+            row.star.setVisibility(favourites.contains(reading.key) ? View.VISIBLE : View.GONE);
+            row.layout.setContentDescription(reading.label + ", " + display(reading) + ", " + age + ". Tap for details.");
+            if (isKnownDriveMode(reading.key)) {
+                row.amount.setContentDescription("Drive mode, " + display(reading) + ", " + age);
+                ui.styleDriveMode(row.amount, display(reading), reading.live);
+            }
         }
-        status.setText("Disconnected · last known readings");
-        status.setVisibility(service.ble.connected() ? View.GONE : View.VISIBLE);
-        status.setTextColor(service.ble.connected() ? ui.accent : ui.orange); refreshButton.setEnabled(service.ble.connected());
+        status.setText(saved == 0 ? "Connect for readings" : "Last known readings");
+        status.setVisibility(live > 0 ? View.GONE : View.VISIBLE);
+        status.setVisibility(saved == 0 || live < saved ? View.VISIBLE : View.GONE);
+        status.setTextColor(ui.muted); refreshButton.setEnabled(service.ble.connected());
         if (selectedSection.equals("Overview")) {
-            Telemetry.Metric soc = metrics.get("battery_percent"), temp = metrics.get("temperature_c"), voltage = metrics.get("voltage_v");
-            // charging_state is explicitly raw; do not invent a charging badge from an unconfirmed enum.
-            batteryRing.set(soc == null ? null : soc.numericValue, soc == null || soc.updatedMs < 0 ? "No reading" : age(now - soc.updatedMs), false);
-            batteryHeadline.setText(voltage == null || voltage.value == null ? "Waiting for voltage" : voltage.value);
-            batteryDetails.setText("Temperature  " + value(temp) + "\nReported health  " + value(metrics.get("battery_health_percent"))
-                    + "\nRated capacity  " + value(metrics.get("rated_capacity_ah")));
+            TelemetryHistory.Reading soc = readings.get("battery_percent"), voltage = readings.get("voltage_v");
+            batteryRing.set(soc == null ? null : soc.number, soc == null || soc.value == null ? "No reading"
+                    : soc.live ? "Live" : "Last known", false);
+            batteryRing.setLive(soc != null && soc.live);
+            batteryHeadline.setText(value(voltage)); batteryHeadline.setTextColor(voltage != null && voltage.live ? ui.text : ui.muted);
+            SpannableStringBuilder details = new SpannableStringBuilder();
+            appendOverview(details, "Temperature", readings.get("temperature_c"));
+            appendOverview(details, "Reported health", readings.get("battery_health_percent"));
+            appendOverview(details, "Rated capacity", readings.get("rated_capacity_ah"));
+            if (soc != null && soc.value != null && !soc.live) details.append("\n").append(savedTime(soc.capturedWallMs));
+            batteryDetails.setText(details);
         }
         if (selectedSection.equals("Charts")) refreshChart();
         if (!selectedSection.equals("Diagnostics")) return;
@@ -259,20 +270,19 @@ public final class StatsScreen implements AppScreen {
         List<Ui.Point> values = new ArrayList<Ui.Point>();
         for (Ui.Point point : service.trend(chartKey)) values.add(new Ui.Point(point.millis + offset,
                 chartKey.equals("speed_kmh") && imperial ? point.value / RideStore.KM_PER_MILE : point.value));
-        chart.set(values, unit, color, "Connect for measured " + unit + " readings");
+        chart.set(values, unit, service.readingFresh(chartKey) ? color : ui.muted, "Connect for measured " + unit + " readings");
         livePower.setText(chartKey.equals("power_w") ? "Signed power. Confirm current direction in Rides to label draw and regeneration."
                 : chartKey.equals("voltage_v") ? "Battery voltage under the current load."
                 : "Speed reported by the scooter.");
     }
     private void showMetricDetails(String key) {
-        Telemetry.Metric metric = null;
-        for (Telemetry.Metric candidate : service.ble.telemetry.metrics()) if (candidate.key.equals(key)) { metric = candidate; break; }
-        if (metric == null) return;
-        String source = metric.updatedMs < 0 ? "Not supplied" : age(SystemClock.elapsedRealtime() - metric.updatedMs)
-                + " · response " + String.format(Locale.US, "0x%02X", metric.sourceCmd);
-        String detail = display(metric) + "\n\n" + source + "\n" + metric.key;
+        TelemetryHistory.Reading reading = service.displayReadings().get(key);
+        if (reading == null) return;
+        String when = reading.capturedWallMs <= 0 ? "Not supplied" : DisplayTime.dateTime(host.activity(), preferences, reading.capturedWallMs);
+        String detail = display(reading) + "\n\n" + (reading.live ? "Live reading" : "Last known reading")
+                + "\n" + when + "\n" + reading.key;
         if (key.equals("energy_throughput_wh")) detail += "\n\nThis field's meaning is unverified. It is not used to calculate ride energy.";
-        metricDialog = new AlertDialog.Builder(host.activity()).setTitle(metric.label).setMessage(detail)
+        metricDialog = new AlertDialog.Builder(host.activity()).setTitle(reading.label).setMessage(detail)
                 .setNeutralButton(favourites.contains(key) ? "Remove favourite" : "Add favourite", (d, which) -> {
                     if (!favourites.remove(key)) favourites.add(key);
                     preferences.edit().putStringSet("stats_favourites", new LinkedHashSet<String>(favourites)).apply();
@@ -280,22 +290,39 @@ public final class StatsScreen implements AppScreen {
                 }).setPositiveButton("Close", null).create(); metricDialog.show();
     }
     @Override public void close() { if (metricDialog != null) metricDialog.dismiss(); }
-    private String display(Telemetry.Metric metric) {
+    private boolean isKnownDriveMode(String key) {
+        ScooterProfiles.Profile profile = service.profiles.active();
+        return key.equals("driving_mode") && profile != null && profile.pid() == 2538;
+    }
+    private String display(TelemetryHistory.Reading metric) {
         if (metric.value == null) return "Not reported";
+        if (isKnownDriveMode(metric.key) && metric.number != null)
+            return Telemetry.drivingModeLabel(2538, metric.number);
         String units = preferences.getString("units", "mi");
         if (metric.key.equals("stored_trips")) return DisplayUnits.metricText(metric.value, units);
-        if (metric.numericValue == null || "km".equals(units)) return metric.value;
+        if (metric.number == null || "km".equals(units)) return metric.value;
         boolean speed = metric.key.endsWith("_kmh"), distance = metric.key.endsWith("_km");
         if (!speed && !distance) return metric.value;
-        String converted = String.format(Locale.US, "%.2f %s", metric.numericValue / RideStore.KM_PER_MILE, speed ? "mph" : "mi");
+        String converted = String.format(Locale.US, "%.2f %s", metric.number / RideStore.KM_PER_MILE, speed ? "mph" : "mi");
         return "dual".equals(units) ? metric.value + "  /  " + converted : converted;
     }
-    private static String value(Telemetry.Metric m) { return m == null || m.value == null ? "Not reported" : m.value; }
-    private static String age(long millis) {
-        if (millis < 0) return "Clock changed";
-        if (millis < 1000) return "Just received";
-        if (millis < 60000) return millis / 1000 + "s ago";
-        if (millis < 3600000) return millis / 60000 + "m ago";
-        return millis / 3600000 + "h ago";
+    private static String value(TelemetryHistory.Reading reading) {
+        return reading == null || reading.value == null ? "Not reported" : reading.value;
+    }
+    private void appendOverview(SpannableStringBuilder text, String label, TelemetryHistory.Reading reading) {
+        if (text.length() > 0) text.append("\n");
+        text.append(label).append("  "); int start = text.length(); text.append(value(reading));
+        text.setSpan(new ForegroundColorSpan(reading != null && reading.live ? ui.text : ui.muted), start, text.length(), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+    }
+    private String savedTime(long capturedWallMs) {
+        return capturedWallMs <= 0 ? "Last seen: time unavailable" : "Last seen "
+                + DisplayTime.recent(host.activity(), preferences, capturedWallMs, System.currentTimeMillis());
+    }
+    private static String groupIcon(String group) {
+        if (group.equals("Battery")) return "battery";
+        if (group.equals("Ride")) return "scooter";
+        if (group.equals("Settings")) return "tune";
+        if (group.equals("Device")) return "scooter";
+        return group.equals("Diagnostics") ? "lab" : "stats";
     }
 }

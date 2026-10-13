@@ -8,7 +8,7 @@ import java.util.Set;
 public final class ScooterCommandsTest {
     private static int assertions;
     public static void main(String[] args) {
-        oemFixtures(); catalogDomains(); readbackMetadata(); dynamicChoices(); sensitiveWorkflow(); rejectedCommands();
+        oemFixtures(); catalogDomains(); readbackMetadata(); lightingSemantics(); dynamicChoices(); sensitiveWorkflow(); rejectedCommands();
         System.out.println("ScooterCommands tests passed: "+assertions+" assertions");
     }
 
@@ -28,6 +28,27 @@ public final class ScooterCommandsTest {
         check((ScooterCommands.set("drive_speed_limit",20)[6]&255)==148,"Drive cap enabled bit");
         byte[] local=ScooterCommands.setClock(0x01020304L,3600);
         check(local[6]==1 && local[7]==2 && (local[8]&255)==17 && (local[9]&255)==20,"Local epoch uses BE and timezone offset");
+    }
+
+    private static void lightingSemantics() {
+        // Independent OEM TailLight/AutoLight commands and status bytes. Neither is
+        // evidence that the front lamp is physically emitting light.
+        ScooterCommands.Feature tail=ScooterCommands.find("headlight");
+        ScooterCommands.Feature automatic=ScooterCommands.find("auto_sensor");
+        check(tail.label.equals("Tail light")&&tail.readbackKey.equals("tail_light"),"Legacy headlight key accurately names OEM tail-light control");
+        check(tail.cmd==0x54&&tail.payloadOffset==4,"OEM TailLight command and tailIsOn status byte");
+        check(automatic.cmd==0x57&&automatic.payloadOffset==8,"OEM AutoLight command and autoSensor status byte");
+        byte[] on=ScooterCommands.set(tail.key,1),off=ScooterCommands.set(automatic.key,0);
+        check((on[3]&255)==0x54&&on[5]==1,"Tail-light write uses only its scalar opcode");
+        check((off[3]&255)==0x57&&off[5]==0,"Automatic-light write does not issue a manual headlight command");
+        for(int tailValue=0;tailValue<=1;tailValue++)for(int autoValue=0;autoValue<=1;autoValue++){
+            byte[] payload=new byte[15];payload[4]=(byte)tailValue;payload[8]=(byte)autoValue;payload[14]=1;
+            Protocol.Frame status=notification(0x70,0,payload);
+            check(tail.readback(status)==tailValue,"Tail preference is independent from automatic and night-mode settings");
+            check(automatic.readback(status)==autoValue,"Automatic preference is independent from tail and night-mode settings");
+        }
+        check(tail.readback(notification(0x54,0,new byte[]{1}))==null,"Tail-light ACK is not status confirmation");
+        check(automatic.readback(notification(0x57,0,new byte[]{1}))==null,"Automatic-light ACK is not status confirmation");
     }
 
     private static void catalogDomains() {

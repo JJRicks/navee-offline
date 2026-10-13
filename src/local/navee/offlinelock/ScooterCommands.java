@@ -89,8 +89,10 @@ public final class ScooterCommands {
                 new int[]{0,30,60,90}, new String[]{"Off","Low","Medium","High"}, 5, "energy_recovery", "ers", true);
         choice("acceleration", "Acceleration profile", "Ride", "Known OEM Eco/Turbo command on other models. Hidden by NAVEE on UT5 MAX; firmware support and behavior must be verified.", 0x58,
                 new int[]{3,5}, new String[]{"Eco (other-model OEM label)","Turbo (other-model OEM label)"}, 1, "driving_mode", "acceleration", true);
-        toggle("headlight", "Headlight", "Lights & sound", "Control the scooter's primary light setting.", 0x54, 4, "tail_light", "", false);
-        toggle("auto_sensor", "Automatic headlights", "Lights & sound", "Let the ambient light sensor control the headlights.", 0x57, 8, "auto_sensor", "autoSensor", false);
+        // Retain the legacy key for saved control evidence. OEM DeviceLightType.TailLight
+        // sends 0x54 and reads tailIsOn at 0x70 byte 4; it is not a manual headlight command.
+        toggle("headlight", "Tail light", "Lights & sound", "Set the tail-light preference. Automatic lighting can also affect the visible lights; this does not manually switch the headlight.", 0x54, 4, "tail_light", "", false);
+        toggle("auto_sensor", "Automatic lights", "Lights & sound", "Use ambient brightness to control the headlight and tail light. The OEM says a manual lighting change with the scooter's power button temporarily suspends automatic control until the scooter restarts.", 0x57, 8, "auto_sensor", "autoSensor", false);
         toggle("traction_control", "Traction control", "Ride", "OEM traction control setting.", 0x5f, 11, "traction_control", "tcs", true);
         toggle("turn_sound", "Turn signal sound", "Lights & sound", "Audible turn signal feedback.", 0x60, 12, "turn_sound", "turnSound", false);
         add("display_units", "Dashboard units", "Preferences", "Set the scooter display to miles or kilometers.", Type.CHOICE, "", 0x55, 0,1,1,

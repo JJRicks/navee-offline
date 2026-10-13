@@ -29,7 +29,7 @@ public final class MoreScreen implements AppScreen {
     private final LinearLayout content;
     private LinearLayout cardDestination, onboardingCard, sectionMenu;
     private TextView sectionBack;
-    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "About"};
+    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About"};
     private final Map<String,LinearLayout> sections = new LinkedHashMap<>();
     private final Map<String,Integer> sectionScrollPositions = new LinkedHashMap<>();
     private String selectedSection;
@@ -41,7 +41,9 @@ public final class MoreScreen implements AppScreen {
     private TextView profileSummary, pinSummary, bondSummary, securityNotice, setupState;
     private TextView readPinButton, setPinButton, bondButton;
     private Switch pinToggle, proximityToggle;
-    private TextView labSummary, connectionSummary;
+    private TextView labSummary, connectionSummary, historyUsage, historyCounts, historyStatus;
+    private boolean historyStoragePending;
+    private long historyStorageChecked;
     private final List<LabRow> labRows = new ArrayList<>();
     private static final class LabRow {
         final ScooterCommands.Feature feature;
@@ -63,8 +65,8 @@ public final class MoreScreen implements AppScreen {
         if (!knownSection(selectedSection)) selectedSection = "";
         sectionBack = ui.secondaryButton("‹  More settings", () -> selectSection("")); content.addView(sectionBack);
         sectionMenu = ui.card(); sectionMenu.setPadding(ui.dp(18), ui.dp(3), ui.dp(18), ui.dp(3)); content.addView(sectionMenu);
-        String[] labels = {"App preferences", "My scooters", "PIN & proximity unlock", "Experimental controls", "About & permissions"};
-        String[] details = {"", "", "", "Lab", ""};
+        String[] labels = {"App preferences", "My scooters", "PIN & proximity unlock", "Experimental controls", "Data & history", "About & permissions"};
+        String[] details = {"", "", "", "Lab", "", ""};
         for (int i = 0; i < SECTIONS.length; i++) {
             final String section = SECTIONS[i];
             if (i > 0) ui.divider(sectionMenu);
@@ -77,6 +79,7 @@ public final class MoreScreen implements AppScreen {
             else if (section.equals("Scooters")) profiles();
             else if (section.equals("Security")) security();
             else if (section.equals("Lab")) lab();
+            else if (section.equals("Data")) dataHistory();
             else privacy();
         }
         cardDestination = content;
@@ -136,13 +139,15 @@ public final class MoreScreen implements AppScreen {
     private TextView button(LinearLayout box, String label, Runnable action, boolean primary) {
         TextView view = primary ? ui.button(label, action) : ui.text(label, 15, false);
         if (!primary) {
-            view.setTextColor(ui.text); view.setGravity(Gravity.CENTER_VERTICAL); view.setMinHeight(ui.dp(52));
+            view.setTextColor(new android.content.res.ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}}, new int[] {ui.muted, ui.text})); view.setGravity(Gravity.CENTER_VERTICAL); view.setMinHeight(ui.dp(52));
             view.setPadding(ui.dp(2), ui.dp(10), ui.dp(2), ui.dp(10)); view.setFocusable(true);
             view.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(Ui.withAlpha(ui.accent, 24)), ui.shape(android.graphics.Color.TRANSPARENT, 10, 0), null));
             view.setOnClickListener(v -> { if (action != null) action.run(); });
             if (box.getChildCount() > 0) ui.divider(box);
         }
-        box.addView(view); return view;
+        String icon = label.startsWith("Import") ? "download" : label.startsWith("Save") || label.startsWith("Export") ? "export"
+                : label.startsWith("Forget") || label.startsWith("Clear") ? "close" : ui.labelIcon(label);
+        ui.decorate(view, icon); box.addView(view); return view;
     }
     private TextView value(LinearLayout box, String label) {
         TextView text = ui.text(label, 15, true); text.setTextColor(ui.accent);
@@ -299,6 +304,8 @@ public final class MoreScreen implements AppScreen {
                 new String[]{"dark", "system", "light"}, "dark");
         preferenceChoice(c, "Distance & speed", "units", new String[]{"Miles / mph", "Kilometers / km/h", "Show both"},
                 new String[]{"mi", "km", "dual"}, "mi");
+        preferenceChoice(c, "Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
+                new String[]{"system", "12h", "24h"}, "system");
         preferenceChoice(c, "Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
                 new String[]{"comfortable", "dense"}, "comfortable");
         ui.divider(c); LinearLayout text = ui.settingRow("Text size", "", this::textSize); c.addView(text);
@@ -338,6 +345,47 @@ public final class MoreScreen implements AppScreen {
         Switch toggle = switchOf(row);
         valueRefreshers.add(() -> refreshSwitch(toggle, settings().getBoolean(key, fallback), true));
     }
+    private void dataHistory() {
+        LinearLayout recording = card("Connected history", "Keep scooter readings between rides, with a timestamp for each measurement.");
+        preferenceToggle(recording, "Save connected history", "Save readings while connected. GPS and phone sensors still require a ride recording.", "history_enabled", true);
+        note(recording, "Turning history off stops new timeline samples. The most recent readings remain saved so you can view them after disconnecting.");
+        LinearLayout storage = card("Local storage", null);
+        historyUsage = value(storage, "Checking storage…"); historyCounts = ui.caption(""); storage.addView(historyCounts);
+        historyStatus = ui.caption(""); historyStatus.setPadding(0, ui.dp(8), 0, ui.dp(8)); storage.addView(historyStatus);
+        note(storage, "Up to 7 days of 5-second readings, 30 days of minute summaries, and 2 years of daily trends. A 50 MiB budget prunes older detail first, so retention can be shorter.");
+        button(storage, "Clear this scooter's history", () -> clearHistory(false), false);
+        button(storage, "Clear all connected history", () -> clearHistory(true), false);
+    }
+    private void refreshHistoryStorage() {
+        if (historyUsage == null || service() == null || service().history == null || historyStoragePending) return;
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (historyStorageChecked > 0 && now - historyStorageChecked < 10000) return;
+        historyStorageChecked = now; historyStoragePending = true;
+        service().history.storage(storage -> {
+            historyStoragePending = false; if (closed) return;
+            historyUsage.setText(String.format(Locale.US, "%.1f / %.0f MiB", storage.bytes / 1048576.0, storage.limitBytes / 1048576.0));
+            historyCounts.setText(String.format(Locale.US, "%,d detailed · %,d minute · %,d daily samples", storage.detailedRows, storage.minuteRows, storage.dailyRows));
+            historyStatus.setText(storage.status == null ? "" : storage.status);
+            historyStatus.setVisibility(storage.status == null || storage.status.isEmpty() ? View.GONE : View.VISIBLE);
+        });
+    }
+    private void clearHistory(boolean all) {
+        ScooterProfiles.Profile profile = active();
+        if (!all && profile == null) { host.toast("Choose a scooter first."); return; }
+        final String profileId = all ? null : profile.id;
+        String subject = all ? "all scooters" : profile.name;
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Clear connected history?")
+                .setMessage("Remove the saved timeline and last-known readings for " + subject + ". Ride recordings and owner setup stay saved. New history can accumulate again while connected.")
+                .setNegativeButton("Cancel", null).setPositiveButton("Clear history", (d, which) -> {
+                    if (service() == null || service().history == null) return;
+                    service().clearHistory(profileId, () -> {
+                        if (closed) return;
+                        historyStorageChecked = 0; refreshHistoryStorage(); host.redraw();
+                        host.toast("History cleanup finished. Check storage status.");
+                    });
+                }).create(); show(dialog);
+    }
+
     private void textSize() {
         LinearLayout box = dialogBox("Text size", "Adjust all screens. Your phone's accessibility text size still applies.");
         TextView sample = ui.text("Easy to read, folded or open", 18, true); box.addView(sample);
@@ -558,6 +606,7 @@ public final class MoreScreen implements AppScreen {
 
     @Override public void refresh() {
         ScooterService s = service(); if (s == null) return;
+        if (selectedSection.equals("Data")) refreshHistoryStorage();
         for (Runnable refresh : valueRefreshers) refresh.run();
         ScooterProfiles.Profile p = active();
         boolean configured = p != null && p.configured();

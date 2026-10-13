@@ -57,7 +57,7 @@ public final class RouteMapView extends View {
         this.ui = ui;
         this.selection = selection;
         this.points = track.points;
-        provider = new MapTiles(ui.context.getCacheDir(), tileUrl);
+        provider = new MapTiles(ui.context, tileUrl);
         setMinimumHeight(ui.dp(290));
         setFocusable(true);
         setClickable(true);

@@ -47,7 +47,7 @@ public final class Telemetry {
         {"driving_mode", "Driving mode (raw)"},
         {"lock_status", "Electronic lock"},
         {"cruise_control", "Cruise control (raw)"},
-        {"tail_light", "Vehicle lighting setting (raw)"},
+        {"tail_light", "Tail light setting (raw)"},
         {"energy_recovery", "Energy recovery setting (raw)"},
         {"range_algorithm", "Range algorithm (raw)"},
         {"display_units", "Dashboard units"},
@@ -202,6 +202,23 @@ public final class Telemetry {
     public synchronized Double number(String key) {
         Metric metric = readings.get(key);
         return metric == null ? null : metric.numericValue;
+    }
+
+    /**
+     * Display-only names observed on the UT5 MAX. The parser keeps the original mode code:
+     * other NAVEE models assign different meanings to these same bytes, and these names
+     * must never be used to infer which command or value changes a scooter's riding mode.
+     */
+    public static String drivingModeLabel(int productId, Double code) {
+        if (code == null || code.isNaN() || code.isInfinite()) return "—";
+        if (productId == 2538) {
+            if (code == 11.0) return "WALK";
+            if (code == 2.0) return "ECO";
+            if (code == 3.0) return "SPORT";
+        }
+        String value = code == Math.rint(code) ? String.format(Locale.US, "%.0f", code)
+                : Double.toString(code);
+        return value + " (raw)";
     }
 
     /** Defensive copies of the latest accepted read/report payloads, INCLUDING response status. */

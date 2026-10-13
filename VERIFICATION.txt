@@ -1,7 +1,431 @@
-NAVEE OFFLINE 0.5.0 — COMPLETION AND VALIDATION REPORT
+NAVEE OFFLINE 0.7.0 — RELEASE VALIDATION
 October 12, 2026
 
-0.5.0 CURRENT RELEASE — PHONE RECORDING, MAPS AND GROUPED SETTINGS
+0.7.0 — REVIEWED RELEASE
+
+Reviewed the full changes from 0.4.1, including Bluetooth command guards,
+connection and recording lifecycle, phone journals, history/privacy boundaries,
+per-scooter layouts, battery/charging estimates, release packaging and docs.
+The final pass corrected stale hardcoded diagnostic/map version strings and
+aligned the documented build requirement with JDK 17 or newer.
+
+The real-keyboard regression exposed an intermittent search refocus failure.
+IME visibility from an earlier focus session and overlapping hide/show transitions
+could blur a newly tapped field. SearchFocus now scopes observations to the
+current focus session and settled IME animations, preserves explicit Back and
+outside taps, handles Android 11 canceled preparation and clears animation state
+when a window detaches. Tests gained failure diagnostics; their assertions and
+waits were not weakened. The final animation-aware fix passed repeated narrow
+runs and the expanded run, including both themes and ordinary form editors.
+
+Verified for the final 0.7.0 release candidate (version code 16):
+
+- Nine portable core Java suites passed 24,782 assertions.
+- Signed app and separate instrumentation APK builds passed. The app passed
+  v2/v3 signing and alignment verification. Its certificate matches the APK
+  downloaded from the published 0.4.1 release. No validation or temporary capture
+  classes are packaged in the release APK.
+- Eleven Android 16 emulator configurations passed 87 check groups:
+  LaunchValidation with Nearby devices denied/granted (7 each);
+  PhoneRideValidation with location denied/granted (6 each);
+  HistoryValidation (5); UiOrganizationValidation at 360/852 dp (7 each);
+  DashboardValidation at 360/852 dp (13 each); and SearchFocusValidation at
+  360/852 dp with the real software keyboard and both themes (8 each).
+- Dashboard/UI fixtures covered light/dark themes, 140% app text, all 15 widgets,
+  minimum/default sizes, native drag/resize/cancel behavior, edit/view geometry,
+  captured default layouts, saved custom/empty layouts, cached stale readings,
+  settings navigation and a synthetic offline route. Search checks covered
+  refocus, title/margin taps, system Back, scrolling, parameter selection and
+  ordinary text forms. Width 852 dp used 2076 x 2152 pixels at 390 dpi.
+- History fixtures checked profile isolation, credential exclusion, restart
+  staleness, disabled-history caching, reconnect gaps, retention, bounded
+  queries, storage pressure and clearing. Phone fixtures checked recorder
+  startup/shutdown, background survival, permission handling and exports. They
+  do not invoke the production startRide path that requires a connected scooter.
+- No physical phone installation, real scooter command, owner-data reset or
+  phone-network change was part of this release pass. All device tests above
+  ran on an isolated emulator with Bluetooth off and synthetic profiles/readings.
+
+Remaining physical validation limits:
+
+The owner's previous Pixel checks through 0.6.6 remain recorded below. The friend
+confirmed 0.4.1 starts on Samsung; this is not a fresh 0.7.0 Samsung check. The
+release matrix used Android 16, not separate Android 8/11 emulators. Outdoor
+GPS/barometer/motion accuracy and a controlled usable battery-capacity/range test
+remain outstanding. Battery health is scooter-reported; charging time, capacity,
+grade and pocket motion are estimates. A parked Boost observation found no
+reliable active-state flag in the captured status messages.
+
+Release packaging uses the same private signing identity and a source archive
+from the tagged Git tree. Local build configuration, signing secrets, owner
+setup, recordings, raw captures and OEM decompilation remain excluded.
+
+HISTORICAL 0.6.6 — CAPTURED DEFAULT DASHBOARDS
+
+A temporary signed read-only helper captured the active dashboard's presentation
+settings: six widget types, titles, parameter choices, chart windows, colors and
+separate two/four-column rectangles. It did not output the profile ID, name,
+owner identity, scooter address, serial or telemetry. The helper was removed
+from the Pixel after capture. Column selection was Adaptive.
+
+New/reset dashboards use those exact two/four-column arrangements, with separate
+one/three-column variants for other widths. Fresh widget IDs are created for
+each reset; valid saved dashboards, including empty ones, are not migrated.
+
+Verified for 0.6.6:
+
+- The signed production APK passed signature and alignment verification.
+- DashboardValidation passed all 13 groups at 360 dp, including exact captured
+  two/four-column rectangles and widget options, stable save/reload, fresh IDs
+  on explicit reset, and preservation of other custom/empty dashboards and
+  global column preferences. One/three-column presets remained in bounds and
+  non-overlapping. The UI checks covered all 15 widget types, both themes,
+  140% text and unchanged edit/view geometry, with zero scooter writes.
+- The same 13 groups also passed at 852 dp, using the Pixel's unfolded
+  2076 x 2152 display size at 390 dpi. Default-screen screenshots confirmed the
+  two-column compact and four-column wide arrangement; numeric fixtures remained
+  explicitly synthetic/stale. This is layout validation, not a new hardware or
+  ride/sensor test.
+- The Pixel had no active/saving ride notification before the in-place upgrade.
+  Version 0.6.6 (code 15) installed and reopened; the connected Home screenshot
+  retained its saved unfolded layout. No reset was applied to the owner profile,
+  and no scooter lock/settings writes or phone-network changes were made.
+  The friend's Samsung was not retested in this pass.
+
+HISTORICAL 0.6.5 — STATUS SPACING AND NAME EDITING
+
+The Lock & connection widget adds 8 dp below the connection status, separating
+it from the lock-state text within the centered content group. The edit-only
+rename pencil is positioned beside the scooter name instead of the card edge.
+
+The name row reserves the same space in view/edit mode. Its 48 dp pencil target
+sits after the widest laid-out text line, stays clear of wrapped names, and
+scrolls with the name inside the widget.
+
+Verified for 0.6.5:
+
+- The signed production APK passed signature and alignment verification.
+- Existing DashboardValidation passed all 13 groups at 360 dp, including all
+  15 widget types at minimum/default sizes, light/dark themes, 140% text,
+  working edit-only rename, and identical edit/view content geometry.
+  Synthetic fixtures submitted zero scooter writes.
+- Emulator screenshots confirmed the pencil beside the name and clear
+  separation between connection status and lock-state text.
+- The Pixel had no active/saving ride notification before the in-place update.
+  Version 0.6.5 (code 14) installed, launched and reconnected. A final unfolded
+  screenshot confirmed the saved Home layout and separated connection/lock text;
+  the pencil correctly remained hidden outside Edit. No scooter lock/settings
+  writes or phone-network changes were made. Samsung was not retested.
+
+HISTORICAL 0.6.4 — WIDGET OPTIONS POLISH
+
+Widget options use actual Duplicate and Remove widget buttons centered side by
+side in a fixed bottom row. Remove has red text, outline and a matching trash
+icon; Duplicate has a copy icon. A labeled 48 dp X target closes the sheet from
+the top-right corner. Settings scroll between the header and footer. The custom
+sheet fills the dialog window, keeping the footer at its actual bottom edge.
+Existing duplicate/remove actions and single-lock/32-widget limits are retained.
+Your scooter grows its one/two-reading values to a moderate 28 sp maximum at
+normal text scale, retaining the existing width and row-height fitting rules.
+Longer custom reading lists retain their previous maximum.
+Lock & connection uses a fixed status / lock control / centered connection-button
+order at all widths. The former horizontal-to-vertical action-row switch is removed.
+
+Verified for 0.6.4:
+
+- The signed production APK passed signature and alignment verification.
+- DashboardValidation passed all 13 groups at 360 dp after the larger scooter
+  values and full-height options sheet changes, with all 15 widget types,
+  minimum/default card sizes, both themes, and 140% text. Synthetic fixtures
+  submitted zero scooter writes.
+- Visual inspection at 360 dp / 140% text confirmed readable equal-height
+  buttons with red trash/copy icons, a top-right X and the footer at the actual
+  bottom edge. Native taps duplicated a disposable Note, removed only its copy,
+  left the original available, and closed the options with the X.
+- After the fixed vertical connection layout, the final APK passed the same
+  13-group 360 dp dashboard run and all nine core Java suites.
+- The Pixel had no active/saving ride notification before its in-place update.
+  Version 0.6.4 (code 13) installed, opened and reconnected. Its saved Home layout
+  retained its positions and sizes; a connected screenshot confirmed larger
+  odometer/SPORT values, status above the lock control, and a centered Disconnect
+  button below. No scooter lock/settings writes or phone-network changes were made.
+  This pass was not retested on the friend's Samsung.
+
+HISTORICAL 0.6.3 — GLANCEABLE DASHBOARD POLISH
+
+Your scooter now defaults to odometer and drive mode. The older four-reading
+preset migrates once without changing widget IDs, coordinates, sizes, titles or
+other options; custom reading lists remain. The minimum height is three rows and
+new cards default to four, so owners can shrink a card without a layout reset.
+Reported charge count and lifetime throughput remain available in Stats. The two
+readings stack vertically beside a larger photo, which grows with the card.
+The photo uses the profile's saved model identity and remains visible while
+connecting, disconnected or reopening offline; cached measurements remain muted.
+
+The taller lock slider stays centered, with a slight horizontal inset at ordinary
+widths and the full available width in very narrow cards. Connection status is a compact
+Connected / Connecting (inline spinner) / Disconnected + last-connected clock.
+Tap the status for details. The timestamp reuses persisted, authenticated scooter
+connection history; a launch or failed connection does not invent a timestamp.
+More > App preferences > Time format follows the system by default, with explicit
+12/24-hour choices. Connection dates, dashboard stale timestamps, charts, Stats
+reading times and scheduled-charge controls use the preference.
+
+The battery card uses its available space for a larger, thicker percentage ring
+above compact range/route, power/lightning, health/heart and temperature readings. The
+four cells share a row at ordinary widths and reflow at narrow/large-text sizes.
+Charging changes this strip to power, current, estimated time and temperature;
+rate limitations and parameter descriptions remain accessible on long press and
+to screen readers. The separate detailed charging widget is retained.
+The visible arc is optically centered above the bottom reading strip. Charts use
+the available height, and compact controls balance within their content area;
+long notes and reading lists retain natural top alignment and scrolling.
+
+Widget settings use a gear. Live footers and redundant chart help/status copy
+are removed, while stale state remains visible. Two minutes is an option in the
+existing Live trend time-window chooser. Power labels drop '(signed)' without
+changing stored values, signs or energy calculations. Overflowing custom content
+accepts a swipe throughout its scrollable area. Edit/view geometry stays matched.
+Search dismissal compares touch and field bounds within the same window, so an
+Android keyboard that pans a floating dialog cannot shift the outside-tap area.
+
+Verified for 0.6.3:
+
+- The signed production APK passed signature and alignment verification.
+- DashboardValidation passed 13 grouped checks at 360, 411 and 701 dp, including
+  all 15 widget types at minimum/default heights and narrow/default/full widths,
+  normal and 140% text, light/dark themes, and identical edit/view geometry.
+- The matrix checks the centered adaptive lock slider, concise connection states and
+  inline spinner, system/12/24-hour dates, the largest fitting battery ring and
+  accessible icon readings, charging/stale states, and gear controls only in Edit.
+- Native drag/resize/reflow, cancellation, a real swipe inside overflowing widget
+  content, configuration persistence, the two-minute time-window option and
+  layout-preserving scooter-stat migration passed. Synthetic checks submitted
+  zero scooter writes. These are UI checks, not field ride/sensor verification.
+- A further 701 dp run passed all 13 groups after the offline-photo fix, including
+  a disconnected known-model fixture that keeps its drawable visible, hides its
+  placeholder and retains muted, stale readings. Unknown models retain fallback
+  content. Add widget and Layout have an 8 dp gap in the final toolbar.
+- The Pixel had no active/saving ride notification before its in-place upgrade
+  from 0.6.2 to 0.6.3 (versionCode 12). Installation, launch and reconnection
+  succeeded. Connected Home screenshots confirmed the larger photo and vertically
+  stacked scooter readings, blue SPORT, centered taller slider, gear controls,
+  thicker balanced battery ring and four battery icon readings.
+  Its existing scooter profile and customized dashboard remained available.
+  No scooter lock/settings writes or phone network changes were made. This pass
+  was not retested on the friend's Samsung.
+
+- SearchFocusValidation passed eight grouped checks with the real software
+  keyboard in both themes: outside taps, system Back, refocusing, retained search
+  text, list scrolling, parameter selection and unchanged ordinary form behavior.
+  The parameter picker checks both its title and the margin immediately below
+  search while the keyboard pans its window. Native touch coordinates synchronize
+  window animations and account for the emulator's surface-level keyboard pan.
+
+HISTORICAL 0.6.2 — RESPONSIVE CARDS AND MATCHING EDIT PREVIEWS
+
+The scooter image sits to the left of its statistics. The right pane adapts its
+stat columns to the card width, and the image height uses the measured content
+space. The scooter minimum is four rows; lock, gauge and ride cards require three.
+Shorter saved placements are normalized to these practical minimums. Numeric text
+fits within a readable floor, narrow label/value rows stack, narrow lock controls
+stack, and charts, gauges and the battery ring adjust to the measured viewport.
+Long notes, custom lists and explanatory text retain accessible inner scrolling.
+Changed graphic dimensions force a fresh measurement immediately during resizing.
+Numeric fitting starts from available width and the scooter stat area, independent
+of previously chosen font sizes; enlarging a card restores its available type size.
+
+Edit and ordinary viewing share the same 64 dp base grid rows, title styling,
+content padding and footer spacing. Move, options, resize and scooter rename are
+translucent floating controls with 48 dp touch targets; they do not consume layout
+space and are only present in dashboard edit mode. Operational controls remain
+inert while arranging the layout. The toolbar and extra blank editing space may
+change, but card and content dimensions do not change just from toggling Edit.
+
+Search fields share roomier internal padding and separation from surrounding
+buttons/results in Scooter, Lights, Stats and the parameter picker. Existing query
+and keyboard-focus behavior is retained.
+
+Known UT5 MAX modes have display cues: blue SPORT, green ECO and a green walking
+icon for WALK; cached modes stay muted. Light theme uses a darker readable blue.
+Accessible descriptions retain WALK and freshness; raw telemetry/export codes stay
+unchanged and other model codes are not interpreted as UT5 MAX modes.
+
+Verified for 0.6.2:
+
+- Final signed production build and APK alignment verification passed.
+- DashboardValidation passed 13 grouped checks at 360 dp and 701 dp, including
+  all 15 widget types at minimum/default heights and narrow/default/full widths,
+  normal and 140% text, dark/light themes, native drag/resize/reflow, cancellation,
+  persistence, charging/stale states, and configuration visibility only in Edit.
+- Card, heading, footer, body and body-text geometry matched before/after entering
+  Edit. The four default scooter statistics and their labels fit beside the photo
+  at the minimum full-width size. Resize checks reject clipped value text and
+  graphics whose measured dimensions lag their requested dimensions.
+- The size matrix also verified live and cached SPORT/ECO colors, WALK icon
+  bounds and accessible label, and unknown-model raw mode fallback.
+- SearchFocusValidation passed eight grouped checks with the real keyboard in
+  both themes after the spacing change: outside taps, scrolling, system Back,
+  query retention, parameter selection and ordinary form behavior. Scooter search
+  spacing and dashboard edit layouts were also reviewed in emulator screenshots.
+- Emulator checks used isolated synthetic data and submitted zero scooter writes.
+  These checks do not establish field ride/sensor accuracy or exhaustive layout
+  coverage for arbitrary user text. Long content intentionally remains scrollable.
+- The Pixel was checked for active/saving ride notifications before its in-place
+  upgrade from 0.6.1 to 0.6.2 (versionCode 11). Installation and launch succeeded;
+  its saved dashboard and profile remained. A connected Home screenshot confirmed
+  the photo-left/statistics-right layout, all four scooter stats, blue SPORT and
+  hidden widget edit controls. No scooter lock/settings writes or phone network
+  changes were made. This pass was not retested on the friend's Samsung.
+
+
+HISTORICAL 0.6.1 — DASHBOARD EDITING REFINEMENT
+
+Editing now uses a pencil entry, a dedicated top-left grip and a visible
+48 dp bottom-right corner hit target. Direct dragging and long pressing share
+the same interaction. A full-size dashed destination previews the snapped
+rectangle; neighboring widgets reflow and compact into gaps from an unchanged
+gesture-start snapshot. Release saves; cancellation restores the complete
+original layout. Neighbor movement animates for 200 ms and the destination for
+120 ms when Android animations are enabled. Measurement probes keep the active
+column layout stable; an actual width change cancels and restores the gesture. One ellipsis opens options; tapping
+the grip or corner opens only Move or Size respectively. Scooter controls stay
+inert during editing. Theme-matched dialogs fix title/input/button contrast.
+
+The battery ring uses % and fits its number/unit group inside the arc. The
+scooter card has an explicit rename pencil and configurable defaults for total
+odometer, current mode, reported charge count and lifetime Ah throughput.
+UT5 MAX PID 2538 modes 11/2/3 display WALK/ECO/SPORT based on owner observations;
+other models/codes remain raw. Parsing and exports retain numeric evidence.
+Existing card placements are kept; a fresh scooter card is taller for its stats.
+
+SearchFocus binds only search fields in Scooter/Lights, Stats and the widget
+parameter picker. Outside taps clear focus/hide the keyboard while passing the
+touch through. Keyboard visibility observations clear focus after system IME
+dismissal. Ordinary rename, title and other form fields are not opted in.
+
+Verified for 0.6.1:
+
+- Nine pure Java suites passed 24,782 assertions: Protocol 145, Telemetry 8,682,
+  ScooterCommands 907, OwnerIdentityParser 61, RideStore 70, PhoneRideStore 38,
+  DashboardLayout 14,700, BatteryCapacityEstimate 44 and ChargingEstimate 135.
+  New layout cases cover full-rectangle preview, stable compaction, bounds,
+  collision freedom, determinism and unchanged input snapshots.
+- SearchFocusValidation passed eight grouped checks with a real visible software
+  keyboard in dark and light themes. Settings and Stats outside taps, scrolling,
+  system Back, query preservation and refocusing passed. The parameter picker
+  retained its dialog after keyboard dismissal and still accepted selections.
+  Ordinary title editing retained its normal focus behavior.
+- DashboardValidation passed twelve grouped checks at 360 dp, 411 dp and 701 dp.
+  The final measurement-probe fix was rechecked at 411 dp and 701 dp. Checks cover
+  all fifteen widget types, direct touch moves, long holds, corner resize, full
+  preview rectangles, neighboring reflow before save, cancellation restoration,
+  sole options access, light/dark contrast, 140% text, and saved-layout recreation.
+  Named scooter stats, one-time migration, units, stale state, capacity no-data
+  settings and mutually exclusive charging details passed as well.
+- The signed APK passed alignment and signature verification. An in-place Pixel
+  upgrade from 0.6.0 retained the existing scooter and custom layout and reconnected
+  automatically. A warm launch completed in 125 ms. Live odometer, SPORT mode,
+  rename pencil, scooter image, and the revised charging battery ring were observed.
+  Old custom card sizes remain unchanged; shorter cards can scroll their contents
+  or be enlarged using the new corner handle.
+
+No scooter lock/settings writes or phone internet changes were made. Source
+review found no owner credentials, signing material or private recordings in the
+release diff. Local validation evidence is in work/v061-validation outside the repo.
+
+The Android 8–10 keyboard visibility fallback has not been exercised on a physical
+phone. This update has not yet been tested on the friend's Samsung. Emulator
+fixtures use synthetic data and make no sensor or battery accuracy claims.
+
+HISTORICAL 0.6.0 — CUSTOM DASHBOARD AND CONNECTED HISTORY
+
+Home is a per-scooter dashboard with fifteen widget types, independent column
+layouts, native drag/drop, resize handles and explicit Size/Move alternatives.
+Controls are disabled while editing. The default battery card includes estimated
+range, battery power, reported health and temperature. Gauge scales are stored in
+canonical units and converted for display. A local scooter name appears on Home,
+and the supplied UT5 MAX image appears when that model is connected. Metadata
+was removed from the bundled photo without changing its compressed pixels/alpha.
+
+The five destinations are Home, Scooter, Stats, Rides and More. All ten lighting
+controls are nested under Scooter > Lights. The former Headlight label was wrong:
+OEM source identifies command 0x54 and status 0x70 byte 4 as TailLight. Automatic
+lights (0x57, byte 8) is separate. The app reports configuration readback rather
+than claiming a lamp visibly changed; no independent front-headlight command was
+inferred or added.
+
+Last-known parameter/settings readings persist per scooter and display grey with
+stale context after disconnect/restart. Live authentication and freshness gates
+still control writes. Automatic connected-only history does not start a ride,
+phone sensors or GPS, and does not extend background connection life. Its 50 MiB
+budget uses capped SQLite storage and retention/pressure pruning: up to 7 days of
+detailed readings, 30 days of minute aggregates and 730 days of daily aggregates.
+Reported battery health remains a controller report, not a measured capacity.
+
+The battery card replaces ordinary readings with charging power/current and a
+present-rate time estimate only when fresh state reports charging. Otherwise it
+returns to range/power/health/temperature. A separate Charging widget is optional.
+Paired V/I, rated Ah and fresh percentage are required for the applicable values;
+charge cutoffs and taper limitations are visible. Live charging display was
+observed on the owner's Pixel; the time-to-full prediction has not been compared
+with a completed charge.
+
+The capacity experiment compares recent qualified ride energy with displayed
+battery-percentage drop, using separate confirmed-net and unconfirmed-throughput
+pools. This is an experimental energy equivalent, not an independent capacity or
+health test. It updates on ten-second viewed refreshes, supports a selectable ride
+window and editable advertised Wh, and uses 716.04 Wh only for UT5 MAX PID 2538.
+Active ride snapshots are atomic; completed journals replay outside the recorder
+monitor. Tests cover quality rejection, separate pools, weighting, active-ride
+replacement, direction changes, read-only snapshots and source/profile isolation.
+Charging tests cover state/freshness/pairing, polarity, current thresholds,
+invalid signals, charge limits and present-rate estimates.
+
+Verified for 0.6.0:
+
+- Nine pure Java suites passed 20,681 assertions: Protocol 145, Telemetry 8,665,
+  ScooterCommands 907, OwnerIdentityParser 61, RideStore 70, PhoneRideStore 38,
+  DashboardLayout 10,616, BatteryCapacityEstimate 44 and ChargingEstimate 135.
+  Command checks include independent tail/automatic-light mappings; layout checks include collision handling, bounds and idempotence.
+- HistoryValidation passed five grouped emulator checks: profile separation,
+  partial-cache merge, nonnumeric persistence, restored-stale flags, secret
+  exclusion, history-off cache, rejected stale samples, connection gaps,
+  age-based query tiers, 7/30/730-day retention, bounded 600-point queries,
+  actual SQLite journal/cap behavior, pressure pruning and file reclamation.
+- UiOrganizationValidation passed seven grouped checks at 411 dp: five destinations,
+  nested Lights and global search, More and Stats navigation, 140% app text and
+  themes, and synthetic offline route interaction/export access.
+- LaunchValidation passed seven grouped checks with Nearby devices denied and
+  seven granted with Bluetooth off. It covers fresh launches, five destinations,
+  themes/rebuilds and Activity recreation, preserving the Samsung launch fix.
+- PhoneRideValidation passed six grouped checks with location granted: appropriate
+  foreground service registration, active-recording exception to idle timeout,
+  saving/capture release, rapid start/stop, and synthetic route/export regression.
+  This does not validate outdoor sensor accuracy or a real connected ride.
+- APK alignment and signatures passed. A review of newly added source found no
+  owner credentials, signing material or private recordings in the source diff.
+
+- DashboardValidation passed twelve grouped checks each at 360 dp, 411 dp and 701 dp.
+  All fifteen types, default widgets, actual touchscreen long-press drag/drop,
+  resize/reflow, options/persistence, mph/km/h roundtrip, stale numeric/text values,
+  rename, Activity/service recreation, inner scrolling and 140% text were exercised.
+  Capacity config/no-data behavior and charging-rate/cutoff formatting used named
+  synthetic fixtures. Battery normal/charging groups were mutually exclusive;
+  stopped or stale charging state restored the ordinary readings.
+- An in-place Pixel upgrade from 0.5.0 to 0.6.0 retained the configured scooter and
+  reconnected automatically. Cold launch completed in 535 ms. The supplied photo,
+  profile name and actual charging power/current were observed on the Home screen.
+  No lock or scooter setting was changed. Real charging readings do not validate
+  the ETA or establish battery capacity.
+
+No scooter setting or lock writes were made for this release. Phone internet
+settings were not changed. Physical outdoor recording and the new dashboard on
+the friend's Samsung remain untested. Local emulator evidence and screenshots
+are in work/v06-validation; these private workspace files are not in the repo.
+
+
+HISTORICAL 0.5.0 — PHONE RECORDING, MAPS AND GROUPED SETTINGS
 
 The interface now has six destinations: Home, Scooter, Lights, Stats, Rides and
 More. Scooter settings use grouped rows and detail dialogs; all ten headlight,

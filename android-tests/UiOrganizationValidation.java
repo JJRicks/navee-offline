@@ -66,10 +66,10 @@ public final class UiOrganizationValidation extends Instrumentation {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000,
                     "Local workspace did not initialize");
-            for (String name : new String[]{"Home", "Scooter", "Lights", "Stats", "Rides", "More"}) {
+            for (String name : new String[]{"Home", "Scooter", "Stats", "Rides", "More"}) {
                 clickDescription(name); waitForIdleSync(); assertNoScooterWork(); assertNavigationFits();
             }
-            check("All six destinations are reachable; navigation targets remain visible");
+            check("All five destinations are reachable; navigation targets remain visible");
             screenshot("more-index-dark");
 
             clickDescription("Scooter");
@@ -83,25 +83,25 @@ public final class UiOrganizationValidation extends Instrumentation {
                 Set<String> visible = visibleFeatures();
                 require(visible.contains("maximum_speed") && visible.contains("start_speed"), "Speed search lost primary speed controls");
                 require(!visible.contains("energy_recovery"), "Speed search did not hide an unrelated setting");
-                for (String key : allFeatures()) require(!isLight(key), "Lighting leaked into the Scooter destination");
+                for (String key : visible) require(!isLight(key), "Speed search should hide lighting settings");
             });
             main(() -> invoke(activity, "navigateBack"));
             requireScreenText("Battery");
             check("Scooter categories, nested Back and search expose the requested settings without control writes");
 
-            clickDescription("Lights");
+            main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "lights")); waitForIdleSync();
             main(() -> {
                 Set<String> expected = new HashSet<>(Arrays.asList("headlight", "auto_sensor", "line_light", "line_pattern",
                         "line_color", "line_boost_color", "star_light", "star_pattern", "star_color", "star_boost_color"));
-                require(allFeatures().equals(expected), "Lights must contain all ten lighting controls and no sound settings");
+                require(allFeatures().containsAll(expected), "Scooter must retain all lighting settings");
                 require(visibleFeatures().equals(expected), "A lighting zone is hidden without a search");
             });
             screenshot("lights-dark");
             main(() -> first(root(), EditText.class).setText("boost"));
-            main(() -> require(visibleFeatures().equals(new HashSet<>(Arrays.asList("line_boost_color", "star_boost_color"))),
-                    "Lighting search should find both Boost colors"));
+            main(() -> require(visibleFeatures().equals(new HashSet<>(Arrays.asList("line_boost_color", "star_boost_color", "parking_assist"))),
+                    "Global scooter search should find both Boost colors and Power Assist"));
             main(() -> invoke(activity, "navigateBack"));
-            check("Lights groups headlight, line and star controls; search covers all lighting zones");
+            check("Lights groups tail, automatic, line and star controls; search covers all lighting zones");
 
             clickDescription("More"); clickText(root(), "App preferences");
             requireScreenText("Connect automatically"); screenshot("preferences-dark");
@@ -122,7 +122,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             main(() -> settings.edit().putString("theme", "light").putFloat("text_scale", 1.4f).apply());
             await(() -> !activity.ui().dark && activity.ui().textScale > 1.3f, 4000, "Large light theme did not apply");
             clickDescription("Scooter"); assertNavigationFits(); screenshot("scooter-large-light");
-            clickDescription("Lights"); assertNavigationFits(); screenshot("lights-large-light");
+            main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "lights")); waitForIdleSync(); assertNavigationFits(); screenshot("lights-large-light");
             clickDescription("More"); clickText(root(), "App preferences"); screenshot("preferences-large-light");
             check("Light theme and 140% app text preserve navigation and grouped settings");
             main(() -> settings.edit().putString("theme", "dark").putFloat("text_scale", 1f).apply());
@@ -232,7 +232,7 @@ public final class UiOrganizationValidation extends Instrumentation {
     }
     private void assertNavigationFits() {
         main(() -> {
-            for (String name : new String[]{"Home", "Scooter", "Lights", "Stats", "Rides", "More"}) {
+            for (String name : new String[]{"Home", "Scooter", "Stats", "Rides", "More"}) {
                 View item = findDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
                 requireFullyVisibleNow(item, "Navigation " + name);
                 TextView label = first(item, TextView.class);

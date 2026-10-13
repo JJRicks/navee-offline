@@ -81,7 +81,7 @@ public final class RideStore {
         public final String id, scooterId, label, notes, currentDirection, energyInterpretation;
         public final long startWallMs, endWallMs, elapsedMs, electricalCoverageMs,
                 skippedElectricalMs, speedCoverageMs, movingMs, stationaryMs;
-        public final long sampleCount, gapCount, clockDiscontinuities;
+        public final long sampleCount, gapCount, clockDiscontinuities, directionChanges;
         public final boolean active, recovered, odometerReset, directionConfirmed;
         public final Double startBatteryPercent, endBatteryPercent, batteryDropPercent,
                 startVoltageV, minimumVoltageV, maximumVoltageV, observedVoltageDropV,
@@ -105,7 +105,7 @@ public final class RideStore {
             skippedElectricalMs = Math.max(0, a.elapsed - a.electricalMs);
             speedCoverageMs = a.speedMs; movingMs = a.movingMs;
             stationaryMs = a.stationaryMs; sampleCount = a.samples;
-            gapCount = a.gaps; clockDiscontinuities = a.clockDiscontinuities;
+            gapCount = a.gaps; clockDiscontinuities = a.clockDiscontinuities; directionChanges = a.directionChanges;
             active = !a.stopped; recovered = a.recovered; odometerReset = a.odometerReset;
             confirmedDirectionCoverageMs = a.confirmedMs;
             unconfirmedDirectionCoverageMs = a.unconfirmedMs;
@@ -164,7 +164,7 @@ public final class RideStore {
             m.put("currentDirection", currentDirection); m.put("directionConfirmed", directionConfirmed);
             m.put("active", active); m.put("recovered", recovered); m.put("odometerReset", odometerReset);
             m.put("startWallMs", startWallMs); m.put("endWallMs", endWallMs); m.put("elapsedMs", elapsedMs);
-            m.put("sampleCount", sampleCount); m.put("gapCount", gapCount);
+            m.put("sampleCount", sampleCount); m.put("gapCount", gapCount); m.put("directionChanges", directionChanges);
             m.put("clockDiscontinuities", clockDiscontinuities);
             m.put("electricalCoverageMs", electricalCoverageMs); m.put("skippedElectricalMs", skippedElectricalMs);
             m.put("electricalCoverage", electricalCoverage); m.put("speedCoverageMs", speedCoverageMs);
@@ -203,6 +203,24 @@ public final class RideStore {
     private Accumulator active;
     private CurrentDirection defaultDirection = CurrentDirection.UNCONFIRMED;
     private final LinkedHashMap<String, CachedSummary> summaryCache = new LinkedHashMap<String, CachedSummary>();
+    /** Consistent immutable summary/trend pair for off-thread display analysis. */
+    public static final class AnalysisSnapshot {
+        public final Summary summary;
+        public final List<Point> points;
+        private AnalysisSnapshot(Accumulator accumulator) {
+            summary = new Summary(accumulator);
+            points = trendPoints(accumulator, MAX_TREND_POINTS);
+        }
+    }
+    private final LinkedHashMap<String, CachedAnalysis> analysisCache = new LinkedHashMap<>();
+    private static final class CachedAnalysis {
+        final long length, modified;
+        final AnalysisSnapshot snapshot;
+        CachedAnalysis(long length, long modified, AnalysisSnapshot snapshot) {
+            this.length = length; this.modified = modified; this.snapshot = snapshot;
+        }
+    }
+
     private static final class CachedSummary {
         final long length, modified;
         final Summary summary;
@@ -297,7 +315,7 @@ public final class RideStore {
         if (direction == null) direction = CurrentDirection.UNCONFIRMED;
         if (active != null && direction != active.direction) {
             append(file(active.id), row("DIRECTION", active.lastWall, active.lastMono, "", "", "", "", "", "", "", "", direction.name(), ""));
-            active.direction = direction; active.breakAnchor();
+            if (active.samples > 0) active.directionChanges++; active.direction = direction; active.breakAnchor();
         }
         defaultDirection = direction;
     }
@@ -338,6 +356,51 @@ public final class RideStore {
         }});
         return Collections.unmodifiableList(result);
     }
+    /**
+     * Call from a worker. Active state is copied atomically without disk I/O; completed
+     * journals are immutable and replay outside the recorder monitor so sampling can continue.
+     * Unlike constructing a second RideStore, this operation never recovers or modifies a journal.
+     */
+    public List<AnalysisSnapshot> analysisSnapshots(String scooterId, long sinceWallMs) throws IOException {
+        ArrayList<AnalysisSnapshot> result = new ArrayList<>();
+        String copiedActiveId;
+        synchronized (this) {
+            copiedActiveId = active == null ? null : active.id;
+            if (active != null && active.scooterId.equals(scooterId) && active.lastWall >= sinceWallMs)
+                result.add(new AnalysisSnapshot(active));
+        }
+        File[] files = directory.listFiles();
+        if (files == null) throw new IOException("Cannot list rides");
+        java.util.HashSet<String> existing = new java.util.HashSet<>();
+        for (File source : files) if (isJournal(source)) {
+            String id = source.getName().substring(0, source.getName().length() - 4);
+            existing.add(id);
+            if (id.equals(copiedActiveId)) continue;
+            CachedAnalysis cached;
+            synchronized (this) {
+                if (active != null && active.id.equals(id)) continue;
+                cached = analysisCache.get(id);
+            }
+            long length = source.length(), modified = source.lastModified();
+            if (cached == null || cached.length != length || cached.modified != modified) {
+                Accumulator parsed;
+                try { parsed = read(source); }
+                catch (IOException e) { if (!source.exists()) continue; throw e; }
+                // A new active journal or an incomplete tail is not a completed snapshot.
+                if (parsed == null || !parsed.stopped) continue;
+                cached = new CachedAnalysis(length, modified, new AnalysisSnapshot(parsed));
+                synchronized (this) {
+                    analysisCache.put(id, cached);
+                    while (analysisCache.size() > 256) analysisCache.remove(analysisCache.keySet().iterator().next());
+                }
+            }
+            if (cached.snapshot.summary.scooterId.equals(scooterId)
+                    && cached.snapshot.summary.endWallMs >= sinceWallMs) result.add(cached.snapshot);
+        }
+        synchronized (this) { analysisCache.keySet().retainAll(existing); }
+        return Collections.unmodifiableList(result);
+    }
+
     public synchronized boolean delete(String id) throws IOException {
         if (active != null && active.id.equals(id)) throw new IllegalStateException("Stop recording before deleting");
         File f = file(id); if (!f.exists()) return false;
@@ -356,6 +419,9 @@ public final class RideStore {
     }
     public synchronized List<Point> trend(String id, int maxPoints) throws IOException {
         Accumulator a = active != null && active.id.equals(id) ? active : read(file(id));
+        return trendPoints(a, maxPoints);
+    }
+    private static List<Point> trendPoints(Accumulator a, int maxPoints) {
         if (a == null || maxPoints <= 0) return Collections.emptyList();
         List<Point> source = new ArrayList<Point>(a.points);
         if (a.lastPoint != null && (source.isEmpty() || source.get(source.size() - 1) != a.lastPoint))
@@ -374,7 +440,7 @@ public final class RideStore {
         String notes = "";
         final long startWall;
         long lastWall, lastMono, elapsed, electricalMs, speedMs, movingMs, stationaryMs;
-        long samples, gaps, clockDiscontinuities, confirmedMs, unconfirmedMs, pointStride = 1;
+        long samples, gaps, clockDiscontinuities, directionChanges, confirmedMs, unconfirmedMs, pointStride = 1;
         long movingElectricalMs, stationaryElectricalMs, unknownMotionElectricalMs;
         boolean stopped, recovered, odometerReset;
         CurrentDirection direction = CurrentDirection.UNCONFIRMED;
@@ -518,7 +584,7 @@ public final class RideStore {
                         else if ("RECOVER".equals(event)) { a.recover(); pending = null; }
                         else if ("STOP".equals(event)) { a.stop(wall, mono); pending = null; }
                         else if ("NOTE".equals(event)) a.notes = r.get(14);
-                        else if ("DIRECTION".equals(event)) { a.direction = direction(r.get(13)); a.breakAnchor(); }
+                        else if ("DIRECTION".equals(event)) { CurrentDirection changed = direction(r.get(13)); if (changed != a.direction && a.samples > 0) a.directionChanges++; a.direction = changed; a.breakAnchor(); }
                     }
                 } catch (NumberFormatException ignored) { pending = null; }
             }
