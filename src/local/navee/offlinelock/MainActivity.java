@@ -641,6 +641,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     /**
      * Volt Scooter tab: one scrolling page (top speed card, then grouped settings) and a Lights page for
      * the line and star zones. Search filters every group, on either page, and hides empty groups.
+     * On wide screens (side rail shown) the groups sit in two columns under one page scroll: search, top
+     * speed and Ride on the left, the other groups on the right; the Lights page puts headlights and
+     * line lights left, star lights right. The phone layout stays a single column.
      */
     private final class ControlsScreen implements AppScreen {
         private final LinearLayout view=column();
@@ -654,6 +657,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final View lightsNote,zonesRow;
         private final SettingLine clockLine;
         private final TopSpeedCard topSpeed;
+        /** Two-column panes on wide screens; both null on a phone. */
+        private final LinearLayout leftPane,rightPane;
         private boolean lights;
         private String query="";
         ControlsScreen(boolean lightsPage){
@@ -675,20 +680,25 @@ public final class MainActivity extends Activity implements ScreenHost {
             LinearLayout.LayoutParams bannerWords=new LinearLayout.LayoutParams(0,-2,1);bannerWords.leftMargin=design.dp(10);bannerWords.rightMargin=design.dp(8);banner.addView(bannerText,bannerWords);
             bannerAction=pill("Connect",MainActivity.this::connect);bannerAction.setContentDescription("Connect scooter");banner.addView(bannerAction);
             LinearLayout.LayoutParams bannerParams=new LinearLayout.LayoutParams(-1,-2);bannerParams.bottomMargin=design.dp(10);view.addView(banner,bannerParams);
-            search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint("Search");design.styleSearch(search);search.setContentDescription("Search scooter settings");view.addView(search,design.searchLayout());
+            // Wide: the banner (and the Lights help card) span both columns; search, results and top speed lead the left column.
+            leftPane=expanded?column():null;rightPane=expanded?column():null;
+            LinearLayout lead=expanded?leftPane:view;
+            search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint("Search");design.styleSearch(search);search.setContentDescription("Search scooter settings");lead.addView(search,design.searchLayout());
             SearchFocus.bind(search, getWindow());
-            results=design.caption("");results.setPadding(design.dp(3),0,0,design.dp(8));view.addView(results);
+            results=design.caption("");results.setPadding(design.dp(3),0,0,design.dp(8));lead.addView(results);
             LinearLayout note=design.card();note.setOrientation(LinearLayout.HORIZONTAL);note.setGravity(Gravity.CENTER_VERTICAL);
             note.addView(design.icon("info",20,design.accent),new LinearLayout.LayoutParams(design.dp(20),design.dp(20)));
             TextView noteText=design.caption("Front headlight: use the scooter’s power button. Settings confirm configuration, not lamp output.");noteText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
             LinearLayout.LayoutParams noteWords=new LinearLayout.LayoutParams(0,-2,1);noteWords.leftMargin=design.dp(12);note.addView(noteText,noteWords);
             lightsNote=note;view.addView(note);
-            topSpeed=new TopSpeedCard();view.addView(topSpeed.card);
+            if(expanded)view.addView(new TwoPane(leftPane,rightPane),new LinearLayout.LayoutParams(-1,-2));
+            topSpeed=new TopSpeedCard();lead.addView(topSpeed.card);
             for(String name:new String[]{"Ride","Battery","Lights","Line lights","Star lights","Dashboard & sound","Security","Profile"}){
                 LinearLayout section=column();TextView label=design.sectionLabel(name);section.addView(label);
                 LinearLayout body=design.groupCard();section.addView(body);
-                sections.put(name,section);bodies.put(name,body);labels.put(name,label);view.addView(section);
+                sections.put(name,section);bodies.put(name,body);labels.put(name,label);if(!expanded)view.addView(section);
             }
+            placeSections();
             ArrayList<ScooterCommands.Feature> ordered=new ArrayList<>();
             String[] priority={"cruise_control","energy_recovery","traction_control","hill_start_assist","parking_assist","hill_descent_control","start_speed",
                     "charge_limit","low_power","timed_charging","charge_start","auto_sensor","headlight","display_units","range_algorithm","turn_sound","lock_expiry"};
@@ -722,6 +732,20 @@ public final class MainActivity extends Activity implements ScreenHost {
             boolean zone=group.equals("Line lights")||group.equals("Star lights");
             return lights?zone||group.equals("Lights"):!zone;
         }
+        /**
+         * Wide screens only: moves each group into its column for the current page. Reading order stays the
+         * phone order (left column, then right). Main page: Ride left, the rest right. Lights page: everything
+         * up to Line lights left (headlights first), Star lights onward right; searches fill the same columns.
+         */
+        private void placeSections(){
+            if(leftPane==null)return;
+            for(LinearLayout section:sections.values())if(section.getParent() instanceof ViewGroup)((ViewGroup)section.getParent()).removeView(section);
+            for(Map.Entry<String,LinearLayout> e:sections.entrySet()){
+                String name=e.getKey();
+                boolean left=lights?!(name.equals("Star lights")||name.equals("Dashboard & sound")||name.equals("Security")||name.equals("Profile")):name.equals("Ride");
+                (left?leftPane:rightPane).addView(e.getValue());
+            }
+        }
         private void addRow(String group,View child){LinearLayout body=bodies.get(group);if(body.getChildCount()>0){View line=new View(MainActivity.this);line.setBackgroundColor(design.raised);line.setTag(child);body.addView(line,new LinearLayout.LayoutParams(-1,design.dp(1)));}body.addView(child);}
         private void applyFilter(){
             String needle=normalize(query);boolean searching=!needle.isEmpty();int count=0;
@@ -749,8 +773,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
             if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);
         }
-        private void showLights(){lights=true;preferences.edit().putString("scooter_section","Lights").apply();clearSearch();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
-        private void showMain(){lights=false;preferences.edit().putString("scooter_section","").apply();clearSearch();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
+        private void showLights(){lights=true;preferences.edit().putString("scooter_section","Lights").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
+        private void showMain(){lights=false;preferences.edit().putString("scooter_section","").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
         boolean back(){
             if(!query.isEmpty()){search.setText("");return true;}
             if(lights){showMain();return true;}
