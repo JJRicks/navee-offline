@@ -172,6 +172,10 @@ Battery health, Capacity experiment, Charging, Quick access, Ride recorder and
 Note. Each profile has its own dashboard, with separate saved layouts for
 adaptive/selected column counts.
 Narrow screens limit the selected number of columns to what fits.
+Layout also provides three named save slots per scooter. Each captures the full
+widget setup and all stored column layouts together, plus the column choice.
+Restoring defaults does not change these slots. Slots stay local; reading/ride
+data and owner credentials are not included.
 
 The pencil reveals Add widget, Layout and widget controls. Drag the top-left
 dots directly, or long-press them, to move a widget. A visible bottom-right

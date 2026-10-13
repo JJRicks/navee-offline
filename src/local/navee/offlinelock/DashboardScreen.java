@@ -3579,6 +3579,7 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private void layoutOptions() {
+        grid.finishGesture(false);
         LinearLayout content = column();
         content.addView(sheetLabel("Columns"));
         int usable = grid.maximumColumns();
@@ -3612,6 +3613,12 @@ public final class DashboardScreen implements AppScreen {
         TextView note = ui.caption(unavailable + "Layouts are saved separately for each column count.");
         note.setPadding(ui.dp(2), ui.dp(10), ui.dp(2), ui.dp(14));
         content.addView(note);
+        content.addView(sheetLabel("Saved layouts"));
+        TextView savedHint = ui.caption("Each slot keeps this scooter’s folded and unfolded layouts, including widget options.");
+        savedHint.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(10));
+        content.addView(savedHint);
+        for (int i = 0; i < DashboardConfig.SLOT_COUNT; i++) addLayoutSlot(content, i);
+        content.addView(sheetLabel("Default layout"));
         LinearLayout restore = row();
         restore.setGravity(Gravity.CENTER_VERTICAL);
         restore.setMinimumHeight(ui.dp(64));
@@ -3639,8 +3646,8 @@ public final class DashboardScreen implements AppScreen {
                             new AlertDialog.Builder(dialogContext)
                                     .setTitle("Restore default dashboard?")
                                     .setMessage(
-                                            "This replaces this scooter’s widget layout."
-                                                    + " Saved readings and rides are kept.")
+                                            "This replaces the current folded and unfolded layouts."
+                                                    + " Saved slots, readings and rides are kept.")
                                     .setNegativeButton("Cancel", null)
                                     .setPositiveButton(
                                             "Restore",
@@ -3652,6 +3659,126 @@ public final class DashboardScreen implements AppScreen {
                 });
         content.addView(restore, new LinearLayout.LayoutParams(-1, -2));
         showSheet("Dashboard layout", content, null, "Close dashboard layout", null);
+    }
+
+    private void addLayoutSlot(LinearLayout parent, int index) {
+        DashboardConfig.SavedSlot saved = config.slot(index);
+        boolean occupied = config.slotExists(index);
+        String slotName = "Slot " + (index + 1);
+        String title = saved == null || saved.name.equals(slotName)
+                ? slotName : slotName + " · " + saved.name;
+        LinearLayout card = sheetCard();
+        card.setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
+        TextView heading = ui.text(title, 15, true);
+        if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
+        card.addView(heading);
+        String detail = saved == null
+                ? (occupied ? "Saved layout unavailable · save again to replace it" : "Empty")
+                : (saved.widgetCount == 1 ? "1 widget" : saved.widgetCount + " widgets")
+                        + " · " + DisplayTime.recent(host.activity(), preferences,
+                                saved.savedAtMs, System.currentTimeMillis());
+        TextView summary = ui.caption(detail);
+        summary.setPadding(0, ui.dp(3), 0, ui.dp(8));
+        card.addView(summary);
+        LinearLayout buttons = row();
+        TextView save = ui.secondaryButton("Save", () -> saveLayoutSlot(index));
+        save.setContentDescription("Save current dashboard to slot " + (index + 1));
+        save.setTag("dashboard-slot-save-" + index);
+        TextView load = ui.button("Restore", () -> restoreLayoutSlot(index));
+        load.setContentDescription("Restore slot " + (index + 1)
+                + (saved == null ? "" : ", " + saved.name));
+        load.setTag("dashboard-slot-restore-" + index);
+        load.setEnabled(saved != null);
+        LinearLayout.LayoutParams saveSize = new LinearLayout.LayoutParams(0, -2, 1);
+        saveSize.setMarginEnd(ui.dp(8));
+        buttons.addView(save, saveSize);
+        buttons.addView(load, new LinearLayout.LayoutParams(0, -2, 1));
+        card.addView(buttons);
+        LinearLayout.LayoutParams cardSize = new LinearLayout.LayoutParams(-1, -2);
+        cardSize.bottomMargin = ui.dp(10);
+        parent.addView(card, cardSize);
+    }
+
+    private void saveLayoutSlot(int index) {
+        DashboardConfig.SavedSlot saved = config.slot(index);
+        boolean replacing = config.slotExists(index);
+        dismiss();
+        LinearLayout content = column();
+        content.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
+        TextView message = ui.caption(replacing
+                ? "Replace this saved slot with your current folded and unfolded layouts?"
+                : "Save your current folded and unfolded layouts together.");
+        message.setPadding(0, 0, 0, ui.dp(12));
+        content.addView(message);
+        EditText name = new EditText(dialogContext);
+        name.setSingleLine(true);
+        name.setHint("Layout name");
+        name.setContentDescription("Saved layout name");
+        name.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES);
+        name.setFilters(new android.text.InputFilter[] {
+            new android.text.InputFilter.LengthFilter(DashboardConfig.SLOT_NAME_LIMIT)
+        });
+        name.setText(saved == null ? "Slot " + (index + 1) : saved.name);
+        name.setSelectAllOnFocus(true);
+        content.addView(name, new LinearLayout.LayoutParams(-1, -2));
+        AlertDialog created = new AlertDialog.Builder(dialogContext)
+                .setTitle((replacing ? "Replace slot " : "Save to slot ") + (index + 1) + "?")
+                .setView(content)
+                .setNegativeButton("Cancel", (d, which) -> returnToLayoutOptions(d))
+                .setOnCancelListener(this::returnToLayoutOptions)
+                .setPositiveButton(replacing ? "Replace" : "Save", null)
+                .create();
+        dialog = created;
+        created.show();
+        created.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (closed || !editing) return;
+            grid.finishGesture(false);
+            boolean stored = config.saveSlot(index, name.getText().toString(),
+                    preferences.getInt("dashboard_columns", 0));
+            if (!stored) {
+                host.toast("Couldn’t save the layout. Please try again.");
+                return;
+            }
+            host.toast("Saved to slot " + (index + 1));
+            layoutOptions();
+        });
+    }
+
+    private void restoreLayoutSlot(int index) {
+        DashboardConfig.SavedSlot saved = config.slot(index);
+        if (saved == null) {
+            host.toast("This saved layout is unavailable.");
+            layoutOptions();
+            return;
+        }
+        dismiss();
+        AlertDialog created = new AlertDialog.Builder(dialogContext)
+                .setTitle("Restore “" + saved.name + "”?")
+                .setMessage("Replace the current folded and unfolded layouts, widget options"
+                        + " and column choice? Column choice is shared across all scooters on this phone."
+                        + " Save your current layout to another slot first if"
+                        + " you want to keep it. Saved slots, readings and rides are kept.")
+                .setNegativeButton("Cancel", (d, which) -> returnToLayoutOptions(d))
+                .setOnCancelListener(this::returnToLayoutOptions)
+                .setPositiveButton("Restore", null)
+                .create();
+        dialog = created;
+        created.show();
+        created.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
+            if (closed || !editing) return;
+            grid.finishGesture(false);
+            if (!config.restoreSlot(index)) {
+                host.toast("Couldn’t restore the layout. Your current dashboard is kept.");
+                return;
+            }
+            dismiss();
+            render();
+            host.toast("Restored “" + saved.name + "”");
+        });
+    }
+
+    private void returnToLayoutOptions(android.content.DialogInterface source) {
+        if (!closed && editing && dialog == source) layoutOptions();
     }
 
     private void show(String title, View content) {

@@ -89,6 +89,17 @@ public final class DashboardValidation extends Instrumentation {
             assertGrid(); scrollHomeTop(); screenshot("default-dark");
             check("Six-widget defaults match the captured folded/unfolded layouts, survive reload and reset only the selected profile; navigation and cards fit");
 
+            if ("layout-slots".equals(arguments.getString("mode"))) {
+                verifySavedLayoutSlots();
+                result.putString("result", "PASS");
+                result.putStringArrayList("checks", new ArrayList<>(checks));
+                result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
+                result.putInt("check_count", checks.size());
+                result.putInt("width_dp", getTargetContext().getResources().getConfiguration().screenWidthDp);
+                result.putInt("scooter_mutations", 0);
+                cleanup(); finish(0, result); return;
+            }
+
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Persisted synthetic readings did not load");
             assertCachedReadings();
@@ -236,6 +247,104 @@ public final class DashboardValidation extends Instrumentation {
             try { cleanup(); } catch (Throwable failure) { result.putString("cleanup_error", failure.toString()); }
             finish(1, result);
         }
+    }
+
+    private void verifySavedLayoutSlots() throws Exception {
+        enterEditPreservingContent();
+        clickText(root(), "Layout");
+        for (int i = 0; i < 3; i++) {
+            require(!dialogRoot().findViewWithTag("dashboard-slot-restore-" + i).isEnabled(),
+                    "An empty layout slot permits restore");
+            require(dialogRoot().findViewWithTag("dashboard-slot-save-" + i).isEnabled(),
+                    "An empty layout slot cannot be saved");
+        }
+        screenshot("slots-empty-dark");
+        click(findDescription(dialogRoot(), "Close dashboard layout"));
+        main(() -> {
+            DashboardConfig.Widget custom = new DashboardConfig.Widget("note");
+            custom.title = "Saved fixture"; custom.note = "Retain my widget options";
+            for (int c = 1; c <= 4; c++)
+                custom.layouts.put(c, new DashboardLayout.Cell(custom.id, 0, 30, c, 3));
+            config().widgets.add(custom); config().save(); invoke(dashboard(), "render");
+        });
+        waitForIdleSync();
+        main(() -> config().save());
+        String expected = settings().getString("dashboard_v1_" + profileId, "");
+        clickText(root(), "Layout");
+        click(dialogRoot().findViewWithTag("dashboard-slot-save-0"));
+        main(() -> first(dialogRoot(), EditText.class).setText("My commute"));
+        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
+        require("My commute".equals(config().slot(0).name), "Saved slot name was not retained");
+        require(dialogRoot().findViewWithTag("dashboard-slot-restore-0").isEnabled(),
+                "Saved slot is not restorable in the sheet");
+        click(dialogRoot().findViewWithTag("dashboard-slot-save-0"));
+        main(() -> first(dialogRoot(), EditText.class).setText("Cancelled replacement"));
+        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        require("My commute".equals(config().slot(0).name), "Cancel replaced a saved slot");
+        check("Three named slots start empty; save enables restore and cancel leaves an existing slot intact");
+
+        clickText(dialogRoot(), "Restore default widgets");
+        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        require(expected.equals(settings().getString("dashboard_v1_" + profileId, "")),
+                "Cancelled default reset changed the dashboard");
+        clickText(root(), "Layout");
+        clickText(dialogRoot(), "Restore default widgets");
+        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
+        require(config().widgets.size() == 6 && config().slot(0).widgetCount == 7,
+                "Default reset overwrote a saved slot");
+        clickText(root(), "Layout");
+        click(dialogRoot().findViewWithTag("dashboard-slot-restore-0"));
+        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        require(config().widgets.size() == 6, "Cancel restored a slot");
+        click(dialogRoot().findViewWithTag("dashboard-slot-restore-0"));
+        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
+        require(config().widgets.size() == 7, "Restore did not recreate saved widgets");
+        require(expected.equals(settings().getString("dashboard_v1_" + profileId, "")),
+                "Restored widget options or paired rectangles differ from the saved dashboard");
+        assertGrid(); assertEditInputsInert(); assertNoScooterWork();
+        check("Default reset preserves slots; confirmed restore recovers all widget options and layouts; cancellation changes nothing");
+
+        clickText(root(), "Layout");
+        click(dialogRoot().findViewWithTag("dashboard-slot-save-1"));
+        main(() -> first(dialogRoot(), EditText.class).setText("Another view"));
+        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
+        click(dialogRoot().findViewWithTag("dashboard-slot-save-0"));
+        main(() -> first(dialogRoot(), EditText.class).setText("My replaced commute"));
+        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
+        require("My replaced commute".equals(config().slot(0).name)
+                        && "Another view".equals(config().slot(1).name) && config().slot(2) == null,
+                "Replacing a slot changed another slot");
+        click(findDescription(dialogRoot(), "Close dashboard layout"));
+        finishActivity(); launch();
+        require(config().widgets.size() == 7 && "My replaced commute".equals(config().slot(0).name),
+                "Saved or active dashboard did not survive activity recreation");
+        check("Replacing one slot preserves the other slots; saved and current layouts survive activity recreation");
+
+        main(() -> settings().edit().putString("theme", "light").putFloat("text_scale", 1.4f).apply());
+        await(() -> !activity.ui().dark && activity.ui().textScale > 1.3f && dashboard().view().getWidth() > 0,
+                5000, "Light theme/large text did not apply");
+        clickText(root(), "Layout");
+        for (int i = 0; i < 3; i++) {
+            View save = dialogRoot().findViewWithTag("dashboard-slot-save-" + i);
+            View restore = dialogRoot().findViewWithTag("dashboard-slot-restore-" + i);
+            reveal(save);
+            main(() -> {
+                int target = activity.ui().dp(48);
+                require(save.getHeight() >= target && restore.getHeight() >= target,
+                        "Slot buttons lost their touch targets");
+                for (View button : new View[]{save, restore}) {
+                    TextView text = (TextView)button;
+                    require(text.getLayout() != null, "Slot button text is not laid out");
+                    for (int line = 0; line < text.getLineCount(); line++)
+                        require(text.getLayout().getEllipsisCount(line) == 0, "Slot action label is clipped");
+                }
+            });
+        }
+        screenshot("slots-large-light");
+        clickText(dialogRoot(), "Restore default widgets");
+        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        assertNoScooterWork();
+        check("Light theme and 140% text keep slot actions and default reset reachable with full touch targets");
     }
 
     private void requireFreshEmulator() {

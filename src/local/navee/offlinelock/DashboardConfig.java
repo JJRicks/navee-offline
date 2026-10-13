@@ -8,6 +8,11 @@ import java.util.*;
 
 /** Local, per-scooter dashboard definitions with independent layouts for each column count. */
 public final class DashboardConfig {
+    public static final int SLOT_COUNT = 3;
+    public static final int SLOT_NAME_LIMIT = 40;
+    private static final int SLOT_VERSION = 1;
+    private static final String COLUMN_KEY = "dashboard_columns";
+
     public static final String[] TYPES = {
         "lock",
         "scooter",
@@ -150,93 +155,100 @@ public final class DashboardConfig {
 
     private final SharedPreferences preferences;
     private final String storageKey;
+    private final String slotKeyPrefix;
     public final ArrayList<Widget> widgets = new ArrayList<>();
 
     public DashboardConfig(SharedPreferences preferences, String profileId) {
         this.preferences = preferences;
         storageKey = "dashboard_v1_" + profileId;
+        slotKeyPrefix = "dashboard_slot_v1_" + profileId + "_";
         String saved = preferences.getString(storageKey, null);
         if (saved != null)
             try {
-                JSONArray a = new JSONArray(saved);
-                HashSet<String> seen = new HashSet<>();
-                for (int i = 0; i < Math.min(32, a.length()); i++) {
-                    JSONObject o = a.getJSONObject(i);
-                    String type = o.getString("type"), id = o.getString("id");
-                    if (!Arrays.asList(TYPES).contains(type) || id.length() > 80 || !seen.add(id))
-                        continue;
-                    Widget w = new Widget(id, type);
-                    w.title = o.optString("title", w.title);
-                    w.metric = o.optString("metric", w.metric);
-                    w.note = o.optString("note", "");
-                    w.color = Math.max(0, Math.min(3, o.optInt("color", 0)));
-                    w.windowMs =
-                            Math.max(
-                                    60000L,
-                                    Math.min(730 * 86400000L, o.optLong("window", w.windowMs)));
-                    w.minimum = o.optDouble("min", 0);
-                    w.maximum = o.optDouble("max", 100);
-                    w.advertisedWh = o.optDouble("advertisedWh", 0);
-                    if (!Double.isFinite(w.advertisedWh)
-                            || w.advertisedWh < 0
-                            || w.advertisedWh > 10000) w.advertisedWh = 0;
-                    if (!Double.isFinite(w.minimum)
-                            || !Double.isFinite(w.maximum)
-                            || w.maximum <= w.minimum) {
-                        w.minimum = 0;
-                        w.maximum = 100;
-                    }
-                    JSONArray keys = o.optJSONArray("keys");
-                    if (keys != null) {
-                        w.keys.clear();
-                        for (int k = 0; k < Math.min(12, keys.length()); k++)
-                            w.keys.add(keys.getString(k));
-                    }
-                    // 0.6.0 stored unused generic keys on the photo card. Give those
-                    // existing cards the new lifetime defaults without changing their geometry.
-                    if (type.equals("scooter")
-                            && !o.optBoolean("scooterStats", false)
-                            && w.keys.equals(
-                                    Arrays.asList(
-                                            "remaining_range_km",
-                                            "power_w",
-                                            "battery_health_percent",
-                                            "temperature_c"))) {
-                        w.keys.clear();
-                        w.keys.addAll(
-                                Arrays.asList(
-                                        "odometer_km", "driving_mode"));
-                    }
-                    // Retire the old four-stat default once; do not overwrite a
-                    // subsequently customized reading list or any saved placement.
-                    if (type.equals("scooter")
-                            && !o.optBoolean("glanceableScooterStats", false)
-                            && w.keys.equals(Arrays.asList("odometer_km", "driving_mode",
-                                    "charge_cycles", "capacity_throughput_ah"))) {
-                        w.keys.clear();
-                        w.keys.addAll(Arrays.asList("odometer_km", "driving_mode"));
-                    }
-                    JSONObject layouts = o.optJSONObject("layouts");
-                    if (layouts != null)
-                        for (int c = 1; c <= 4; c++) {
-                            JSONArray p = layouts.optJSONArray(Integer.toString(c));
-                            if (p != null && p.length() == 4)
-                                w.layouts.put(
-                                        c,
-                                        new DashboardLayout.Cell(
-                                                id,
-                                                p.getInt(0),
-                                                p.getInt(1),
-                                                p.getInt(2),
-                                                p.getInt(3)));
-                        }
-                    widgets.add(w);
-                }
+                widgets.addAll(readWidgets(new JSONArray(saved)));
                 return;
             } catch (Exception ignored) {
                 widgets.clear();
             }
         reset();
+    }
+
+    private static ArrayList<Widget> readWidgets(JSONArray a) throws JSONException {
+        ArrayList<Widget> result = new ArrayList<>();
+        HashSet<String> seen = new HashSet<>();
+        for (int i = 0; i < Math.min(32, a.length()); i++) {
+            JSONObject o = a.getJSONObject(i);
+            String type = o.getString("type"), id = o.getString("id");
+            if (!Arrays.asList(TYPES).contains(type) || id.length() > 80 || !seen.add(id))
+                continue;
+            Widget w = new Widget(id, type);
+            w.title = o.optString("title", w.title);
+            w.metric = o.optString("metric", w.metric);
+            w.note = o.optString("note", "");
+            w.color = Math.max(0, Math.min(3, o.optInt("color", 0)));
+            w.windowMs =
+                    Math.max(
+                            60000L,
+                            Math.min(730 * 86400000L, o.optLong("window", w.windowMs)));
+            w.minimum = o.optDouble("min", 0);
+            w.maximum = o.optDouble("max", 100);
+            w.advertisedWh = o.optDouble("advertisedWh", 0);
+            if (!Double.isFinite(w.advertisedWh)
+                    || w.advertisedWh < 0
+                    || w.advertisedWh > 10000) w.advertisedWh = 0;
+            if (!Double.isFinite(w.minimum)
+                    || !Double.isFinite(w.maximum)
+                    || w.maximum <= w.minimum) {
+                w.minimum = 0;
+                w.maximum = 100;
+            }
+            JSONArray keys = o.optJSONArray("keys");
+            if (keys != null) {
+                w.keys.clear();
+                for (int k = 0; k < Math.min(12, keys.length()); k++)
+                    w.keys.add(keys.getString(k));
+            }
+            // 0.6.0 stored unused generic keys on the photo card. Give those
+            // existing cards the new lifetime defaults without changing their geometry.
+            if (type.equals("scooter")
+                    && !o.optBoolean("scooterStats", false)
+                    && w.keys.equals(
+                            Arrays.asList(
+                                    "remaining_range_km",
+                                    "power_w",
+                                    "battery_health_percent",
+                                    "temperature_c"))) {
+                w.keys.clear();
+                w.keys.addAll(
+                        Arrays.asList(
+                                "odometer_km", "driving_mode"));
+            }
+            // Retire the old four-stat default once; do not overwrite a
+            // subsequently customized reading list or any saved placement.
+            if (type.equals("scooter")
+                    && !o.optBoolean("glanceableScooterStats", false)
+                    && w.keys.equals(Arrays.asList("odometer_km", "driving_mode",
+                            "charge_cycles", "capacity_throughput_ah"))) {
+                w.keys.clear();
+                w.keys.addAll(Arrays.asList("odometer_km", "driving_mode"));
+            }
+            JSONObject layouts = o.optJSONObject("layouts");
+            if (layouts != null)
+                for (int c = 1; c <= 4; c++) {
+                    JSONArray p = layouts.optJSONArray(Integer.toString(c));
+                    if (p != null && p.length() == 4)
+                        w.layouts.put(
+                                c,
+                                new DashboardLayout.Cell(
+                                        id,
+                                        p.getInt(0),
+                                        p.getInt(1),
+                                        p.getInt(2),
+                                        p.getInt(3)));
+                }
+            result.add(w);
+        }
+        return result;
     }
 
     public void reset() {
@@ -285,36 +297,245 @@ public final class DashboardConfig {
 
     public void save() {
         try {
-            JSONArray a = new JSONArray();
-            for (Widget w : widgets) {
-                JSONObject o = new JSONObject();
-                o.put("id", w.id);
-                o.put("type", w.type);
-                if (w.type.equals("scooter")) {
-                    o.put("scooterStats", true);
-                    o.put("glanceableScooterStats", true);
-                }
-                o.put("title", w.title);
-                o.put("metric", w.metric);
-                o.put("note", w.note);
-                o.put("color", w.color);
-                o.put("window", w.windowMs);
-                o.put("min", w.minimum);
-                o.put("max", w.maximum);
-                o.put("advertisedWh", w.advertisedWh);
-                o.put("keys", new JSONArray(w.keys));
-                JSONObject layouts = new JSONObject();
-                for (Map.Entry<Integer, DashboardLayout.Cell> e : w.layouts.entrySet()) {
-                    DashboardLayout.Cell c = e.getValue();
-                    layouts.put(
-                            e.getKey().toString(), new JSONArray(new int[] {c.x, c.y, c.w, c.h}));
-                }
-                o.put("layouts", layouts);
-                a.put(o);
-            }
-            preferences.edit().putString(storageKey, a.toString()).apply();
+            preferences.edit().putString(storageKey, writeWidgets(widgets).toString()).apply();
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }
+    }
+
+    private static JSONArray writeWidgets(List<Widget> widgets) throws JSONException {
+        JSONArray a = new JSONArray();
+        for (Widget w : widgets) {
+            JSONObject o = new JSONObject();
+            o.put("id", w.id);
+            o.put("type", w.type);
+            if (w.type.equals("scooter")) {
+                o.put("scooterStats", true);
+                o.put("glanceableScooterStats", true);
+            }
+            o.put("title", w.title);
+            o.put("metric", w.metric);
+            o.put("note", w.note);
+            o.put("color", w.color);
+            o.put("window", w.windowMs);
+            o.put("min", w.minimum);
+            o.put("max", w.maximum);
+            o.put("advertisedWh", w.advertisedWh);
+            o.put("keys", new JSONArray(w.keys));
+            JSONObject layouts = new JSONObject();
+            for (Map.Entry<Integer, DashboardLayout.Cell> e : w.layouts.entrySet()) {
+                DashboardLayout.Cell c = e.getValue();
+                layouts.put(
+                        e.getKey().toString(), new JSONArray(new int[] {c.x, c.y, c.w, c.h}));
+            }
+            o.put("layouts", layouts);
+            a.put(o);
+        }
+        return a;
+    }
+
+    /** Read-only metadata. Widget data stays private so later edits cannot mutate a slot. */
+    public static final class SavedSlot {
+        public final String name;
+        public final long savedAtMs;
+        public final int widgetCount, columns;
+
+        private SavedSlot(JSONObject snapshot) throws JSONException {
+            name = snapshot.getString("name");
+            savedAtMs = snapshot.getLong("savedAt");
+            widgetCount = snapshot.getJSONArray("widgets").length();
+            columns = snapshot.getInt("columns");
+        }
+    }
+
+    /** An occupied but unreadable slot may still be overwritten explicitly by its owner. */
+    public boolean slotExists(int index) {
+        return validSlot(index) && preferences.contains(slotKeyPrefix + index);
+    }
+
+    public SavedSlot slot(int index) {
+        try {
+            JSONObject snapshot = readSlot(index);
+            return snapshot == null ? null : new SavedSlot(snapshot);
+        } catch (JSONException | RuntimeException invalid) {
+            return null;
+        }
+    }
+
+    /** Captures every stored width together, without materializing missing width layouts. */
+    public boolean saveSlot(int index, String name, int columns) {
+        if (!validSlot(index) || columns < 0 || columns > 4) return false;
+        try {
+            JSONObject snapshot = new JSONObject();
+            snapshot.put("version", SLOT_VERSION);
+            snapshot.put("name", slotName(name, index));
+            snapshot.put("savedAt", System.currentTimeMillis());
+            snapshot.put("columns", columns);
+            snapshot.put("widgets", writeWidgets(widgets));
+            validateSlot(snapshot);
+            String key = slotKeyPrefix + index;
+            Map<String, ?> previous = preferences.getAll();
+            if (preferences.edit().putString(key, snapshot.toString()).commit()) return true;
+            // SharedPreferences changes its memory map even when the disk commit fails.
+            // Put the original value back and report failure instead of claiming a saved slot.
+            restorePreferences(previous, key);
+        } catch (JSONException | RuntimeException invalid) {
+            return false;
+        }
+        return false;
+    }
+
+    /** Validates first, then persists dashboard and column preference in one transaction. */
+    public boolean restoreSlot(int index) {
+        try {
+            JSONObject snapshot = readSlot(index);
+            if (snapshot == null) return false;
+            JSONArray savedWidgets = snapshot.getJSONArray("widgets");
+            ArrayList<Widget> restored = readWidgets(savedWidgets);
+            Map<String, ?> previous = preferences.getAll();
+            if (!preferences.edit()
+                    .putString(storageKey, savedWidgets.toString())
+                    .putInt(COLUMN_KEY, snapshot.getInt("columns"))
+                    .commit()) {
+                restorePreferences(previous, storageKey, COLUMN_KEY);
+                return false;
+            }
+            // The current screen's close()/save() must now save the restored definitions.
+            widgets.clear();
+            widgets.addAll(restored);
+            return true;
+        } catch (JSONException | RuntimeException invalid) {
+            return false;
+        }
+    }
+
+    private JSONObject readSlot(int index) throws JSONException {
+        if (!validSlot(index)) return null;
+        String saved = preferences.getString(slotKeyPrefix + index, null);
+        if (saved == null) return null;
+        JSONObject snapshot = new JSONObject(saved);
+        validateSlot(snapshot);
+        return snapshot;
+    }
+
+    private static boolean validSlot(int index) {
+        return index >= 0 && index < SLOT_COUNT;
+    }
+
+    private static String slotName(String name, int index) {
+        if (name == null) name = "";
+        StringBuilder clean = new StringBuilder();
+        boolean gap = false;
+        int count = 0;
+        for (int offset = 0; offset < name.length() && count < SLOT_NAME_LIMIT; ) {
+            int codePoint = name.codePointAt(offset);
+            offset += Character.charCount(codePoint);
+            if (Character.isWhitespace(codePoint) || Character.isISOControl(codePoint)) {
+                gap = clean.length() > 0;
+            } else {
+                if (gap) {
+                    clean.append(' ');
+                    count++;
+                    gap = false;
+                    if (count == SLOT_NAME_LIMIT) break;
+                }
+                clean.appendCodePoint(codePoint);
+                count++;
+            }
+        }
+        String result = clean.toString().trim();
+        return result.isEmpty() ? "Slot " + (index + 1) : result;
+    }
+
+    private static void validateSlot(JSONObject snapshot) throws JSONException {
+        require(integer(snapshot.get("version")) == SLOT_VERSION, "Unknown slot version");
+        String name = string(snapshot.get("name"));
+        require(!name.isEmpty() && name.equals(slotName(name, 0)), "Invalid slot name");
+        require(integer(snapshot.get("savedAt")) > 0, "Invalid slot timestamp");
+        long columns = integer(snapshot.get("columns"));
+        require(columns >= 0 && columns <= 4, "Invalid column choice");
+        JSONArray definitions = snapshot.getJSONArray("widgets");
+        require(definitions.length() <= 32, "Too many widgets");
+        HashSet<String> ids = new HashSet<>();
+        for (int i = 0; i < definitions.length(); i++) {
+            JSONObject widget = definitions.getJSONObject(i);
+            String id = string(widget.get("id")), type = string(widget.get("type"));
+            require(!id.trim().isEmpty() && id.length() <= 80 && ids.add(id), "Invalid widget ID");
+            require(Arrays.asList(TYPES).contains(type), "Unknown widget type");
+            string(widget.get("title"));
+            string(widget.get("metric"));
+            string(widget.get("note"));
+            long color = integer(widget.get("color")), window = integer(widget.get("window"));
+            require(color >= 0 && color <= 3, "Invalid widget color");
+            require(window >= 60000L && window <= 730 * 86400000L, "Invalid chart window");
+            double minimum = number(widget.get("min")), maximum = number(widget.get("max"));
+            require(maximum > minimum, "Invalid gauge range");
+            double advertised = number(widget.get("advertisedWh"));
+            require(advertised >= 0 && advertised <= 10000, "Invalid battery rating");
+            JSONArray keys = widget.getJSONArray("keys");
+            require(keys.length() <= 12, "Too many reading keys");
+            for (int k = 0; k < keys.length(); k++) string(keys.get(k));
+            // Slot format starts after both legacy scooter migrations. Missing markers
+            // are damage, not a reason to silently change a saved custom reading list.
+            if (type.equals("scooter")) {
+                require(Boolean.TRUE.equals(widget.get("scooterStats")), "Missing scooter marker");
+                require(Boolean.TRUE.equals(widget.get("glanceableScooterStats")), "Missing scooter marker");
+            }
+            JSONObject layouts = widget.getJSONObject("layouts");
+            Iterator<String> widths = layouts.keys();
+            while (widths.hasNext()) {
+                String width = widths.next();
+                require(Arrays.asList("1", "2", "3", "4").contains(width), "Invalid layout width");
+                int columnCount = Integer.parseInt(width);
+                JSONArray rectangle = layouts.getJSONArray(width);
+                require(rectangle.length() == 4, "Invalid layout rectangle");
+                long x = integer(rectangle.get(0)), y = integer(rectangle.get(1));
+                long w = integer(rectangle.get(2)), h = integer(rectangle.get(3));
+                require(w >= 1 && w <= columnCount && x >= 0 && x <= columnCount - w,
+                        "Layout exceeds column bounds");
+                // Matches the grid's 300 gesture rows plus displaced 16-row cards.
+                require(y >= 0 && y <= 300 + 32 * 32 && h >= 1 && h <= 16,
+                        "Layout exceeds row bounds");
+            }
+        }
+    }
+
+    private static String string(Object value) throws JSONException {
+        require(value instanceof String, "Expected text");
+        return (String) value;
+    }
+
+    private static long integer(Object value) throws JSONException {
+        require(value instanceof Integer || value instanceof Long, "Expected integer");
+        return ((Number) value).longValue();
+    }
+
+    private static double number(Object value) throws JSONException {
+        require(value instanceof Number, "Expected number");
+        double result = ((Number) value).doubleValue();
+        require(Double.isFinite(result), "Expected finite number");
+        return result;
+    }
+
+    private static void require(boolean valid, String message) throws JSONException {
+        if (!valid) throw new JSONException(message);
+    }
+
+    private void restorePreferences(Map<String, ?> previous, String... keys) {
+        SharedPreferences.Editor rollback = preferences.edit();
+        for (String key : keys) {
+            Object value = previous.get(key);
+            if (value == null) rollback.remove(key);
+            else if (value instanceof String) rollback.putString(key, (String) value);
+            else if (value instanceof Integer) rollback.putInt(key, (Integer) value);
+            else if (value instanceof Long) rollback.putLong(key, (Long) value);
+            else if (value instanceof Boolean) rollback.putBoolean(key, (Boolean) value);
+            else if (value instanceof Float) rollback.putFloat(key, (Float) value);
+            else if (value instanceof Set) {
+                @SuppressWarnings("unchecked") Set<String> strings = (Set<String>) value;
+                rollback.putStringSet(key, strings);
+            }
+        }
+        rollback.apply();
     }
 }

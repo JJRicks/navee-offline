@@ -57,6 +57,15 @@ only for new/reset dashboards; never overwrite saved custom or empty dashboards.
 The two/four-column presets reproduce the captured folded/unfolded arrangement.
 Widget scale values are stored in canonical units and converted for display.
 
+Dashboard slots keep all column layouts and widget options together per scooter.
+Editing or resetting the live dashboard must never mutate a saved slot. Validate
+a snapshot before restoring it, and preserve intentionally empty dashboards.
+`DashboardSlotsValidation` checks persistence, isolation and malformed snapshots
+in an isolated emulator fixture. `DashboardValidation` with `-e mode layout-slots`
+checks the real Save/Replace/Restore/default-reset dialogs, cancellation,
+recreation, and large-text/light-theme actions on a fresh emulator. Both runners
+refuse physical phones. Keep screenshot and width details in VERIFICATION.txt.
+
 The editor uses dedicated top-left move grips and bottom-right resize
 corners, with tap-accessible Move/Size dialogs and one gear-shaped widget-options menu.
 Gesture previews must use an untouched start snapshot, pin the full requested
