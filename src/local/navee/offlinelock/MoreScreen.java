@@ -180,8 +180,9 @@ public final class MoreScreen implements AppScreen {
 
     /**
      * Wide mode: MainActivity only remembers the outer page scroller, which stays put while the two
-     * panes scroll. Keep the panes' positions across a brief tab return or rebuild. When the submenu
-     * has expired (more_section cleared after a minute away) nothing is restored.
+     * panes scroll. Keep the panes' positions across a brief tab return or rebuild, including the
+     * default App preferences pane shown with no submenu chosen. MainActivity drops the saved
+     * positions when the submenu expires or a shortcut opens one, so nothing stale is restored.
      */
     private static final String WIDE_SECTION_SCROLL = "more_wide_section_scroll", WIDE_MENU_SCROLL = "more_wide_menu_scroll";
     private void saveWideScroll() {
@@ -192,7 +193,6 @@ public final class MoreScreen implements AppScreen {
     private void restoreWideScroll() {
         if (!wide || service() == null || sectionScroll == null || menuScroll == null) return;
         SharedPreferences prefs = settings();
-        if (selectedSection.isEmpty()) { prefs.edit().remove(WIDE_SECTION_SCROLL).remove(WIDE_MENU_SCROLL).apply(); return; }
         String saved = prefs.getString(WIDE_SECTION_SCROLL, "");
         int split = saved.lastIndexOf(':');
         final int section = split > 0 && saved.substring(0, split).equals(shownSection()) ? parseScroll(saved.substring(split + 1)) : 0;

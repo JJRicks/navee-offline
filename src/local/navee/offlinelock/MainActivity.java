@@ -419,7 +419,8 @@ public final class MainActivity extends Activity implements ScreenHost {
                 ||preferences.getInt(MORE_AWAY_BOOT,-1)!=bootCount();
         if(!expired)return false;
         boolean hadSection=!preferences.getString("more_section","").isEmpty();
-        preferences.edit().putString("more_section","").remove(MORE_AWAY_AT).remove(MORE_AWAY_BOOT).apply();
+        preferences.edit().putString("more_section","").remove(MORE_AWAY_AT).remove(MORE_AWAY_BOOT)
+                .remove("more_wide_section_scroll").remove("more_wide_menu_scroll").apply();
         scrollPositions.put("more",0);
         if(scroll!=null&&scrollPage.equals("more"))scroll.scrollTo(0,0);
         return hadSection;
