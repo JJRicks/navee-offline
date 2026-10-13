@@ -96,13 +96,16 @@ public final class SearchFocusValidation extends Instrumentation {
         checks.add(theme + ": outside taps and system Back clear settings search focus, preserve the filter, and deliver navigation actions");
     }
     private void statsChecks(String theme) {
-        clickText(root(), "Readings"); Object stats = screen(); EditText search = (EditText)field(stats, "search");
+        // Wide Stats shows Readings in its own pane (no tab) and scrolls that pane rather than the page.
+        boolean wide = Boolean.TRUE.equals(field(screen(), "wide"));
+        if (!wide) clickText(root(), "Readings");
+        Object stats = screen(); EditText search = (EditText)field(stats, "search");
         showKeyboard(search, activity.getWindow(), "battery");
         boolean original = settings().getBoolean("stats_favourites_only", false); tap((View)field(stats, "filterButton"));
         assertDismissed(search, activity.getWindow(), "battery", "Stats filter tap");
         require(settings().getBoolean("stats_favourites_only", false) != original, "Dismissing search consumed the Favourites action");
         if (settings().getBoolean("stats_favourites_only", false)) click((View)field(stats, "filterButton"));
-        showKeyboard(search, activity.getWindow(), "battery"); ScrollView scroll = (ScrollView)field(activity, "scroll");
+        showKeyboard(search, activity.getWindow(), "battery"); ScrollView scroll = (ScrollView)field(wide ? stats : activity, wide ? "readingsScroll" : "scroll");
         int before = scroll.getScrollY(); Rect bounds = new Rect(), fieldBounds = new Rect();
         main(() -> { require(scroll.getGlobalVisibleRect(bounds), "Stats scroller is not visible");
             require(search.getGlobalVisibleRect(fieldBounds), "Stats search is not visible"); });

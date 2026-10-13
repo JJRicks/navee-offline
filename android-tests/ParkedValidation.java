@@ -153,9 +153,11 @@ public final class ParkedValidation extends Instrumentation {
         else require(shown==0,"No-match query left a control visible");
         Map<View,String[]> extras=(Map<View,String[]>)field(screen,"extras");for(Map.Entry<View,String[]> e:extras.entrySet())require(e.getKey().isShown()==(mode==null),"Unexpected extra settings row visibility");
     }
+    /** Wide Stats keeps Readings in its own right-hand pane, so it has no Readings tab and that section is always shown. */
+    private boolean statsWide(Object screen){return Boolean.TRUE.equals(field(screen,"wide"));}
     private void assertStatsSections(Object screen,String selected){
-        String[] names={"Overview","Readings","Charts","Diagnostics"};String[] fields={"overviewSection","readingsSection","chartsSection","diagnosticsSection"};
-        for(int i=0;i<names.length;i++)require(((View)field(screen,fields[i])).getVisibility()==(names[i].equals(selected)?View.VISIBLE:View.GONE),"Unexpected Stats section visibility: "+names[i]);
+        String[] names={"Overview","Readings","Charts","Diagnostics"};String[] fields={"overviewSection","readingsSection","chartsSection","diagnosticsSection"};boolean wide=statsWide(screen);
+        for(int i=0;i<names.length;i++){boolean shown=names[i].equals(selected)||wide&&names[i].equals("Readings");require(((View)field(screen,fields[i])).getVisibility()==(shown?View.VISIBLE:View.GONE),"Unexpected Stats section visibility: "+names[i]);}
     }
     private long mutations(){return ((Number)field(service.ble,"mutationSequence")).longValue();}
     private void navigationSmoke(Activity activity)throws Exception{
@@ -168,8 +170,10 @@ public final class ParkedValidation extends Instrumentation {
         runMain(()->{Object controls=currentScreen(activity);try{java.lang.reflect.Method back=controls.getClass().getDeclaredMethod("back");back.setAccessible(true);require(Boolean.TRUE.equals(back.invoke(controls)),"Lights page Back was not handled");}catch(ReflectiveOperationException e){throw new IllegalStateException("Cannot invoke Lights Back",e);}});
         waitForIdleSync();runMain(()->assertControls(currentScreen(activity),null));render(activity,"navigation-controls.png");
         navigate(activity,"stats");
-        for(String section:new String[]{"Overview","Readings","Charts","Diagnostics"}){clickSection(activity,section);runMain(()->assertStatsSections(currentScreen(activity),section));}
-        clickSection(activity,"Readings");
+        AtomicReference<Boolean> wideStats=new AtomicReference<>();runMain(()->wideStats.set(statsWide(currentScreen(activity))));
+        for(String section:new String[]{"Overview","Readings","Charts","Diagnostics"}){if(wideStats.get()&&section.equals("Readings"))continue;clickSection(activity,section);runMain(()->assertStatsSections(currentScreen(activity),section));}
+        if(wideStats.get())runMain(()->require(findText(screenView(activity),"Readings")==null,"Wide Stats must not offer a Readings tab beside the Readings pane"));
+        else clickSection(activity,"Readings");
         runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");require(input!=null,"Stats search missing");input.setText("voltage");require(findText(screenView(activity),"Battery voltage")!=null,"Voltage search result missing");
             Map<?,?> rows=(Map<?,?>)field(currentScreen(activity),"rows");Object voltage=rows.get("voltage_v");require(voltage!=null,"Voltage favourite row missing");View star=(View)field(voltage,"star");require(star.isShown(),"Voltage favourite is not reachable");star.performClick();star.performClick();});
         render(activity,"navigation-stats-readings.png");runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");input.setText("");require(input.getText().length()==0&&"".equals(field(currentScreen(activity),"query")),"Clearing Stats search did not clear its input/query");});clickSection(activity,"Overview");render(activity,"navigation-stats-overview.png");

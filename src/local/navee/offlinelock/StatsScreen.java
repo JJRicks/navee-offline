@@ -1,6 +1,7 @@
 package local.navee.offlinelock;
 
 import android.app.AlertDialog;
+import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
@@ -39,7 +40,12 @@ public final class StatsScreen implements AppScreen {
     private final Ui ui;
     private final ScooterService service;
     private final SharedPreferences preferences;
-    private final ScrollView scroll;
+    private final ScrollView scroll, sectionScroll, readingsScroll;
+    /** True when the page shows two panes (sections left, Readings right) beside MainActivity's side rail. */
+    private final boolean wide;
+    private static final int WIDE_DP = 650, RAIL_DP = 92;
+    /** Pane scroll positions kept across a rebuild, as MainActivity keeps the phone page's scroll. */
+    private static int savedSectionScroll, savedReadingsScroll;
     private final LinearLayout page, overviewSection, readingsSection, chartsSection, diagnosticsSection;
     private final LinkedHashMap<String, Row> rows = new LinkedHashMap<String, Row>();
     private final LinkedHashMap<String, Group> groups = new LinkedHashMap<String, Group>();
@@ -52,6 +58,7 @@ public final class StatsScreen implements AppScreen {
     private String favouritesShown, devicesShown, eventsShown;
     private final EditText search;
     private static final String[] SECTIONS = {"Overview", "Readings", "Charts", "Diagnostics"};
+    private static final String[] WIDE_SECTIONS = {"Overview", "Charts", "Diagnostics"};
     private boolean favouritesOnly;
     private AlertDialog metricDialog;
     private final TextView status, batteryHeadline, batteryDetails, batteryCaveat, filterButton,
@@ -95,20 +102,53 @@ public final class StatsScreen implements AppScreen {
         favouritesOnly = preferences.getBoolean("stats_favourites_only", false);
         query = preferences.getString("stats_query", "");
         chartKey = preferences.getString("stats_chart_key", "power_w");
+        int widthDp = host.activity().getResources().getConfiguration().screenWidthDp;
+        // Same trigger as MainActivity's side rail: the content area beside the rail is wide enough for two panes.
+        wide = widthDp >= WIDE_DP;
         selectedSection = validSection(preferences.getString("stats_section", "Overview"));
-        scroll = new ScrollView(host.activity()); scroll.setFillViewport(true); scroll.setClipToPadding(false);
-        page = new LinearLayout(host.activity()); page.setOrientation(LinearLayout.VERTICAL);
-        page.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24)); scroll.addView(page);
-        status = ui.caption(""); status.setPadding(0, 0, 0, ui.dp(10)); page.addView(status);
-        page.addView(fittedTabs(ui.sectionTabs(SECTIONS, selectedSection, this::selectSection)), new LinearLayout.LayoutParams(-1, -2));
+        // Readings has its own pane when wide; a saved Readings tab opens Overview beside it (the saved choice is kept).
+        if (wide && selectedSection.equals("Readings")) selectedSection = "Overview";
+        status = ui.caption(""); status.setPadding(0, 0, 0, ui.dp(10));
         overviewSection = vertical(); readingsSection = vertical(); chartsSection = vertical(); diagnosticsSection = vertical();
-        for (LinearLayout section : new LinearLayout[] {overviewSection, readingsSection, chartsSection, diagnosticsSection}) {
-            section.setPadding(0, ui.dp(4), 0, 0); page.addView(section);
+        View tabs = fittedTabs(ui.sectionTabs(wide ? WIDE_SECTIONS : SECTIONS, selectedSection, this::selectSection));
+        if (!wide) {
+            scroll = new ScrollView(host.activity()); scroll.setFillViewport(true); scroll.setClipToPadding(false);
+            page = vertical(); page.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24)); scroll.addView(page);
+            sectionScroll = scroll; readingsScroll = null;
+            page.addView(status); page.addView(tabs, new LinearLayout.LayoutParams(-1, -2));
+            for (LinearLayout section : new LinearLayout[] {overviewSection, readingsSection, chartsSection, diagnosticsSection}) {
+                section.setPadding(0, ui.dp(4), 0, 0); page.addView(section);
+            }
+        } else {
+            // Two panes that scroll on their own: sections on the left, Readings always on the right.
+            // The outer frame is still the page's ScrollView for MainActivity, but it never scrolls.
+            scroll = new PaneFrame(host.activity());
+            LinearLayout frame = vertical(); frame.setPadding(ui.dp(24), ui.dp(6), ui.dp(24), 0);
+            scroll.addView(frame, new ScrollView.LayoutParams(-1, -1));
+            frame.addView(status, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout panes = new LinearLayout(host.activity()); panes.setOrientation(LinearLayout.HORIZONTAL); panes.setBaselineAligned(false);
+            frame.addView(panes, new LinearLayout.LayoutParams(-1, 0, 1));
+            page = vertical(); page.setPadding(0, 0, 0, ui.dp(24));
+            page.addView(tabs, new LinearLayout.LayoutParams(-1, -2));
+            for (LinearLayout section : new LinearLayout[] {overviewSection, chartsSection, diagnosticsSection}) {
+                section.setPadding(0, ui.dp(4), 0, 0); page.addView(section);
+            }
+            LinearLayout readingsPage = vertical(); readingsPage.setPadding(0, 0, 0, ui.dp(24));
+            readingsPage.addView(readingsSection);
+            sectionScroll = paneScroll(page); readingsScroll = paneScroll(readingsPage);
+            // Equal panes with the 20dp gutter between them; TalkBack reads the left pane first.
+            panes.addView(sectionScroll, new LinearLayout.LayoutParams(0, -1, 1));
+            panes.addView(new View(host.activity()), new LinearLayout.LayoutParams(ui.dp(20), 1));
+            panes.addView(readingsScroll, new LinearLayout.LayoutParams(0, -1, 1));
+            final int left = savedSectionScroll, right = savedReadingsScroll;
+            sectionScroll.post(() -> sectionScroll.scrollTo(0, left));
+            readingsScroll.post(() -> readingsScroll.scrollTo(0, right));
         }
 
         // Overview: the battery ring beside range and electrical detail, then the rider's favourite readings.
-        int widthDp = host.activity().getResources().getConfiguration().screenWidthDp;
-        boolean compactBattery = widthDp < 340 || (widthDp < 430 && ui.textScale * host.activity().getResources().getConfiguration().fontScale > 1.2f);
+        // When wide, judge the ring layout by the pane's width as if it were a phone page with its 18dp sides.
+        int layoutDp = wide ? (widthDp - RAIL_DP - 48 - 20) / 2 + 36 : widthDp;
+        boolean compactBattery = layoutDp < 340 || (layoutDp < 430 && ui.textScale * host.activity().getResources().getConfiguration().fontScale > 1.2f);
         LinearLayout battery = ui.card(); battery.setOrientation(compactBattery ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL);
         battery.setGravity(compactBattery ? Gravity.CENTER_HORIZONTAL : Gravity.CENTER_VERTICAL);
         batteryRing = ui.new BatteryRing(); battery.addView(batteryRing, new LinearLayout.LayoutParams(ui.dp(120), ui.dp(136)));
@@ -191,12 +231,32 @@ public final class StatsScreen implements AppScreen {
         applyFilter(); showSection(); refresh();
     }
     private LinearLayout vertical() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.VERTICAL); return result; }
+    private ScrollView paneScroll(View content) {
+        ScrollView pane = new ScrollView(host.activity()); pane.setFillViewport(true); pane.setClipToPadding(false);
+        pane.addView(content, new ScrollView.LayoutParams(-1, -2)); return pane;
+    }
+    /**
+     * The wide page's outer ScrollView. It sizes its content to exactly its own viewport, so it has
+     * no scroll range and never intercepts drags; each pane inside scrolls on its own.
+     */
+    private static final class PaneFrame extends ScrollView {
+        PaneFrame(Context context) { super(context); setFillViewport(true); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
+            setMeasuredDimension(width, height);
+            if (getChildCount() == 0) return;
+            getChildAt(0).measure(MeasureSpec.makeMeasureSpec(Math.max(0, width - getPaddingLeft() - getPaddingRight()), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(Math.max(0, height - getPaddingTop() - getPaddingBottom()), MeasureSpec.EXACTLY));
+        }
+    }
+    /** Whether the Readings section is on screen: always when wide, otherwise only as the selected tab. */
+    private boolean readingsShown() { return wide || selectedSection.equals("Readings"); }
     private static String validSection(String section) {
         for (String known : SECTIONS) if (known.equals(section)) return known;
         return "Overview";
     }
     /**
-     * Keeps the four section tabs on one row on a phone: trims tab padding only as far as the
+     * Keeps the section tabs (four on a phone, three in the wide left pane) on one row: trims tab padding only as far as the
      * width requires, then shares any spare width so the row spans the page. At very large text
      * the shared picker still wraps rather than clipping a label.
      */
@@ -238,19 +298,20 @@ public final class StatsScreen implements AppScreen {
     }
     private void showSection() {
         overviewSection.setVisibility(selectedSection.equals("Overview") ? View.VISIBLE : View.GONE);
-        readingsSection.setVisibility(selectedSection.equals("Readings") ? View.VISIBLE : View.GONE);
+        readingsSection.setVisibility(readingsShown() ? View.VISIBLE : View.GONE);
         chartsSection.setVisibility(selectedSection.equals("Charts") ? View.VISIBLE : View.GONE);
         diagnosticsSection.setVisibility(selectedSection.equals("Diagnostics") ? View.VISIBLE : View.GONE);
     }
     private void selectSection(String section) {
         selectedSection = validSection(section); showSection();
-        if (!selectedSection.equals("Readings")) {
+        if (!readingsShown()) {
             InputMethodManager keyboard = host.activity().getSystemService(InputMethodManager.class);
             if (keyboard != null) keyboard.hideSoftInputFromWindow(search.getWindowToken(), 0);
             search.clearFocus();
         }
         preferences.edit().putString("stats_section", selectedSection).apply();
-        refresh(); scroll.post(() -> scroll.scrollTo(0, 0));
+        // When wide only the left pane changes, so only it returns to the top.
+        refresh(); sectionScroll.post(() -> sectionScroll.scrollTo(0, 0));
     }
     private void addChartChoice(LinearLayout row, String label, String key) {
         TextView chip = ui.chip(label, key.equals(chartKey), () -> {
@@ -368,7 +429,7 @@ public final class StatsScreen implements AppScreen {
         int saved = 0, live = 0;
         for (TelemetryHistory.Reading reading : readings.values()) {
             if (reading.value != null) { saved++; if (reading.live) live++; }
-            if (!selectedSection.equals("Readings")) continue;
+            if (!readingsShown()) continue;
             Row row = rows.get(reading.key); if (row == null) continue;
             boolean fresh = reading.live && reading.value != null;
             row.amount.setText(display(reading)); row.amount.setTextColor(fresh ? ui.text : ui.muted);
@@ -552,7 +613,11 @@ public final class StatsScreen implements AppScreen {
                 .setNeutralButton(favourites.contains(key) ? "Remove favourite" : "Add favourite", (d, which) -> toggleFavourite(key))
                 .setPositiveButton("Close", null).create(); metricDialog.show();
     }
-    @Override public void close() { if (metricDialog != null) metricDialog.dismiss(); }
+    @Override public void close() {
+        if (metricDialog != null) metricDialog.dismiss();
+        savedSectionScroll = wide ? sectionScroll.getScrollY() : 0;
+        savedReadingsScroll = wide ? readingsScroll.getScrollY() : 0;
+    }
     private boolean isKnownDriveMode(String key) {
         ScooterProfiles.Profile profile = service.profiles.active();
         return key.equals("driving_mode") && profile != null && profile.pid() == 2538;

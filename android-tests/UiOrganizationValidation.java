@@ -131,7 +131,9 @@ public final class UiOrganizationValidation extends Instrumentation {
             check("More opens compact preferences and Back returns to its settings index");
             verifyMoreReturn(settings);
 
-            clickDescription("Stats"); clickText(root(), "Readings");
+            clickDescription("Stats");
+            // Wide Stats keeps Readings in its own pane beside the sections, without a Readings tab.
+            if (!Boolean.TRUE.equals(field(field(activity, "screen"), "wide"))) clickText(root(), "Readings");
             Object stats = field(activity, "screen");
             @SuppressWarnings("unchecked") Map<String, Object> readings = (Map<String, Object>) field(stats, "rows");
             View voltage = (View) field(readings.get("voltage_v"), "layout"); click(voltage);
