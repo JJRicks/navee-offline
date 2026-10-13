@@ -1,11 +1,35 @@
 NAVEE OFFLINE — FIRST-TIME OWNER SETUP
 
 For your own, already activated NAVEE UT5 MAX. The app connects directly by
-Bluetooth and has no internet permission. Everyday use needs no NAVEE server.
+Bluetooth. Essential scooter controls need no NAVEE server; optional maps use
+an internet connection.
 
 The one-time setup identity is six bytes (12 hexadecimal characters). It is
 Bluetooth owner information, not your NAVEE password or a cloud login token.
 Each friend should capture their own account's identity for their own scooter.
+
+GUIDED CHROME + USB OPTION
+
+On a computer, open https://jjricks.com/pairscooter/ in Chrome or Edge. This
+is the planned hosting address; if it is not yet published, use the local
+hosting instructions in setup/web/README.md or the desktop helper below.
+The browser helper currently supports only the main personal Android user,
+not work profiles or secondary users. This
+guided option needs a USB data cable and USB debugging, but no Python or ADB
+installation. NAVEE must already be signed in and able to connect to your
+nearby, parked scooter. Read the access explanation, select your phone, and
+approve Android's debugging prompt with Always allow left unchecked.
+
+The page separately asks before temporary NAVEE logging and restarting NAVEE.
+It processes the filtered Bluetooth authentication message locally in your
+browser; the owner identity is not uploaded. After closing NAVEE and verifying
+its original log setting is restored, choose Save to phone Downloads, then
+import the new file in Volt. Saving and importing are separate actions.
+
+If USB is interrupted, return to the same browser and use Recover cleanup.
+Do not clear its temporary recovery record while cleanup remains unverified.
+See setup/web/README.md for self-hosting and security details. The existing
+desktop ADB/Python method below remains available.
 
 BEFORE YOU START
 
