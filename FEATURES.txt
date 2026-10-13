@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.7.1
+Current version: 0.7.2
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -131,7 +131,8 @@ APP TOOLS AND REMAINING VALIDATION
 The app includes local profiles, appearance/text/unit choices, fold-aware
 layouts, charts, ride recording, notes, comparison and exports. More uses saved
 App, Scooters, Security, Lab, Data and About sections, showing one at a time without
-rebuilding their controls. First-time owner setup stays visible when needed.
+rebuilding their controls. Submenus reset after one minute away from More or the
+app, while active use and quick returns preserve the section. First-time owner setup stays visible when needed.
 
 Keep idle connection in background defaults off. When off with no recording,
 hiding the app or turning the screen off starts a 10-second grace period. If
@@ -315,12 +316,16 @@ PHONE RECORDING AND ROUTE MAPS
 
 New explicit recordings can save GPS, pressure and experimental motion separately
 from electrical-energy sampling. Route preview colors power, grade and GPS speed
-derivative; tap for synchronized readings. Phone raw, linear and earth-frame
+derivative; pinch to zoom, drag to pan and tap for synchronized readings.
+Two-finger panning, zoom buttons and Fit are also available. Phone raw, linear and earth-frame
 acceleration are retained in CSV when the relevant sensors are available.
 
 Grade and ascent are estimates with signal-quality gates. GPS and Bluetooth gaps
 remain gaps. No inferred accelerometer distance is used. Older rides do not gain
 GPS. Pocket IMU quality and outdoor GPS/pressure need physical ride validation.
 
-Optional interactive OpenStreetMap tiles have caching and linked attribution,
-with a replaceable HTTPS source. Route capture/drawing work without a map server.
+Optional USGS Topo tiles provide U.S. streets/terrain with caching and attribution.
+Map source offers USGS, OSM and custom HTTPS providers. Unsupported closer USGS
+zooms enlarge available level-16 tiles. HTTP errors and X-Blocked images show a
+status while local routes remain visible. Provider denial pauses further requests;
+legacy unverified cache entries require refresh. No bulk prefetch is performed.

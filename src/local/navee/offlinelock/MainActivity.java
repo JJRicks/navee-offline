@@ -67,6 +67,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     private static final int BLUETOOTH_PERMISSION=101, NOTIFICATION_PERMISSION=102, ENABLE_BLUETOOTH=103,
             RIDE_LOCATION_PERMISSION=104, IMPORT_OWNER=201, SAVE_DOCUMENT=202;
     private static final long BODY_REFRESH_MS=1000;
+    private static final long MORE_RETENTION_MS=60_000;
+    private static final String MORE_AWAY_AT="more_away_elapsed", MORE_AWAY_BOOT="more_away_boot";
     private static final java.util.Set<String> preparingExports=java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     private final Handler handler=new Handler(Looper.getMainLooper());
     private final String[] pages={"home","controls","stats","rides","more"};
@@ -130,18 +132,21 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(saved!=null){selectedPage=saved.getString("page","home");for(String page:pages)scrollPositions.put(page,saved.getInt("scroll_"+page,0));pendingConnect=saved.getBoolean("pending_connect",false);pendingScan=saved.getBoolean("pending_scan",false);}
         else selectedPage="home";
         if(!knownPage(selectedPage))selectedPage="home";
+        expireMoreSection(saved!=null);
         fold=new FoldMonitor(this,()->{if(!destroyed)rebuild();});
         preferences.registerOnSharedPreferenceChangeListener(settingsChanged);
         rebuild();
     }
     @Override public void onResume(){
         super.onResume();resumed=true;ScooterService.setUiVisible(true);fold.start();
+        if(selectedPage.equals("more")){boolean expired=expireMoreSection(true);markMoreActive();if(expired)rebuild();}
         if(hasBluetoothPermission()){ensureService();if(bound&&scooterService!=null)startService(new Intent(this,ScooterService.class));}
         if(scooterService!=null){maybeApplyOwnerImport();scooterService.visible(true);if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}if(scooterService.ble.connected())scooterService.ble.refresh(false);}
         handler.removeCallbacks(pulse);handler.post(pulse);
         finishRidePermission();
     }
     @Override public void onPause(){
+        if(selectedPage.equals("more"))markMoreAway();
         resumed=false;ScooterService.setUiVisible(false);captureScroll();fold.stop();handler.removeCallbacks(pulse);cancelDeferredBodyRefresh();
         if(scooterService!=null)scooterService.visible(false);
         super.onPause();
@@ -357,7 +362,45 @@ public final class MainActivity extends Activity implements ScreenHost {
         for(int i=0;i<pages.length;i++){final String page=pages[i];View item=design.nav(names[i],icons[i],selectedPage.equals(page),()->select(page));LinearLayout.LayoutParams p=rail?new LinearLayout.LayoutParams(-1,design.dp(78)):new LinearLayout.LayoutParams(0,-2,1);if(rail)p.bottomMargin=design.dp(8);nav.addView(item,p);}
         return nav;
     }
-    private void select(String page){if(page.equals("lights")){preferences.edit().putString("scooter_section","Lights").apply();page="controls";if(page.equals(selectedPage)){rebuild();return;}}if(page.equals(selectedPage)){if(scroll!=null)scroll.smoothScrollTo(0,0);return;}captureScroll();selectedPage=page;preferences.edit().putString("last_page",page).apply();rebuild();}
+    private void select(String page){
+        if(page.equals("lights")){preferences.edit().putString("scooter_section","Lights").apply();page="controls";if(page.equals(selectedPage)){rebuild();return;}}
+        if(page.equals(selectedPage)){if(scroll!=null)scroll.smoothScrollTo(0,0);return;}
+        captureScroll();
+        if(selectedPage.equals("more"))markMoreAway();
+        if(page.equals("more")){expireMoreSection(true);if(resumed)markMoreActive();}
+        selectedPage=page;preferences.edit().putString("last_page",page).apply();rebuild();
+    }
+    /** Retain a submenu only while in More or for a short return from another tab/app. */
+    private void markMoreAway(){
+        if(preferences.contains(MORE_AWAY_AT))return;
+        preferences.edit().putLong(MORE_AWAY_AT,SystemClock.elapsedRealtime()).putInt(MORE_AWAY_BOOT,bootCount()).apply();
+    }
+    private void markMoreActive(){
+        if(preferences.contains(MORE_AWAY_AT))preferences.edit().remove(MORE_AWAY_AT).remove(MORE_AWAY_BOOT).apply();
+    }
+    private int bootCount(){
+        return android.provider.Settings.Global.getInt(getContentResolver(),android.provider.Settings.Global.BOOT_COUNT,-1);
+    }
+    private boolean expireMoreSection(boolean retainActive){
+        return expireMoreSection(retainActive,SystemClock.elapsedRealtime());
+    }
+    private boolean expireMoreSection(boolean retainActive,long now){
+        long away=preferences.getLong(MORE_AWAY_AT,-1);
+        boolean expired=away<0?!retainActive:now<away||now-away>=MORE_RETENTION_MS
+                ||preferences.getInt(MORE_AWAY_BOOT,-1)!=bootCount();
+        if(!expired)return false;
+        boolean hadSection=!preferences.getString("more_section","").isEmpty();
+        preferences.edit().putString("more_section","").remove(MORE_AWAY_AT).remove(MORE_AWAY_BOOT).apply();
+        scrollPositions.put("more",0);
+        if(scroll!=null&&scrollPage.equals("more"))scroll.scrollTo(0,0);
+        return hadSection;
+    }
+    private void openMoreSection(String section){
+        // A deliberate shortcut wins over the older submenu's expired return state.
+        expireMoreSection(true);markMoreActive();
+        preferences.edit().putString("more_section",section).apply();scrollPositions.put("more",0);
+        if(selectedPage.equals("more")){if(scroll!=null)scroll.scrollTo(0,0);rebuild();}else select("more");
+    }
     private void captureScroll(){if(scroll!=null)scrollPositions.put(scrollPage,scroll.getScrollY());}
     private boolean horizontalHinge(){return fold!=null&&fold.hinge.width()>fold.hinge.height()&&fold.hinge.top>0&&fold.hinge.width()>0;}
     private boolean verticalHinge(){return fold!=null&&fold.hinge.height()>fold.hinge.width()&&fold.hinge.left>0&&fold.hinge.height()>0;}
@@ -517,7 +560,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             }
             if(!lights){
                 LinearLayout clock=design.settingRow("Sync scooter clock","",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clockButton=(TextView)clock.getChildAt(0);addRow("Battery",clock);extras.put(clock,new String[]{"Battery","scooter clock scheduled charging time timezone"});
-                LinearLayout security=design.settingRow("PIN & proximity unlock","",()->{preferences.edit().putString("more_section","Security").apply();select("more");});addRow("Security",security);extras.put(security,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
+                LinearLayout security=design.settingRow("PIN & proximity unlock","",()->openMoreSection("Security"));addRow("Security",security);extras.put(security,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
             }
             search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){query=s.toString();applyFilter();}public void afterTextChanged(Editable text){}});
             applyFilter();

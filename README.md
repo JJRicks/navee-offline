@@ -1,8 +1,8 @@
 # Navee Offline
 
-A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional OpenStreetMap street layer uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
+A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.7.1**. Independent project; not affiliated with NAVEE.
+Current application version: **0.7.2**. Independent project; not affiliated with NAVEE.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
@@ -12,7 +12,7 @@ Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-
 - **Scooter:** compact grouped settings for riding, battery, lights, dashboard/sounds, and security. Rename your scooter here or use its widget's pencil while editing Home.
 - **Stats:** battery, electrical, ride, and diagnostic readings; grey last-known values retain their measurement times after disconnection or restart.
 - **Rides:** persistent scooter readings plus optional GPS, barometer, and experimental motion. Route maps show synchronized power, estimated grade, and speed-derived acceleration; compare rides and export raw CSV, joined CSV, JSON, or GPX.
-- **More:** profiles, owner setup, security options, app preferences, experimental settings, and connected-history storage controls.
+- **More:** profiles, owner setup, security options, app preferences, experimental settings, and connected-history storage controls. Submenus are remembered for one minute away from the tab or app; a longer absence returns to the More index.
 
 The named controls target the US UT5 MAX, model/PID 2538. Other models, regions, and firmware may differ. [FEATURES.txt](FEATURES.txt) and [VERIFICATION.txt](VERIFICATION.txt) distinguish implemented behavior from hardware checks.
 
@@ -125,7 +125,11 @@ Start from **Rides → Start recording** while the app is visible. Choose precis
 
 The phone journal is separate from the scooter energy accumulator. GPS continues through a Bluetooth gap. Missing or poor fixes split the route; grade uses a distance window, preferably barometric elevation, with stricter limits for GPS altitude. GPS and scooter speed derivatives are separate from the phone's raw and gravity-free acceleration. Pocket movement, vibration, pressure changes, and GPS error remain visible limitations. None of these measurements establishes battery capacity.
 
-In a saved ride choose **Route & phone sensors**. Tap the route to inspect a reading; switch colors between power, grade, and GPS acceleration. **Street map** loads only the area you view from the configured HTTPS tile provider. It starts off, requires no map account or API key, caches normal visits, and never downloads a city or entire route for offline use. The default is [OpenStreetMap](https://www.openstreetmap.org/copyright), subject to its [tile policy](https://operations.osmfoundation.org/policies/tiles/) and [privacy policy](https://osmfoundation.org/wiki/Privacy_Policy). Map requests disclose the viewed area and IP address to that provider; scooter credentials and journals are not uploaded. Replace the provider under **Rides → Phone sensors → Map source**.
+In a saved ride choose **Route & phone sensors**. Pinch to zoom around your fingers, drag to pan, or use the zoom and Fit buttons. Tap the route to inspect a reading; switch colors between power, grade, and GPS acceleration. **Basemap** loads only the area you view. It starts off and caches ordinary visits. The default is **USGS Topo**, a U.S. street/terrain map requiring no account or key. [USGS map-service terms](https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map) permit public use. Attribution is shown beside the map. Close zooms enlarge the available level-16 tiles instead of requesting unsupported detail.
+
+Use **Map source** directly in the route viewer or under **Rides → Phone sensors** to select USGS, OpenStreetMap, or a custom HTTPS source and its attribution. Existing custom sources are preserved. OpenStreetMap remains subject to its [tile policy](https://operations.osmfoundation.org/policies/tiles/); a reproduced policy rejection does not establish which server rule triggered it. The app retains its honest identifying header, stops repeated denied requests, and rejects `X-Blocked` error pictures even when HTTP reports success. Old unverified cache entries require a successful refresh before display, so a cached block picture cannot reappear as a map. Routes remain visible when the basemap is unavailable.
+
+Map requests disclose the viewed area and IP address to the selected provider; credentials and ride journals are not uploaded. No city/route prefetch or bulk download is offered.
 
 Old recordings have no phone route to reconstruct. Exported route/phone files contain coordinates; raw motion includes device axes, gravity-free acceleration, earth-frame acceleration when orientation is available, and rotation quaternion. GPX exports positions/time only because Android GNSS altitude is referenced to an ellipsoid; altitude and its accuracy remain in CSV/JSON. Raw journals remain available if a large file cannot be previewed.
 
