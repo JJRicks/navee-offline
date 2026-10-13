@@ -91,6 +91,8 @@ public final class OnboardingScreen implements AppScreen {
             "Run helper", "Import", "Nearby devices", "Connect scooter"};
     private static final String COMMAND = "python3 setup/capture-owner.py --push";
     private static final int MAX_WIDTH_DP = 560;
+    /** Unfolded and other wide screens put the step list beside the current step (MainActivity's threshold). */
+    private static final int WIDE_DP = 650;
     private static Bitmap photo;
 
     private final ScreenHost host;
@@ -101,6 +103,8 @@ public final class OnboardingScreen implements AppScreen {
     private final List<Runnable> updaters = new ArrayList<>();
     private final List<AlertDialog> dialogs = new ArrayList<>();
     private LinearLayout page, content, footer;
+    /** What scaffold() put in root: the page alone, or the step list and page side by side. */
+    private View body;
     private TextView title;
     private View sheet;
     private EditText identityField, nameField;
@@ -442,7 +446,79 @@ public final class OnboardingScreen implements AppScreen {
         footer = column();
         footer.setPadding(0, ui.dp(4), 0, 0);
         page.addView(footer, new LinearLayout.LayoutParams(-1, -2));
-        root.addView(page, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER_HORIZONTAL));
+        boolean split = header && number(step) > 0
+                && host.activity().getResources().getConfiguration().screenWidthDp >= WIDE_DP;
+        if (split) {
+            FrameLayout detail = new FrameLayout(host.activity());
+            detail.addView(page, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER_HORIZONTAL));
+            body = new Panes(sidePanel(), detail);
+            root.addView(body, new FrameLayout.LayoutParams(-1, -1));
+        } else {
+            body = page;
+            root.addView(page, new FrameLayout.LayoutParams(-1, -1, Gravity.CENTER_HORIZONTAL));
+        }
+    }
+
+    /** Wide screens: the scooter, a title and all seven steps, beside the step on screen. */
+    private View sidePanel() {
+        ScrollView scroll = new ScrollView(host.activity());
+        scroll.setFillViewport(true); scroll.setVerticalScrollBarEnabled(false);
+        LinearLayout side = column();
+        side.setPadding(ui.dp(20), ui.dp(12), 0, ui.dp(16));
+        Hero hero = new Hero(false);
+        // The step's own content carries the page; the picture here is decoration.
+        hero.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        side.addView(hero, new LinearLayout.LayoutParams(-1, ui.dp(170)));
+        TextView heading = ui.text("Set up your scooter", 24, true);
+        if (Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
+        LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2); hp.topMargin = ui.dp(14);
+        side.addView(heading, hp);
+        boolean capture = CAPTURE.equals(path());
+        TextView note = ui.text(capture ? "About 10 minutes, once. You only need the computer for steps 2–4."
+                : "A few minutes. This way needs no computer.", 13.5f, false);
+        note.setTextColor(ui.muted); note.setLineSpacing(ui.dp(2), 1);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(-1, -2); np.topMargin = ui.dp(6);
+        side.addView(note, np);
+        int current = number(step);
+        for (int n = 1; n <= STEP_NAMES.length; n++) {
+            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
+            sp.topMargin = ui.dp(n == 1 ? 18 : 4);
+            // Backup files and typed identities start at Import; the computer steps don't apply.
+            side.addView(stepRow(n, current, capture || n > 4), sp);
+        }
+        scroll.addView(side, new ScrollView.LayoutParams(-1, -2));
+        return scroll;
+    }
+
+    private View stepRow(int n, int current, boolean applies) {
+        boolean now = n == current, done = applies && n < current;
+        LinearLayout item = row(); item.setGravity(Gravity.CENTER_VERTICAL);
+        item.setMinimumHeight(ui.dp(44));
+        item.setPadding(ui.dp(10), ui.dp(6), ui.dp(10), ui.dp(6));
+        if (now) item.setBackground(ui.shape(Ui.withAlpha(ui.accent, ui.dark ? 40 : 26), 14, 0));
+        FrameLayout badge = new FrameLayout(host.activity());
+        badge.setBackground(oval(done ? ui.ok : now ? ui.accent : ui.raised));
+        if (done) {
+            badge.addView(ui.icon("check", 14, ui.dark ? ui.bg : Color.WHITE),
+                    new FrameLayout.LayoutParams(ui.dp(14), ui.dp(14), Gravity.CENTER));
+        } else {
+            TextView number = ui.text(applies ? Integer.toString(n) : "–", 12.5f, true);
+            number.setTextColor(now ? ui.onAccent : ui.muted); number.setGravity(Gravity.CENTER);
+            badge.addView(number, new FrameLayout.LayoutParams(-1, -1));
+        }
+        item.addView(badge, new LinearLayout.LayoutParams(ui.dp(26), ui.dp(26)));
+        TextView name = ui.text(STEP_NAMES[n - 1], 14.5f, now);
+        name.setTextColor(now ? ui.text : applies ? ui.muted : ui.dim);
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1); lp.leftMargin = ui.dp(12);
+        item.addView(name, lp);
+        // One spoken item per step; the row is information only, so it takes no keyboard focus.
+        badge.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        name.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        item.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        item.setContentDescription("Step " + n + ", " + STEP_NAMES[n - 1] + ", "
+                + (now ? "current" : done ? "done" : applies ? "to do" : "not needed"));
+        if (Build.VERSION.SDK_INT >= 28) item.setScreenReaderFocusable(true);
+        return item;
     }
 
     private View header() {
@@ -1088,7 +1164,7 @@ public final class OnboardingScreen implements AppScreen {
         FrameLayout.LayoutParams pp = new FrameLayout.LayoutParams(-1, -2, Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL);
         pp.topMargin = ui.dp(64);
         overlay.addView(panel, pp);
-        if (page != null) page.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        if (body != null) body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
         if (Build.VERSION.SDK_INT >= 28) overlay.setAccessibilityPaneTitle("Capture didn't work");
         root.addView(overlay, new FrameLayout.LayoutParams(-1, -1));
         sheet = overlay;
@@ -1098,7 +1174,7 @@ public final class OnboardingScreen implements AppScreen {
     private void closeSheet() {
         if (sheet == null) return;
         root.removeView(sheet); sheet = null;
-        if (page != null) page.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
+        if (body != null) body.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_AUTO);
         if (title != null) title.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
     }
 
@@ -1410,6 +1486,48 @@ public final class OnboardingScreen implements AppScreen {
                 }
             }
         }
+    }
+
+    /**
+     * Step list (about 40%) and the step side by side, 20dp apart; on a vertical hinge the gap covers
+     * the hinge instead, so nothing sits under the fold.
+     */
+    private final class Panes extends LinearLayout {
+        private final View side, gutter, detail;
+        Panes(View side, View detail) {
+            super(host.activity()); setOrientation(HORIZONTAL); setBaselineAligned(false);
+            this.side = side; this.detail = detail; gutter = new View(host.activity());
+            addView(side, new LinearLayout.LayoutParams(0, -1)); addView(gutter, new LinearLayout.LayoutParams(ui.dp(20), -1)); addView(detail, new LinearLayout.LayoutParams(0, -1));
+        }
+        // The hinge test needs this view's position in the window, which is known only once attached.
+        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); post(this::requestLayout); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int size = Math.max(0, MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight());
+            int gap = ui.dp(20), first = Math.round((size - gap) * .4f);
+            android.graphics.Rect hinge = verticalHinge();
+            if (hinge != null && isAttachedToWindow()) {
+                int[] position = new int[2]; getLocationInWindow(position);
+                int relative = hinge.left - position[0] - getPaddingLeft(), hingeGap = Math.max(ui.dp(20), hinge.width() + ui.dp(16));
+                int proposed = relative - ui.dp(8);
+                if (proposed >= ui.dp(200) && size - proposed - hingeGap >= ui.dp(260)) { first = proposed; gap = hingeGap; }
+            }
+            ((LinearLayout.LayoutParams) side.getLayoutParams()).width = Math.max(0, first);
+            ((LinearLayout.LayoutParams) gutter.getLayoutParams()).width = gap;
+            ((LinearLayout.LayoutParams) detail.getLayoutParams()).width = Math.max(0, size - first - gap);
+            super.onMeasure(widthSpec, heightSpec);
+        }
+    }
+    /**
+     * The activity's fold bounds (window coordinates) when a vertical hinge splits the screen, else null.
+     * Read the same way RidesScreen reads them; there is no public accessor.
+     */
+    private android.graphics.Rect verticalHinge() {
+        try {
+            java.lang.reflect.Field field = host.activity().getClass().getDeclaredField("fold"); field.setAccessible(true);
+            Object fold = field.get(host.activity());
+            android.graphics.Rect hinge = fold instanceof FoldMonitor ? ((FoldMonitor) fold).hinge : null;
+            return hinge != null && hinge.height() > hinge.width() && hinge.left > 0 && hinge.height() > 0 ? hinge : null;
+        } catch (ReflectiveOperationException | RuntimeException unavailable) { return null; }
     }
 
     /** Scooter photo over a soft red floor glow; the done screen adds a green check badge. */
