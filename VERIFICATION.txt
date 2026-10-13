@@ -6,6 +6,15 @@ widget definitions together, plus the column choice. Slots survive live edits
 and Restore defaults. Empty snapshots remain empty; malformed snapshots are
 rejected before restoring. Saved slots contain no owner identity or ride data.
 
+Review-feedback follow-up: save/restore dialogs return to Layout on Cancel,
+system Back or outside-tap; closed or superseded dialogs cannot reopen it.
+The restore confirmation and README explain the existing shared column choice.
+App and instrumentation builds passed again. The existing storage suite passed
+7 groups / 220 assertions and layout-slots UI passed 5 groups each at 360, 411
+and 686 dp. Direct emulator interaction confirmed all four Back/outside-tap
+paths; restore text and buttons remained visible in light theme at 140% text.
+No physical phone installation or scooter command was part of this follow-up.
+
 - All nine portable core suites passed 24,782 assertions. App and separate
   instrumentation APKs built successfully; signing/alignment checks passed.
 - DashboardSlotsValidation passed 7 groups / 220 assertions on isolated Android

@@ -36,6 +36,8 @@ layouts. You can restore defaults or experiment with the current dashboard
 without changing the slots, then restore a slot to return to that setup. Saving
 over an occupied slot and restoring a slot ask for confirmation. Save your
 current dashboard in another slot before replacing it if you want to keep both.
+Column choice is shared across all scooters on this phone; restoring a slot
+also restores that shared choice without replacing other scooters’ widgets.
 Slots are local to this phone and scooter; they contain layout settings, not
 readings, recordings, or owner credentials. Even an empty dashboard can be saved.
 

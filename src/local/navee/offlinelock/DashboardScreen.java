@@ -3724,7 +3724,8 @@ public final class DashboardScreen implements AppScreen {
         AlertDialog created = new AlertDialog.Builder(dialogContext)
                 .setTitle((replacing ? "Replace slot " : "Save to slot ") + (index + 1) + "?")
                 .setView(content)
-                .setNegativeButton("Cancel", (d, which) -> layoutOptions())
+                .setNegativeButton("Cancel", (d, which) -> returnToLayoutOptions(d))
+                .setOnCancelListener(this::returnToLayoutOptions)
                 .setPositiveButton(replacing ? "Replace" : "Save", null)
                 .create();
         dialog = created;
@@ -3754,9 +3755,11 @@ public final class DashboardScreen implements AppScreen {
         AlertDialog created = new AlertDialog.Builder(dialogContext)
                 .setTitle("Restore “" + saved.name + "”?")
                 .setMessage("Replace the current folded and unfolded layouts, widget options"
-                        + " and column choice? Save your current layout to another slot first if"
+                        + " and column choice? Column choice is shared across all scooters on this phone."
+                        + " Save your current layout to another slot first if"
                         + " you want to keep it. Saved slots, readings and rides are kept.")
-                .setNegativeButton("Cancel", (d, which) -> layoutOptions())
+                .setNegativeButton("Cancel", (d, which) -> returnToLayoutOptions(d))
+                .setOnCancelListener(this::returnToLayoutOptions)
                 .setPositiveButton("Restore", null)
                 .create();
         dialog = created;
@@ -3772,6 +3775,10 @@ public final class DashboardScreen implements AppScreen {
             render();
             host.toast("Restored “" + saved.name + "”");
         });
+    }
+
+    private void returnToLayoutOptions(android.content.DialogInterface source) {
+        if (!closed && editing && dialog == source) layoutOptions();
     }
 
     private void show(String title, View content) {
