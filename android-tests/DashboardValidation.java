@@ -1513,8 +1513,12 @@ public final class DashboardValidation extends Instrumentation {
             View item = findDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
             Rect visible = new Rect(); require(item.getGlobalVisibleRect(visible) && visible.width() >= item.getWidth() - 2
                     && visible.height() >= item.getHeight() - 2, "Navigation target is clipped: " + name);
-            TextView caption = first(item, TextView.class); require(caption != null && caption.getLayout() != null
+            TextView caption = first(item, TextView.class);
+            if (caption != null) require(caption.getLayout() != null
                     && caption.getLayout().getHeight() <= caption.getHeight() + 2, "Navigation caption is clipped: " + name);
+            else { int minimum = Math.round(48 * item.getResources().getDisplayMetrics().density);
+                // The compact floating tab bar is icon-only; each target must still be 48dp.
+                require(item.getWidth() >= minimum && item.getHeight() >= minimum, "Navigation target smaller than 48dp: " + name); }
         }});
     }
     private void clickDescription(String label) { View target = findDescription(root(), label); require(target != null, "Missing navigation " + label); click(target); }
