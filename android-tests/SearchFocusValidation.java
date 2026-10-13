@@ -158,13 +158,16 @@ public final class SearchFocusValidation extends Instrumentation {
         checks.add(theme + ": IME-panned picker clears focus from title and search-margin taps without clearing its query or consuming a selection");
 
         tile = liveTile(dashboard); DashboardConfig.Widget current = (DashboardConfig.Widget)field(tile, "widget");
-        click(findDescription((View)tile, "Options for " + current.title)); clickText(dialogRoot(dashboard), "Title");
+        // The title is an inline field in the widget options sheet; it saves when the sheet closes.
+        String originalTitle = current.title;
+        click(findDescription((View)tile, "Options for " + current.title));
         AlertDialog title = dialog(dashboard); EditText ordinary = first(title.getWindow().getDecorView(), EditText.class);
         showKeyboard(ordinary, title.getWindow(), "Ordinary title form"); tap(findText(title.getWindow().getDecorView(), "Title"));
         waitForIdleSync(); SystemClock.sleep(180);
         main(() -> require(ordinary.hasFocus() && "Ordinary title form".contentEquals(ordinary.getText()),
                 "Search-only dismissal changed focus or text in an ordinary title form"));
-        screenshot(theme + "-title-form"); click(title.getButton(AlertDialog.BUTTON_NEGATIVE));
+        screenshot(theme + "-title-form"); main(() -> ordinary.setText(originalTitle));
+        click(findDescription(title.getWindow().getDecorView(), "Close widget options"));
         main(() -> getTargetContext().getSystemService(InputMethodManager.class).hideSoftInputFromWindow(root().getWindowToken(), 0));
         await(() -> !imeVisible(activity.getWindow()), 4000, "Form keyboard did not close"); clickText(root(), "Done");
         checks.add(theme + ": ordinary widget title editing retains its normal focus and text behavior");

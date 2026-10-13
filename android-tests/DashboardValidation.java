@@ -100,7 +100,7 @@ public final class DashboardValidation extends Instrumentation {
             click(rename.getButton(AlertDialog.BUTTON_POSITIVE));
             main(() -> require(RENAMED.equals(new ScooterProfiles(getTargetContext()).active().name), "Scooter name was not saved"));
             clickDescription("Home"); awaitDashboard();
-            main(() -> require(RENAMED.contentEquals(((TextView)field(tile("scooter"), "photoName")).getText()),
+            main(() -> require(RENAMED.contentEquals(((TextView)field(dashboard(), "profileName")).getText()),
                     "Dashboard scooter card did not update its name"));
             assertConfigurationHidden();
             enterEditPreservingContent();
@@ -108,7 +108,7 @@ public final class DashboardValidation extends Instrumentation {
             AlertDialog homeRename = (AlertDialog)field(activity, "controlDialog");
             main(() -> first(homeRename.getWindow().getDecorView(), EditText.class).setText(HOME_RENAMED));
             click(homeRename.getButton(AlertDialog.BUTTON_POSITIVE));
-            await(() -> HOME_RENAMED.contentEquals(((TextView)field(tile("scooter"), "photoName")).getText()),
+            await(() -> HOME_RENAMED.contentEquals(((TextView)field(dashboard(), "profileName")).getText()),
                     3000, "The scooter card rename did not update Home");
             main(() -> require(HOME_RENAMED.equals(new ScooterProfiles(getTargetContext()).active().name),
                     "The scooter card rename was not saved"));
@@ -136,9 +136,9 @@ public final class DashboardValidation extends Instrumentation {
             openOptions(metricId); clickText(dialogRoot(), "Parameter");
             main(() -> first(dialogRoot(), EditText.class).setText("battery_percent"));
             clickText(dialogRoot(), metricLabel("battery_percent"));
-            openOptions(metricId); clickText(dialogRoot(), "Title");
+            openOptions(metricId);
             main(() -> first(dialogRoot(), EditText.class).setText("Synthetic charge"));
-            click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
+            closeDialog();
             await(() -> "battery_percent".equals(widgetById(metricId).metric), 3000, "Parameter choice was not applied");
             main(() -> {
                 Object tile = tileById(metricId); TextView amount = (TextView)field(tile, "big");
@@ -504,11 +504,12 @@ public final class DashboardValidation extends Instrumentation {
             BleController ble = activity.service().ble;
             long originalLast = profile.lastConnected; BleController.State originalState = ble.state();
             try {
-                profile.lastConnected = 0; invoke(activity, "updateHeader");
-                TextView status = (TextView)field(activity, "connectionTitle");
+                // Home's status line belongs to the dashboard header.
+                profile.lastConnected = 0; invoke(dashboard(), "refresh");
+                TextView status = (TextView)field(dashboard(), "status");
                 require("Disconnected".contentEquals(status.getText()), "No connection history should show only Disconnected");
-                profile.lastConnected = System.currentTimeMillis() - 60000; invoke(activity, "updateHeader");
-                require(status.getText().toString().equals("Disconnected · " + DisplayTime.recent(
+                profile.lastConnected = System.currentTimeMillis() - 60000; invoke(dashboard(), "refresh");
+                require(status.getText().toString().equals("Disconnected · last seen " + DisplayTime.recent(
                         getTargetContext(), settings(), profile.lastConnected, System.currentTimeMillis())),
                         "Disconnected status did not display the most recent connection time");
                 require(status.getContentDescription().toString().contains("last connected"),
@@ -516,7 +517,7 @@ public final class DashboardValidation extends Instrumentation {
                 for (BleController.State state : new BleController.State[] {BleController.State.WAITING,
                         BleController.State.SCANNING, BleController.State.CONNECTING, BleController.State.AUTHENTICATING}) {
                     // View-state fixture only; no BLE transition method, callbacks or queue is called.
-                    setField(ble, "state", state); invoke(activity, "updateHeader");
+                    setField(ble, "state", state); invoke(activity, "updateHeader"); invoke(dashboard(), "refresh");
                     CharSequence text = status.getText();
                     require(text.toString().startsWith("Connecting") && text instanceof android.text.Spanned,
                             state + " did not render the compact connecting status");
@@ -528,7 +529,7 @@ public final class DashboardValidation extends Instrumentation {
                             state + " added an explanatory text block to the compact connection card");
                 }
             } finally {
-                profile.lastConnected = originalLast; setField(ble, "state", originalState); invoke(activity, "updateHeader");
+                profile.lastConnected = originalLast; setField(ble, "state", originalState); invoke(activity, "updateHeader"); invoke(dashboard(), "refresh");
             }
         });
         assertNoScooterWork();
@@ -661,7 +662,7 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> {
             require(!dashboard().isEditing(), "Expected ordinary dashboard mode");
             require(findDescription(root(), "Rename scooter") == null, "Scooter rename pencil is visible outside editing");
-            require(!((View)field(tile("scooter"), "photoName")).isClickable(), "Scooter name remains a configuration action outside editing");
+            require(!((View)field(dashboard(), "profileName")).isClickable(), "Scooter name remains a configuration action outside editing");
             for (Object tile : tiles()) {
                 DashboardConfig.Widget widget = (DashboardConfig.Widget)field(tile, "widget");
                 for (String prefix : new String[] {"Options for ", "Move ", "Resize "})
@@ -773,13 +774,11 @@ public final class DashboardValidation extends Instrumentation {
                     if (widget.type.equals("lock")) {
                         View slider = (View)field(activity, "lockControl");
                         Rect bounds = relativeBounds(slider, body);
-                        int expectedWidth = body.getWidth() >= activity.ui().dp(160)
-                                ? Math.round(body.getWidth() * .90f) : body.getWidth();
-                        require(Math.abs(bounds.width() - expectedWidth) <= 1
-                                && Math.abs(bounds.left - (body.getWidth() - bounds.right)) <= 1,
-                                context + ": lock slider is off-center or has the wrong comfortable side inset");
-                        require(bounds.height() == Math.min(activity.ui().dp(68), expectedWidth),
-                                context + ": lock slider lost its taller touch target");
+                        // The bar shows once connected; offline the card offers Connect instead.
+                        require(!slider.isShown() || (Math.abs(bounds.width() - body.getWidth()) <= 1 && bounds.left <= 1),
+                                context + ": lock bar does not span its card");
+                        require(!slider.isShown() || bounds.height() >= activity.ui().dp(48),
+                                context + ": lock bar lost its full-size touch target");
                         require(((View)field(activity, "lockHint")).getVisibility() == View.GONE
                                 && ((View)field(activity, "connectionDetail")).getVisibility() == View.GONE,
                                 context + ": compact lock card contains a redundant explanation");
@@ -840,15 +839,15 @@ public final class DashboardValidation extends Instrumentation {
         int originalPadding = mode.getCompoundDrawablePadding();
         try {
             applyModeStyle(mode, "SPORT", true);
-            require("SPORT".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().blue,
-                    "Live SPORT is not recognizable blue text");
+            require("SPORT".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().accent,
+                    "Live SPORT is not recognizable red text");
             measureCard((View)object, width, height); assertReadableValue(mode, (View)field(object, "body"), context + " SPORT");
             applyModeStyle(mode, "ECO", true);
-            require("ECO".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().accent
-                    && mode.getCurrentTextColor() != activity.ui().blue, "Live ECO is not distinct accent text");
+            require("ECO".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().ok
+                    && mode.getCurrentTextColor() != activity.ui().accent, "Live ECO is not distinct green text");
             measureCard((View)object, width, height); assertReadableValue(mode, (View)field(object, "body"), context + " ECO");
             applyModeStyle(mode, "WALK", true);
-            assertWalkingIcon(mode, activity.ui().accent, context);
+            assertWalkingIcon(mode, activity.ui().text, context);
             measureCard((View)object, width, height); assertWalkingIconFits(mode, context);
             applyModeStyle(mode, "SPORT", false);
             require("SPORT".contentEquals(mode.getText()) && mode.getCurrentTextColor() == activity.ui().muted,
@@ -975,21 +974,23 @@ public final class DashboardValidation extends Instrumentation {
         View strip = (View)field(batteryTile, "batteryData"); ScrollView viewport = first(card, ScrollView.class);
         Rect ringBounds = relativeBounds(ring, body), stripBounds = relativeBounds(strip, body);
         require(findText(body, "Battery") == null && field(batteryTile, "subtitle") == null,
-                "Battery card repeats its name next to the percentage ring");
-        require(Math.abs(ringBounds.centerX() - body.getWidth() / 2) <= 1,
-                "Battery percentage ring is not horizontally centered");
+                "Battery card repeats its name next to the battery cell");
+        // Volt battery cell: a full-width track filling from the bottom, readings underneath.
+        require(ringBounds.left <= 1 && Math.abs(ringBounds.width() - body.getWidth()) <= 1,
+                "Battery cell does not span its card");
         require(ringBounds.bottom <= stripBounds.top && stripBounds.bottom <= viewport.getHeight() + 1,
-                "Battery ring and compact readings do not fit in the minimum full-width card");
-        int availableDiameter = Math.min(body.getWidth(), viewport.getHeight()
-                - body.getPaddingTop() - body.getPaddingBottom() - strip.getHeight() - activity.ui().dp(12));
-        require(ring.getWidth() >= availableDiameter - 2,
-                "Battery percentage ring leaves unused space that could make it larger: actual=" + ring.getWidth()
-                        + ", available=" + availableDiameter + ", viewport=" + viewport.getWidth() + "x" + viewport.getHeight()
-                        + ", bodyPadding=" + body.getPaddingTop() + "+" + body.getPaddingBottom()
+                "Battery cell and compact readings do not fit in the minimum full-width card");
+        int available = viewport.getHeight() - body.getPaddingTop() - body.getPaddingBottom() - strip.getHeight()
+                - ((android.widget.LinearLayout.LayoutParams)strip.getLayoutParams()).topMargin;
+        require(ring.getHeight() >= available - 2,
+                "Battery cell leaves unused space that could make it taller: actual=" + ring.getHeight()
+                        + ", available=" + available + ", viewport=" + viewport.getWidth() + "x" + viewport.getHeight()
                         + ", strip=" + strip.getWidth() + "x" + strip.getHeight());
+        require(ring.getContentDescription() != null && ring.getContentDescription().toString().contains("about"),
+                "Battery cell does not speak the estimated range it shows");
         List<?> cells = (List<?>)field(strip, "cells");
-        require(cells.size() == 4, "Default battery card does not expose its four glanceable readings");
-        String[] icons = {"route", "bolt", "heart", "temperature"};
+        require(cells.size() == 3, "Default battery card does not expose its three glanceable readings below the cell");
+        String[] icons = {"bolt", "heart", "temperature"};
         android.view.ViewParent readingsRow = null;
         Rect previous = null;
         for (int index = 0; index < cells.size(); index++) {
@@ -1053,13 +1054,15 @@ public final class DashboardValidation extends Instrumentation {
         });
     }
     private void setSize(String id, int width, int height) {
-        openOptions(id); clickText(dialogRoot(), "Size");
+        View corner = findDescription((View)tileById(id), "Resize " + widgetById(id).title);
+        require(corner != null, "Resize handle is missing"); click(corner);
         List<NumberPicker> pickers = all(dialogRoot(), NumberPicker.class); require(pickers.size() == 2, "Size options need both dimensions");
         main(() -> { pickers.get(0).setValue(width); pickers.get(1).setValue(height); });
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE)); waitForIdleSync();
     }
     private void setPosition(String id, int column, int row) {
-        openOptions(id); clickText(dialogRoot(), "Move"); List<EditText> inputs = all(dialogRoot(), EditText.class);
+        View grip = findDescription((View)tileById(id), "Move " + widgetById(id).title);
+        require(grip != null, "Move grip is missing"); click(grip); List<EditText> inputs = all(dialogRoot(), EditText.class);
         require(inputs.size() == 2, "Move options need a column and row");
         main(() -> { inputs.get(0).setText(Integer.toString(column)); inputs.get(1).setText(Integer.toString(row)); });
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE)); waitForIdleSync();
@@ -1121,7 +1124,7 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> {
             TextView label = findText(dialogRoot(), "Title");
             TextView title = dialogRoot().findViewWithTag("widget-options-title");
-            TextView duplicate = findText(dialogRoot(), "Duplicate"), remove = findText(dialogRoot(), "Remove widget");
+            TextView duplicate = findText(dialogRoot(), "Duplicate"), remove = findText(dialogRoot(), "Remove");
             require(title != null && title.isShown() && label != null && duplicate != null && remove != null,
                     "Options dialog title, labels and footer actions must be visible");
             for (TextView text : new TextView[] {title, label, duplicate, remove})
@@ -1344,7 +1347,7 @@ public final class DashboardValidation extends Instrumentation {
     private void verifyTwoMinuteChart() {
         String id = widget("live").id;
         Map<String, DashboardLayout.Cell> before = layoutSnapshot();
-        openOptions(id); clickText(dialogRoot(), "Time window"); chooseDialogItem("2 minutes");
+        openOptions(id); clickText(dialogRoot(), "2 min"); closeDialog();
         require(widgetById(id).windowMs == 120000L, "Two-minute chart window was not selected");
         DashboardConfig saved = new DashboardConfig(settings(), profileId);
         DashboardConfig.Widget restored = null;
@@ -1364,10 +1367,10 @@ public final class DashboardValidation extends Instrumentation {
         require(widgetById(id).title.equals("Capacity experiment"), "Capacity widget default title is missing");
         await(() -> "Not enough ride data".contentEquals(((TextView)field(tileById(id), "capacityValue")).getText()),
                 5000, "Capacity widget invented an estimate without recorded rides");
-        openOptions(id); clickText(dialogRoot(), "Title");
+        openOptions(id);
         main(() -> first(dialogRoot(), EditText.class).setText("Synthetic capacity experiment"));
-        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
-        openOptions(id); clickText(dialogRoot(), "Time window"); chooseDialogItem("30 days");
+        closeDialog();
+        openOptions(id); clickText(dialogRoot(), "30 days"); closeDialog();
         require(widgetById(id).windowMs == 30 * 86400000L, "Capacity time window choice was not applied");
         openOptions(id); clickText(dialogRoot(), "Advertised capacity");
         main(() -> first(dialogRoot(), EditText.class).setText("800"));
@@ -1582,7 +1585,8 @@ public final class DashboardValidation extends Instrumentation {
         return null;
     }
     private static TextView findActionableText(View boundary, View candidate, String text) {
-        if (candidate.isShown() && candidate instanceof TextView && text.contentEquals(((TextView)candidate).getText())) {
+        if (candidate.isShown() && candidate instanceof TextView && !(candidate instanceof EditText)
+                && text.contentEquals(((TextView)candidate).getText())) {
             View action = candidate;
             while (action != boundary) {
                 if (action.isClickable()) {
