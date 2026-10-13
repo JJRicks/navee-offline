@@ -71,9 +71,11 @@ public final class MainActivity extends Activity implements ScreenHost {
     private static final String MORE_AWAY_AT="more_away_elapsed", MORE_AWAY_BOOT="more_away_boot";
     private static final java.util.Set<String> preparingExports=java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private final String[] pages={"home","controls","stats","rides","more"};
-    private final String[] names={"Home","Scooter","Stats","Rides","More"};
-    private final String[] icons={"home","scooter","stats","rides","settings"};
+    // Volt order: Scooter is the raised centre button of the floating tab bar.
+    private final String[] pages={"home","stats","controls","rides","more"};
+    private final String[] names={"Home","Stats","Scooter","Rides","More"};
+    private final String[] icons={"home","stats","scooter","rides","more"};
+    private static final int NAV_CENTER=2;
     private final LinkedHashMap<String,Integer> scrollPositions=new LinkedHashMap<>();
     private ScooterService scooterService;
     private SharedPreferences preferences,documents;
@@ -82,7 +84,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     private FrameLayout root,pageFrame;
     private ScrollView scroll;
     private AppScreen screen;
-    private TextView connectionTitle,connectionDetail,connectionAction,lockTitle,lockHint,profileTitle;
+    private TextView connectionTitle,connectionDetail,connectionAction,lockTitle,lockHint,profileTitle,offlineTitle,offlineDetail;
+    private View lockReady,lockOffline;
     private LockControl lockControl;
     private String selectedPage="home",scrollPage="home";
     private boolean bound,binding,resumed,destroyed,pendingConnect,pendingScan,expanded,rebuilding,applyingOwnerImport,importWaitNotified,bodyRefreshScheduled;
@@ -242,12 +245,20 @@ public final class MainActivity extends Activity implements ScreenHost {
             View spacer=new View(this);spacer.setBackgroundColor(design.bg);content.addView(spacer,new LinearLayout.LayoutParams(-1,Math.max(design.dp(12),fold.hinge.height())));
         }else content.addView(header);
         pageFrame=new FrameLayout(this);content.addView(pageFrame,new LinearLayout.LayoutParams(-1,0,1));
-        screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(){return makeDashboardLock();}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void rename(){renameScooter();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
+        screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(){return makeDashboardLock();}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void rename(){renameScooter();}public void connectionDetails(){showConnectionDetails();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
         View screenView=screen.view();if(screenView.getParent() instanceof ViewGroup)((ViewGroup)screenView.getParent()).removeView(screenView);
         if(screenView instanceof ScrollView){scroll=(ScrollView)screenView;}
         else{scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setClipToPadding(false);scroll.setPadding(design.dp(expanded?24:18),design.dp(6),design.dp(expanded?24:18),design.dp(16));scroll.addView(screenView,new ScrollView.LayoutParams(-1,-2));}
         scrollPage=selectedPage;pageFrame.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
-        if(!expanded)shell.addView(navigation(false));
+        if(!expanded){
+            // The tab bar floats over the page; pad the scroller so the last card can scroll clear of it.
+            View bar=design.floatingNav(names,icons,java.util.Arrays.asList(pages).indexOf(selectedPage),NAV_CENTER,i->select(pages[i]));
+            FrameLayout.LayoutParams barParams=new FrameLayout.LayoutParams(-1,design.floatingNavHeight(),Gravity.BOTTOM);
+            barParams.leftMargin=design.dp(14);barParams.rightMargin=design.dp(14);barParams.bottomMargin=design.dp(10);
+            pageFrame.addView(bar,barParams);
+            scroll.setClipToPadding(false);
+            scroll.setPadding(scroll.getPaddingLeft(),scroll.getPaddingTop(),scroll.getPaddingRight(),scroll.getPaddingBottom()+design.floatingNavHeight()+design.dp(16));
+        }
         setContentView(root);root.requestApplyInsets();
         // Samsung's Window getter can dereference a missing decor during onCreate.
         // Post through this root so styling runs only after it has been attached.
@@ -262,30 +273,41 @@ public final class MainActivity extends Activity implements ScreenHost {
         int restore=scrollPositions.containsKey(selectedPage)?scrollPositions.get(selectedPage):0;ScrollView target=scroll;target.post(()->{if(scroll==target)target.scrollTo(0,restore);});
         rebuilding=false;redraw();
     }
-    private void clearDashboardLock(){lockTitle=null;lockControl=null;lockHint=null;connectionTitle=null;connectionDetail=null;connectionAction=null;}
+    private void clearDashboardLock(){lockTitle=null;lockControl=null;lockHint=null;connectionTitle=null;connectionDetail=null;connectionAction=null;offlineTitle=null;offlineDetail=null;lockReady=null;lockOffline=null;}
     private LinearLayout makeHeader(){
         if(!selectedPage.equals("home"))return makeCompactHeader();
-        clearDashboardLock();LinearLayout header=column();header.setPadding(design.dp(expanded?24:18),design.dp(12),design.dp(expanded?24:18),design.dp(8));
-        LinearLayout brand=row();brand.setGravity(Gravity.CENTER_VERTICAL);LinearLayout title=column();title.addView(design.text("Navee Offline",24,true));profileTitle=design.text("Your scooter",14,false);profileTitle.setTextColor(design.muted);profileTitle.setPadding(0,design.dp(5),0,0);profileTitle.setOnClickListener(v->renameScooter());title.addView(profileTitle);brand.addView(title,new LinearLayout.LayoutParams(0,-2,1));
-        View more=design.icon("bluetooth",24,design.accent);more.setContentDescription("Choose a nearby scooter");more.setFocusable(true);more.setOnClickListener(v->showScanner(true));brand.addView(more,new LinearLayout.LayoutParams(design.dp(48),design.dp(48)));header.addView(brand);return header;
+        // Home's header (status line, scooter name and edit pencil) belongs to the dashboard toolbar.
+        clearDashboardLock();profileTitle=null;return column();
     }
+    /** Volt lock card: a full-width bar you tap anywhere on, or slide, to lock and unlock. */
     private View makeDashboardLock(){
-        LinearLayout content=column();content.setGravity(Gravity.CENTER_HORIZONTAL);
-        connectionTitle=connectionLabel();connectionTitle.setGravity(Gravity.CENTER);
-        LinearLayout.LayoutParams status=new LinearLayout.LayoutParams(-1,-2);
-        status.bottomMargin=design.dp(8);
-        content.addView(connectionTitle,status);
-        lockTitle=design.text("Lock",18,true);lockTitle.setGravity(Gravity.CENTER);lockControl=new LockControl();
-        content.addView(lockTitle,new LinearLayout.LayoutParams(-1,-2));
-        content.addView(new DashboardLockRow(lockControl),new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout content=column();
+        lockReady=column();
+        LinearLayout head=row();head.setGravity(Gravity.CENTER_VERTICAL);
+        lockTitle=design.text("Lock",15,true);
+        head.addView(lockTitle,new LinearLayout.LayoutParams(0,-2,1));
+        TextView kind=design.caption("Electronic lock");head.addView(kind);
+        ((LinearLayout)lockReady).addView(head);
+        lockControl=new LockControl();
+        LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,design.dp(58));bar.topMargin=design.dp(10);
+        ((LinearLayout)lockReady).addView(lockControl,bar);
+        content.addView(lockReady,new LinearLayout.LayoutParams(-1,-2));
+        LinearLayout offline=column();lockOffline=offline;
+        LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
+        View square=design.iconSquare("lock",design.dim);
+        line.addView(square,new LinearLayout.LayoutParams(design.dp(34),design.dp(34)));
+        LinearLayout words=column();
+        offlineTitle=design.text("Lock state unverified",14,true);words.addView(offlineTitle);
+        offlineDetail=design.caption("");offlineDetail.setPadding(0,design.dp(2),0,0);words.addView(offlineDetail);
+        LinearLayout.LayoutParams wordsParams=new LinearLayout.LayoutParams(0,-2,1);wordsParams.leftMargin=design.dp(10);
+        line.addView(words,wordsParams);line.setOnClickListener(v->showConnectionDetails());
+        offline.addView(line);
+        connectionAction=design.button("Connect",this::connect);
+        offline.addView(connectionAction);
+        content.addView(offline,new LinearLayout.LayoutParams(-1,-2));
         lockHint=design.caption("");lockHint.setVisibility(View.GONE);content.addView(lockHint);
-        connectionAction=design.secondaryButton("Connect",this::connect);
-        connectionAction.setTextSize(13*design.textScale);
-        connectionAction.setPadding(design.dp(10),design.dp(8),design.dp(10),design.dp(8));
-        LinearLayout.LayoutParams action=new LinearLayout.LayoutParams(-2,-2);
-        action.gravity=Gravity.CENTER_HORIZONTAL;
-        content.addView(connectionAction,action);
-        connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);updateHeader();return content;
+        connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);
+        updateHeader();return content;
     }
     /** A taller centered track leaves a little breathing room without shrinking narrow touch targets. */
     private final class DashboardLockRow extends FrameLayout {
@@ -316,7 +338,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         String detail=ble==null?(hasBluetoothPermission()?"Opening the local connection.":"Nearby devices permission is needed."):ble.message();
         if(profile!=null&&profile.lastConnected>0)
             detail+="\n\nLast connected: "+DisplayTime.dateTime(this,preferences,profile.lastConnected);
-        controlDialog=new AlertDialog.Builder(dialogContext()).setTitle("Connection").setMessage(detail).setPositiveButton("Close",null).create();
+        boolean active=ble!=null&&(ble.connected()||ble.ready()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING);
+        controlDialog=new AlertDialog.Builder(dialogContext()).setTitle("Connection").setMessage(detail).setPositiveButton("Close",null)
+                .setNegativeButton(active?"Disconnect":"Connect",(d,which)->{if(active){if(ble!=null)ble.disconnect();redraw();}else connect();}).create();
         controlDialog.show();
     }
     /** An animated span keeps the spinner next to its word, without adding a separate row. */
@@ -342,23 +366,19 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(scooterService==null||scooterService.profiles.active()==null){toast("Set up a scooter profile first.");return;}ScooterProfiles.Profile profile=scooterService.profiles.active();EditText input=new EditText(this);input.setSingleLine(true);input.setText(profile.name);input.setSelectAllOnFocus(true);input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(48)});
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Scooter name").setView(input).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create();controlDialog=dialog;dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String name=input.getText().toString().trim();if(name.isEmpty()){input.setError("Enter a name.");return;}profile.name=name;scooterService.profiles.update(profile);dialog.dismiss();rebuild();});
     }
+    /** Other tabs: a tappable connection line above the page title. The lock lives on Home. */
     private LinearLayout makeCompactHeader(){
-        LinearLayout header=column();header.setPadding(design.dp(expanded?24:18),design.dp(8),design.dp(expanded?24:18),design.dp(4));
-        LinearLayout toolbar=row();toolbar.setGravity(Gravity.CENTER_VERTICAL);
-        LinearLayout words=column();String pageName="";for(int i=0;i<pages.length;i++)if(pages[i].equals(selectedPage))pageName=names[i];
-        words.addView(design.text(pageName,22,true));profileTitle=design.caption("Your scooter");profileTitle.setPadding(0,design.dp(3),0,0);profileTitle.setMaxLines(1);profileTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);words.addView(profileTitle);
-        toolbar.addView(words,new LinearLayout.LayoutParams(0,-2,1));lockTitle=design.text("—",12,true);lockTitle.setGravity(Gravity.RIGHT);toolbar.addView(lockTitle);
-        lockControl=new LockControl();LinearLayout.LayoutParams lockParams=new LinearLayout.LayoutParams(design.dp(80),design.dp(52));lockParams.leftMargin=design.dp(8);toolbar.addView(lockControl,lockParams);header.addView(toolbar);
-        lockHint=design.caption("");lockHint.setVisibility(View.GONE);header.addView(lockHint);
-        LinearLayout connection=row();connection.setGravity(Gravity.CENTER_VERTICAL);
-        connectionTitle=connectionLabel();connection.addView(connectionTitle,new LinearLayout.LayoutParams(0,-2,1));
-        connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);
-        connectionAction=design.secondaryButton("Connect",this::connect);connectionAction.setTextSize(12*design.textScale);connectionAction.setPadding(design.dp(12),design.dp(5),design.dp(12),design.dp(5));connectionAction.setMinHeight(design.dp(48));
-        connection.addView(connectionAction,new LinearLayout.LayoutParams(-2,design.dp(48)));header.addView(connection);header.addView(connectionDetail);
+        LinearLayout header=column();header.setPadding(design.dp(expanded?24:18),design.dp(10),design.dp(expanded?24:18),design.dp(6));
+        String pageName="";for(int i=0;i<pages.length;i++)if(pages[i].equals(selectedPage))pageName=names[i];
+        connectionTitle=connectionLabel();connectionTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,12.5f*design.textScale);
+        connectionTitle.setTypeface(design.regular());header.addView(connectionTitle);
+        TextView title=design.text(pageName,24,true);title.setPadding(0,design.dp(2),0,0);
+        if(Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);header.addView(title);
+        profileTitle=null;
         return header;
     }
     private View navigation(boolean rail){
-        LinearLayout nav=rail?column():row();nav.setGravity(rail?Gravity.TOP|Gravity.CENTER_HORIZONTAL:Gravity.CENTER);nav.setBackgroundColor(design.surface);nav.setPadding(design.dp(rail?8:4),design.dp(rail?20:6),design.dp(rail?8:4),design.dp(rail?12:6));
+        LinearLayout nav=rail?column():row();nav.setGravity(rail?Gravity.TOP|Gravity.CENTER_HORIZONTAL:Gravity.CENTER);nav.setBackgroundColor(design.bg);nav.setPadding(design.dp(rail?8:4),design.dp(rail?20:6),design.dp(rail?8:4),design.dp(rail?12:6));
         for(int i=0;i<pages.length;i++){final String page=pages[i];View item=design.nav(names[i],icons[i],selectedPage.equals(page),()->select(page));LinearLayout.LayoutParams p=rail?new LinearLayout.LayoutParams(-1,design.dp(78)):new LinearLayout.LayoutParams(0,-2,1);if(rail)p.bottomMargin=design.dp(8);nav.addView(item,p);}
         return nav;
     }
@@ -409,30 +429,40 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void heading(LinearLayout parent,String title,String detail){TextView h=design.text(title,22,true);h.setPadding(0,design.dp(12),0,design.dp(6));parent.addView(h);if(detail!=null){TextView d=design.caption(detail);d.setPadding(0,0,0,design.dp(16));parent.addView(d);}}
     private void updateHeader(){
         BleController ble=scooterService==null?null:scooterService.ble;Boolean locked=ble==null?null:ble.locked();String pending=ble==null?null:ble.pending();boolean ready=ble!=null&&ble.ready(),home=selectedPage.equals("home");Boolean shownLock=locked;if(shownLock==null&&scooterService!=null){Integer saved=scooterService.displayFeatures().get("lock");if(saved!=null)shownLock=saved!=0;}
+        boolean connecting=ble!=null&&(ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
+                ||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING||ble.connected())&&!ready;
+        ScooterProfiles.Profile active=scooterService==null?null:scooterService.profiles.active();
+        long last=active==null?0:active.lastConnected;
+        String scooterName=active==null?"your scooter":active.name;
         if(lockTitle!=null){
-            lockTitle.setVisibility(home||shownLock!=null||pending!=null?View.VISIBLE:View.GONE);
-            lockControl.setVisibility(home||shownLock!=null||ready?View.VISIBLE:View.GONE);
-            lockTitle.setText("lock".equals(pending)?"Updating…":shownLock==null?"Lock":shownLock?"Locked":"Unlocked");
-            lockTitle.setTextColor(!ready?design.muted:Boolean.TRUE.equals(shownLock)?design.orange:design.accent);
             boolean editing=screen instanceof DashboardScreen&&((DashboardScreen)screen).isEditing();
+            boolean showBar=ready;
+            if(lockReady!=null)lockReady.setVisibility(showBar?View.VISIBLE:View.GONE);
+            if(lockOffline!=null)lockOffline.setVisibility(showBar?View.GONE:View.VISIBLE);
+            lockTitle.setText("lock".equals(pending)?"Updating…":shownLock==null?"Lock":shownLock?"Locked":"Unlocked");
+            lockTitle.setTextColor(Boolean.FALSE.equals(shownLock)&&ready?design.danger:design.text);
+            design.decorate(lockTitle,Boolean.FALSE.equals(shownLock)?"unlock":"lock");
             lockControl.update(shownLock,ready&&pending==null&&!editing);
             lockHint.setVisibility(View.GONE);
+            if(offlineTitle!=null){
+                offlineTitle.setText(connecting?"Connecting to "+scooterName:"Lock state unverified");
+                offlineDetail.setText(connecting?"Tap for details":last>0?"Last verified "+DisplayTime.recent(this,preferences,last,System.currentTimeMillis()):"Connect to check the lock");
+            }
         }
         if(connectionTitle!=null){
-            boolean connecting=ble!=null&&(ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
-                    ||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING||ble.connected())&&!ready;
-            ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();
-            long last=profile==null?0:profile.lastConnected;
             String state=ready?"Connected":connecting?"Connecting":"Disconnected";
-            String shown=state+(!ready&&!connecting&&last>0?" · "+DisplayTime.recent(this,preferences,last,System.currentTimeMillis()):"");
+            String shown=state+(ready&&active!=null?" · "+active.name:"")+(!ready&&!connecting&&last>0?" · last seen "+DisplayTime.recent(this,preferences,last,System.currentTimeMillis()):"");
             connectionTitle.setText(connecting?connectingLabel(connectionTitle):shown);
             connectionTitle.setContentDescription(state+(!ready&&!connecting&&last>0?", last connected "+DisplayTime.dateTime(this,preferences,last):"")+". Connection details");
-            connectionTitle.setTextColor(ready?design.accent:design.muted);
-            connectionDetail.setVisibility(View.GONE);
-            boolean active=ble!=null&&(ble.connected()||connecting);
-            connectionAction.setText(active?"Disconnect":"Connect");
-            connectionAction.setContentDescription(active?"Disconnect scooter":"Connect scooter");
-            connectionAction.setOnClickListener(v->{if(active){ble.disconnect();redraw();}else connect();});
+            connectionTitle.setTextColor(design.muted);
+        }
+        if(connectionAction!=null){
+            boolean busy=ble!=null&&(ble.connected()||connecting);
+            connectionAction.setText(busy?"Cancel":"Connect");
+            connectionAction.setContentDescription(busy?"Cancel connection":"Connect scooter");
+            if(busy){connectionAction.setTextColor(design.text);connectionAction.setBackground(design.shape(design.raised,14,design.outline));}
+            final BleController bleRef=ble;
+            connectionAction.setOnClickListener(v->{if(busy){if(bleRef!=null)bleRef.disconnect();redraw();}else connect();});
             connectionAction.setEnabled(!(screen instanceof DashboardScreen&&((DashboardScreen)screen).isEditing()));
         }
         ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();if(profileTitle!=null){profileTitle.setText(p==null?"Your scooter":p.name);profileTitle.setVisibility(home?View.VISIBLE:View.GONE);}
@@ -451,7 +481,28 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);getParent().requestDisallowInterceptTouchEvent(false);if(dragged)apply(target);else performClick();invalidate();return true;}
             if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);getParent().requestDisallowInterceptTouchEvent(false);invalidate();return true;}return true;
         }
-        @Override protected void onDraw(Canvas canvas){super.onDraw(canvas);float x=design.dp(4),y=design.dp(8),w=getWidth()-design.dp(8),h=getHeight()-design.dp(16);int color=!available?design.outline:Boolean.TRUE.equals(value)?design.orange:design.accent;paint.setColor(Ui.withAlpha(color,available?80:180));paint.setStyle(Paint.Style.FILL);canvas.drawRoundRect(new RectF(x,y,x+w,y+h),h/2,h/2,paint);paint.setColor(available?color:design.muted);float radius=h/2-design.dp(5);float cx=dragging?Math.max(x+h/2,Math.min(x+w-h/2,previewX)):Boolean.TRUE.equals(value)?x+w-h/2:x+h/2;canvas.drawCircle(cx,y+h/2,radius,paint);paint.setColor(available?design.bg:design.surface);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(2));canvas.drawRoundRect(new RectF(cx-design.dp(6),y+h/2-design.dp(1),cx+design.dp(6),y+h/2+design.dp(9)),design.dp(2),design.dp(2),paint);canvas.drawArc(new RectF(cx-design.dp(4),y+h/2-design.dp(9),cx+design.dp(4),y+h/2+design.dp(3)),Boolean.TRUE.equals(value)?180:210,Boolean.TRUE.equals(value)?180:140,false,paint);paint.setStyle(Paint.Style.FILL);}
+        /** Locked: white knob on the right. Unlocked: red knob on the left. Tap anywhere or slide to change. */
+        @Override protected void onDraw(Canvas canvas){
+            super.onDraw(canvas);float x=0,y=0,w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
+            boolean locked=Boolean.TRUE.equals(value),unlocked=Boolean.FALSE.equals(value);
+            RectF track=new RectF(x+design.dp(1),y+design.dp(1),x+w-design.dp(1),y+h-design.dp(1));float r=track.height()/2;
+            paint.setShader(null);paint.setStyle(Paint.Style.FILL);
+            if(unlocked&&available){paint.setShader(new android.graphics.LinearGradient(track.left,0,track.right,0,Ui.withAlpha(design.accent,82),Ui.withAlpha(design.accent,20),android.graphics.Shader.TileMode.CLAMP));}
+            else paint.setColor(design.dark?design.bg:design.raised);
+            canvas.drawRoundRect(track,r,r,paint);paint.setShader(null);
+            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(1));paint.setColor(unlocked&&available?Ui.withAlpha(design.accent,110):design.raised);canvas.drawRoundRect(track,r,r,paint);paint.setStyle(Paint.Style.FILL);
+            float knob=h/2-design.dp(5);
+            float cx=dragging?Math.max(x+h/2,Math.min(x+w-h/2,previewX)):locked?x+w-h/2:x+h/2;
+            paint.setColor(!available?design.dim:locked?android.graphics.Color.WHITE:design.accent);canvas.drawCircle(cx,h/2,knob,paint);
+            design.drawIcon(canvas,locked?"lock":"unlock",!available?design.surface:locked?design.bg:design.onAccent,cx,h/2,knob*0.95f);
+            String label=value==null?"Lock state unavailable":locked?"Tap or slide to unlock":"Tap or slide to lock";
+            android.text.TextPaint words=new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);words.setTypeface(design.semibold());
+            words.setTextSize(design.sp(13));words.setColor(!available?design.dim:unlocked?Ui.withAlpha(design.danger,235):design.muted);
+            float textLeft=locked||value==null?x+design.dp(18):x+h+design.dp(4),textRight=locked||value==null?x+w-h-design.dp(4):x+w-design.dp(18);
+            String fitted=android.text.TextUtils.ellipsize(label,words,Math.max(1,textRight-textLeft),android.text.TextUtils.TruncateAt.END).toString();
+            words.setTextAlign(Paint.Align.CENTER);Paint.FontMetrics m=words.getFontMetrics();
+            canvas.drawText(fitted,(textLeft+textRight)/2,h/2-(m.ascent+m.descent)/2,words);
+        }
     }
     @Override public void connect(){
         if(!resumed){pendingConnect=true;return;}

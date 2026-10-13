@@ -21,6 +21,9 @@ public final class DashboardScreen implements AppScreen {
         void startRide();
 
         void rename();
+
+        /** Opens the connection dialog (details plus Connect or Disconnect). */
+        void connectionDetails();
     }
 
     private final ScreenHost host;

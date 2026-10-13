@@ -11,6 +11,15 @@ unchanged. Its original author and asset licence were not supplied.
 This image is separate from the MIT-licensed application source; the source
 licence does not grant additional rights to the photo or NAVEE marks shown in it.
 
+SAIRA TYPEFACE (VOLT DESIGN)
+
+The interface font is Saira, bundled at:
+  res/font/saira_regular.ttf, saira_medium.ttf, saira_semibold.ttf, saira_bold.ttf
+
+Copyright 2020 The Saira Project Authors (https://github.com/Omnibus-Type/Saira).
+Licensed under the SIL Open Font License, Version 1.1; the full licence text is in
+licenses/Saira-OFL.txt. The font is not covered by this project's MIT licence.
+
 Protocol research and implementation references:
   https://github.com/pepperonas/navee-st3-pro
 
