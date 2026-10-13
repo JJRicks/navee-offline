@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Volt page background, used before the runtime theme is applied. -->
+    <color name="volt_bg">#111211</color>
+</resources>
