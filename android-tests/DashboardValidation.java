@@ -144,7 +144,7 @@ public final class DashboardValidation extends Instrumentation {
                 Object tile = tileById(metricId); TextView amount = (TextView)field(tile, "big");
                 require(amount.getText().toString().contains("73"), "Big reading did not render the cached parameter");
                 require(amount.getCurrentTextColor() == activity.ui().muted, "Cached big reading is presented as live");
-                require(((TextView)field(tile, "footer")).getText().toString().contains("Last known"), "Cached widget lacks its stale-reading label");
+                require(((TextView)field(tile, "footer")).getText().toString().contains("Last seen"), "Cached widget lacks its stale-reading label");
             });
             setSize(metricId, 1, 4); setPosition(metricId, 1, 1);
             main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == 1 && cell(metricId).h == 4,
@@ -259,6 +259,8 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> {
             ScooterProfiles profiles = new ScooterProfiles(getTargetContext());
             ScooterProfiles.Profile profile = profiles.create(FIXTURE_NAME, "000000000000", 0);
+            profile.lastConnected = System.currentTimeMillis() - 86400000L;
+            profiles.update(profile);
             // Deliberately no address or serial: no real scooter is impersonated or targeted.
             profileId = profile.id; fixtureHistory = new TelemetryHistory(getTargetContext());
             long now = System.currentTimeMillis() - 60000;
@@ -481,10 +483,10 @@ public final class DashboardValidation extends Instrumentation {
             require(DisplayTime.recent(getTargetContext(), isolated, wall, wall + 60000).equals(
                     DisplayTime.clock(getTargetContext(), isolated, wall)), "A same-day connection unnecessarily repeats its date");
             String yesterday = DisplayTime.recent(getTargetContext(), isolated, wall, wall + 86400000L);
-            require(yesterday.contains("Jan") && yesterday.contains("28") && yesterday.contains(":"),
+            require(yesterday.equals("28 JAN · " + DisplayTime.clock(getTargetContext(), isolated, wall)),
                     "An older connection lost its date or clock and can be confused with today");
             String previousYear = DisplayTime.recent(getTargetContext(), isolated, wall, wall + 370 * 86400000L);
-            require(previousYear.contains("2026"), "A previous-year connection omitted its year");
+            require(previousYear.equals(yesterday), "A previous-year connection lost its compact day/month prefix");
             require(DisplayTime.clock(getTargetContext(), isolated, 0).isEmpty()
                     && DisplayTime.recent(getTargetContext(), isolated, 0, wall).isEmpty(),
                     "A scooter with no connection history invented a clock time");
@@ -870,7 +872,7 @@ public final class DashboardValidation extends Instrumentation {
     }
     private void applyModeStyle(TextView view, String mode, boolean live) {
         view.setText(mode); view.setTextColor(live ? activity.ui().text : activity.ui().muted);
-        view.setContentDescription("Drive mode, " + mode + (live ? "" : ", last known"));
+        view.setContentDescription("Drive mode, " + mode + (live ? "" : ", last seen"));
         activity.ui().styleDriveMode(view, mode, live);
     }
     private void assertWalkingIcon(TextView mode, int color, String context) {
@@ -915,6 +917,8 @@ public final class DashboardValidation extends Instrumentation {
             require(layout.getEllipsisCount(line) == 0 && layout.getLineMax(line) <= layout.getWidth() + 1,
                     context + ": value is truncated or clipped horizontally: " + text);
         float readableFloor = 12 * activity.ui().textScale * getTargetContext().getResources().getDisplayMetrics().scaledDensity;
+        // Compact timestamps deliberately shrink to preserve the full date and time on one line.
+        if (value == field(activity, "connectionTitle")) readableFloor = value.getAutoSizeMinTextSize();
         require(value.getTextSize() >= readableFloor - .5f, context + ": value shrank below the readable text floor: " + text);
         Rect bounds = relativeBounds(value, body);
         require(bounds.left >= 0 && bounds.right <= body.getWidth() + 1,

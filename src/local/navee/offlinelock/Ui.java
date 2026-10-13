@@ -65,6 +65,18 @@ public final class Ui {
     }
     public int dp(float value) { return Math.round(value * density); }
     public float sp(float value) { return value * context.getResources().getDisplayMetrics().scaledDensity * textScale; }
+    /** Keep compact status timestamps on one line, shrinking only when their width requires it. */
+    public void fitStatusLine(TextView view) {
+        int maximum = Math.round(view.getTextSize());
+        // Keep the original line's height as auto-size settles, including across Edit rebuilds.
+        Paint.FontMetrics metrics = view.getPaint().getFontMetrics();
+        view.setMinHeight((int)Math.ceil(metrics.descent - metrics.ascent));
+        view.setGravity((view.getGravity() & ~Gravity.VERTICAL_GRAVITY_MASK) | Gravity.CENTER_VERTICAL);
+        view.setMaxLines(1);
+        view.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        view.setAutoSizeTextTypeUniformWithConfiguration(
+                Math.min(maximum, Math.round(sp(7) / textScale)), maximum, 1, TypedValue.COMPLEX_UNIT_PX);
+    }
     public TextView text(String value, float sp, boolean bold) {
         TextView view = new TextView(context);
         view.setText(value == null ? "" : value);
@@ -374,7 +386,7 @@ public final class Ui {
         }
         private void describe() {
             setContentDescription("Battery " + (Double.isNaN(percent) ? "not reported" : Math.round(percent) + " percent")
-                    + (charging ? ", charging" : "") + (live ? "" : ", last known reading")
+                    + (charging ? ", charging" : "") + (live ? "" : ", last seen reading")
                     + (subtitle.isEmpty() ? "" : ", " + subtitle));
         }
         public void set(Double percent, String subtitle, boolean charging) { set(percent == null ? Double.NaN : percent.doubleValue(), subtitle, charging); }

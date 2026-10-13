@@ -231,14 +231,14 @@ public final class StatsScreen implements AppScreen {
                 ui.styleDriveMode(row.amount, display(reading), reading.live);
             }
         }
-        status.setText(saved == 0 ? "Connect for readings" : "Last known readings");
+        status.setText(saved == 0 ? "Connect for readings" : "Last seen readings");
         status.setVisibility(live > 0 ? View.GONE : View.VISIBLE);
         status.setVisibility(saved == 0 || live < saved ? View.VISIBLE : View.GONE);
         status.setTextColor(ui.muted); refreshButton.setEnabled(service.ble.connected());
         if (selectedSection.equals("Overview")) {
             TelemetryHistory.Reading soc = readings.get("battery_percent"), voltage = readings.get("voltage_v");
             batteryRing.set(soc == null ? null : soc.number, soc == null || soc.value == null ? "No reading"
-                    : soc.live ? "Live" : "Last known", false);
+                    : soc.live ? "Live" : "Last seen", false);
             batteryRing.setLive(soc != null && soc.live);
             batteryHeadline.setText(value(voltage)); batteryHeadline.setTextColor(voltage != null && voltage.live ? ui.text : ui.muted);
             SpannableStringBuilder details = new SpannableStringBuilder();
@@ -279,7 +279,7 @@ public final class StatsScreen implements AppScreen {
         TelemetryHistory.Reading reading = service.displayReadings().get(key);
         if (reading == null) return;
         String when = reading.capturedWallMs <= 0 ? "Not supplied" : DisplayTime.dateTime(host.activity(), preferences, reading.capturedWallMs);
-        String detail = display(reading) + "\n\n" + (reading.live ? "Live reading" : "Last known reading")
+        String detail = display(reading) + "\n\n" + (reading.live ? "Live reading" : "Last seen reading")
                 + "\n" + when + "\n" + reading.key;
         if (key.equals("energy_throughput_wh")) detail += "\n\nThis field's meaning is unverified. It is not used to calculate ride energy.";
         metricDialog = new AlertDialog.Builder(host.activity()).setTitle(reading.label).setMessage(detail)

@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.7.0
+NAVEE OFFLINE — VERSION 0.7.1
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,6 +11,9 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+
+0.7.1 uses “Last seen” for cached readings, with a 05 MAR-style date before
+times outside today. Compact status lines shrink to fit the available width.
 
 0.7.0 packages the reviewed phone sensors, maps, customizable dashboard and
 connected-history work into a signed release. Update over the previous official
