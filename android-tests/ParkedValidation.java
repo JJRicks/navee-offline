@@ -136,14 +136,22 @@ public final class ParkedValidation extends Instrumentation {
         Map<String,View> sections=(Map<String,View>)field(screen,"sections");require(sections.size()==size,"Unexpected section catalogue size");
         for(Map.Entry<String,View> section:sections.entrySet())require(section.getValue().getVisibility()==(section.getKey().equals(selected)?View.VISIBLE:View.GONE),"Wrong section visibility: "+section.getKey()+" while "+selected+" selected");
     }
-    private String controlCategory(ScooterCommands.Feature f){return LINE_KEYS.contains(f.key)?"Line lights":STAR_KEYS.contains(f.key)?"Star lights":f.group.equals("Ride")?"Ride":f.group.equals("Battery")?"Battery":f.group.equals("Preferences")?"Display":f.group.equals("Security")?"Security":"Lights";}
-    @SuppressWarnings("unchecked") private void assertControls(Object screen,String category,String search){
+    /** Scooter tab: null is the main page, "lights" the Lights page, otherwise a search query. */
+    @SuppressWarnings("unchecked") private void assertControls(Object screen,String mode){
         List<Object> rows=(List<Object>)field(screen,"rows");int shown=0;
-        for(Object row:rows){ScooterCommands.Feature feature=(ScooterCommands.Feature)field(row,"feature");View card=(View)field(row,"card");boolean expected=search==null?controlCategory(feature).equals(category):search.equals("kickstart")&&feature.key.equals("start_speed");require(card.isShown()==expected,"Unexpected control card visibility: "+feature.key);if(card.isShown())shown++;}
-        if(search==null){assertSectionMap(screen,category,7);if(category.equals("Line lights")||category.equals("Star lights"))require(shown==4,"Lighting zone must show its four independent controls");else if(!category.equals("Security"))require(shown>0,"Selected Controls section has no cards");}
-        else if(search.equals("kickstart"))require(shown==1,"Kickstart search must show exactly the start-speed control");
+        for(Object row:rows){
+            ScooterCommands.Feature feature=(ScooterCommands.Feature)field(row,"feature");View card=(View)field(row,"card");
+            require(!feature.key.equals("maximum_speed"),"Maximum speed belongs to the top speed card, not a settings row");
+            boolean zone=LINE_KEYS.contains(feature.key)||STAR_KEYS.contains(feature.key),light=zone||feature.key.equals("headlight")||feature.key.equals("auto_sensor");
+            boolean expected=mode==null?!zone:mode.equals("lights")?light:mode.equals("kickstart")&&feature.key.equals("start_speed");
+            require(card.isShown()==expected,"Unexpected control row visibility: "+feature.key);if(card.isShown())shown++;
+        }
+        View topSpeed=(View)field(field(screen,"topSpeed"),"card");require(topSpeed.isShown()==(mode==null),"Unexpected top speed card visibility");
+        if(mode==null)require(shown>0,"Scooter page has no settings rows");
+        else if(mode.equals("lights"))require(shown==LINE_KEYS.size()+STAR_KEYS.size()+2,"Lights page must show both headlight controls and every zone control");
+        else if(mode.equals("kickstart"))require(shown==1,"Kickstart search must show exactly the start-speed control");
         else require(shown==0,"No-match query left a control visible");
-        Map<View,String[]> extras=(Map<View,String[]>)field(screen,"extraCards");for(Map.Entry<View,String[]> e:extras.entrySet())require(e.getKey().isShown()==(search==null&&e.getValue()[0].equals(category)),"Unexpected extra Controls card visibility");
+        Map<View,String[]> extras=(Map<View,String[]>)field(screen,"extras");for(Map.Entry<View,String[]> e:extras.entrySet())require(e.getKey().isShown()==(mode==null),"Unexpected extra settings row visibility");
     }
     private void assertStatsSections(Object screen,String selected){
         String[] names={"Overview","Readings","Charts","Diagnostics"};String[] fields={"overviewSection","readingsSection","chartsSection","diagnosticsSection"};
@@ -154,9 +162,11 @@ public final class ParkedValidation extends Instrumentation {
         AtomicReference<Long> initial=new AtomicReference<>();runMain(()->{assertNoUserRecording();initial.set(mutations());service.settings.edit().putString("controls_query","").putString("stats_query","").putBoolean("stats_favourites_only",false).commit();});
         for(String page:new String[]{"home","controls","stats","rides","more"}){navigate(activity,page);status("Read-only navigation: "+page);}
         navigate(activity,"controls");
-        for(String category:new String[]{"Ride","Battery","Lights","Line lights","Star lights","Display","Security"}){clickSection(activity,category);runMain(()->assertControls(currentScreen(activity),category,null));}
-        runMain(()->{EditText input=findInput(screenView(activity),"Search scooter settings");require(input!=null,"Controls search missing");input.setText("kickstart");assertControls(currentScreen(activity),"Ride","kickstart");input.setText("no-match");assertControls(currentScreen(activity),"Ride","no-match");require(findText(screenView(activity),"No matching settings. Try another word.")!=null,"No-match explanation missing");input.setText("");});
-        clickSection(activity,"Ride");runMain(()->assertControls(currentScreen(activity),"Ride",null));render(activity,"navigation-controls-ride.png");
+        runMain(()->assertControls(currentScreen(activity),null));
+        runMain(()->{EditText input=findInput(screenView(activity),"Search scooter settings");require(input!=null,"Controls search missing");input.setText("kickstart");assertControls(currentScreen(activity),"kickstart");input.setText("no-match");assertControls(currentScreen(activity),"no-match");require(findText(screenView(activity),"No matching settings")!=null,"No-match explanation missing");input.setText("");});
+        runMain(()->selectOnMain(activity,"lights"));waitForIdleSync();runMain(()->assertControls(currentScreen(activity),"lights"));
+        runMain(()->{Object controls=currentScreen(activity);try{java.lang.reflect.Method back=controls.getClass().getDeclaredMethod("back");back.setAccessible(true);require(Boolean.TRUE.equals(back.invoke(controls)),"Lights page Back was not handled");}catch(ReflectiveOperationException e){throw new IllegalStateException("Cannot invoke Lights Back",e);}});
+        waitForIdleSync();runMain(()->assertControls(currentScreen(activity),null));render(activity,"navigation-controls.png");
         navigate(activity,"stats");
         for(String section:new String[]{"Overview","Readings","Charts","Diagnostics"}){clickSection(activity,section);runMain(()->assertStatsSections(currentScreen(activity),section));}
         clickSection(activity,"Readings");
@@ -168,11 +178,11 @@ public final class ParkedValidation extends Instrumentation {
         runMain(()->require(mutations()==initial.get(),"Navigation/search/favourite actions submitted a scooter mutation"));
         offlineSliderCancel(activity);
         runMain(()->require(mutations()==initial.get(),"Slider cancellation submitted a scooter mutation"));
-        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_sections",7);evidence.put("stats_sections",4);evidence.put("more_sections",5);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Native DOWN/MOVE/CANCEL while explicitly disconnected; events and message unchanged");results.put(evidence);
+        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_groups",8);evidence.put("stats_sections",4);evidence.put("more_sections",5);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Native DOWN/MOVE/CANCEL while explicitly disconnected; events and message unchanged");results.put(evidence);
     }
     @SuppressWarnings("unchecked") private void offlineSliderCancel(Activity activity)throws Exception{
         runMain(()->{assertNoUserRecording();reconnectAfterSmoke=service.ble.connected()||service.ble.state()==BleController.State.CONNECTING||service.ble.state()==BleController.State.AUTHENTICATING;service.ble.disconnect();service.settings.edit().putString("controls_query","").putString("controls_section","Ride").commit();});
-        navigate(activity,"controls");clickSection(activity,"Ride");
+        navigate(activity,"controls");
         runMain(()->{
             require(service.ble.state()==BleController.State.DISCONNECTED&&!service.ble.connected(),"Slider cancel regression requires no live GATT");
             Object target=null;for(Object row:(List<Object>)field(currentScreen(activity),"rows"))if(((ScooterCommands.Feature)field(row,"feature")).key.equals("start_speed")){target=row;break;}

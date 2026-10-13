@@ -79,21 +79,27 @@ public final class UiOrganizationValidation extends Instrumentation {
             screenshot("more-index-dark");
 
             clickDescription("Scooter");
-            requireScreenText("Ride"); clickText(root(), "Ride");
-            requireVisibleControl("maximum_speed"); requireVisibleControl("start_speed");
-            screenshot("scooter-ride-dark");
-            main(() -> invoke(activity, "navigateBack"));
-            requireScreenText("Battery");
+            requireScreenText("RIDE"); requireScreenText("BATTERY"); requireScreenText("PROFILE");
+            requireVisibleControl("start_speed"); requireVisibleControl("energy_recovery");
+            main(() -> {
+                require(topSpeedShown(), "Top speed card missing from the Scooter page");
+                require(!allFeatures().contains("maximum_speed"), "Maximum speed must live only in the top speed card");
+                for (String key : visibleFeatures()) require(!key.startsWith("line_") && !key.startsWith("star_"), "Line and star zones belong to the Lights page");
+                require(findText(root(), "Line & star lights") != null, "Lights group must link to the line and star zones");
+            });
+            screenshot("scooter-dark");
             main(() -> first(root(), EditText.class).setText("speed"));
             main(() -> {
                 Set<String> visible = visibleFeatures();
-                require(visible.contains("maximum_speed") && visible.contains("start_speed"), "Speed search lost primary speed controls");
+                require(topSpeedShown() && visible.contains("start_speed"), "Speed search lost primary speed controls");
                 require(!visible.contains("energy_recovery"), "Speed search did not hide an unrelated setting");
                 for (String key : visible) require(!isLight(key), "Speed search should hide lighting settings");
+                require(findText(root(), "LIGHTS") == null, "Speed search should hide the empty Lights group");
             });
             main(() -> invoke(activity, "navigateBack"));
-            requireScreenText("Battery");
-            check("Scooter categories, nested Back and search expose the requested settings without control writes");
+            main(() -> require(topSpeedShown() && "".equals(field(field(activity, "screen"), "query")), "Back did not clear the settings search"));
+            requireScreenText("BATTERY");
+            check("Scooter page shows the top speed card and every group; search hides empty groups and Back clears it without control writes");
 
             main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "lights")); waitForIdleSync();
             main(() -> {
@@ -101,13 +107,20 @@ public final class UiOrganizationValidation extends Instrumentation {
                         "line_color", "line_boost_color", "star_light", "star_pattern", "star_color", "star_boost_color"));
                 require(allFeatures().containsAll(expected), "Scooter must retain all lighting settings");
                 require(visibleFeatures().equals(expected), "A lighting zone is hidden without a search");
+                require(!topSpeedShown(), "The Lights page should not show the top speed card");
+                require(findText(root(), "HEADLIGHTS") != null && findText(root(), "LINE LIGHTS") != null
+                        && findText(root(), "STAR LIGHTS") != null, "Lights page groups are missing");
+                require(findDescription(root(), "Back to Scooter settings") != null, "Lights page has no way back to Scooter");
             });
             screenshot("lights-dark");
             main(() -> first(root(), EditText.class).setText("boost"));
             main(() -> require(visibleFeatures().equals(new HashSet<>(Arrays.asList("line_boost_color", "star_boost_color", "parking_assist"))),
                     "Global scooter search should find both Boost colors and Power Assist"));
             main(() -> invoke(activity, "navigateBack"));
-            check("Lights groups tail, automatic, line and star controls; search covers all lighting zones");
+            main(() -> invoke(activity, "navigateBack"));
+            main(() -> require(topSpeedShown() && findText(root(), "LINE LIGHTS") == null && settings.getString("scooter_section", "").isEmpty(),
+                    "Back from Lights did not return to the Scooter page"));
+            check("Lights page groups headlights, line and star zones; search covers all settings; Back returns to Scooter");
 
             clickDescription("More"); clickText(root(), "App preferences");
             requireScreenText("Connect automatically"); screenshot("preferences-dark");
@@ -472,6 +485,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             }
         });
     }
+    private boolean topSpeedShown() { return ((View)field(field(field(activity, "screen"), "topSpeed"), "card")).isShown(); }
     private void requireVisibleControl(String key) { main(() -> require(visibleFeatures().contains(key), "Missing visible control " + key)); }
     private Set<String> allFeatures() { return features(false); }
     private Set<String> visibleFeatures() { return features(true); }

@@ -36,11 +36,9 @@ import android.view.WindowManager;
 import android.view.MotionEvent;
 import android.view.ViewConfiguration;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.widget.ArrayAdapter;
 import android.widget.EditText;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
-import android.widget.ListView;
 import android.widget.ScrollView;
 import android.widget.SeekBar;
 import android.widget.Switch;
@@ -95,7 +93,10 @@ public final class MainActivity extends Activity implements ScreenHost {
     private Runnable pendingRideLocation;
     private boolean rideLocationResolved;
     private android.window.OnBackInvokedCallback systemBack;
-    private ArrayAdapter<String> scanAdapter;
+    private LinearLayout scanList;
+    private TextView scanStatus,scanConnect;
+    private View scanSpinner;
+    private String scanSignature="",scanSelected;
     private final ArrayList<ScanResult> scanResults=new ArrayList<>();
     private final Runnable serviceChanged=this::automaticRefresh;
     private final Runnable deferredBodyRefresh=()->{
@@ -339,9 +340,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(profile!=null&&profile.lastConnected>0)
             detail+="\n\nLast connected: "+DisplayTime.dateTime(this,preferences,profile.lastConnected);
         boolean active=ble!=null&&(ble.connected()||ble.ready()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING);
-        controlDialog=new AlertDialog.Builder(dialogContext()).setTitle("Connection").setMessage(detail).setPositiveButton("Close",null)
+        controlDialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Connection")).setMessage(detail).setPositiveButton("Close",null)
                 .setNegativeButton(active?"Disconnect":"Connect",(d,which)->{if(active){if(ble!=null)ble.disconnect();redraw();}else connect();}).create();
-        controlDialog.show();
+        controlDialog.show();styleDialog(controlDialog,active?0:AlertDialog.BUTTON_NEGATIVE);
     }
     /** An animated span keeps the spinner next to its word, without adding a separate row. */
     private CharSequence connectingLabel(TextView owner){
@@ -364,7 +365,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void renameScooter(){
         if(scooterService==null||scooterService.profiles.active()==null){toast("Set up a scooter profile first.");return;}ScooterProfiles.Profile profile=scooterService.profiles.active();EditText input=new EditText(this);input.setSingleLine(true);input.setText(profile.name);input.setSelectAllOnFocus(true);input.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(48)});
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Scooter name").setView(input).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create();controlDialog=dialog;dialog.show();dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String name=input.getText().toString().trim();if(name.isEmpty()){input.setError("Enter a name.");return;}profile.name=name;scooterService.profiles.update(profile);dialog.dismiss();rebuild();});
+        design.styleSearch(input);input.setBackground(design.shape(design.raised,14,design.outline));input.setContentDescription("Scooter name");
+        FrameLayout field=new FrameLayout(this);field.setPadding(design.dp(24),design.dp(8),design.dp(24),design.dp(4));field.addView(input,new FrameLayout.LayoutParams(-1,-2));
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Scooter name")).setView(field).setNegativeButton("Cancel",null).setPositiveButton("Save",null).create();controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{String name=input.getText().toString().trim();if(name.isEmpty()){input.setError("Enter a name.");return;}profile.name=name;scooterService.profiles.update(profile);dialog.dismiss();rebuild();});
     }
     /** Other tabs: a tappable connection line above the page title. The lock lives on Home. */
     private LinearLayout makeCompactHeader(){
@@ -384,6 +387,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void select(String page){
         if(page.equals("lights")){preferences.edit().putString("scooter_section","Lights").apply();page="controls";if(page.equals(selectedPage)){rebuild();return;}}
+        // Arriving from another tab opens the main Scooter page; only the Lights shortcut above opens Lights.
+        else if(page.equals("controls")&&!selectedPage.equals("controls"))preferences.edit().putString("scooter_section","").apply();
+        else if(page.equals("controls")&&screen instanceof ControlsScreen&&((ControlsScreen)screen).lights){((ControlsScreen)screen).showMain();return;}
         if(page.equals(selectedPage)){if(scroll!=null)scroll.smoothScrollTo(0,0);return;}
         captureScroll();
         if(selectedPage.equals("more"))markMoreAway();
@@ -549,16 +555,72 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(scooterService.profiles.active()==null){select("more");toast("Set up an owner profile before choosing a scooter.");return;}
         if(start){scooterService.ble.disconnect();scooterService.ble.scan();}
         if(scanDialog!=null&&scanDialog.isShowing()){updateScan();return;}
-        ListView list=new ListView(dialogContext());list.setPadding(design.dp(8),design.dp(8),design.dp(8),design.dp(8));
-        scanAdapter=new ArrayAdapter<String>(dialogContext(),android.R.layout.simple_list_item_1,new ArrayList<String>()){@Override public boolean isEnabled(int position){return position<scanResults.size();}};list.setAdapter(scanAdapter);
-        scanDialog=new AlertDialog.Builder(dialogContext()).setTitle("Choose your scooter").setView(list).setNegativeButton("Close",(d,w)->{}).setPositiveButton("Scan again",null).create();
-        list.setOnItemClickListener((parent,v,position,id)->{if(position<scanResults.size()){scooterService.ble.connectDiscovered(scanResults.get(position));scanDialog.dismiss();redraw();}});
-        scanDialog.setOnShowListener(d->scanDialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{scooterService.ble.scan();updateScan();}));scanDialog.setOnDismissListener(d->{scanDialog=null;scanAdapter=null;if(scooterService!=null&&scooterService.ble.state()==BleController.State.SCANNING)scooterService.ble.disconnect();});scanDialog.show();updateScan();
+        final AlertDialog[] sheet=new AlertDialog[1];
+        LinearLayout content=sheetContent("Choose your scooter",null,()->{if(sheet[0]!=null)sheet[0].dismiss();});
+        LinearLayout status=row();status.setGravity(Gravity.CENTER_VERTICAL);status.setPadding(design.dp(2),0,0,design.dp(12));
+        scanSpinner=new Spinner();status.addView(scanSpinner,new LinearLayout.LayoutParams(design.dp(14),design.dp(14)));
+        scanStatus=design.caption("");scanStatus.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
+        LinearLayout.LayoutParams statusText=new LinearLayout.LayoutParams(0,-2,1);statusText.leftMargin=design.dp(10);status.addView(scanStatus,statusText);
+        content.addView(status);
+        scanList=column();content.addView(scanList);
+        LinearLayout actions=row();actions.setPadding(0,design.dp(6),0,0);
+        TextView again=design.secondaryButton("Scan again",()->{if(scooterService!=null){scooterService.ble.scan();scanSignature="";updateScan();}});
+        scanConnect=design.button("Connect",this::connectSelectedScan);
+        LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=design.dp(5);actions.addView(again,left);
+        LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,-2,1);right.leftMargin=design.dp(5);actions.addView(scanConnect,right);
+        content.addView(actions);
+        scanSignature="";scanSelected=null;
+        scanDialog=showSheet(content);sheet[0]=scanDialog;
+        scanDialog.setOnDismissListener(d->{scanDialog=null;scanList=null;scanStatus=null;scanSpinner=null;scanConnect=null;scanSelected=null;if(scooterService!=null&&scooterService.ble.state()==BleController.State.SCANNING)scooterService.ble.disconnect();});
+        updateScan();
     }
+    private void connectSelectedScan(){
+        if(scooterService==null||scanSelected==null)return;
+        for(ScanResult result:scanResults)if(result.getDevice().getAddress().equals(scanSelected)){scooterService.ble.connectDiscovered(result);if(scanDialog!=null)scanDialog.dismiss();redraw();return;}
+    }
+    private static int signalRank(int rssi){return rssi>=-60?4:rssi>=-70?3:rssi>=-80?2:1;}
     private void updateScan(){
-        if(scanAdapter==null||scooterService==null)return;scanResults.clear();scanResults.addAll(scooterService.ble.discoveries());scanAdapter.clear();
-        for(ScanResult result:scanResults){String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();String mac=result.getDevice().getAddress();scanAdapter.add((name==null||name.isEmpty()?"Navee scooter":name)+"  ·  "+mac.substring(Math.max(0,mac.length()-5)));}
-        if(scanResults.isEmpty())scanAdapter.add(scooterService.ble.state()==BleController.State.SCANNING?"Searching nearby…":"No scooter found. Turn it on and scan again.");scanAdapter.notifyDataSetChanged();
+        if(scanList==null||scooterService==null)return;scanResults.clear();scanResults.addAll(scooterService.ble.discoveries());
+        boolean scanning=scooterService.ble.state()==BleController.State.SCANNING;
+        ScooterProfiles.Profile profile=scooterService.profiles.active();String mine=profile==null?"":profile.mac;
+        boolean present=false;for(ScanResult result:scanResults)if(result.getDevice().getAddress().equals(scanSelected))present=true;
+        // The profile's own scooter starts selected; other scooters need a deliberate tap before Connect.
+        if(!present){scanSelected=null;for(ScanResult result:scanResults)if(!mine.isEmpty()&&result.getDevice().getAddress().equalsIgnoreCase(mine))scanSelected=result.getDevice().getAddress();}
+        scanStatus.setText(scanning?"Searching nearby…":scanResults.isEmpty()?"No scooter found. Turn it on and scan again.":scanResults.size()==1?"1 scooter found":scanResults.size()+" scooters found");
+        scanSpinner.setVisibility(scanning?View.VISIBLE:View.GONE);
+        StringBuilder signature=new StringBuilder(String.valueOf(scanSelected));
+        for(ScanResult result:scanResults){String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();signature.append('|').append(result.getDevice().getAddress()).append(':').append(signalRank(result.getRssi())).append(':').append(name);}
+        if(!signature.toString().equals(scanSignature)){
+            scanSignature=signature.toString();scanList.removeAllViews();
+            for(ScanResult result:scanResults){
+                String address=result.getDevice().getAddress();boolean match=!mine.isEmpty()&&address.equalsIgnoreCase(mine);
+                scanList.addView(scanOption(result,match,address.equals(scanSelected)));
+            }
+        }
+        scanConnect.setEnabled(scanSelected!=null);
+    }
+    /** Nearby scooter row (ph/10): scooter icon, name, signal bars; the selected scooter has a red outline. */
+    private View scanOption(ScanResult result,boolean match,boolean selected){
+        String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();if(name==null||name.isEmpty())name="Navee scooter";
+        String address=result.getDevice().getAddress(),suffix=address.substring(Math.max(0,address.length()-5));
+        int rank=signalRank(result.getRssi());String strength=rank==4?"Strong signal":rank==3?"Good signal":rank==2?"Fair signal":"Weak signal";
+        LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);option.setPadding(design.dp(12),design.dp(10),design.dp(14),design.dp(10));option.setMinimumHeight(design.dp(64));
+        android.graphics.drawable.GradientDrawable face=new android.graphics.drawable.GradientDrawable();face.setCornerRadius(design.dp(16));
+        face.setColor(selected?Ui.withAlpha(design.accent,design.dark?26:18):design.surface);face.setStroke(design.dp(1.5f),selected?design.accent:design.surface);
+        option.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(design.accent,30)),face,null));
+        option.addView(design.iconSquare("scooter",design.accent),new LinearLayout.LayoutParams(design.dp(40),design.dp(40)));
+        LinearLayout words=column();
+        TextView title=design.text(name,15,true);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);words.addView(title);
+        TextView detail=design.caption(strength+(match?" · matches your scooter profile":"")+" · "+suffix);detail.setPadding(0,design.dp(3),0,0);words.addView(detail);
+        LinearLayout.LayoutParams wordsParams=new LinearLayout.LayoutParams(0,-2,1);wordsParams.leftMargin=design.dp(12);wordsParams.rightMargin=design.dp(10);option.addView(words,wordsParams);
+        SignalBars bars=new SignalBars(rank);int color=rank>=3?design.ok:design.orange;bars.set(rank,color,design.raised);
+        option.addView(bars,new LinearLayout.LayoutParams(design.dp(18),design.dp(14)));
+        option.setClickable(true);option.setFocusable(true);option.setSelected(selected);
+        option.setContentDescription(name+", "+strength+(match?", matches your scooter profile":"")+", address ending "+suffix);
+        if(Build.VERSION.SDK_INT>=30)option.setStateDescription(selected?"Selected":"");
+        option.setOnClickListener(v->{scanSelected=address;scanSignature="";updateScan();});
+        LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.bottomMargin=design.dp(8);option.setLayoutParams(params);
+        return option;
     }
     private Map<String,Telemetry.Metric> metrics(){LinkedHashMap<String,Telemetry.Metric> values=new LinkedHashMap<>();if(scooterService!=null)for(Telemetry.Metric metric:scooterService.ble.telemetry.metrics())values.put(metric.key,metric);return values;}
     private Double fresh(Map<String,Telemetry.Metric> metrics,String key,long age){Telemetry.Metric metric=metrics.get(key);return scooterService!=null&&scooterService.ble.connected()&&metric!=null&&metric.numericValue!=null&&metric.updatedMs>=0&&SystemClock.elapsedRealtime()-metric.updatedMs<=age?metric.numericValue:null;}
@@ -573,117 +635,601 @@ public final class MainActivity extends Activity implements ScreenHost {
         @Override public View view(){return view;}
         @Override public void refresh(){}
     }
-    /** One compact grouped list per category, including all lighting controls. */
+    /**
+     * Volt Scooter tab: one scrolling page (top speed card, then grouped settings) and a Lights page for
+     * the line and star zones. Search filters every group, on either page, and hides empty groups.
+     */
     private final class ControlsScreen implements AppScreen {
-        private final LinearLayout view=column(), menu=column();
+        private final LinearLayout view=column();
         private final ArrayList<ControlRow> rows=new ArrayList<>();
         private final LinkedHashMap<String,LinearLayout> sections=new LinkedHashMap<>(), bodies=new LinkedHashMap<>();
+        private final LinkedHashMap<String,TextView> labels=new LinkedHashMap<>();
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
-        private final boolean lights;
-        private final TextView results,back;
+        private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private String category,query="";
-        private TextView clockButton;
-        ControlsScreen(boolean lights){
-            this.lights=lights;
-            category=lights?"":preferences.getString("scooter_section","");
-            String[] categories=lights?new String[]{"Headlights","Line lights","Star lights"}:new String[]{"Ride","Lights","Battery","Dashboard & sound","Security"};
-            if(!java.util.Arrays.asList(categories).contains(category))category="";
-            search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint(lights?"Search lights":"Search scooter settings");design.styleSearch(search);search.setContentDescription(lights?"Search light settings":"Search scooter settings");view.addView(search,design.searchLayout());
+        private final LinearLayout lightsHeader,banner;
+        private final View lightsNote,zonesRow;
+        private final SettingLine clockLine;
+        private final TopSpeedCard topSpeed;
+        private boolean lights;
+        private String query="";
+        ControlsScreen(boolean lightsPage){
+            // Only "Lights" (set by Quick access) is meaningful now; older category values open the main page.
+            lights=lightsPage||"Lights".equals(preferences.getString("scooter_section",""));
+            lightsHeader=column();
+            LinearLayout backRow=row();backRow.setGravity(Gravity.CENTER_VERTICAL);backRow.setMinimumHeight(design.dp(48));
+            backRow.addView(design.icon("back",16,design.accent),new LinearLayout.LayoutParams(design.dp(16),design.dp(16)));
+            TextView backText=design.text("Scooter",13.5f,false);backText.setTypeface(design.medium());backText.setTextColor(design.accent);backText.setPadding(design.dp(4),0,design.dp(10),0);backRow.addView(backText);
+            backRow.setClickable(true);backRow.setFocusable(true);backRow.setContentDescription("Back to Scooter settings");backRow.setBackground(rowRipple());
+            backRow.setOnClickListener(v->showMain());lightsHeader.addView(backRow,new LinearLayout.LayoutParams(-2,-2));
+            TextView lightsTitle=design.text("Lights",24,true);lightsTitle.setPadding(0,0,0,design.dp(10));if(Build.VERSION.SDK_INT>=28)lightsTitle.setAccessibilityHeading(true);lightsHeader.addView(lightsTitle);
+            view.addView(lightsHeader);
+            // Disconnected: a dark-red banner explains that the grey values are the last seen settings.
+            banner=row();banner.setGravity(Gravity.CENTER_VERTICAL);banner.setPadding(design.dp(14),design.dp(4),design.dp(8),design.dp(4));banner.setMinimumHeight(design.dp(60));
+            banner.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?36:22),16,Ui.withAlpha(design.accent,design.dark?100:80)));
+            banner.addView(design.icon("bluetooth",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
+            bannerText=design.text("Last seen settings · connect to change",13,false);
+            LinearLayout.LayoutParams bannerWords=new LinearLayout.LayoutParams(0,-2,1);bannerWords.leftMargin=design.dp(10);bannerWords.rightMargin=design.dp(8);banner.addView(bannerText,bannerWords);
+            bannerAction=pill("Connect",MainActivity.this::connect);bannerAction.setContentDescription("Connect scooter");banner.addView(bannerAction);
+            LinearLayout.LayoutParams bannerParams=new LinearLayout.LayoutParams(-1,-2);bannerParams.bottomMargin=design.dp(10);view.addView(banner,bannerParams);
+            search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint("Search");design.styleSearch(search);search.setContentDescription("Search scooter settings");view.addView(search,design.searchLayout());
             SearchFocus.bind(search, getWindow());
-            back=design.secondaryButton("‹  All scooter settings",()->{category="";preferences.edit().putString("scooter_section","").apply();applyFilter();if(scroll!=null)scroll.scrollTo(0,0);});view.addView(back);
-            results=design.caption("");results.setPadding(design.dp(3),0,0,design.dp(12));view.addView(results);view.addView(menu);
-            LinearLayout identity=design.card();identity.addView(design.settingRow("Scooter name",scooterService==null||scooterService.profiles.active()==null?"Not set":scooterService.profiles.active().name,this::renameFromSettings));menu.addView(identity);
-            LinearLayout menuCard=design.card();menuCard.setPadding(design.dp(18),design.dp(3),design.dp(18),design.dp(3));menu.addView(menuCard);
-            for(int i=0;i<categories.length;i++){
-                String name=categories[i];if(i>0)design.divider(menuCard);
-                String hint=name.equals("Lights")?"Tail, automatic, line & star":name.equals("Ride")?"Speed, recovery, assist":name.equals("Battery")?"Charging, range":name.equals("Security")?"Lock, PIN, proximity":"Units, sounds";
-                menuCard.addView(design.settingRow(name,hint,()->{category=name;preferences.edit().putString("scooter_section",name).apply();search.setText("");search.clearFocus();android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);applyFilter();if(scroll!=null)scroll.scrollTo(0,0);}));
-                LinearLayout section=column();TextView heading=design.text(name,18,true);heading.setPadding(design.dp(3),design.dp(18),0,design.dp(10));section.addView(heading);
-                LinearLayout body=design.card();body.setPadding(design.dp(18),0,design.dp(18),0);section.addView(body);sections.put(name,section);bodies.put(name,body);view.addView(section);
+            results=design.caption("");results.setPadding(design.dp(3),0,0,design.dp(8));view.addView(results);
+            LinearLayout note=design.card();note.setOrientation(LinearLayout.HORIZONTAL);note.setGravity(Gravity.CENTER_VERTICAL);
+            note.addView(design.icon("info",20,design.accent),new LinearLayout.LayoutParams(design.dp(20),design.dp(20)));
+            TextView noteText=design.caption("Front headlight: use the scooter’s power button. Settings confirm configuration, not lamp output.");noteText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
+            LinearLayout.LayoutParams noteWords=new LinearLayout.LayoutParams(0,-2,1);noteWords.leftMargin=design.dp(12);note.addView(noteText,noteWords);
+            lightsNote=note;view.addView(note);
+            topSpeed=new TopSpeedCard();view.addView(topSpeed.card);
+            for(String name:new String[]{"Ride","Battery","Lights","Line lights","Star lights","Dashboard & sound","Security","Profile"}){
+                LinearLayout section=column();TextView label=design.sectionLabel(name);section.addView(label);
+                LinearLayout body=design.groupCard();section.addView(body);
+                sections.put(name,section);bodies.put(name,body);labels.put(name,label);view.addView(section);
             }
-            TextView lightHelp=design.caption("Front headlight: press the scooter’s power button for manual control. Automatic lights use ambient light; the separate switch below controls the tail light. A confirmed setting does not measure the lamp’s output.");lightHelp.setPadding(0,design.dp(12),0,design.dp(12));addRow("Lights",lightHelp);extras.put(lightHelp,new String[]{"Lights","headlight front manual automatic tail light power button"});
-            ArrayList<ScooterCommands.Feature> ordered=new ArrayList<>();String[] priority={"maximum_speed","start_speed","energy_recovery","traction_control","cruise_control"};
-            for(String key:priority)ordered.add(ScooterCommands.find(key));for(ScooterCommands.Feature f:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(f.key))ordered.add(f);
+            ArrayList<ScooterCommands.Feature> ordered=new ArrayList<>();
+            String[] priority={"cruise_control","energy_recovery","traction_control","hill_start_assist","parking_assist","hill_descent_control","start_speed",
+                    "charge_limit","low_power","timed_charging","charge_start","auto_sensor","headlight","display_units","range_algorithm","turn_sound","lock_expiry"};
+            for(String key:priority)ordered.add(ScooterCommands.find(key));
+            for(ScooterCommands.Feature f:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(f.key))ordered.add(f);
             for(ScooterCommands.Feature f:ordered){
-                if(f.experimental||f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key"))continue;
-                ControlRow control=new ControlRow(f);rows.add(control);addRow(controlCategory(f),control.card);
+                // The top speed card replaces maximum_speed; experimental, lock, PIN and proximity stay out of this list.
+                if(f.experimental||f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key")||f.key.equals("maximum_speed"))continue;
+                ControlRow control=new ControlRow(f);rows.add(control);addRow(groupOf(f),control.card);
             }
-            if(!lights){
-                LinearLayout clock=design.settingRow("Sync scooter clock","",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clockButton=(TextView)clock.getChildAt(0);addRow("Battery",clock);extras.put(clock,new String[]{"Battery","scooter clock scheduled charging time timezone"});
-                LinearLayout security=design.settingRow("PIN & proximity unlock","",()->openMoreSection("Security"));addRow("Security",security);extras.put(security,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
-            }
+            SettingLine zones=new SettingLine("star","Line & star lights",null);zones.chevron(this::showLights);zonesValue=zones.value;zonesRow=zones.card;
+            addRow("Lights",zonesRow);extras.put(zonesRow,new String[]{"Lights","line star lights zones ambient pattern color boost"});
+            clockLine=new SettingLine("history","Sync scooter clock",null);
+            clockButton=pill("Sync",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clockButton.setContentDescription("Sync scooter clock");
+            LinearLayout.LayoutParams clockParams=new LinearLayout.LayoutParams(-2,-2);clockParams.leftMargin=design.dp(10);clockLine.line.addView(clockButton,clockParams);
+            addRow("Battery",clockLine.card);extras.put(clockLine.card,new String[]{"Battery","sync scooter clock scheduled charging time timezone"});
+            SettingLine security=new SettingLine("shield","PIN & proximity unlock",null);security.chevron(()->openMoreSection("Security"));
+            addRow("Security",security.card);extras.put(security.card,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
+            SettingLine identity=new SettingLine("pencil","Scooter name",null);identity.chevron(MainActivity.this::renameScooter);nameValue=identity.value;
+            addRow("Profile",identity.card);extras.put(identity.card,new String[]{"Profile","scooter name rename profile"});
             search.addTextChangedListener(new TextWatcher(){public void beforeTextChanged(CharSequence s,int start,int count,int after){}public void onTextChanged(CharSequence s,int start,int before,int count){query=s.toString();applyFilter();}public void afterTextChanged(Editable text){}});
             applyFilter();
         }
-        private void renameFromSettings(){renameScooter();}
-        private boolean isLighting(ScooterCommands.Feature f){return f.key.equals("headlight")||f.key.equals("auto_sensor")||f.key.startsWith("line_")||f.key.startsWith("star_");}
-        private String controlCategory(ScooterCommands.Feature f){if(!lights&&isLighting(f))return "Lights";if(f.key.startsWith("line_"))return "Line lights";if(f.key.startsWith("star_"))return "Star lights";if(isLighting(f))return "Headlights";return f.group.equals("Ride")?"Ride":f.group.equals("Battery")?"Battery":f.group.equals("Security")?"Security":"Dashboard & sound";}
-        private void addRow(String category,View child){LinearLayout body=bodies.get(category);if(body.getChildCount()>0){View line=new View(MainActivity.this);line.setBackgroundColor(Ui.withAlpha(design.outline,125));line.setTag(child);body.addView(line,new LinearLayout.LayoutParams(-1,design.dp(1)));}body.addView(child);}
-        private void applyFilter(){
-            String needle=query.trim().toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+","");boolean searching=!needle.isEmpty();int count=0;
-            java.util.HashSet<String> visible=new java.util.HashSet<>();
-            for(ControlRow row:rows){String group=controlCategory(row.feature);boolean match=searching?(row.feature.label+" "+row.feature.description+" "+row.feature.key).toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+","").contains(needle):(lights||group.equals(category));row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
-            for(Map.Entry<View,String[]> e:extras.entrySet()){String[] metadata=e.getValue();boolean match=searching?metadata[1].replace(" ","").contains(needle):metadata[0].equals(category);e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}}
-            for(Map.Entry<String,LinearLayout> e:sections.entrySet()){e.getValue().setVisibility(visible.contains(e.getKey())?View.VISIBLE:View.GONE);LinearLayout body=bodies.get(e.getKey());boolean hasVisible=false;for(int i=0;i<body.getChildCount();i++){View child=body.getChildAt(i);if(child.getTag() instanceof View)child.setVisibility(hasVisible&&((View)child.getTag()).getVisibility()==View.VISIBLE?View.VISIBLE:View.GONE);else if(child.getVisibility()==View.VISIBLE)hasVisible=true;}}
-            menu.setVisibility(!lights&&!searching&&category.isEmpty()?View.VISIBLE:View.GONE);
-            back.setVisibility(!lights&&!searching&&!category.isEmpty()?View.VISIBLE:View.GONE);
-            results.setVisibility(searching?View.VISIBLE:View.GONE);results.setText(count==0?"No matching settings":count+" settings");
+        private String groupOf(ScooterCommands.Feature f){
+            if(f.key.startsWith("line_"))return "Line lights";if(f.key.startsWith("star_"))return "Star lights";
+            if(f.key.equals("headlight")||f.key.equals("auto_sensor"))return "Lights";
+            return f.group.equals("Ride")?"Ride":f.group.equals("Battery")?"Battery":f.group.equals("Security")?"Security":"Dashboard & sound";
         }
+        /** The main page holds everything except the line and star zones; the Lights page holds only lighting. */
+        private boolean onPage(String group){
+            boolean zone=group.equals("Line lights")||group.equals("Star lights");
+            return lights?zone||group.equals("Lights"):!zone;
+        }
+        private void addRow(String group,View child){LinearLayout body=bodies.get(group);if(body.getChildCount()>0){View line=new View(MainActivity.this);line.setBackgroundColor(design.raised);line.setTag(child);body.addView(line,new LinearLayout.LayoutParams(-1,design.dp(1)));}body.addView(child);}
+        private void applyFilter(){
+            String needle=normalize(query);boolean searching=!needle.isEmpty();int count=0;
+            java.util.HashSet<String> visible=new java.util.HashSet<>();
+            for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=searching?row.haystack.contains(needle):onPage(group);row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
+            for(Map.Entry<View,String[]> e:extras.entrySet()){
+                String[] metadata=e.getValue();
+                boolean match=e.getKey()==zonesRow&&lights?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
+                e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}
+            }
+            boolean speed=searching?TOP_SPEED_WORDS.contains(needle):!lights;
+            topSpeed.card.setVisibility(speed?View.VISIBLE:View.GONE);if(speed)count++;
+            for(Map.Entry<String,LinearLayout> e:sections.entrySet()){
+                e.getValue().setVisibility(visible.contains(e.getKey())?View.VISIBLE:View.GONE);
+                LinearLayout body=bodies.get(e.getKey());boolean hasVisible=false;
+                for(int i=0;i<body.getChildCount();i++){View child=body.getChildAt(i);if(child.getTag() instanceof View)child.setVisibility(hasVisible&&((View)child.getTag()).getVisibility()==View.VISIBLE?View.VISIBLE:View.GONE);else if(child.getVisibility()==View.VISIBLE)hasVisible=true;}
+            }
+            labels.get("Lights").setText((lights&&!searching?"Headlights":"Lights").toUpperCase(Locale.ROOT));
+            lightsHeader.setVisibility(lights?View.VISIBLE:View.GONE);
+            lightsNote.setVisibility(lights&&!searching?View.VISIBLE:View.GONE);
+            results.setVisibility(searching?View.VISIBLE:View.GONE);results.setText(count==0?"No matching settings":count+(count==1?" setting":" settings"));
+        }
+        private void clearSearch(){
+            if(search.getText().length()>0)search.setText("");search.clearFocus();
+            android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
+            if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);
+        }
+        private void showLights(){lights=true;preferences.edit().putString("scooter_section","Lights").apply();clearSearch();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
+        private void showMain(){lights=false;preferences.edit().putString("scooter_section","").apply();clearSearch();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
         boolean back(){
             if(!query.isEmpty()){search.setText("");return true;}
-            if(!lights&&!category.isEmpty()){category="";preferences.edit().putString("scooter_section","").apply();applyFilter();if(scroll!=null)scroll.scrollTo(0,0);return true;}
+            if(lights){showMain();return true;}
             return false;
         }
+        private Integer featureNow(String key){
+            BleController ble=scooterService==null?null:scooterService.ble;Integer live=ble==null?null:ble.featureValue(key);
+            return live!=null?live:scooterService==null?null:scooterService.displayFeatures().get(key);
+        }
+        private String zonesSummary(){
+            Integer line=featureNow("line_light"),star=featureNow("star_light");if(line==null&&star==null)return "2 zones";
+            int on=(Integer.valueOf(1).equals(line)?1:0)+(Integer.valueOf(1).equals(star)?1:0);return on==0?"Off":on==2?"Both on":"1 on";
+        }
         @Override public View view(){return view;}
-        @Override public void close(){if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}}
-        @Override public void refresh(){for(ControlRow row:rows)row.refresh();if(clockButton!=null){boolean available=scooterService!=null&&scooterService.ble.ready()&&scooterService.ble.pending()==null;((View)clockButton.getParent()).setEnabled(available);clockButton.setTextColor(available?design.text:design.muted);}}
+        @Override public void close(){if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}choiceSheet=null;}
+        @Override public void refresh(){
+            for(ControlRow row:rows)row.refresh();
+            topSpeed.refresh();
+            BleController ble=scooterService==null?null:scooterService.ble;boolean ready=ble!=null&&ble.ready();
+            boolean connecting=ble!=null&&!ready&&(ble.connected()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
+                    ||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING);
+            banner.setVisibility(ready?View.GONE:View.VISIBLE);
+            bannerText.setText(connecting?"Connecting · showing last seen settings":"Last seen settings · connect to change");
+            bannerAction.setVisibility(connecting?View.GONE:View.VISIBLE);
+            boolean clockReady=ready&&ble.pending()==null;clockButton.setEnabled(clockReady);
+            clockLine.name.setTextColor(clockReady?design.text:design.muted);
+            String clock=ble==null?null:ble.commandResults().get("clock_sync");
+            if(ble!=null&&"clock_sync".equals(ble.pending()))clock="Waiting for scooter…";
+            else if(clock!=null)clock=clock.replace("; no clock readback available"," · no readback available").replace("; "," · ");
+            clockLine.setSub(clock);
+            zonesValue.setText(zonesSummary());
+            ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();nameValue.setText(profile==null?"Not set":profile.name);
+            if(choiceSheet!=null)choiceSheet.refresh();
+        }
+    }
+    private static final String TOP_SPEED_WORDS=normalize("Top speed maximum speed sport mode limit mph km/h");
+    private static String normalize(String text){return text==null?"":text.toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+","");}
+    /** Phone-width labels; search still matches the catalog's full names and descriptions. */
+    private String shortLabel(ScooterCommands.Feature f){
+        if(f.key.equals("charge_start"))return "Charge start";
+        if(f.key.equals("charge_limit"))return "Charge limit";
+        if(f.key.endsWith("_boost_color"))return "Boost color";
+        if(f.key.endsWith("_pattern"))return "Pattern";
+        if(f.key.endsWith("_color"))return "Color";
+        return f.label;
+    }
+    private String rowDetail(ScooterCommands.Feature f){
+        if(f.key.equals("parking_assist"))return "Boost + full throttle uphill in Sport";
+        if(f.key.equals("low_power"))return "Limits speed below 20%";
+        if(f.key.equals("auto_sensor"))return "Ambient sensing for head and tail light";
+        return null;
+    }
+    private String rowIcon(ScooterCommands.Feature f){
+        if(f.key.equals("hill_start_assist"))return "walk";
+        if(f.key.equals("charge_start")||f.key.equals("timed_charging"))return "clock";
+        return design.featureIcon(f.key);
+    }
+    /** One line under a picker title; settings without a shorter wording keep the catalog description. */
+    private String explanation(ScooterCommands.Feature f){
+        if(f.key.equals("energy_recovery"))return "Stronger recovery slows coasting more.";
+        if(f.key.equals("display_units"))return "Units shown on the scooter’s own dashboard.";
+        if(f.key.equals("range_algorithm"))return "Changes how range is predicted, not the battery capacity.";
+        if(f.key.equals("charge_limit"))return "Charging stops at this battery level.";
+        if(f.key.equals("start_speed"))return "Wheel speed needed before the throttle responds. Zero allows standing starts.";
+        return f.description;
+    }
+    private boolean inlineChoice(ScooterCommands.Feature f){return f.type==ScooterCommands.Type.CHOICE&&(f.key.startsWith("line_")||f.key.startsWith("star_"));}
+    /** Short value forms for the right edge of a row; pickers still list the full labels. */
+    private String valueText(ScooterCommands.Feature feature,int value){
+        if(feature.key.equals("display_units")&&(value==0||value==1))return value==0?"Miles":"Kilometers";
+        String label=featureLabel(feature,value);
+        if(feature.key.equals("lock_expiry"))return label.replace(" hours"," h");
+        return label;
+    }
+    private android.graphics.drawable.RippleDrawable rowRipple(){
+        return new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(design.accent,26)),null,design.shape(android.graphics.Color.WHITE,10,0));
+    }
+    /** Small red pill action; the inset keeps a 48dp touch target around the visible pill. */
+    private TextView pill(String label,Runnable action){
+        TextView pill=design.text(label,12.5f,true);pill.setGravity(Gravity.CENTER);
+        pill.setTextColor(new ColorStateList(new int[][]{new int[]{-android.R.attr.state_enabled},new int[]{}},new int[]{design.dim,design.onAccent}));
+        pill.setPadding(design.dp(16),0,design.dp(16),0);pill.setMinHeight(design.dp(48));pill.setMinWidth(design.dp(64));
+        android.graphics.drawable.StateListDrawable fill=new android.graphics.drawable.StateListDrawable();
+        fill.addState(new int[]{-android.R.attr.state_enabled},design.shape(design.raised,100,0));
+        fill.addState(new int[]{},design.shape(design.accent,100,0));
+        pill.setBackground(new android.graphics.drawable.InsetDrawable(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(android.graphics.Color.WHITE,50)),fill,null),0,design.dp(7),0,design.dp(7)));
+        pill.setContentDescription(label);pill.setClickable(true);pill.setFocusable(true);
+        pill.setOnClickListener(v->{if(action!=null)action.run();});
+        return pill;
+    }
+    /** One divided row inside a group card: boxed icon, label with optional sub-text, then a value, switch or action. */
+    private final class SettingLine {
+        final LinearLayout card=column(),line=row(),words=column();
+        final TextView name,sub,value;
+        SettingLine(String icon,String label,String detail){
+            line.setGravity(Gravity.CENTER_VERTICAL);line.setMinimumHeight(design.dp(60));line.setPadding(0,design.dp(8),0,design.dp(8));
+            name=design.text(label,15,false);name.setMaxLines(2);design.decorate(name,icon);words.addView(name);
+            sub=design.caption("");sub.setPaddingRelative(icon==null||icon.isEmpty()?0:design.dp(42),design.dp(3),0,0);words.addView(sub);setSub(detail);
+            line.addView(words,new LinearLayout.LayoutParams(0,-2,1));
+            value=design.text("",14,false);value.setTextColor(design.muted);value.setGravity(Gravity.END);value.setMaxLines(1);
+            value.setEllipsize(android.text.TextUtils.TruncateAt.END);value.setMaxWidth(design.dp(124));
+            LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(-2,-2);vp.leftMargin=design.dp(10);line.addView(value,vp);
+            card.addView(line);
+        }
+        void chevron(Runnable action){
+            View chevron=design.icon("chevron",15,design.muted);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(design.dp(15),design.dp(15));cp.leftMargin=design.dp(6);line.addView(chevron,cp);
+            line.setClickable(true);line.setFocusable(true);line.setBackground(rowRipple());line.setOnClickListener(v->action.run());
+        }
+        void setSub(String text){sub.setText(text==null?"":text);sub.setVisibility(text==null||text.isEmpty()?View.GONE:View.VISIBLE);}
     }
     private final class ControlRow {
-        final ScooterCommands.Feature feature;final LinearLayout card;final TextView value,name,result;final Switch toggle;final View action;
+        final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action;
+        final String haystack;final boolean inline;
+        final LinkedHashMap<Integer,View> options=new LinkedHashMap<>();
         ControlRow(ScooterCommands.Feature feature){
-            this.feature=feature;card=column();card.setPadding(design.dp(2),0,design.dp(2),0);
-            LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);line.setMinimumHeight(design.dp(66));line.setPadding(0,design.dp(9),0,design.dp(9));
-            String label=feature.label;
-            name=design.text(label,15,false);design.decorate(name,design.featureIcon(feature.key));line.addView(name,new LinearLayout.LayoutParams(0,-2,1));value=design.text("—",14,false);value.setTextColor(design.muted);value.setGravity(Gravity.END);value.setMaxWidth(design.dp(138));
-            LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(-2,-2);vp.leftMargin=design.dp(12);line.addView(value,vp);
+            this.feature=feature;inline=inlineChoice(feature);
+            String detail=rowDetail(feature);
+            row=new SettingLine(inline?null:rowIcon(feature),shortLabel(feature),detail);card=row.card;name=row.name;value=row.value;action=row.line;
+            haystack=normalize(feature.label+" "+shortLabel(feature)+" "+feature.description+" "+feature.key+" "+(detail==null?"":detail));
             if(feature.type==ScooterCommands.Type.TOGGLE){
-                value.setVisibility(View.GONE);toggle=new Switch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));toggle.setThumbTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{design.accent,design.muted}));toggle.setTrackTintList(new ColorStateList(new int[][]{new int[]{android.R.attr.state_checked},new int[]{}},new int[]{Ui.withAlpha(design.accent,80),design.outline}));toggle.setContentDescription(feature.label);toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});line.addView(toggle);line.setOnClickListener(v->{if(toggle.isEnabled())toggle.performClick();});
-            }else{toggle=null;View chevron=design.icon("chevron",15,design.muted);LinearLayout.LayoutParams cp=new LinearLayout.LayoutParams(design.dp(15),design.dp(15));cp.leftMargin=design.dp(10);line.addView(chevron,cp);line.setOnClickListener(v->editFeature(feature));}
-            line.setFocusable(true);line.setContentDescription(feature.label+". "+feature.description);line.setOnLongClickListener(v->{controlDialog=new AlertDialog.Builder(dialogContext()).setTitle(feature.label).setMessage(feature.description).setPositiveButton("Close",null).create();controlDialog.show();return true;});card.addView(line);action=line;
-            result=design.caption("");result.setPadding(0,0,0,design.dp(10));result.setVisibility(View.GONE);card.addView(result);
+                value.setVisibility(View.GONE);
+                toggle=new Switch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);
+                toggle.setContentDescription(shortLabel(feature));
+                toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});
+                LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.leftMargin=design.dp(10);row.line.addView(toggle,tp);
+                row.line.setFocusable(true);row.line.setBackground(rowRipple());row.line.setOnClickListener(v->{if(toggle.isEnabled())toggle.performClick();});
+            }else if(inline){
+                toggle=null;value.setVisibility(View.GONE);
+                if(feature.key.endsWith("_pattern")){
+                    // Patterns are chips under the label (Lights page, ph/28).
+                    row.line.setMinimumHeight(design.dp(40));row.line.setPadding(0,design.dp(10),0,0);
+                    FlowRow chips=new FlowRow();chips.setPadding(0,0,0,design.dp(4));
+                    for(int i=0;i<feature.optionValues.length;i++){
+                        final int choice=feature.optionValues[i];
+                        TextView chip=design.chip(feature.options[i],false,()->chooseInline(feature,choice));styleZoneChip(chip,false);chip.setContentDescription(feature.label+", "+feature.options[i]);
+                        options.put(choice,chip);chips.addView(chip,new ViewGroup.LayoutParams(-2,-2));
+                    }
+                    card.addView(chips,new LinearLayout.LayoutParams(-1,-2));
+                }else{
+                    // Colours are swatches on the right of the row.
+                    LinearLayout swatches=row();swatches.setGravity(Gravity.CENTER_VERTICAL);
+                    for(int i=0;i<feature.optionValues.length;i++){
+                        final int choice=feature.optionValues[i];String label=feature.options[i];
+                        Swatch swatch=new Swatch(label.equals("Red")?design.accent:label.equals("Ice blue")?design.blue:design.muted);
+                        swatch.setContentDescription(shortLabel(feature)+" "+label);swatch.setOnClickListener(v->chooseInline(feature,choice));
+                        options.put(choice,swatch);swatches.addView(swatch,new LinearLayout.LayoutParams(design.dp(48),design.dp(48)));
+                    }
+                    row.line.addView(swatches);
+                }
+            }else{toggle=null;row.chevron(()->editFeature(feature));}
+            row.line.setOnLongClickListener(v->{showAbout(feature);return true;});
+            result=design.caption("");result.setPaddingRelative(inline?0:design.dp(42),0,0,design.dp(10));result.setVisibility(View.GONE);card.addView(result);
         }
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&liveActual!=null&&scooterService.featureFresh(feature.key);
-            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");value.setText(seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.recent(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()),System.currentTimeMillis()));}
-            else value.setText(actual==null?"Not reported":featureLabel(feature,actual));
-            name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&(feature.type!=ScooterCommands.Type.CHOICE||ble.featureChoices(feature.key).length>0));
-            action.setContentDescription(feature.label+", "+value.getText()+". "+feature.description);
+            String shown;
+            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.recent(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()),System.currentTimeMillis());}
+            else shown=actual==null?"Not reported":valueText(feature,actual);
+            boolean choices=feature.type!=ScooterCommands.Type.CHOICE||(ble!=null&&ble.featureChoices(feature.key).length>0);
+            name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&choices);
+            if(toggle==null&&!inline){
+                // A long value moves under the label so the row never wraps beside the chevron.
+                boolean wide=shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
+            }else if(inline)row.setSub(actual==null?"Not reported":null);
+            for(Map.Entry<Integer,View> option:options.entrySet()){
+                boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();
+                if(view instanceof Swatch)((Swatch)view).set(on);else styleZoneChip((TextView)view,on);
+                view.setEnabled(available&&choices);view.setAlpha(available&&choices?1f:.5f);
+                if(Build.VERSION.SDK_INT>=30)view.setStateDescription(on?"Selected":"");
+            }
+            action.setContentDescription(shortLabel(feature)+", "+shown+". "+feature.description);
             if(toggle!=null){toggle.setEnabled(available);toggle.setChecked(actual!=null&&actual==1);if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(actual==null?"Not reported":actual==1?"On":"Off");}
-            String feedback=ble==null?null:ble.commandResults().get(feature.key);if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;if(actual!=null&&!available&&(ble==null||!ble.ready()))feedback="Last seen setting · connect to change";if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
+            // Last-seen state is explained once by the page banner; rows keep rejections and pending changes.
+            String feedback=ble==null?null:ble.commandResults().get(feature.key);if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
         }
+    }
+    /** Lighting zone chips keep a 48dp touch target while drawing the 36dp Volt pill. */
+    private void styleZoneChip(TextView chip,boolean selected){
+        design.styleChip(chip,selected);chip.setMinHeight(design.dp(48));
+        chip.setBackground(new android.graphics.drawable.InsetDrawable(chip.getBackground(),0,design.dp(6),0,design.dp(6)));
+    }
+    private void chooseInline(ScooterCommands.Feature feature,int target){
+        if(scooterService==null)return;Integer actual=scooterService.ble.featureValue(feature.key);if(actual!=null&&actual==target)return;
+        if(!scooterService.ble.set(feature.key,target))toast(scooterService.ble.message());redraw();
+    }
+    private void showAbout(ScooterCommands.Feature feature){
+        controlDialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle(shortLabel(feature)))
+                .setMessage(feature.description+(feature.requiresParked?"\n\nChanges only while the scooter is stopped.":"")).setPositiveButton("Close",null).create();
+        controlDialog.show();styleDialog(controlDialog,0);
+    }
+    /** A wrapping row of chips. */
+    private final class FlowRow extends ViewGroup {
+        FlowRow(){super(MainActivity.this);}
+        @Override protected void onMeasure(int widthSpec,int heightSpec){
+            int width=MeasureSpec.getSize(widthSpec),available=Math.max(1,width-getPaddingLeft()-getPaddingRight()),gap=design.dp(6),x=0,y=getPaddingTop(),rowHeight=0;
+            for(int i=0;i<getChildCount();i++){
+                View child=getChildAt(i);if(child.getVisibility()==View.GONE)continue;
+                child.measure(MeasureSpec.makeMeasureSpec(available,MeasureSpec.AT_MOST),MeasureSpec.makeMeasureSpec(0,MeasureSpec.UNSPECIFIED));
+                if(x>0&&x+child.getMeasuredWidth()>available){y+=rowHeight;x=0;rowHeight=0;}
+                x+=child.getMeasuredWidth()+gap;rowHeight=Math.max(rowHeight,child.getMeasuredHeight());
+            }
+            setMeasuredDimension(resolveSize(width,widthSpec),resolveSize(y+rowHeight+getPaddingBottom(),heightSpec));
+        }
+        @Override protected void onLayout(boolean changed,int l,int t,int r,int b){
+            int available=getWidth()-getPaddingLeft()-getPaddingRight(),gap=design.dp(6),x=0,y=getPaddingTop(),rowHeight=0;
+            for(int i=0;i<getChildCount();i++){
+                View child=getChildAt(i);if(child.getVisibility()==View.GONE)continue;int w=child.getMeasuredWidth(),h=child.getMeasuredHeight();
+                if(x>0&&x+w>available){y+=rowHeight;x=0;rowHeight=0;}
+                int left=getLayoutDirection()==View.LAYOUT_DIRECTION_RTL?getWidth()-getPaddingRight()-x-w:getPaddingLeft()+x;
+                child.layout(left,y,left+w,y+h);x+=w+gap;rowHeight=Math.max(rowHeight,h);
+            }
+        }
+    }
+    /** Lamp colour swatch; the selected colour gains a ring. */
+    private final class Swatch extends View {
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private final int color;private boolean on;
+        Swatch(int color){super(MainActivity.this);this.color=color;setClickable(true);setFocusable(true);
+            setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(design.accent,40)),null,null));}
+        void set(boolean selected){if(on!=selected){on=selected;invalidate();}setSelected(selected);}
+        @Override public CharSequence getAccessibilityClassName(){return android.widget.RadioButton.class.getName();}
+        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setCheckable(true);info.setChecked(on);}
+        @Override protected void onDraw(Canvas canvas){
+            float cx=getWidth()/2f,cy=getHeight()/2f;paint.setStyle(Paint.Style.FILL);paint.setColor(color);canvas.drawCircle(cx,cy,design.dp(10),paint);
+            if(on){paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(2));paint.setColor(design.text);canvas.drawCircle(cx,cy,design.dp(14),paint);}
+        }
+    }
+    /** Four signal bars, filled up to a rank. Used by the top speed options and the scooter picker. */
+    private final class SignalBars extends View {
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private int rank,color,off;
+        SignalBars(int rank){super(MainActivity.this);this.rank=rank;setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
+        void set(int rank,int color,int off){this.rank=rank;this.color=color;this.off=off;invalidate();}
+        @Override protected void onDraw(Canvas canvas){
+            float bar=design.dp(3),gap=design.dp(2),h=getHeight(),x=(getWidth()-(4*bar+3*gap))/2;float[] heights={.34f,.58f,.82f,1f};
+            for(int i=0;i<4;i++){paint.setColor(i<rank?color:off);canvas.drawRoundRect(new RectF(x,h-h*heights[i],x+bar,h),design.dp(1),design.dp(1),paint);x+=bar+gap;}
+        }
+    }
+    /** Small rotating arc for waiting states. */
+    private final class Spinner extends View {
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        Spinner(){super(MainActivity.this);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
+        @Override protected void onDraw(Canvas canvas){
+            float stroke=design.dp(2);RectF arc=new RectF(stroke,stroke,getWidth()-stroke,getHeight()-stroke);
+            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(stroke);paint.setStrokeCap(Paint.Cap.ROUND);
+            paint.setColor(design.raised);canvas.drawOval(arc,paint);
+            paint.setColor(design.accent);canvas.drawArc(arc,(SystemClock.uptimeMillis()%1000)*.36f,100,false,paint);
+            if(isShown())postInvalidateDelayed(32);
+        }
+    }
+    /** Radio indicator: a grey ring, or a thick red ring when selected. */
+    private final class RadioDot extends View {
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);boolean checked;
+        RadioDot(){super(MainActivity.this);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
+        void set(boolean value){if(checked!=value){checked=value;invalidate();}}
+        @Override protected void onDraw(Canvas canvas){
+            float width=design.dp(checked?5:2),radius=Math.min(getWidth(),getHeight())/2f-width/2f;
+            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(width);paint.setColor(checked?design.accent:isEnabled()?design.muted:design.dim);
+            canvas.drawCircle(getWidth()/2f,getHeight()/2f,radius,paint);
+        }
+    }
+    /** Volt top speed card (ph/24): the current maximum in the rider's units and four raised choices. Commands stay in km/h. */
+    private final class TopSpeedCard {
+        final ScooterCommands.Feature feature=ScooterCommands.find("maximum_speed");
+        final LinearLayout card=column(),options=row();
+        final TextView title,amount,unit,status;
+        final ArrayList<LinearLayout> buttons=new ArrayList<>();final ArrayList<TextView> numbers=new ArrayList<>();final ArrayList<SignalBars> bars=new ArrayList<>();
+        private String styled="";
+        TopSpeedCard(){
+            card.setPadding(design.dp(16),design.dp(14),design.dp(16),design.dp(16));
+            LinearLayout.LayoutParams cardParams=new LinearLayout.LayoutParams(-1,-2);cardParams.bottomMargin=design.dp(2);card.setLayoutParams(cardParams);
+            title=design.text("Top speed",12.5f,false);title.setTypeface(design.medium());card.addView(title);
+            LinearLayout reading=row();reading.setPadding(0,design.dp(8),0,design.dp(14));
+            amount=design.text("—",42,true);amount.setIncludeFontPadding(false);reading.addView(amount);
+            unit=design.text("",14,false);unit.setPadding(design.dp(8),0,0,0);reading.addView(unit);
+            card.addView(reading);unit.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            for(int i=0;i<feature.optionValues.length;i++){
+                final int kmh=feature.optionValues[i];
+                LinearLayout button=column();button.setGravity(Gravity.CENTER);button.setMinimumHeight(design.dp(60));button.setPadding(0,design.dp(8),0,design.dp(10));
+                SignalBars signal=new SignalBars(i+1);button.addView(signal,new LinearLayout.LayoutParams(design.dp(18),design.dp(12)));
+                TextView number=design.text("",16,true);number.setGravity(Gravity.CENTER);number.setPadding(0,design.dp(6),0,0);button.addView(number);
+                button.setClickable(true);button.setFocusable(true);button.setOnClickListener(v->choose(kmh));
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);if(i>0)p.leftMargin=design.dp(7);options.addView(button,p);
+                buttons.add(button);numbers.add(number);bars.add(signal);
+            }
+            card.addView(options,new LinearLayout.LayoutParams(-1,-2));
+            status=design.text("",12,false);status.setPadding(0,design.dp(10),0,0);status.setVisibility(View.GONE);card.addView(status);
+        }
+        private String number(int kmh,String units){return "km".equals(units)?Integer.toString(kmh):Long.toString(Math.round(kmh/1.609344));}
+        /** Spoken form: the rounded figure the rider sees, plus the exact OEM km/h value it sends. */
+        private String spoken(int kmh,String units){return "km".equals(units)?kmh+" kilometres per hour":number(kmh,units)+" miles per hour, "+kmh+" kilometres per hour";}
+        private void choose(int kmh){
+            if(scooterService==null)return;BleController ble=scooterService.ble;
+            Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==kmh)return;
+            if(!ble.set(feature.key,kmh))toast(ble.message());redraw();
+        }
+        void refresh(){
+            BleController ble=scooterService==null?null:scooterService.ble;
+            Integer live=ble==null?null:ble.featureValue(feature.key);
+            Integer actual=live!=null?live:scooterService==null?null:scooterService.displayFeatures().get(feature.key);
+            boolean ready=ble!=null&&ble.ready();
+            boolean available=ready&&ble.pending()==null&&live!=null&&scooterService.featureFresh(feature.key)&&ble.featureChoices(feature.key).length>0;
+            String units=preferences.getString("units","mi");
+            amount.setText(actual==null?"—":number(actual,units));
+            unit.setText("km".equals(units)?"km/h":"dual".equals(units)&&actual!=null?"mph · "+actual+" km/h":"mph");
+            amount.setContentDescription("Top speed, Sport mode maximum, "+(actual==null?"not reported":spoken(actual,units))+(ready?"":", last seen setting"));
+            for(int i=0;i<buttons.size();i++){
+                int kmh=feature.optionValues[i];boolean on=actual!=null&&actual==kmh;
+                numbers.get(i).setText(number(kmh,units));
+                LinearLayout button=buttons.get(i);button.setEnabled(available);button.setSelected(on);
+                button.setContentDescription("Set top speed to "+spoken(kmh,units));
+                if(Build.VERSION.SDK_INT>=30)button.setStateDescription(on?"Selected":"");
+            }
+            String feedback=ble==null?null:ble.commandResults().get(feature.key);
+            if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;
+            if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter confirmation…";
+            status.setText(feedback==null?"":feedback);status.setVisibility(feedback==null?View.GONE:View.VISIBLE);
+            String state=ready+"|"+available+"|"+actual;
+            if(!state.equals(styled)){styled=state;style(!ready,available,actual);}
+        }
+        /** Red gradient while live; a grey card when only last-seen values are known. */
+        private void style(boolean grey,boolean available,Integer actual){
+            int fg=grey?(design.dark?Ui.withAlpha(design.text,200):design.text):design.onAccent;
+            if(grey)card.setBackground(design.shape(design.outline,22,0));
+            else{android.graphics.drawable.GradientDrawable gradient=new android.graphics.drawable.GradientDrawable(android.graphics.drawable.GradientDrawable.Orientation.TL_BR,new int[]{design.accent,design.accentDeep});gradient.setCornerRadius(design.dp(22));card.setBackground(gradient);}
+            title.setTextColor(Ui.withAlpha(fg,220));amount.setTextColor(fg);unit.setTextColor(Ui.withAlpha(fg,220));status.setTextColor(Ui.withAlpha(fg,235));
+            int selectedFill=design.dark?design.bg:design.text,selectedText=design.dark?design.text:design.bg;
+            for(int i=0;i<buttons.size();i++){
+                boolean on=actual!=null&&actual==feature.optionValues[i];
+                int fill=on?selectedFill:Ui.withAlpha(android.graphics.Color.BLACK,grey?30:40);
+                int ring=on?Ui.withAlpha(android.graphics.Color.WHITE,grey?70:150):Ui.withAlpha(fg,60);
+                buttons.get(i).setBackground(raisedOption(fill,ring,on?2:1));
+                int ink=on?selectedText:fg;numbers.get(i).setTextColor(ink);
+                int barColor=on&&!grey?design.accent:ink;bars.get(i).set(i+1,barColor,Ui.withAlpha(barColor,90));
+                buttons.get(i).setAlpha(available||grey?1f:.6f);
+            }
+        }
+        private android.graphics.drawable.Drawable raisedOption(int fill,int ring,int ringDp){
+            android.graphics.drawable.GradientDrawable shadow=design.shape(Ui.withAlpha(android.graphics.Color.BLACK,40),12,0);
+            android.graphics.drawable.GradientDrawable face=new android.graphics.drawable.GradientDrawable();face.setColor(fill);face.setCornerRadius(design.dp(12));face.setStroke(design.dp(ringDp),ring);
+            android.graphics.drawable.LayerDrawable layers=new android.graphics.drawable.LayerDrawable(new android.graphics.drawable.Drawable[]{shadow,face});
+            layers.setLayerInset(0,0,design.dp(2),0,0);layers.setLayerInset(1,0,0,0,design.dp(2));
+            return new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(android.graphics.Color.WHITE,50)),layers,null);
+        }
+    }
+    // ---- Volt dialogs ------------------------------------------------------------------------------
+    /** Rounded Volt surface and Saira buttons for the small AlertDialogs; only the primary action (if any) is red. */
+    private void styleDialog(AlertDialog dialog,int primaryButton){
+        android.view.Window window=dialog.getWindow();
+        if(window!=null)window.setBackgroundDrawable(new android.graphics.drawable.InsetDrawable(design.shape(design.surface,24,0),design.dp(16)));
+        TextView message=dialog.findViewById(android.R.id.message);
+        if(message!=null){message.setTypeface(design.regular());message.setTextColor(design.muted);message.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,14*design.textScale);message.setLineSpacing(design.dp(3),1);}
+        for(int which:new int[]{AlertDialog.BUTTON_POSITIVE,AlertDialog.BUTTON_NEGATIVE,AlertDialog.BUTTON_NEUTRAL})
+            styleDialogButton(dialog.getButton(which),which==primaryButton?design.accent:design.text);
+    }
+    private void styleDialogButton(android.widget.Button button,int color){
+        if(button==null)return;button.setTextColor(color);button.setTypeface(design.semibold());button.setAllCaps(false);
+        button.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,14*design.textScale);
+    }
+    private TextView dialogTitle(String title){
+        TextView view=design.text(title,20,true);view.setPadding(design.dp(24),design.dp(22),design.dp(24),design.dp(6));
+        if(Build.VERSION.SDK_INT>=28)view.setAccessibilityHeading(true);return view;
+    }
+    /** Bottom sheet frame (ph/27): grab handle, title, close button and an optional one-line explanation. */
+    private LinearLayout sheetContent(String title,String explanation,Runnable close){
+        LinearLayout content=column();content.setPadding(design.dp(18),design.dp(8),design.dp(18),design.dp(18));
+        View grab=new View(this);grab.setBackground(design.shape(design.outline,2,0));
+        LinearLayout.LayoutParams grabParams=new LinearLayout.LayoutParams(design.dp(36),design.dp(4));grabParams.gravity=Gravity.CENTER_HORIZONTAL;grabParams.bottomMargin=design.dp(8);content.addView(grab,grabParams);
+        LinearLayout head=row();head.setGravity(Gravity.CENTER_VERTICAL);
+        TextView heading=design.text(title,20,true);if(Build.VERSION.SDK_INT>=28)heading.setAccessibilityHeading(true);head.addView(heading,new LinearLayout.LayoutParams(0,-2,1));
+        FrameLayout dismiss=new FrameLayout(this);
+        android.graphics.drawable.GradientDrawable disc=new android.graphics.drawable.GradientDrawable();disc.setShape(android.graphics.drawable.GradientDrawable.OVAL);disc.setColor(design.surface);
+        dismiss.setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(design.accent,40)),disc,null));
+        dismiss.addView(design.icon("close",16,design.text),new FrameLayout.LayoutParams(design.dp(16),design.dp(16),Gravity.CENTER));
+        dismiss.setContentDescription("Close");dismiss.setClickable(true);dismiss.setFocusable(true);dismiss.setOnClickListener(v->close.run());
+        LinearLayout.LayoutParams dismissParams=new LinearLayout.LayoutParams(design.dp(48),design.dp(48));dismissParams.leftMargin=design.dp(10);head.addView(dismiss,dismissParams);
+        content.addView(head);
+        if(explanation!=null&&!explanation.isEmpty()){TextView line=design.caption(explanation);line.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);line.setPadding(0,design.dp(6),0,design.dp(14));content.addView(line);}
+        else{View gap=new View(this);content.addView(gap,new LinearLayout.LayoutParams(1,design.dp(10)));}
+        return content;
+    }
+    private AlertDialog showSheet(View content){
+        ScrollView holder=new ScrollView(this);holder.addView(content,new ScrollView.LayoutParams(-1,-2));
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setView(holder).create();
+        dialog.show();
+        android.view.Window window=dialog.getWindow();
+        if(window!=null){
+            android.graphics.drawable.GradientDrawable sheet=new android.graphics.drawable.GradientDrawable();sheet.setColor(design.bg);
+            float r=design.dp(24);sheet.setCornerRadii(new float[]{r,r,r,r,0,0,0,0});sheet.setStroke(design.dp(1),design.raised);
+            window.setBackgroundDrawable(sheet);window.setGravity(Gravity.BOTTOM);
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.getDecorView().setPadding(0,0,0,0);
+        }
+        return dialog;
     }
     private void editFeature(ScooterCommands.Feature feature){
         if(feature.type==ScooterCommands.Type.TIME){showChargingTime();return;}
         if(feature.type!=ScooterCommands.Type.SLIDER){showChoice(feature);return;}
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
         Integer current=scooterService.ble.featureValue(feature.key);if(current==null)return;
-        LinearLayout body=column();body.setPadding(design.dp(24),design.dp(12),design.dp(24),design.dp(12));body.addView(design.caption(feature.description));
-        TextView amount=design.text(featureLabel(feature,current),26,true);amount.setPadding(0,design.dp(20),0,design.dp(12));body.addView(amount);
-        SeekBar slider=new SeekBar(this);slider.setMax((feature.max-feature.min)/feature.step);slider.setProgress(Math.max(0,(current-feature.min)/feature.step));slider.setProgressTintList(ColorStateList.valueOf(design.accent));slider.setThumbTintList(ColorStateList.valueOf(design.accent));slider.setContentDescription(feature.label);body.addView(slider,new LinearLayout.LayoutParams(-1,design.dp(48)));
+        final AlertDialog[] sheet=new AlertDialog[1];Runnable close=()->{if(sheet[0]!=null)sheet[0].dismiss();};
+        LinearLayout body=sheetContent(shortLabel(feature),explanation(feature),close);
+        TextView amount=design.text(featureLabel(feature,current),28,true);amount.setPadding(design.dp(2),design.dp(4),0,design.dp(10));body.addView(amount);
+        SeekBar slider=new SeekBar(this);slider.setMax((feature.max-feature.min)/feature.step);slider.setProgress(Math.max(0,(current-feature.min)/feature.step));slider.setProgressTintList(ColorStateList.valueOf(design.accent));slider.setThumbTintList(ColorStateList.valueOf(design.accent));slider.setProgressBackgroundTintList(ColorStateList.valueOf(design.outline));slider.setContentDescription(shortLabel(feature));body.addView(slider,new LinearLayout.LayoutParams(-1,design.dp(48)));
         final int[] selected={current};slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int n,boolean user){if(user){selected[0]=feature.min+n*feature.step;amount.setText(featureLabel(feature,selected[0]));}}public void onStopTrackingTouch(SeekBar s){}});
-        TextView error=design.caption("");error.setTextColor(design.danger);body.addView(error);
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(feature.label).setView(body).setNegativeButton("Cancel",null).setPositiveButton("Apply",null).create();controlDialog=dialog;dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{Integer latest=scooterService.ble.featureValue(feature.key);if(!scooterService.ble.ready()||latest==null||!latest.equals(current)){error.setText("Scooter state changed. Close and reopen this setting.");return;}if(scooterService.ble.set(feature.key,selected[0]))dialog.dismiss();else error.setText(scooterService.ble.message());redraw();});
+        TextView error=design.caption("");error.setTextColor(design.danger);error.setPadding(design.dp(2),design.dp(4),0,design.dp(4));body.addView(error);
+        LinearLayout actions=row();
+        TextView cancel=design.secondaryButton("Cancel",close);
+        TextView apply=design.button("Apply",()->{Integer latest=scooterService.ble.featureValue(feature.key);if(!scooterService.ble.ready()||latest==null||!latest.equals(current)){error.setText("Scooter state changed. Close and reopen this setting.");return;}if(scooterService.ble.set(feature.key,selected[0])){if(sheet[0]!=null)sheet[0].dismiss();}else error.setText(scooterService.ble.message());redraw();});
+        LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=design.dp(5);actions.addView(cancel,left);
+        LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,-2,1);right.leftMargin=design.dp(5);actions.addView(apply,right);
+        body.addView(actions);
+        AlertDialog dialog=showSheet(body);sheet[0]=dialog;controlDialog=dialog;
     }
+    private ChoiceSheet choiceSheet;
     private void showChoice(ScooterCommands.Feature feature){
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
-        int[] choices=scooterService.ble.featureChoices(feature.key);if(choices.length==0){toast("This choice is not available on the current firmware.");return;}String[] labels=new String[choices.length];Integer actual=scooterService.ble.featureValue(feature.key);int current=-1;for(int i=0;i<choices.length;i++){labels[i]=featureLabel(feature,choices[i]);if(actual!=null&&actual==choices[i])current=i;}
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(feature.label).setSingleChoiceItems(labels,current,(d,which)->{if(scooterService.ble.set(feature.key,choices[which]))d.dismiss();else toast(scooterService.ble.message());redraw();}).setNegativeButton("Close",null).create();controlDialog=dialog;dialog.show();
+        int[] choices=scooterService.ble.featureChoices(feature.key);if(choices.length==0){toast("This choice is not available on the current firmware.");return;}
+        choiceSheet=new ChoiceSheet(feature,choices);
+    }
+    /** Choice picker (ph/27). It stays open until the scooter confirms the new value by readback. */
+    private final class ChoiceSheet {
+        final ScooterCommands.Feature feature;final int[] choices;final AlertDialog dialog;
+        final ArrayList<LinearLayout> options=new ArrayList<>();final ArrayList<RadioDot> dots=new ArrayList<>();final ArrayList<TextView> names=new ArrayList<>();
+        final LinearLayout wait;final TextView status;
+        Integer target;boolean sent;String failure;
+        ChoiceSheet(ScooterCommands.Feature feature,int[] choices){
+            this.feature=feature;this.choices=choices;
+            final AlertDialog[] self=new AlertDialog[1];
+            LinearLayout content=sheetContent(shortLabel(feature),explanation(feature),()->{if(self[0]!=null)self[0].dismiss();});
+            LinearLayout list=design.groupCard();
+            for(int i=0;i<choices.length;i++){
+                if(i>0)design.divider(list);
+                final int index=i;
+                LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);option.setMinimumHeight(design.dp(54));option.setPadding(design.dp(4),design.dp(6),design.dp(2),design.dp(6));
+                TextView label=design.text(featureLabel(feature,choices[i]),15,false);option.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                RadioDot dot=new RadioDot();LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(design.dp(22),design.dp(22));dotParams.leftMargin=design.dp(10);option.addView(dot,dotParams);
+                option.setClickable(true);option.setFocusable(true);option.setBackground(rowRipple());option.setContentDescription(label.getText());
+                option.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName(android.widget.RadioButton.class.getName());info.setCheckable(true);info.setChecked(dot.checked);}});
+                option.setOnClickListener(v->choose(index));
+                list.addView(option);options.add(option);dots.add(dot);names.add(label);
+            }
+            content.addView(list);
+            wait=row();wait.setGravity(Gravity.CENTER_VERTICAL);wait.setPadding(design.dp(4),design.dp(4),0,design.dp(4));
+            wait.addView(new Spinner(),new LinearLayout.LayoutParams(design.dp(14),design.dp(14)));
+            TextView waiting=design.caption("Waiting for scooter confirmation…");waiting.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
+            LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(-2,-2);wp.leftMargin=design.dp(10);wait.addView(waiting,wp);wait.setVisibility(View.GONE);content.addView(wait);
+            status=design.caption("");status.setPadding(design.dp(4),design.dp(4),0,0);status.setVisibility(View.GONE);content.addView(status);
+            dialog=showSheet(content);self[0]=dialog;controlDialog=dialog;
+            dialog.setOnDismissListener(d->{if(choiceSheet==ChoiceSheet.this)choiceSheet=null;});
+            refresh();
+        }
+        void choose(int index){
+            if(scooterService==null||sent)return;BleController ble=scooterService.ble;
+            Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==choices[index]){dialog.dismiss();return;}
+            failure=null;
+            if(ble.set(feature.key,choices[index])){target=choices[index];sent=true;}else failure=ble.message();
+            refresh();redraw();
+        }
+        void refresh(){
+            BleController ble=scooterService==null?null:scooterService.ble;boolean ready=ble!=null&&ble.ready();String pending=ble==null?null:ble.pending();
+            Integer actual=ble==null?null:ble.featureValue(feature.key);
+            boolean waiting=sent&&feature.key.equals(pending);
+            if(sent&&!waiting){
+                sent=false;
+                if(target!=null&&target.equals(actual)){dialog.dismiss();return;}
+                String feedback=ble==null?null:ble.commandResults().get(feature.key);
+                failure=feedback==null||feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")?"The scooter did not confirm this change.":feedback;target=null;
+            }
+            Integer shown=waiting?target:actual;boolean enabled=ready&&pending==null&&!sent;
+            for(int i=0;i<choices.length;i++){
+                boolean on=shown!=null&&shown==choices[i];dots.get(i).set(on);dots.get(i).setEnabled(enabled);
+                names.get(i).setTypeface(on?design.bold():design.regular());names.get(i).setTextColor(enabled||on?design.text:design.muted);
+                options.get(i).setEnabled(enabled);if(Build.VERSION.SDK_INT>=30)options.get(i).setStateDescription(on?"Selected":"Not selected");
+            }
+            wait.setVisibility(waiting?View.VISIBLE:View.GONE);
+            String message=failure!=null?failure:!ready&&!waiting?"Not connected · connect to change this setting":null;
+            status.setText(message==null?"":message);status.setTextColor(failure!=null?design.danger:design.muted);status.setVisibility(message==null?View.GONE:View.VISIBLE);
+        }
     }
     private void showChargingTime(){
         if(scooterService==null||!scooterService.ble.ready())return;Double stored=scooterService.ble.telemetry.number("scheduled_charge_time_raw");Calendar initial=Calendar.getInstance();if(stored!=null&&stored>0)initial.setTimeInMillis((long)(stored*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));
-        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle("Next charging start");controlDialog=picker;picker.show();
+        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle("Next charge start");controlDialog=picker;picker.show();
+        styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);styleDialogButton(picker.getButton(AlertDialog.BUTTON_NEGATIVE),design.muted);
     }
     /** The gutter follows the actual fold bounds within this content pane. */
     private final class TwoPane extends LinearLayout {
