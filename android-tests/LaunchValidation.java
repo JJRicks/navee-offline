@@ -25,6 +25,7 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.MainActivity;
+import local.navee.offlinelock.OnboardingScreen;
 import local.navee.offlinelock.ScooterService;
 import local.navee.offlinelock.Ui;
 
@@ -34,7 +35,7 @@ public final class LaunchValidation extends Instrumentation {
     private boolean admitted;
     private final List<Activity> activities = new ArrayList<>();
     private final List<String> checks = new ArrayList<>();
-    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
+    private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents", "onboarding"};
     private static final int BAR_MASK = WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
             | WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
 
@@ -57,6 +58,12 @@ public final class LaunchValidation extends Instrumentation {
 
             MainActivity activity = launch();
             assertAppearance(activity, "default dark launch");
+            MainActivity fresh = activity;
+            main(() -> require(field(fresh, "screen") instanceof OnboardingScreen, "Fresh launch did not open first-run onboarding"));
+            OnboardingScreen.markDone(getTargetContext());
+            main(fresh::rebuild);
+            assertAppearance(activity, "after onboarding");
+            check("Fresh launch opens first-run onboarding; finishing it shows the tabs");
             check("Fresh launch without a saved scooter; Bluetooth permissions " + mode);
             if (mode.equals("granted")) {
                 MainActivity first = activity;

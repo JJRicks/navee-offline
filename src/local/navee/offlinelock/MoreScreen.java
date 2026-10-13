@@ -530,7 +530,7 @@ public final class MoreScreen implements AppScreen {
             service().ble.disconnect(); refresh();
         });
         backupProfileRow = row(owner, "shield", "Save private owner backup", null, this::backupProfile);
-        row(owner, "info", "Run setup again", "Opens the onboarding flow", this::setupGuide);
+        row(owner, "info", "Run setup again", "Opens the onboarding flow", () -> { OnboardingScreen.restart(host.activity()); host.rebuild(); });
         forgetProfileRow = dangerRow(owner, "Forget active profile", this::forgetProfile);
     }
 

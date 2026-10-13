@@ -82,6 +82,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     private FrameLayout root,pageFrame;
     private ScrollView scroll;
     private AppScreen screen;
+    /** First-run setup; while it is showing there is no header or tab bar. */
+    private OnboardingScreen onboarding;
     private TextView connectionTitle,connectionDetail,connectionAction,lockTitle,lockHint,profileTitle,offlineTitle,offlineDetail;
     private View lockReady,lockOffline;
     private LockControl lockControl;
@@ -121,7 +123,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     };
     @Override public void onCreate(Bundle saved){
         preferences=getSharedPreferences("app_settings",MODE_PRIVATE);
-        setTheme(darkTheme()?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
+        setTheme(darkTheme()?R.style.VoltDark:R.style.VoltLight);
         super.onCreate(saved);
         if(Build.VERSION.SDK_INT>=33){systemBack=this::navigateBack;getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,systemBack);}
         documents=getSharedPreferences("pending_documents",MODE_PRIVATE);
@@ -170,6 +172,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onBackPressed(){navigateBack();}
     private void navigateBack(){
+        if(screen instanceof OnboardingScreen){if(!((OnboardingScreen)screen).back())finish();return;}
         if(screen instanceof DashboardScreen&&((DashboardScreen)screen).back())return;
         if(screen instanceof ControlsScreen&&((ControlsScreen)screen).back())return;
         if(screen instanceof MoreScreen&&((MoreScreen)screen).back())return;
@@ -182,7 +185,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }};
     private boolean darkTheme(){String theme=preferences.getString("theme","dark");return theme.equals("dark")||(theme.equals("system")&&(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES);}
     private boolean knownPage(String value){for(String page:pages)if(page.equals(value))return true;return false;}
-    private Context dialogContext(){return new ContextThemeWrapper(this,design.dark?android.R.style.Theme_Material_Dialog_Alert:android.R.style.Theme_Material_Light_Dialog_Alert);}
+    private Context dialogContext(){return new ContextThemeWrapper(this,design.dark?R.style.VoltDialog:R.style.VoltDialogLight);}
     private void ensureService(){
         if(bound||binding||!hasBluetoothPermission()||destroyed)return;
         try{
@@ -221,7 +224,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(destroyed||rebuilding)return;rebuilding=true;if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}
         captureScroll();if(screen!=null)screen.close();
         design=new Ui(this,darkTheme(),preferences.getFloat("text_scale",1f));
-        setTheme(design.dark?android.R.style.Theme_Material_NoActionBar:android.R.style.Theme_Material_Light_NoActionBar);
+        setTheme(design.dark?R.style.VoltDark:R.style.VoltLight);
         expanded=getResources().getConfiguration().screenWidthDp>=650;
         root=new FrameLayout(this);root.setBackgroundColor(design.bg);
         if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
@@ -234,6 +237,14 @@ public final class MainActivity extends Activity implements ScreenHost {
             boolean changed=l!=leftInset||t!=topInset||r!=rightInset||b!=bottomInset;leftInset=l;topInset=t;rightInset=r;bottomInset=b;v.setPadding(l,t,r,b);
             if(changed&&horizontalHinge())handler.post(this::rebuild);return insets;
         });
+        if(OnboardingScreen.needed(this,scooterService)){
+            clearDashboardLock();profileTitle=null;scroll=null;pageFrame=null;
+            onboarding=new OnboardingScreen(this,new OnboardingScreen.Listener(){public void onFinished(){onboarding=null;selectedPage="home";rebuild();}});
+            screen=onboarding;root.addView(onboarding.view(),new FrameLayout.LayoutParams(-1,-1));
+            setContentView(root);root.requestApplyInsets();styleSystemBars();
+            rebuilding=false;redraw();return;
+        }
+        onboarding=null;
         LinearLayout shell=column();root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
         LinearLayout appBody=expanded?row():column();shell.addView(appBody,new LinearLayout.LayoutParams(-1,0,1));
         if(expanded)appBody.addView(navigation(true),new LinearLayout.LayoutParams(design.dp(92),-1));
@@ -261,6 +272,11 @@ public final class MainActivity extends Activity implements ScreenHost {
             scroll.setPadding(scroll.getPaddingLeft(),scroll.getPaddingTop(),scroll.getPaddingRight(),scroll.getPaddingBottom()+design.floatingNavHeight()+design.dp(16));
         }
         setContentView(root);root.requestApplyInsets();
+        styleSystemBars();
+        int restore=scrollPositions.containsKey(selectedPage)?scrollPositions.get(selectedPage):0;ScrollView target=scroll;target.post(()->{if(scroll==target)target.scrollTo(0,restore);});
+        rebuilding=false;redraw();
+    }
+    private void styleSystemBars(){
         // Samsung's Window getter can dereference a missing decor during onCreate.
         // Post through this root so styling runs only after it has been attached.
         if(Build.VERSION.SDK_INT>=30){
@@ -271,8 +287,6 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(controller!=null){int mask=WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS|WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;controller.setSystemBarsAppearance(dark?0:mask,mask);}
             });
         }
-        int restore=scrollPositions.containsKey(selectedPage)?scrollPositions.get(selectedPage):0;ScrollView target=scroll;target.post(()->{if(scroll==target)target.scrollTo(0,restore);});
-        rebuilding=false;redraw();
     }
     private void clearDashboardLock(){lockTitle=null;lockControl=null;lockHint=null;connectionTitle=null;connectionDetail=null;connectionAction=null;offlineTitle=null;offlineDetail=null;lockReady=null;lockOffline=null;}
     private LinearLayout makeHeader(){
@@ -1262,7 +1276,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         super.onActivityResult(request,result,data);
         if(request==ENABLE_BLUETOOTH){if(result==RESULT_OK){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}else pendingConnect=pendingScan=false;return;}
         if(request==SAVE_DOCUMENT){File staging=new File(documents.getString("path",new File(getFilesDir(),"missing-export").getAbsolutePath()));if(result!=RESULT_OK||data==null||data.getData()==null){staging.delete();documents.edit().clear().apply();return;}Uri destination=data.getData();new Thread(()->{try(InputStream in=new FileInputStream(staging);OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null)throw new java.io.IOException();copy(in,out);handler.post(()->toast("Saved."));}catch(Exception e){handler.post(()->toast("The export could not be saved."));}finally{staging.delete();documents.edit().clear().commit();}},"Navee-save").start();return;}
-        if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));maybeApplyOwnerImport();}catch(Exception e){toast(e instanceof IllegalArgumentException?e.getMessage():"The setup file could not be read.");}}
+        if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));maybeApplyOwnerImport();}catch(Exception e){toast(e instanceof IllegalArgumentException?e.getMessage():"The setup file could not be read.");if(onboarding!=null)onboarding.onOwnerImported(false);}}
     }
     /** Only the normalized owner setup is staged, never raw Bluetooth capture logs. */
     private void stageOwnerImport(String text)throws Exception{
@@ -1294,8 +1308,10 @@ public final class MainActivity extends Activity implements ScreenHost {
             // Commit the existing profile snapshot before deleting its recovery staging file.
             SharedPreferences profilePrefs=getSharedPreferences("profiles",MODE_PRIVATE);String savedProfiles=profilePrefs.getString("items","[]");if(!profilePrefs.edit().putString("items",savedProfiles).commit())throw new java.io.IOException();
             if(!preferences.edit().putString("owner_import_applied",importId).commit())throw new java.io.IOException();pending.delete();importWaitNotified=false;
+            // During first-run setup the flow connects at its own step, after Nearby devices.
+            if(onboarding!=null){onboarding.onOwnerImported(true);return;}
             selectedPage="home";scrollPositions.put("home",0);scrollPage="home";if(scroll!=null)scroll.scrollTo(0,0);rebuild();toast("Owner setup imported privately. Connecting locally…");scooterService.ble.connectLast();if(match.mac.isEmpty())showScanner(false);
-        }catch(IllegalArgumentException e){pending.delete();toast(e.getMessage());}
+        }catch(IllegalArgumentException e){pending.delete();toast(e.getMessage());if(onboarding!=null)onboarding.onOwnerImported(false);}
         catch(Exception e){if(!importWaitNotified){toast("The private owner setup could not be applied. It is saved for retry.");importWaitNotified=true;}}
         finally{applyingOwnerImport=false;}
     }
