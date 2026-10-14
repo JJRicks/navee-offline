@@ -39,3 +39,13 @@ Physical scooter/charger background behavior, OEM battery-manager policy, and lo
 Integrated PR15 `c87af30132c14dc0d506fb3d6c50c3d832be6ad5` at tested product commit `36ecabccd0763357371685cb9fee942d14607775`. The merge is confined to Stats and its fixture: the compact Window picker exposes all eight choices, fullscreen content respects window insets, and reorder rows share the app typography. Shared segmented controls were not modified.
 
 The combined signed app and runner build and verify. Focused native Stats validation passes 780 assertions each at 344×882 dp dark/default font, 448×960 dp dark/140% system font, and 725×604 dp light/140% system font (2,340 total). The compact and large-text fullscreen window-choice screenshots were inspected: every option is visible and selectable. Earlier unchanged-domain evidence remains valid. Logs, screenshots, product identity and preserved APKs are in `work/round2-integration-evidence/stats-picker-final/`.
+
+## Full-detail ride follow-up — paused
+
+Integrated PR18 `4920836b27ddb43a5a4df4842e09d1ef98a844ab` cleanly at product commit `ff2a2f62f70a242a63728100c823d434b531b914`. This adds asynchronous full-recording reads to expanded ride charts, retaining the lightweight inline preview. No service or shared-UI integration resolution was needed.
+
+Signed production and native-runner builds verify. All 20 combined pure suites pass (53,855 checks). Focused native ride validation passes 102 checks each at 344×882 and 725×604 dp with default text (204 total), including 4,096 scooter samples and phone fixes, cancellation/retry, and a short spike absent from the preview. Preserved artifacts, identity, logs, and screenshots are in `work/round2-integration-evidence/rides-full-final/`.
+
+An additional unfolded 725×604 dp, 140% text, light-theme case fails at check 42: the fullscreen graph does not retain its required 160dp height. The failure screenshot confirms that the surrounding controls compress the plot into a thin strip with overlapping Y labels. This is a real geometry issue, handed back to the ride agent for a scoped PR18 fix; the assertion was not weakened. Earlier Stats and unchanged-domain evidence remains preserved.
+
+Work paused at the user's request before a fix was integrated. Next: integrate the ride agent's corrected head, rebuild app/runner, and rerun focused ride coverage including the failing large-text unfolded case. No release, deployment, owner-phone install, or GitHub merge was performed.
