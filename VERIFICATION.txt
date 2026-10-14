@@ -1,3 +1,37 @@
+DASHBOARD RESPONSIVENESS — UNRELEASED PATCH VALIDATION
+October 13, 2026
+
+The Galaxy Fold 5 reports were reproduced against v0.9.0 on isolated Android 16:
+a flat horizontal OEM crease split the Home header from its grid; at 344 dp the
+connected lock body exceeded its viewport (835 versus 666 px), and the default
+battery body overflowed by 7 px. These are general measurement/posture issues,
+not phone-model-specific conditions.
+
+- All eleven core suites passed 24,971 checks. Production and separate native
+  instrumentation builds passed, including signature and alignment checks.
+- The new native runner checks default card and text bounds, all lock display
+  states, minimum lock height and restoration, minimum charging cards, and
+  horizontal/vertical flat creases, half-open folds, physical hinges and removal.
+  Visible lock actions retain at least 48 dp touch targets (the slider is 58 dp).
+- The 16-case emulator matrix covers 320, 336, 337, 344, 360, 411, 600, 649, 650,
+  686, 725 and 852 dp windows, including column/navigation boundaries, 140% app
+  text and 130% Android system font. Fifteen cases passed; the remaining
+  narrow, large-text charging case exposed a 12 px overflow, fixed by inline
+  icon/value rows when readings have only one column. All five final retests
+  passed: 360 dp/140% text (default and minimum/charging), 686 dp/140% text
+  including folds, 344 dp default cards, and 852 dp minimum/charging with
+  restoration from one-column readings to the original wider arrangement.
+- Native compact, expanded and large-text screenshots were inspected. These
+  use synthetic cached/charging readings and view-only connected lock fixtures.
+  The connecting fixture temporarily reads the production header in CONNECTING
+  and restores the state in the same UI turn; it invokes no Bluetooth transition
+  or command method. Bluetooth remains off, with no address and zero mutations.
+
+This patch preserves stored grid rectangles and widget settings. Row height
+now includes Android's font preference as well as the app's own text scale.
+No physical Fold 5, Pixel installation, live scooter command, release publication
+or APK distribution is claimed. Physical Samsung confirmation remains pending.
+
 NAVEE OFFLINE 0.9.0 — RELEASE VALIDATION
 October 13, 2026
 

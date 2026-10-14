@@ -12,6 +12,9 @@ public final class FoldMonitor implements SensorEventListener {
     public interface Listener{void changed();}
     private final Activity activity;private final Listener listener;private final SensorManager sensors;
     private Object component,consumer;public Rect hinge=new Rect();public float angle=180;public String posture="Compact",source="Adaptive window";public int layoutCallbacks;
+    private boolean separating,hasFoldFeature,hasAngleReading;
+    /** A flat crease does not divide usable space; a physical hinge or half-open fold does. */
+    public boolean isSeparating(){return separating;}
     public FoldMonitor(Activity a,Listener l){activity=a;listener=l;sensors=a.getSystemService(SensorManager.class);}
     public void start(){
         if(sensors!=null){Sensor s=sensors.getDefaultSensor(36);if(s!=null)sensors.registerListener(this,s,SensorManager.SENSOR_DELAY_NORMAL);}
@@ -26,13 +29,32 @@ public final class FoldMonitor implements SensorEventListener {
         }catch(Throwable ignored){component=null;}
     }
     private void layout(Object info){
-        try{List<?> features=(List<?>)call(info,"getDisplayFeatures");Rect next=new Rect();String nextPosture=posture;layoutCallbacks++;
-            for(Object f:features){Rect r=(Rect)call(f,"getBounds");if(r.width()==0||r.height()==0||r.width()<100||r.height()<100){next=new Rect(r);try{int state=(Integer)call(f,"getState");nextPosture=state==2?"Half folded":"Unfolded";}catch(Exception ignored){nextPosture="Unfolded";}}}
-            if(!next.equals(hinge)||!nextPosture.equals(posture)){hinge=next;posture=nextPosture;activity.runOnUiThread(listener::changed);}
+        try{
+            List<?> features=(List<?>)call(info,"getDisplayFeatures");
+            Rect next=new Rect();String nextPosture=hasAngleReading?anglePosture():"Compact";
+            boolean nextSeparating=false,nextHasFold=false;layoutCallbacks++;
+            for(Object f:features){
+                try{
+                    // Window Extensions: TYPE_FOLD=1, TYPE_HINGE=2; STATE_FLAT=1, STATE_HALF_OPENED=2.
+                    int type=(Integer)call(f,"getType"),state=(Integer)call(f,"getState");
+                    Rect bounds=(Rect)call(f,"getBounds");
+                    if((type!=1&&type!=2)||(state!=1&&state!=2)||bounds.width()<0||bounds.height()<0
+                            ||(bounds.width()==0&&bounds.height()==0))continue;
+                    boolean divides=type==2||state==2;
+                    if(!nextHasFold||(!nextSeparating&&divides)){
+                        next=new Rect(bounds);nextPosture=state==2?"Half folded":"Unfolded";
+                        nextSeparating=divides;nextHasFold=true;
+                    }
+                }catch(ReflectiveOperationException|RuntimeException unsupportedFeature){/* Other display features do not imply a hinge. */}
+            }
+            boolean changed=!next.equals(hinge)||!nextPosture.equals(posture)||nextSeparating!=separating;
+            hinge=next;posture=nextPosture;separating=nextSeparating;hasFoldFeature=nextHasFold;
+            if(changed)activity.runOnUiThread(listener::changed);
         }catch(Throwable ignored){}
     }
     private static Object call(Object object,String name)throws Exception{Method method=object.getClass().getMethod(name);method.setAccessible(true);return method.invoke(object);}
     public void stop(){if(sensors!=null)sensors.unregisterListener(this);if(component!=null&&consumer!=null)try{for(Method m:component.getClass().getMethods())if(m.getName().equals("removeWindowLayoutInfoListener")&&m.getParameterCount()==1&&m.getParameterTypes()[0].isInstance(consumer)){m.setAccessible(true);m.invoke(component,consumer);break;}}catch(Throwable ignored){}}
-    @Override public void onSensorChanged(SensorEvent e){float previous=angle;angle=e.values[0];String next=angle<30?"Folded":angle<150?"Half folded":"Unfolded";if(!next.equals(posture)||Math.abs(angle-previous)>20){posture=next;listener.changed();}}
+    private String anglePosture(){return angle<30?"Folded":angle<150?"Half folded":"Unfolded";}
+    @Override public void onSensorChanged(SensorEvent e){float previous=angle;angle=e.values[0];hasAngleReading=true;String next=hasFoldFeature?posture:anglePosture();if(!next.equals(posture)||Math.abs(angle-previous)>20){posture=next;listener.changed();}}
     @Override public void onAccuracyChanged(Sensor s,int a){}
 }

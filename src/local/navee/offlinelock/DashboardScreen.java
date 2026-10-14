@@ -1472,6 +1472,20 @@ public final class DashboardScreen implements AppScreen {
                 if (cells.size() == 4 && next == 3) next = 2;
                 if (next != columns) {
                     columns = next;
+                    if (mode == READINGS) for (LinearLayout cell : cells) {
+                        // A one-column list reads naturally as icon + value. Repeating
+                        // a separate icon row wastes height in narrow, large-text cards.
+                        boolean inline = columns == 1;
+                        cell.setOrientation(inline ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+                        cell.setGravity(inline ? Gravity.CENTER_VERTICAL : Gravity.CENTER);
+                        View value = cell.getChildAt(1);
+                        LinearLayout.LayoutParams valueSize = (LinearLayout.LayoutParams)value.getLayoutParams();
+                        valueSize.width = inline ? 0 : -1;
+                        valueSize.weight = inline ? 1 : 0;
+                        valueSize.topMargin = inline ? 0 : ui.dp(3);
+                        valueSize.setMarginStart(inline ? ui.dp(8) : 0);
+                        value.setLayoutParams(valueSize);
+                    }
                     for (LinearLayout cell : cells)
                         if (cell.getParent() instanceof ViewGroup)
                             ((ViewGroup) cell.getParent()).removeView(cell);
@@ -1661,7 +1675,10 @@ public final class DashboardScreen implements AppScreen {
                 View strip = chargingData.getVisibility() == View.VISIBLE ? chargingData : batteryData;
                 int stripHeight = strip.getVisibility() == View.GONE ? 0
                         : strip.getMeasuredHeight() + ((LinearLayout.LayoutParams) strip.getLayoutParams()).topMargin;
-                viewSize(battery, -1, Math.max(ui.dp(96), budget - stripHeight));
+                // The percentage cell can give a little height back to wrapped readings.
+                // A fixed 96 dp floor made otherwise readable narrow cards overflow by
+                // only a few pixels; reserve the actual readable text block instead.
+                viewSize(battery, -1, Math.max(battery.minimumContentHeight(), budget - stripHeight));
             }
             super.onMeasure(widthSpec, heightSpec);
         }
@@ -2193,6 +2210,23 @@ public final class DashboardScreen implements AppScreen {
             invalidate();
         }
 
+        /** Enough room for a readable percentage, optional range/status and their padding. */
+        int minimumContentHeight() {
+            Paint measure = new Paint(Paint.ANTI_ALIAS_FLAG);
+            measure.setTypeface(ui.bold());
+            measure.setTextSize(ui.sp(24));
+            Rect digits = new Rect();
+            measure.getTextBounds("100", 0, 3, digits);
+            float height = digits.height() + ui.dp(24);
+            if (charging || !detail.isEmpty()) {
+                measure.setTypeface(ui.medium());
+                measure.setTextSize(ui.sp(12));
+                Paint.FontMetrics metrics = measure.getFontMetrics();
+                height += ui.dp(5) + metrics.descent - metrics.ascent;
+            }
+            return Math.max(ui.dp(48), (int)Math.ceil(height));
+        }
+
         private void describe() {
             setContentDescription("Battery " + (Double.isNaN(percent) ? "not reported" : Math.round(percent) + " percent")
                     + (detail.isEmpty() ? "" : ", " + detail) + (charging ? ", charging" : "")
@@ -2451,7 +2485,10 @@ public final class DashboardScreen implements AppScreen {
         }
 
         float rowHeight() {
-            return ui.dp(64 * Math.max(1, ui.textScale));
+            // Stored rectangles use grid units. Give those units enough physical height
+            // for both app text sizing and Android's accessibility font preference.
+            float systemTextScale = host.activity().getResources().getConfiguration().fontScale;
+            return ui.dp(64 * Math.max(1, ui.textScale * systemTextScale));
         }
 
         private boolean motionEnabled() {

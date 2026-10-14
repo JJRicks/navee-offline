@@ -303,24 +303,26 @@ public final class MainActivity extends Activity implements ScreenHost {
     private View makeDashboardLock(){
         LinearLayout content=column();
         lockReady=column();
-        LinearLayout head=row();head.setGravity(Gravity.CENTER_VERTICAL);
         lockTitle=design.text("Lock",15,true);
-        head.addView(lockTitle,new LinearLayout.LayoutParams(0,-2,1));
-        TextView kind=design.caption("Electronic lock");head.addView(kind);
+        // A weighted state beside an unbounded caption can leave only a few pixels for
+        // "Unlocked" on a narrow tile. Keep the state on one line and stack the caption
+        // when the actual text and icon widths need more room.
+        lockTitle.setMaxLines(1);lockTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        TextView kind=design.caption("Electronic lock");kind.setMaxLines(1);kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        LinearLayout head=new LockHeading(lockTitle,kind);
         ((LinearLayout)lockReady).addView(head);
         lockControl=new LockControl();
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,design.dp(58));bar.topMargin=design.dp(10);
         ((LinearLayout)lockReady).addView(lockControl,bar);
         content.addView(lockReady,new LinearLayout.LayoutParams(-1,-2));
         LinearLayout offline=column();lockOffline=offline;
-        LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);
         View square=design.iconSquare("lock",design.dim);
-        line.addView(square,new LinearLayout.LayoutParams(design.dp(34),design.dp(34)));
         LinearLayout words=column();
         offlineTitle=design.text("Lock state unverified",14,true);words.addView(offlineTitle);
         offlineDetail=design.caption("");offlineDetail.setPadding(0,design.dp(2),0,0);words.addView(offlineDetail);
-        LinearLayout.LayoutParams wordsParams=new LinearLayout.LayoutParams(0,-2,1);wordsParams.leftMargin=design.dp(10);
-        line.addView(words,wordsParams);line.setOnClickListener(v->showConnectionDetails());
+        LinearLayout line=new LockOfflineStatus(square,words,offlineTitle);
+        line.setMinimumHeight(design.dp(48));
+        line.setOnClickListener(v->showConnectionDetails());
         offline.addView(line);
         connectionAction=design.button("Connect",this::connect);
         offline.addView(connectionAction);
@@ -328,6 +330,57 @@ public final class MainActivity extends Activity implements ScreenHost {
         lockHint=design.caption("");lockHint.setVisibility(View.GONE);content.addView(lockHint);
         connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);
         updateHeader();return content;
+    }
+    /** Choose the lock header's arrangement from its measured content, not a phone model. */
+    private final class LockHeading extends LinearLayout {
+        private final TextView state,kind;
+        LockHeading(TextView state,TextView kind){
+            super(MainActivity.this);this.state=state;this.kind=kind;
+            setGravity(Gravity.CENTER_VERTICAL);
+            addView(state,new LinearLayout.LayoutParams(0,-2,1));
+            addView(kind,new LinearLayout.LayoutParams(-2,-2));
+        }
+        @Override protected void onMeasure(int widthSpec,int heightSpec){
+            int width=MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
+            float stateWidth=state.getPaint().measureText(state.getText().toString())+state.getCompoundPaddingLeft()+state.getCompoundPaddingRight();
+            float kindWidth=kind.getPaint().measureText(kind.getText().toString())+kind.getCompoundPaddingLeft()+kind.getCompoundPaddingRight();
+            boolean stack=MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED&&stateWidth+design.dp(12)+kindWidth>width;
+            setOrientation(stack?VERTICAL:HORIZONTAL);
+            LinearLayout.LayoutParams stateSize=(LinearLayout.LayoutParams)state.getLayoutParams();
+            int stateWidthParam=stack?-1:0;float stateWeight=stack?0:1;
+            if(stateSize.width!=stateWidthParam||stateSize.weight!=stateWeight){stateSize.width=stateWidthParam;stateSize.weight=stateWeight;state.setLayoutParams(stateSize);}
+            LinearLayout.LayoutParams kindSize=(LinearLayout.LayoutParams)kind.getLayoutParams();
+            int kindWidthParam=stack?-1:-2,kindTop=stack?design.dp(4):0,kindStart=stack?0:design.dp(12);
+            if(kindSize.width!=kindWidthParam||kindSize.topMargin!=kindTop||kindSize.getMarginStart()!=kindStart){kindSize.width=kindWidthParam;kindSize.topMargin=kindTop;kindSize.setMarginStart(kindStart);kind.setLayoutParams(kindSize);}
+            super.onMeasure(widthSpec,heightSpec);
+        }
+    }
+    /** Let narrow offline cards use their full width for status instead of a thin text column. */
+    private final class LockOfflineStatus extends LinearLayout {
+        private final View symbol;
+        private final LinearLayout words;
+        private final TextView title;
+        LockOfflineStatus(View symbol,LinearLayout words,TextView title){
+            super(MainActivity.this);this.symbol=symbol;this.words=words;this.title=title;
+            setGravity(Gravity.CENTER_VERTICAL);
+            addView(symbol,new LinearLayout.LayoutParams(design.dp(34),design.dp(34)));
+            addView(words,new LinearLayout.LayoutParams(0,-2,1));
+        }
+        @Override protected void onMeasure(int widthSpec,int heightSpec){
+            int width=MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
+            // Allow the title two lines beside the icon. Below that, give the text a
+            // full-width row so timestamps and the unverified state remain readable.
+            float titleWidth=title.getPaint().measureText(title.getText().toString());
+            boolean stack=MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED&&width-design.dp(44)<Math.max(design.dp(90),titleWidth/2);
+            setOrientation(stack?VERTICAL:HORIZONTAL);
+            // The status already names the lock. A separate decorative icon row would
+            // consume the room needed by the timestamp and Connect in a short card.
+            symbol.setVisibility(stack?GONE:VISIBLE);
+            LinearLayout.LayoutParams wordsSize=(LinearLayout.LayoutParams)words.getLayoutParams();
+            int wordsWidth=stack?-1:0,wordsTop=0,wordsStart=stack?0:design.dp(10);float wordsWeight=stack?0:1;
+            if(wordsSize.width!=wordsWidth||wordsSize.weight!=wordsWeight||wordsSize.topMargin!=wordsTop||wordsSize.getMarginStart()!=wordsStart){wordsSize.width=wordsWidth;wordsSize.weight=wordsWeight;wordsSize.topMargin=wordsTop;wordsSize.setMarginStart(wordsStart);words.setLayoutParams(wordsSize);}
+            super.onMeasure(widthSpec,heightSpec);
+        }
     }
     private TextView connectionLabel(){
         TextView label=design.text("Disconnected",13,true);
@@ -433,8 +486,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(selectedPage.equals("more")){if(scroll!=null)scroll.scrollTo(0,0);rebuild();}else select("more");
     }
     private void captureScroll(){if(scroll!=null)scrollPositions.put(scrollPage,scroll.getScrollY());}
-    private boolean horizontalHinge(){return fold!=null&&fold.hinge.width()>fold.hinge.height()&&fold.hinge.top>0&&fold.hinge.width()>0;}
-    private boolean verticalHinge(){return fold!=null&&fold.hinge.height()>fold.hinge.width()&&fold.hinge.left>0&&fold.hinge.height()>0;}
+    private boolean horizontalHinge(){return fold!=null&&fold.isSeparating()&&fold.hinge.width()>fold.hinge.height()&&fold.hinge.top>0&&fold.hinge.width()>0;}
+    private boolean verticalHinge(){return fold!=null&&fold.isSeparating()&&fold.hinge.height()>fold.hinge.width()&&fold.hinge.left>0&&fold.hinge.height()>0;}
     private LinearLayout column(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.VERTICAL);return v;}
     private LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.HORIZONTAL);return v;}
     private void heading(LinearLayout parent,String title,String detail){TextView h=design.text(title,22,true);h.setPadding(0,design.dp(12),0,design.dp(6));parent.addView(h);if(detail!=null){TextView d=design.caption(detail);d.setPadding(0,0,0,design.dp(16));parent.addView(d);}}
@@ -453,10 +506,15 @@ public final class MainActivity extends Activity implements ScreenHost {
             lockTitle.setText("lock".equals(pending)?"Updating…":shownLock==null?"Lock":shownLock?"Locked":"Unlocked");
             lockTitle.setTextColor(Boolean.FALSE.equals(shownLock)&&ready?design.danger:design.text);
             design.decorate(lockTitle,Boolean.FALSE.equals(shownLock)?"unlock":"lock");
+            android.graphics.drawable.Drawable lockGlyph=lockTitle.getCompoundDrawablesRelative()[0];
+            if(lockGlyph!=null){lockGlyph.setBounds(0,0,design.dp(20),design.dp(20));lockTitle.setCompoundDrawablesRelative(lockGlyph,null,null,null);lockTitle.setCompoundDrawablePadding(design.dp(8));}
             lockControl.update(shownLock,ready&&pending==null&&!editing);
             lockHint.setVisibility(View.GONE);
             if(offlineTitle!=null){
-                offlineTitle.setText(connecting?"Connecting to "+scooterName:"Lock state unverified");
+                // The scooter name is already in the Home header; repeating it can fill
+                // a narrow card and push Cancel out of view at larger system font sizes.
+                offlineTitle.setText(connecting?"Connecting":"Lock state unverified");
+                offlineTitle.setContentDescription(connecting?"Connecting to "+scooterName:"Lock state unverified");
                 offlineDetail.setText(connecting?"Tap for details":last>0?"Last verified "+DisplayTime.recent(this,preferences,last,System.currentTimeMillis()):"Connect to check the lock");
             }
         }
@@ -480,7 +538,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private final class LockControl extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private Boolean value;private boolean available,dragging;private float downX,downY,previewX;
-        LockControl(){super(MainActivity.this);setClickable(true);setFocusable(true);setContentDescription("Electronic lock switch");setOnClickListener(v->apply(!Boolean.TRUE.equals(value)));}
+        LockControl(){super(MainActivity.this);setMinimumWidth(design.dp(48));setMinimumHeight(design.dp(48));setClickable(true);setFocusable(true);setContentDescription("Electronic lock switch");setOnClickListener(v->apply(!Boolean.TRUE.equals(value)));}
         private void apply(boolean target){if(available&&value!=null&&scooterService!=null&&target!=value){scooterService.ble.set("lock",target?1:0);redraw();}}
         void update(Boolean locked,boolean enabled){value=locked;available=enabled;setEnabled(enabled);setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+", tap to "+(locked?"unlock":"lock"));if(Build.VERSION.SDK_INT>=30)setStateDescription(locked==null?"Unavailable":locked?"Locked":"Unlocked");invalidate();}
         @Override public CharSequence getAccessibilityClassName(){return Switch.class.getName();}
@@ -510,7 +568,11 @@ public final class MainActivity extends Activity implements ScreenHost {
             android.text.TextPaint words=new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);words.setTypeface(design.semibold());
             words.setTextSize(design.sp(13));words.setColor(!available?design.dim:unlocked?Ui.withAlpha(design.danger,235):design.muted);
             float textLeft=locked||value==null?x+design.dp(18):x+h+design.dp(4),textRight=locked||value==null?x+w-h-design.dp(4):x+w-design.dp(18);
-            String fitted=android.text.TextUtils.ellipsize(label,words,Math.max(1,textRight-textLeft),android.text.TextUtils.TruncateAt.END).toString();
+            float textWidth=Math.max(0,textRight-textLeft);
+            if(words.measureText(label)>textWidth)label=value==null?"Unavailable":locked?"Unlock":"Lock";
+            // The switch remains a full-height touch target even in a very narrow card.
+            // Its accessibility label always keeps the full tap/slide action text.
+            String fitted=words.measureText(label)<=textWidth?label:"";
             words.setTextAlign(Paint.Align.CENTER);Paint.FontMetrics m=words.getFontMetrics();
             canvas.drawText(fitted,(textLeft+textRight)/2,h/2-(m.ascent+m.descent)/2,words);
         }
