@@ -277,6 +277,12 @@ and tiles fade in, and surrounding content moves without a snap. Scroll restores
 apply before display and scrollbars stay hidden until scrolling. Theme/unit
 rebuilds retain a visual transition. Reduced-motion settings are respected.
 Short page-arrival and button-press effects accompany deliberate interactions.
+Subtle haptics mark tabs and segmented choices, Top speed presets, switches and
+stars, picking up and moving a widget or favourite, the lock slider crossing its
+midpoint, and the scooter confirming a lock change or a ride starting/saving.
+App preferences → Haptic feedback turns them off (on by default); Android's
+Touch feedback setting also applies. Half-folding a foldable leaves the screen
+unchanged.
 Removal uses a 200 ms shrink/fade with soft puffs without delaying the grid update.
 The lock knob animates confirmed state changes while preserving command and
 confirmation behavior. These effects respect disabled system animations.

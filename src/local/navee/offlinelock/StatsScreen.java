@@ -411,7 +411,7 @@ public final class StatsScreen implements AppScreen {
         LinearLayout.LayoutParams amountParams = new LinearLayout.LayoutParams(-2, -2); amountParams.leftMargin = ui.dp(12); row.addView(amount, amountParams);
         TextView star = ui.text("☆", 17, false); star.setGravity(Gravity.CENTER); star.setFocusable(true); star.setClickable(true);
         star.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.orange, 40)), null, ui.shape(Color.WHITE, 24, 0)));
-        star.setOnClickListener(v -> toggleFavourite(metric.key));
+        star.setOnClickListener(v -> { Haptics.toggle(v, !favourites.contains(metric.key)); toggleFavourite(metric.key); });
         // 48dp square target; the negative end margin keeps the glyph close to the card edge, as drawn.
         LinearLayout.LayoutParams starParams = new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)); starParams.rightMargin = -ui.dp(8);
         row.addView(star, starParams);

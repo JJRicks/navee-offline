@@ -361,13 +361,12 @@ public final class MoreScreen implements AppScreen {
             if (max < min) return Math.max(0, (size - gap) / 2);
             int want = Math.round((size - gap) * 0.42f);
             View window = getRootView();
-            if (isAttachedToWindow() && window != null && window.getWidth() > 0) {
-                int[] at = new int[2]; getLocationInWindow(at);
-                want = window.getWidth() / 2 - gap / 2 - at[0];
-            }
+            if (isAttachedToWindow() && window != null && window.getWidth() > 0)
+                // Layout position, not on-screen position: a tab transition slides this page in,
+                // and measuring mid-slide used to leave the menu narrow until the next layout.
+                want = window.getWidth() / 2 - gap / 2 - Ui.layoutLeftInWindow(this);
             return Math.max(min, Math.min(max, want));
         }
-        @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); post(this::requestLayout); }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
             int size = MeasureSpec.getSize(widthSpec), gap = ui.dp(20);
             split = split(size);
@@ -376,9 +375,18 @@ public final class MoreScreen implements AppScreen {
             super.onMeasure(widthSpec, heightSpec);
         }
         @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            // The window position is final only now. Re-split before this frame draws rather than
+            // posting another layout, so the first frame already shows the resting widths.
+            int width = r - l, wanted = split(width);
+            if (wanted != split) {
+                split = wanted;
+                int gap = ui.dp(20), height = MeasureSpec.makeMeasureSpec(b - t, MeasureSpec.EXACTLY);
+                ((LinearLayout.LayoutParams) first.getLayoutParams()).width = split;
+                ((LinearLayout.LayoutParams) second.getLayoutParams()).width = Math.max(0, width - split - gap);
+                first.measure(MeasureSpec.makeMeasureSpec(split, MeasureSpec.EXACTLY), height);
+                second.measure(MeasureSpec.makeMeasureSpec(Math.max(0, width - split - gap), MeasureSpec.EXACTLY), height);
+            }
             super.onLayout(changed, l, t, r, b);
-            // The window position is only final now; re-split once if it moved the centre line.
-            if (split(r - l) != split) post(this::requestLayout);
         }
     }
 
@@ -492,7 +500,7 @@ public final class MoreScreen implements AppScreen {
     /** Only a performed click dispatches a change; programmatic setChecked never sends commands. */
     private Row toggleRow(LinearLayout group, String iconKey, String title, String sub, Consumer<Boolean> onChange) {
         Row r = row(group, iconKey, title, sub, null);
-        Switch toggle = new Switch(host.activity());
+        Switch toggle = new Haptics.FeedbackSwitch(host.activity());
         toggle.setShowText(false); toggle.setTextOn(""); toggle.setTextOff("");
         toggle.setMinimumWidth(ui.dp(56)); toggle.setMinimumHeight(ui.dp(48));
         ui.styleSwitch(toggle); toggle.setEnabled(false);
@@ -817,6 +825,7 @@ public final class MoreScreen implements AppScreen {
         units.view.setTag("preference-units-menu");
         Row text = row(display, "text", "Text size", null, this::textSize);
         valueRefreshers.add(() -> text.value(Math.round(settings().getFloat("text_scale", 1f) * 100) + "%"));
+        preferenceToggle(display, "vibrate", "Haptic feedback", "Subtle taps for switches, selections and drags", Haptics.PREFERENCE, true);
         row(display, "map", "Map settings", "Basemap and tile provider", () -> MapPreferences.show(host));
         row(display, "grid", "Dashboard backups", "Export or import layouts & widget options", this::dashboardBackups);
         label("Connection & recording");

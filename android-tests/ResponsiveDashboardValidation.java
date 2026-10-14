@@ -110,7 +110,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 }
             }
             if (mode.equals("all") || mode.equals("fold")) {
-                verifyFoldCallbacks(); check("Flat OEM creases do not split Home; separating folds and real hinges retain the two-pane layout");
+                verifyFoldCallbacks(); check("Fold creases never split, reload or replay Home, flat or half-open; physical hinges retain the two-pane layout");
             }
             assertNoScooterWork();
             result.putString("result", "PASS");
@@ -672,18 +672,27 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private void verifyFoldCallbacks() throws Exception {
         Rect horizontal = new Rect(0, root().getHeight() / 2, root().getWidth(), root().getHeight() / 2);
         Rect vertical = new Rect(root().getWidth() / 2, 0, root().getWidth() / 2, root().getHeight());
+        // A foldable's crease, flat or half-open, never reloads, re-splits or replays the screen.
+        final Object[] shown = new Object[1];
+        main(() -> shown[0] = field(activity, "root"));
         for (Rect crease : new Rect[] {horizontal, vertical}) {
-            inject(new FakeFeature(crease, 1, 1)); assertGridAndHeader();
+            for (int state : new int[] {1, 2, 1}) {
+                inject(new FakeFeature(crease, 1, state)); assertGridAndHeader();
+                main(() -> {
+                    require(field(activity, "root") == shown[0], "A fold posture change rebuilt the screen");
+                    require(!(Boolean)invoke(activity, "horizontalHinge") && !(Boolean)invoke(activity, "verticalHinge"),
+                            "A fold crease split the layout");
+                });
+            }
         }
         screenshot("flat-crease");
         inject(new FakeFeature(horizontal, 1, 2));
-        main(() -> require((Boolean)invoke(activity, "horizontalHinge"), "Half-open fold lost its tabletop layout"));
-        screenshot("tabletop");
+        screenshot("half-folded-unchanged");
+        // A physical hinge always hides content, so it keeps the split around it in any posture.
         Rect realHinge = new Rect(0, horizontal.top, horizontal.right, horizontal.top + activity.ui().dp(8));
         inject(new FakeFeature(realHinge, 2, 1));
         main(() -> require((Boolean)invoke(activity, "horizontalHinge"), "Physical hinge must remain separating while flat"));
-        inject(new FakeFeature(vertical, 1, 2));
-        main(() -> require((Boolean)invoke(activity, "verticalHinge"), "Half-open vertical fold lost its separating layout"));
+        screenshot("physical-hinge");
         Rect realVertical = new Rect(vertical.left, 0, vertical.left + activity.ui().dp(8), vertical.bottom);
         inject(new FakeFeature(realVertical, 2, 1));
         main(() -> require((Boolean)invoke(activity, "verticalHinge"), "Physical vertical hinge must remain separating while flat"));

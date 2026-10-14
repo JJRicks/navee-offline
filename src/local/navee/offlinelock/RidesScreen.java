@@ -203,7 +203,7 @@ public final class RidesScreen implements AppScreen {
     private void toggleRecording() {
         if (service.simulating()) { host.toast("Turn off simulation to record a real ride"); return; }
         if (service.isRecording()) {
-            service.stopRide(); host.toast(service.isRecording() ? "Recording could not be stopped; the journal is still active." : service.phoneSaving() ? "Saving the final sensor readings…" : "Ride saved locally."); refresh(); return;
+            service.stopRide(); if (!service.isRecording()) Haptics.confirm(scroll); host.toast(service.isRecording() ? "Recording could not be stopped; the journal is still active." : service.phoneSaving() ? "Saving the final sensor readings…" : "Ride saved locally."); refresh(); return;
         }
         if (service.phoneSaving()) { host.toast("Finishing the previous ride…"); return; }
         if (service.rides == null) { host.toast("Ride storage is unavailable."); return; }
@@ -222,7 +222,7 @@ public final class RidesScreen implements AppScreen {
             String name = label.getText().toString().trim(); if (name.isEmpty()) name = "Ride";
             preferences.edit().putString("last_ride_label", name).apply(); final String rideName = name;
             dialog.dismiss();
-            Runnable begin = () -> { if (!closed && !host.activity().isDestroyed() && !service.isRecording()) { service.startRide(rideName); refresh(); } };
+            Runnable begin = () -> { if (!closed && !host.activity().isDestroyed() && !service.isRecording()) { service.startRide(rideName); if (service.isRecording()) Haptics.confirm(scroll); refresh(); } };
             if (preferences.getBoolean("phone_gps", true)) host.requestRideLocation(begin); else begin.run();
         });
         label.setOnEditorActionListener((v, action, event) -> { if (action == EditorInfo.IME_ACTION_DONE) { start.performClick(); return true; } return false; });
@@ -950,13 +950,13 @@ public final class RidesScreen implements AppScreen {
         LinearLayout row = horizontal(); row.setGravity(Gravity.CENTER_VERTICAL); row.setMinimumHeight(ui.dp(60)); row.setPadding(0, ui.dp(10), 0, ui.dp(10));
         row.addView(glyphSquare(glyph, ui.accent), squareParams());
         row.addView(words(title, sub), new LinearLayout.LayoutParams(0, -2, 1));
-        Switch toggle = new Switch(host.activity()); toggle.setShowText(false); toggle.setTextOn(""); toggle.setTextOff("");
+        Switch toggle = new Haptics.FeedbackSwitch(host.activity()); toggle.setShowText(false); toggle.setTextOn(""); toggle.setTextOff("");
         toggle.setChecked(preferences.getBoolean(key, fallback)); toggle.setMinimumWidth(ui.dp(56)); toggle.setMinimumHeight(ui.dp(48));
         ui.styleSwitch(toggle); toggle.setContentDescription(sub == null ? title : title + ", " + sub);
         toggle.setOnCheckedChangeListener((button, on) -> preferences.edit().putBoolean(key, on).apply());
         LinearLayout.LayoutParams toggleParams = new LinearLayout.LayoutParams(-2, -2); toggleParams.leftMargin = ui.dp(12);
         row.addView(toggle, toggleParams);
-        row.setOnClickListener(v -> toggle.toggle()); row.setFocusable(false);
+        row.setOnClickListener(v -> toggle.performClick()); row.setFocusable(false);
         group.addView(row);
     }
     private void infoRow(LinearLayout group, String glyph, String title, String sub, String value) {
@@ -1500,8 +1500,7 @@ public final class RidesScreen implements AppScreen {
             int gap = ui.dp(20), first = Math.round((size - gap) * .45f);
             Rect hinge = verticalHinge();
             if (hinge != null && isAttachedToWindow()) {
-                int[] position = new int[2]; getLocationInWindow(position);
-                int relative = hinge.left - position[0] - getPaddingLeft(), hingeGap = Math.max(ui.dp(20), hinge.width() + ui.dp(16));
+                int relative = hinge.left - Ui.layoutLeftInWindow(this) - getPaddingLeft(), hingeGap = Math.max(ui.dp(20), hinge.width() + ui.dp(16));
                 int proposed = relative - ui.dp(8);
                 if (proposed >= ui.dp(200) && size - proposed - hingeGap >= ui.dp(220)) { first = proposed; gap = hingeGap; }
             }

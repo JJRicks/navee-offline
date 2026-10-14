@@ -3112,7 +3112,7 @@ public final class DashboardScreen implements AppScreen {
             started = true;
             handle.removeCallbacks(hold);
             grid.beginGesture(tile, resize, downX, downY);
-            handle.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+            Haptics.lift(handle);
         }
 
         @Override
@@ -3478,6 +3478,7 @@ public final class DashboardScreen implements AppScreen {
                     || target.y != requestedCell.y
                     || target.w != requestedCell.w
                     || target.h != requestedCell.h) {
+                if (requestedCell != null) Haptics.tick(this);
                 requestedCell = target;
                 ArrayList<DashboardLayout.Cell> next = new ArrayList<>();
                 for (DashboardLayout.Cell original : gestureSnapshot)
@@ -3892,7 +3893,7 @@ public final class DashboardScreen implements AppScreen {
             addSettingRow(settings, ui.settingRow("Quick settings", widget.quickActions.size() + " selected",
                     () -> quickOptions(widget)), "grid");
         if (widget.type.equals("lock")) {
-            Switch disconnect = new Switch(dialogContext);
+            Switch disconnect = new Haptics.FeedbackSwitch(dialogContext);
             disconnect.setText("Show Disconnect button");
             disconnect.setTextColor(ui.text);
             disconnect.setTextSize(14 * ui.textScale);

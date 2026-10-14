@@ -190,7 +190,8 @@ final class StatsCharts {
             TextView title = ui.text(label(key), 15, true); title.setTag("stats-chart-title:" + key);
             heading.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
             star = ui.text("", 21, false); star.setGravity(Gravity.CENTER); star.setFocusable(true);
-            star.setOnClickListener(v -> toggleFavourite.accept(key));
+            // Feedback first: on Overview the callback rebuilds the favourites card and detaches this star.
+            star.setOnClickListener(v -> { Haptics.toggle(v, !favourites.contains(key)); toggleFavourite.accept(key); });
             heading.addView(star, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
             TextView expand = ui.text("⤢", 24, false); expand.setGravity(Gravity.CENTER); expand.setFocusable(true);
             expand.setContentDescription("Expand " + label(key) + " chart"); expand.setOnClickListener(v -> expand(key));

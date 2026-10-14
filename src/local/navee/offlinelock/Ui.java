@@ -89,6 +89,22 @@ public final class Ui {
     public float sp(float value) { return value * context.getResources().getDisplayMetrics().scaledDensity * textScale; }
     /** Shared motion policy, including Android's accessibility/remove-animation setting. */
     public static boolean motionEnabled() { return android.animation.ValueAnimator.areAnimatorsEnabled(); }
+    /**
+     * The view's left edge in its window from layout positions alone. Unlike getLocationInWindow,
+     * a page that is still gliding in (a translated ancestor) does not shift the answer, so
+     * window-aligned splits are measured where the page will rest.
+     */
+    public static int layoutLeftInWindow(View view) {
+        int x = 0;
+        for (View v = view; v != null; ) {
+            x += v.getLeft();
+            if (!(v.getParent() instanceof View)) break;
+            View parent = (View) v.getParent();
+            x -= parent.getScrollX();
+            v = parent;
+        }
+        return x;
+    }
     /** Native pressed feedback leaves layout sizes unchanged. */
     public void pressFeedback(View view) {
         if (!motionEnabled()) return;
@@ -362,7 +378,7 @@ public final class Ui {
             TextView detail = caption(description); detail.setPadding(0, dp(6), 0, 0); words.addView(detail);
         }
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        Switch toggle = new Switch(context);
+        Switch toggle = new Haptics.FeedbackSwitch(context);
         toggle.setShowText(false); toggle.setTextOn(""); toggle.setTextOff("");
         toggle.setChecked(Boolean.TRUE.equals(value));
         toggle.setEnabled(enabled && value != null);
@@ -430,7 +446,7 @@ public final class Ui {
         caption.setGravity(Gravity.CENTER); caption.setPadding(0, dp(5), 0, 0); item.addView(caption);
         item.setContentDescription(label); item.setSelected(selected); item.setFocusable(true);
         if (Build.VERSION.SDK_INT >= 30) item.setStateDescription(selected ? "Selected" : "");
-        item.setOnClickListener(v -> { if (action != null) action.run(); });
+        item.setOnClickListener(v -> { if (!selected) Haptics.tick(v); if (action != null) action.run(); });
         pressFeedback(item);
         return item;
     }
@@ -532,7 +548,7 @@ public final class Ui {
                     }, null);
                 }
                 item.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)), null, shape(Color.WHITE, 22, 0)));
-                item.setOnClickListener(v -> { if (onSelect != null) onSelect.accept(index); });
+                item.setOnClickListener(v -> { if (index != selected) Haptics.tick(v); if (onSelect != null) onSelect.accept(index); });
                 pressFeedback(item);
             }
             pill.addView(item, new LinearLayout.LayoutParams(0, -1, 1));
@@ -551,7 +567,7 @@ public final class Ui {
             button.setContentDescription(labels[center]); button.setFocusable(true); button.setSelected(on);
             if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(on ? "Selected" : "");
             button.setElevation(dp(8));
-            button.setOnClickListener(v -> { if (onSelect != null) onSelect.accept(center); });
+            button.setOnClickListener(v -> { if (!on) Haptics.tick(v); if (onSelect != null) onSelect.accept(center); });
             pressFeedback(button);
             bar.addView(button, new android.widget.FrameLayout.LayoutParams(dp(68), dp(68), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
         }
@@ -920,6 +936,12 @@ public final class Ui {
                 canvas.drawPath(p, paint);
             } else if (key.equals("screen")) {
                 canvas.drawRoundRect(new RectF(6, 2, 18, 22), 2, 2, paint); canvas.drawLine(10, 19, 14, 19, paint);
+            } else if (key.equals("vibrate")) {
+                // A slim phone between two short buzz marks.
+                canvas.drawRoundRect(new RectF(8, 3, 16, 21), 2, 2, paint);
+                p.moveTo(4, 8); p.lineTo(2.5f, 10); p.lineTo(4, 12); p.lineTo(2.5f, 14); p.lineTo(4, 16);
+                p.moveTo(20, 8); p.lineTo(21.5f, 10); p.lineTo(20, 12); p.lineTo(21.5f, 14); p.lineTo(20, 16);
+                canvas.drawPath(p, paint);
             } else if (key.equals("sensors")) {
                 canvas.drawCircle(12, 12, 2, paint); canvas.drawArc(new RectF(6, 6, 18, 18), -55, 110, false, paint);
                 canvas.drawArc(new RectF(6, 6, 18, 18), 125, 110, false, paint);

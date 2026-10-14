@@ -4,7 +4,6 @@ import android.animation.Animator;
 import android.animation.AnimatorListenerAdapter;
 import android.os.Bundle;
 import android.view.Gravity;
-import android.view.HapticFeedbackConstants;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.accessibility.AccessibilityNodeInfo;
@@ -87,7 +86,7 @@ final class ReorderList extends LinearLayout {
                 restingTops = new int[getChildCount()];
                 for (int i = 0; i < getChildCount(); i++) restingTops[i] = getChildAt(i).getTop();
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
-                row.performHapticFeedback(HapticFeedbackConstants.LONG_PRESS);
+                Haptics.lift(row);
                 row.animate().cancel();
                 if (Motion.enabled())
                     row.animate().scaleX(1.03f).scaleY(1.03f).translationZ(ui.dp(10)).setDuration(Motion.EXIT_MS)
@@ -118,7 +117,7 @@ final class ReorderList extends LinearLayout {
                 }
                 if (target != to) {
                     to = target;
-                    row.performHapticFeedback(HapticFeedbackConstants.CLOCK_TICK);
+                    Haptics.tick(row);
                     int[] slots = slots(from, to);
                     for (int i = 0; i < getChildCount(); i++) {
                         if (i == from) continue;

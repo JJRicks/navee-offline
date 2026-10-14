@@ -668,14 +668,17 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final Paint.FontMetrics wordMetrics=new Paint.FontMetrics();
         private final RectF track=new RectF();
         private Boolean value;
-        private boolean available,dragging;
+        private boolean available,dragging,dragSide;
+        /** When the rider last asked for a lock change; the scooter's confirmation then gets a haptic. */
+        private long requestedAt;
         private float downX,downY,previewX,position;
         private android.animation.ValueAnimator motion;
         LockControl(){super(MainActivity.this);setMinimumWidth(design.dp(48));setMinimumHeight(design.dp(48));setClickable(true);setFocusable(true);setContentDescription("Electronic lock switch");setOnClickListener(v->apply(!Boolean.TRUE.equals(value)));}
-        private void apply(boolean target){if(available&&value!=null&&scooterService!=null&&target!=value){scooterService.ble.set("lock",target?1:0);redraw();}}
+        private void apply(boolean target){if(available&&value!=null&&scooterService!=null&&target!=value){if(scooterService.ble.set("lock",target?1:0))requestedAt=SystemClock.elapsedRealtime();redraw();}}
         void update(Boolean locked,boolean enabled){
             boolean changed=value==null?locked!=null:!value.equals(locked);
             boolean hadState=value!=null;
+            if(changed&&hadState&&locked!=null&&requestedAt>0&&SystemClock.elapsedRealtime()-requestedAt<15000){requestedAt=0;Haptics.confirm(this);}
             value=locked;available=enabled;setEnabled(enabled);
             if(!enabled&&dragging){dragging=false;setPressed(false);releaseParent();settle(hadState&&locked!=null);}
             else if(changed&&!dragging)settle(hadState&&locked!=null);
@@ -702,8 +705,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setCheckable(value!=null);info.setChecked(Boolean.TRUE.equals(value));info.setEnabled(available);}
         @Override public boolean onTouchEvent(MotionEvent event){
             if(!available)return false;
-            if(event.getAction()==MotionEvent.ACTION_DOWN){cancelMotion();downX=event.getX();downY=event.getY();previewX=downX;dragging=false;setPressed(true);return true;}
-            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){previewX=event.getX();position=Math.max(0,Math.min(1,(previewX-getHeight()/2f)/Math.max(1,getWidth()-getHeight())));invalidate();}return true;}
+            if(event.getAction()==MotionEvent.ACTION_DOWN){cancelMotion();downX=event.getX();downY=event.getY();previewX=downX;dragging=false;dragSide=downX>getWidth()/2f;setPressed(true);return true;}
+            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){boolean side=event.getX()>getWidth()/2f;if(side!=dragSide)Haptics.tick(this);dragSide=side;previewX=event.getX();position=Math.max(0,Math.min(1,(previewX-getHeight()/2f)/Math.max(1,getWidth()-getHeight())));invalidate();}return true;}
             if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);releaseParent();if(dragged)apply(target);else performClick();settle(true);return true;}
             if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);releaseParent();settle(true);return true;}return true;
         }
@@ -1240,7 +1243,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             haystack=normalize(feature.label+" "+shortLabel(feature)+" "+feature.description+" "+feature.key+" "+(detail==null?"":detail));
             if(feature.type==ScooterCommands.Type.TOGGLE){
                 value.setVisibility(View.GONE);
-                toggle=new Switch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);
+                toggle=new Haptics.FeedbackSwitch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);
                 toggle.setContentDescription(shortLabel(feature));
                 toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});
                 LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.leftMargin=design.dp(10);row.line.addView(toggle,tp);
@@ -1377,7 +1380,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 LinearLayout button=column();button.setGravity(Gravity.CENTER);button.setMinimumHeight(design.dp(60));button.setPadding(0,design.dp(8),0,design.dp(10));
                 SignalBars signal=new SignalBars(i+1);button.addView(signal,new LinearLayout.LayoutParams(design.dp(18),design.dp(12)));
                 TextView number=design.text("",16,true);number.setGravity(Gravity.CENTER);number.setPadding(0,design.dp(6),0,0);button.addView(number);
-                button.setClickable(true);button.setFocusable(true);button.setOnClickListener(v->choose(kmh));
+                button.setClickable(true);button.setFocusable(true);button.setOnClickListener(v->choose(v,kmh));
                 LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(0,-2,1);if(i>0)p.leftMargin=design.dp(7);options.addView(button,p);
                 buttons.add(button);numbers.add(number);bars.add(signal);
             }
@@ -1387,10 +1390,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         private String number(int kmh,String units){return "km".equals(units)?Integer.toString(kmh):Long.toString(Math.round(kmh/1.609344));}
         /** Spoken form: the rounded figure the rider sees, plus the exact OEM km/h value it sends. */
         private String spoken(int kmh,String units){return "km".equals(units)?kmh+" kilometres per hour":number(kmh,units)+" miles per hour, "+kmh+" kilometres per hour";}
-        private void choose(int kmh){
+        private void choose(View source,int kmh){
             if(scooterService==null)return;BleController ble=scooterService.ble;
             Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==kmh)return;
-            if(!ble.set(feature.key,kmh))toast(ble.message());redraw();
+            if(!ble.set(feature.key,kmh))toast(ble.message());else Haptics.tick(source);redraw();
         }
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;
@@ -1612,7 +1615,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         @Override protected void onAttachedToWindow(){super.onAttachedToWindow();post(this::requestLayout);}
         @Override protected void onMeasure(int width,int height){
             int size=View.MeasureSpec.getSize(width);int gap=design.dp(20);int firstWidth=(size-gap)/2;
-            if(verticalHinge()){int[] position=new int[2];getLocationInWindow(position);int relative=fold.hinge.left-position[0];int hingeGap=Math.max(design.dp(20),fold.hinge.width()+design.dp(16));int proposed=relative-design.dp(8);if(proposed>=design.dp(220)&&size-proposed-hingeGap>=design.dp(220)){firstWidth=proposed;gap=hingeGap;}}
+            if(verticalHinge()){int relative=fold.hinge.left-Ui.layoutLeftInWindow(this);int hingeGap=Math.max(design.dp(20),fold.hinge.width()+design.dp(16));int proposed=relative-design.dp(8);if(proposed>=design.dp(220)&&size-proposed-hingeGap>=design.dp(220)){firstWidth=proposed;gap=hingeGap;}}
             LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)first.getLayoutParams();p.width=Math.max(0,firstWidth);p.weight=0;LinearLayout.LayoutParams g=(LinearLayout.LayoutParams)gutter.getLayoutParams();g.width=gap;LinearLayout.LayoutParams s=(LinearLayout.LayoutParams)second.getLayoutParams();s.width=Math.max(0,size-firstWidth-gap);s.weight=0;super.onMeasure(width,height);
         }
     }
