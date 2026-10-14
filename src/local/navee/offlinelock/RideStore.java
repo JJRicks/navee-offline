@@ -702,7 +702,9 @@ public final class RideStore {
                 || lower.contains("owner_identity") || lower.contains("auth_identity") || lower.equals("pin");
     }
     private static String trim(String s, int max) {
-        if (s == null) return ""; return s.length() <= max ? s : s.substring(0, max);
+        if (s == null) return ""; if(s.length()<=max)return s;
+        int end=max;if(end>0&&Character.isHighSurrogate(s.charAt(end-1))&&Character.isLowSurrogate(s.charAt(end)))end--;
+        return s.substring(0,end);
     }
     private static boolean finite(Double value) { return value != null && !value.isNaN() && !value.isInfinite(); }
     private static Double subtract(Double a, Double b) { return a == null || b == null ? null : a - b; }

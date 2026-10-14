@@ -15,11 +15,11 @@ This change covers update notes 9–12, 15–16 (Rides controls), 31–36 and 40
 
 ## Validation
 
-Pure suites: `bash tests/run.sh` passes 46,254 checks. New cases cover delayed phone alignment, unit conversion, low-speed/nonfinite energy ratios, no invented phone data, gap segmentation, meaningful battery bounds, rename/replay/cache behavior, GPS and smoothed-pressure elevation spikes, valid GPS retention, and raw altitude preservation. Existing sustained-hill/grade fixtures continue to pass.
+Pure suites: `bash tests/run.sh` passes 46,263 checks. New cases cover delayed phone alignment, unit conversion, low-speed/nonfinite energy ratios, no invented phone data, gap segmentation, meaningful battery bounds, rename/replay/cache behavior, GPS and smoothed-pressure elevation spikes, valid GPS retention, and raw altitude preservation. Existing sustained-hill/grade fixtures continue to pass.
 
 `bash build.sh` and `bash android-tests/build.sh` pass with the retained signing identity. Build output contains existing Java 8/JDK native-access warnings, not new compiler errors.
 
-`RidesAnalysisValidation` is admitted only on an empty Android emulator with Bluetooth off. It seeds synthetic local ride/phone journals; it never connects a scooter or invokes production recording. Passed 33 checks at each of 344×882 dp (dark), 725×604 dp (dark), and 360×800 dp with 140% system font (light). Checks include map/source preferences, phone-placement selector, default/multiple/all-eight graph selections, immediate persistence, actual two-pointer zoom, separate scale-rail scrolling, map elevation selection, fullscreen sizing, and pencil rename. Screenshots were inspected for compact/expanded layouts and large text.
+`RidesAnalysisValidation` is admitted only on an empty Android emulator with Bluetooth off. It seeds synthetic local ride/phone journals; it never connects a scooter or invokes production recording. Passed 50 checks at each of 344×882 dp (dark), 725×604 dp (dark), and 360×800 dp with 140% system font (light). Checks include map/source preferences, phone-placement selector, default/multiple/all-eight graph selections, immediate persistence, actual two-pointer zoom, separate scale-rail scrolling, map elevation selection, fullscreen sizing, and pencil rename. Screenshots were inspected for compact/expanded layouts and large text. The review follow-up adds route-casing contrast, overlay-label fit, zoom-button bounds, an already-open dialog transitioning from sensor saving to a loaded map, empty phone journals, and Unicode-safe input checks.
 
 The pre-existing UI organization fixture’s map segment now opts out of basemaps explicitly and tests provider changes/canceled tile callbacks without depending on the removed Rides provider controls.
 
@@ -30,6 +30,14 @@ python3 android-tests/run-rides.py --adb /path/to/adb --serial emulator-5590 \
   --app /path/to/preview.apk --runner /path/to/parked-validation.apk \
   --out /path/to/evidence
 ```
+
+## Independent review follow-up
+
+- Routes use a dark casing over basemaps and light canvases, and a white casing on bare dark canvases. Pale ramp values stay visible; missing values retain their dashed treatment.
+- Chart zoom controls use symmetric layout margins, and the shorter Accel/Elev. choices fit the enlarged-text compact route selector.
+- A reserved map placeholder explains pending sensor saves/loading. Open compact details refresh when the save finishes; rides with no location or motion samples omit the empty phone block.
+- Rename input and journal limits preserve complete UTF-16 surrogate pairs.
+- Time zoom draws only the visible sample span plus its boundary neighbors. Availability and sample cadence are cached when a series is built; an unordered-time fallback preserves older data. Pure regressions cover bounds on 10,000 samples and complete emoji at the length limit.
 
 ## Limits
 

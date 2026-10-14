@@ -302,6 +302,9 @@ public final class RideStoreTest {
         boolean rejected = false; try { store.rename(id, "   "); } catch (IllegalArgumentException expected) { rejected = true; }
         check(rejected, "Empty rename rejected");
         store.rename(id, "Second name"); check(new RideStore(dir).get(id).label.equals("Second name"), "Newest rename wins");
+        String prefix=new String(new char[199]).replace('\0','a');
+        store.rename(id,prefix+"🛴extra");check(new RideStore(dir).get(id).label.equals(prefix),"Name truncation never leaves half an emoji");
+        prefix=prefix.substring(1);store.rename(id,prefix+"🛴extra");check(new RideStore(dir).get(id).label.equals(prefix+"🛴"),"Complete boundary emoji survives journal replay");
     }
     private static void near(double expected, Double actual, String message) {
         check(actual != null && Math.abs(expected - actual) <= Math.max(1e-8, Math.abs(expected) * 1e-10),

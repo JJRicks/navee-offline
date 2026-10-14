@@ -228,7 +228,7 @@ public final class RouteMapView extends View {
             for (int i = 1; i < points.size(); i++) {
                 PhoneRideStore.Point a = points.get(i - 1), b = points.get(i);
                 if (b.gapBefore || b.segment != a.segment) continue;
-                paint.setColor(pass == 0 ? Color.argb(200, 255, 255, 255) : color(b));
+                paint.setColor(pass == 0 ? routeCasingColor() : color(b));
                 paint.setStrokeWidth(ui.dp(pass == 0 ? 7 : 4));
                 boolean missing = "grade".equals(metric) ? b.gradePercent == null : "accel".equals(metric) ? b.gpsAccelerationMps2 == null : "elevation".equals(metric) ? b.relativeAltitudeM == null : b.powerW == null;
                 paint.setPathEffect(pass == 1 && missing ? new android.graphics.DashPathEffect(new float[]{ui.dp(4), ui.dp(5)}, 0) : null);
@@ -282,6 +282,9 @@ public final class RouteMapView extends View {
         paint.setStrokeWidth(ui.dp(1.5f));
         canvas.drawLine(ui.dp(16), ui.dp(30), ui.dp(96), ui.dp(30), paint);
     }
+
+    /** Tiles can be pale in either theme; the casing keeps every ramp value visible. */
+    private int routeCasingColor() { return streets || !ui.dark ? 0xff20242c : Color.WHITE; }
 
     /** Volt map plate: near-black with light text in both themes, so it reads on any basemap. */
     private int paper() {

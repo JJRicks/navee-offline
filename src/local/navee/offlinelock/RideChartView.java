@@ -67,20 +67,17 @@ public final class RideChartView extends View {
             canvas.save(); canvas.clipRect(plot); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2));
             paint.setPathEffect(s.index % 3 == 0 ? null : new DashPathEffect(new float[]{ui.dp(s.index % 3 == 1 ? 7 : 2), ui.dp(3)}, 0));
             Path path = new Path(); boolean drawing = false; RideChartData.Value previous = null;
-            long typical = typicalInterval(s.values);
-            for (RideChartData.Value p : s.values) {
+            int[] visible=s.visibleRange(from,to);
+            for (int point=visible[0];point<visible[1];point++) {
+                RideChartData.Value p=s.values.get(point);
                 if (p.value == null || !Double.isFinite(p.value)) { drawing = false; previous = p; continue; }
                 float px = plot.left + (float)((p.time - from) / (to - from)) * plot.width();
                 float py = plot.bottom - (float)((p.value - s.min) / (s.max - s.min)) * plot.height();
-                if (!drawing || previous == null || p.segment != previous.segment || p.time <= previous.time || p.time - previous.time > Math.max(10000, typical * 3)) path.moveTo(px, py); else path.lineTo(px, py);
+                if (!drawing || previous == null || p.segment != previous.segment || p.time <= previous.time || p.time - previous.time > Math.max(10000, s.typicalIntervalMs * 3)) path.moveTo(px, py); else path.lineTo(px, py);
                 drawing = true; previous = p;
             }
             canvas.drawPath(path, paint); paint.setPathEffect(null); paint.setStyle(Paint.Style.FILL); canvas.restore();
         }
-    }
-    private static long typicalInterval(List<RideChartData.Value> values) {
-        List<Long> intervals = new ArrayList<>(); for (int i = 1; i < values.size(); i++) if (values.get(i).time > values.get(i - 1).time) intervals.add(values.get(i).time - values.get(i - 1).time);
-        if (intervals.isEmpty()) return 1000; Collections.sort(intervals); return intervals.get(intervals.size() / 2);
     }
     private static int darken(int color) { return Color.rgb((int)(Color.red(color) * .65), (int)(Color.green(color) * .65), (int)(Color.blue(color) * .65)); }
     private static String axisNumber(RideChartData.Series series, double value) { return series.unit.equals("mph") || series.unit.equals("km/h") ? String.format(Locale.US, "%.1f", Math.abs(value) < .05 ? 0 : value) : number(value); }
