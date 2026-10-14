@@ -197,7 +197,8 @@ test('SIGHUP during cleanup releases its gate without claiming success, then rec
     await f.prepare();
     await writeFile(join(f.root, 'property'), 'VERBOSE');
     await writeFile(join(f.root, 'slow-am'), '1');
-    const { child, done } = f.execute('sh -s clean', cleanupCommand(token));
+    // Target the guard itself, even when /bin/sh keeps a -c wrapper process.
+    const { child, done } = f.execute('exec sh -s clean', cleanupCommand(token));
     for (let i = 0; i < 100; i++) {
       try { await access(join(f.root, 'am-entered')); break; } catch { await delay(5); }
     }
@@ -219,7 +220,8 @@ test('repeated signals during cleanup keep the gate until its last bounded prope
     await f.prepare();
     await writeFile(join(f.root, 'property'), 'VERBOSE');
     await writeFile(join(f.root, 'slow-setprop'), '1');
-    const { child, done } = f.execute('sh -s clean', cleanupCommand(token));
+    // Target the guard itself, even when /bin/sh keeps a -c wrapper process.
+    const { child, done } = f.execute('exec sh -s clean', cleanupCommand(token));
     for (let i = 0; i < 100; i++) {
       try { await access(join(f.root, 'setprop-entered')); break; } catch { await delay(5); }
     }
