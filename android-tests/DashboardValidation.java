@@ -774,7 +774,7 @@ public final class DashboardValidation extends Instrumentation {
             require(!((View)field(dashboard(), "profileName")).isClickable(), "Scooter name remains a configuration action outside editing");
             for (Object tile : tiles()) {
                 DashboardConfig.Widget widget = (DashboardConfig.Widget)field(tile, "widget");
-                for (String prefix : new String[] {"Options for ", "Move ", "Resize "})
+                for (String prefix : new String[] {"Options for ", "Move ", "Resize ", "Duplicate ", "Remove "})
                     require(findDescription((View)tile, prefix + widget.title) == null,
                             "Widget configuration control remains outside editing: " + prefix + widget.title);
             }
@@ -1183,17 +1183,30 @@ public final class DashboardValidation extends Instrumentation {
                 "An extra bottom adjustment bar duplicates the corner controls");
         View grip = findDescription(tile, "Move " + title), corner = findDescription(tile, "Resize " + title);
         View options = findDescription(tile, "Options for " + title);
+        View duplicate = findDescription(tile, "Duplicate " + title), remove = findDescription(tile, "Remove " + title);
         require(grip != null && corner != null, "Dedicated move and corner resize handles are missing");
-        require(findDescription(options, "gear") != null, "Widget options do not use a gear icon");
+        require(options instanceof TextView && "Edit".contentEquals(((TextView)options).getText())
+                        && ((TextView)options).getCompoundDrawablesRelative()[0] != null,
+                "Widget options need the labeled Edit action with its gear drawable");
+        require(duplicate instanceof TextView && "Duplicate".contentEquals(((TextView)duplicate).getText())
+                        && ((TextView)duplicate).getCompoundDrawablesRelative()[0] != null,
+                "Widget duplication needs a labeled action with its copy drawable");
+        require(remove != null && findDescription(remove, "trash") != null,
+                "Widget removal needs its separate trash action");
         main(() -> {
-            Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile);
+            Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile),
+                    optionsBounds = relativeBounds(options, tile), removeBounds = relativeBounds(remove, tile);
             int touch = activity.ui().dp(48), tolerance = activity.ui().dp(24);
             require(corner.getWidth() >= touch && corner.getHeight() >= touch, "Resize hit area is smaller than 48 dp");
             require(cornerBounds.right >= tile.getWidth() - tolerance && cornerBounds.bottom >= tile.getHeight() - tolerance,
                     "Resize target is not in the widget's bottom-right corner");
             require(gripBounds.left <= tolerance && gripBounds.top <= tolerance,
                     "Move grip is not in the widget's top-left corner");
-            for (View control : new View[] {grip, options, corner}) {
+            require(optionsBounds.left >= gripBounds.right && optionsBounds.top == gripBounds.top,
+                    "Edit does not sit beside the move grip");
+            require(removeBounds.right >= tile.getWidth() - tolerance && removeBounds.top <= tolerance,
+                    "Trash action is not in the widget's top-right corner");
+            for (View control : new View[] {grip, options, duplicate, remove, corner}) {
                 require(control.getWidth() >= touch && control.getHeight() >= touch,
                         "An editor overlay has a touch target smaller than 48 dp");
                 require(translucentBackground(control), "An editor overlay background is fully opaque");
@@ -1233,12 +1246,19 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> {
             TextView label = findText(dialogRoot(), "Title");
             TextView title = dialogRoot().findViewWithTag("widget-options-title");
-            TextView duplicate = findText(dialogRoot(), "Duplicate"), remove = findText(dialogRoot(), "Remove");
-            require(title != null && title.isShown() && label != null && duplicate != null && remove != null,
-                    "Options dialog title, labels and footer actions must be visible");
-            for (TextView text : new TextView[] {title, label, duplicate, remove})
+            TextView save = findText(dialogRoot(), "✓ Save");
+            View close = findDescription(dialogRoot(), "Close widget options");
+            require(title != null && title.isShown() && label != null && save != null && save.isShown()
+                            && close != null && close.isShown(),
+                    "Options dialog title, labels, Save and close actions must be visible");
+            require(findText(dialogRoot(), "Duplicate") == null && findText(dialogRoot(), "Remove") == null
+                            && findText(dialogRoot(), "Remove widget") == null,
+                    "Widget options still duplicate the editor's copy/remove actions");
+            for (TextView text : new TextView[] {title, label})
                 require(contrast(text.getCurrentTextColor(), activity.ui().surface) >= 4.5,
                         "Options dialog text has insufficient contrast in " + (activity.ui().dark ? "dark" : "light") + " theme: " + text.getText());
+            require(contrast(save.getCurrentTextColor(), activity.ui().accent) >= 4.5,
+                    "Save text has insufficient contrast against its accent button");
         });
         closeDialog();
     }

@@ -1,3 +1,42 @@
+DASHBOARD EDITOR AND SIX-COLUMN LAYOUT — UNRELEASED VALIDATION
+October 13, 2026
+
+- All eleven core suites passed 43,048 checks/assertions. Coverage includes
+  collision-free placement through six columns, proportional layout migration,
+  content-width floors and preview/cancellation behavior. Production builds pass
+  APK v2/v3 signing and 16 KiB alignment checks with the existing Java warnings.
+- Focused native emulator cases passed at 344x882 and 725x604 dp for all fifteen
+  widget types, edit-control bounds, separate 48 dp touch targets, Save/title
+  handling, duplication/removal, six-column sizing, the four/two top-row split,
+  minimum-width resize clamping and cancellation preserving stored rectangles.
+  A 360x800 dp case with 140% app text passed the editor-geometry checks.
+- Native layout-slot validation passed 297 assertions in ten groups, including
+  all fifteen types, legacy snapshots, one- through six-column round trips,
+  optional Disconnect preference and per-scooter/slot isolation.
+- Compact constraints passed with normal animation and with Android animation
+  disabled. These cover Disconnect visibility, Connect/Cancel availability,
+  confirmed lock accessibility state during motion, lifecycle cancellation and
+  charging layouts. Fixtures change presentation only; no scooter writes occur.
+- The final Gauge build passed three focused native cases at 344x882, 725x604
+  and 360x800 dp (140% app text): sixty combinations of minimum/full widths,
+  short/tall heights and live, dual-unit, unknown, stale and long negative values.
+  Measured glyph bounds stay inside the 270-degree ring, range labels retain
+  padding below it, and stale timestamps remain visible and accessible. Native
+  compact/expanded drawings were inspected. A final compact editor case also
+  passed and confirmed that SPORT remains on one line. Nine responsive cases
+  passed in total; the temporary emulator was shut down afterward.
+- Initial emulator failures were traced to test-only issues: bounds subtracted
+  a child TextView's own scroll rather than its parent's scroll, and a queued
+  presentation refresh replaced the synthetic charging state. Both were fixed
+  in the runner before the successful focused reruns.
+
+Separately, the owner's authorized slot-2 setup saved all fifteen widget types
+with default heights and a two-column layout on the Pixel. A temporary same-
+signed helper changed only that slot, verified it in a fresh process, and was
+removed. The existing active dashboard, other slots and profile data were
+preserved. This does not install the unreleased editor: the Pixel remains on
+the official 0.9.1 build. No release or merge is part of this validation.
+
 NAVEE OFFLINE 0.9.1 — RELEASE VALIDATION
 October 13, 2026
 

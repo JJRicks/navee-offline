@@ -87,6 +87,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private TextView connectionTitle,connectionDetail,connectionAction,lockTitle,lockHint,profileTitle,offlineTitle,offlineDetail;
     private View lockReady,lockOffline;
     private LockControl lockControl;
+    private boolean showDashboardDisconnect=true;
     private String selectedPage="home",scrollPage="home";
     private boolean bound,binding,resumed,destroyed,pendingConnect,pendingScan,expanded,rebuilding,applyingOwnerImport,importWaitNotified,bodyRefreshScheduled;
     private long lastBodyRefreshMs;
@@ -153,7 +154,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onPause(){
         if(selectedPage.equals("more"))markMoreAway();
-        resumed=false;ScooterService.setUiVisible(false);captureScroll();fold.stop();handler.removeCallbacks(pulse);cancelDeferredBodyRefresh();
+        resumed=false;if(lockControl!=null)lockControl.stopMotion();ScooterService.setUiVisible(false);captureScroll();fold.stop();handler.removeCallbacks(pulse);cancelDeferredBodyRefresh();
         if(scooterService!=null)scooterService.visible(false);
         super.onPause();
     }
@@ -257,7 +258,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             View spacer=new View(this);spacer.setBackgroundColor(design.bg);content.addView(spacer,new LinearLayout.LayoutParams(-1,Math.max(design.dp(12),fold.hinge.height())));
         }else content.addView(header);
         pageFrame=new FrameLayout(this);content.addView(pageFrame,new LinearLayout.LayoutParams(-1,0,1));
-        screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(){return makeDashboardLock();}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void rename(){renameScooter();}public void connectionDetails(){showConnectionDetails();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
+        screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(boolean showDisconnect){return makeDashboardLock(showDisconnect);}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void rename(){renameScooter();}public void connectionDetails(){showConnectionDetails();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
         if(horizontalHinge()&&screen instanceof DashboardScreen){
             // Tabletop posture: Home's header sits in the upper pane, the widgets below the hinge.
             header.setPadding(design.dp(expanded?24:18),design.dp(8),design.dp(expanded?24:18),design.dp(8));
@@ -293,14 +294,15 @@ public final class MainActivity extends Activity implements ScreenHost {
             });
         }
     }
-    private void clearDashboardLock(){lockTitle=null;lockControl=null;lockHint=null;connectionTitle=null;connectionDetail=null;connectionAction=null;offlineTitle=null;offlineDetail=null;lockReady=null;lockOffline=null;}
+    private void clearDashboardLock(){if(lockControl!=null)lockControl.stopMotion();lockTitle=null;lockControl=null;lockHint=null;connectionTitle=null;connectionDetail=null;connectionAction=null;offlineTitle=null;offlineDetail=null;lockReady=null;lockOffline=null;}
     private LinearLayout makeHeader(){
         if(!selectedPage.equals("home"))return makeCompactHeader();
         // Home's header (status line, scooter name and edit pencil) belongs to the dashboard toolbar.
         clearDashboardLock();profileTitle=null;return column();
     }
     /** Volt lock card: a full-width bar you tap anywhere on, or slide, to lock and unlock. */
-    private View makeDashboardLock(){
+    private View makeDashboardLock(boolean showDisconnect){
+        showDashboardDisconnect=showDisconnect;
         LinearLayout content=column();
         lockReady=column();
         lockTitle=design.text("Lock",15,true);
@@ -324,9 +326,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         line.setMinimumHeight(design.dp(48));
         line.setOnClickListener(v->showConnectionDetails());
         offline.addView(line);
-        connectionAction=design.button("Connect",this::connect);
-        offline.addView(connectionAction);
         content.addView(offline,new LinearLayout.LayoutParams(-1,-2));
+        // Connect/Cancel are always available; Disconnect is a per-widget choice.
+        connectionAction=design.button("Connect",this::connect);
+        content.addView(connectionAction);
         lockHint=design.caption("");lockHint.setVisibility(View.GONE);content.addView(lockHint);
         connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);
         updateHeader();return content;
@@ -411,8 +414,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             @Override public void draw(Canvas canvas){
                 paint.setColor(design.muted);paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(2));paint.setStrokeCap(Paint.Cap.ROUND);
                 RectF arc=new RectF(getBounds());arc.inset(design.dp(2),design.dp(2));
-                canvas.drawArc(arc,(SystemClock.uptimeMillis()%900)*.4f,250,false,paint);
-                if(owner.isShown())owner.postInvalidateDelayed(32);
+                canvas.drawArc(arc,Ui.motionEnabled()?(SystemClock.uptimeMillis()%900)*.4f:0,250,false,paint);
+                if(resumed&&owner.isShown()&&Ui.motionEnabled())owner.postInvalidateDelayed(32);
             }
             @Override public void setAlpha(int alpha){paint.setAlpha(alpha);}
             @Override public void setColorFilter(android.graphics.ColorFilter filter){paint.setColorFilter(filter);}
@@ -454,6 +457,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(selectedPage.equals("more"))markMoreAway();
         if(page.equals("more")){expireMoreSection(true);if(resumed)markMoreActive();}
         selectedPage=page;preferences.edit().putString("last_page",page).apply();rebuild();
+        if(scroll!=null)design.reveal(scroll);
     }
     /** Retain a submenu only while in More or for a short return from another tab/app. */
     private void markMoreAway(){
@@ -528,56 +532,102 @@ public final class MainActivity extends Activity implements ScreenHost {
             connectionTitle.setContentDescription(state+(!ready&&!connecting&&last>0?", last connected "+DisplayTime.dateTime(this,preferences,last):"")+". Connection details");
             connectionTitle.setTextColor(design.muted);
         }
+        updateConnectionAction(ready,connecting);
+        ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();if(profileTitle!=null){profileTitle.setText(p==null?"Your scooter":p.name);profileTitle.setVisibility(home?View.VISIBLE:View.GONE);}
+    }
+    /** Updates the action presentation without changing the Bluetooth transport. */
+    private void updateConnectionAction(boolean ready,boolean connecting){
+        BleController ble=scooterService==null?null:scooterService.ble;
         if(connectionAction!=null){
-            boolean busy=ble!=null&&(ble.connected()||connecting);
-            connectionAction.setText(busy?"Cancel":"Connect");
-            connectionAction.setContentDescription(busy?"Cancel connection":"Connect scooter");
-            if(busy){connectionAction.setTextColor(design.text);connectionAction.setBackground(design.shape(design.raised,14,design.outline));}
+            boolean busy=ble!=null&&(ble.connected()||connecting||ready);
+            connectionAction.setVisibility(!ready||showDashboardDisconnect?View.VISIBLE:View.GONE);
+            String action=ready?"Disconnect":busy?"Cancel":"Connect";
+            connectionAction.setContentDescription(ready?"Disconnect scooter":busy?"Cancel connection":"Connect scooter");
+            // Only restyle on a real state change, not on every incoming BLE packet.
+            if(!action.contentEquals(connectionAction.getText())){
+                connectionAction.setText(action);
+                connectionAction.setTextColor(busy?design.text:design.onAccent);
+                connectionAction.setBackground(new android.graphics.drawable.RippleDrawable(
+                        ColorStateList.valueOf(Ui.withAlpha(busy?design.accent:android.graphics.Color.WHITE,35)),
+                        design.shape(busy?design.raised:design.accent,14,busy?design.outline:0),null));
+            }
             final BleController bleRef=ble;
             connectionAction.setOnClickListener(v->{if(busy){if(bleRef!=null)bleRef.disconnect();redraw();}else connect();});
             connectionAction.setEnabled(!(screen instanceof DashboardScreen&&((DashboardScreen)screen).isEditing()));
         }
-        ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();if(profileTitle!=null){profileTitle.setText(p==null?"Your scooter":p.name);profileTitle.setVisibility(home?View.VISIBLE:View.GONE);}
     }
     private final class LockControl extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private Boolean value;private boolean available,dragging;private float downX,downY,previewX;
+        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final android.text.TextPaint words=new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint.FontMetrics wordMetrics=new Paint.FontMetrics();
+        private final RectF track=new RectF();
+        private Boolean value;
+        private boolean available,dragging;
+        private float downX,downY,previewX,position;
+        private android.animation.ValueAnimator motion;
         LockControl(){super(MainActivity.this);setMinimumWidth(design.dp(48));setMinimumHeight(design.dp(48));setClickable(true);setFocusable(true);setContentDescription("Electronic lock switch");setOnClickListener(v->apply(!Boolean.TRUE.equals(value)));}
         private void apply(boolean target){if(available&&value!=null&&scooterService!=null&&target!=value){scooterService.ble.set("lock",target?1:0);redraw();}}
-        void update(Boolean locked,boolean enabled){value=locked;available=enabled;setEnabled(enabled);setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+", tap to "+(locked?"unlock":"lock"));if(Build.VERSION.SDK_INT>=30)setStateDescription(locked==null?"Unavailable":locked?"Locked":"Unlocked");invalidate();}
+        void update(Boolean locked,boolean enabled){
+            boolean changed=value==null?locked!=null:!value.equals(locked);
+            boolean hadState=value!=null;
+            value=locked;available=enabled;setEnabled(enabled);
+            if(!enabled&&dragging){dragging=false;setPressed(false);releaseParent();settle(hadState&&locked!=null);}
+            else if(changed&&!dragging)settle(hadState&&locked!=null);
+            setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+", tap to "+(locked?"unlock":"lock"));
+            if(Build.VERSION.SDK_INT>=30)setStateDescription(locked==null?"Unavailable":locked?"Locked":"Unlocked");
+            invalidate();
+        }
+        private void cancelMotion(){if(motion!=null){motion.cancel();motion=null;}}
+        private void releaseParent(){if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(false);}
+        /** Position is visual only. Value/accessibility always reflect the last confirmed report. */
+        private void settle(boolean animate){
+            cancelMotion();
+            final float target=Boolean.TRUE.equals(value)?1:0;
+            if(!animate||!resumed||!isAttachedToWindow()||!isShown()||!Ui.motionEnabled()||Math.abs(target-position)<.001f){position=target;invalidate();return;}
+            motion=android.animation.ValueAnimator.ofFloat(position,target);
+            motion.setDuration(180);motion.setInterpolator(new android.view.animation.PathInterpolator(.2f,0,0,1));
+            motion.addUpdateListener(animation->{position=(Float)animation.getAnimatedValue();invalidate();});
+            motion.start();
+        }
+        void stopMotion(){cancelMotion();dragging=false;setPressed(false);releaseParent();position=Boolean.TRUE.equals(value)?1:0;invalidate();}
+        @Override protected void onDetachedFromWindow(){stopMotion();super.onDetachedFromWindow();}
+        @Override protected void onWindowVisibilityChanged(int visibility){super.onWindowVisibilityChanged(visibility);if(visibility!=VISIBLE)stopMotion();}
         @Override public CharSequence getAccessibilityClassName(){return Switch.class.getName();}
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setCheckable(value!=null);info.setChecked(Boolean.TRUE.equals(value));info.setEnabled(available);}
         @Override public boolean onTouchEvent(MotionEvent event){
             if(!available)return false;
-            if(event.getAction()==MotionEvent.ACTION_DOWN){downX=event.getX();downY=event.getY();previewX=downX;dragging=false;setPressed(true);return true;}
-            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){previewX=event.getX();invalidate();}return true;}
-            if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);getParent().requestDisallowInterceptTouchEvent(false);if(dragged)apply(target);else performClick();invalidate();return true;}
-            if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);getParent().requestDisallowInterceptTouchEvent(false);invalidate();return true;}return true;
+            if(event.getAction()==MotionEvent.ACTION_DOWN){cancelMotion();downX=event.getX();downY=event.getY();previewX=downX;dragging=false;setPressed(true);return true;}
+            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){previewX=event.getX();position=Math.max(0,Math.min(1,(previewX-getHeight()/2f)/Math.max(1,getWidth()-getHeight())));invalidate();}return true;}
+            if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);releaseParent();if(dragged)apply(target);else performClick();settle(true);return true;}
+            if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);releaseParent();settle(true);return true;}return true;
         }
         /** Locked: white knob on the right. Unlocked: red knob on the left. Tap anywhere or slide to change. */
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);float x=0,y=0,w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
             boolean locked=Boolean.TRUE.equals(value),unlocked=Boolean.FALSE.equals(value);
-            RectF track=new RectF(x+design.dp(1),y+design.dp(1),x+w-design.dp(1),y+h-design.dp(1));float r=track.height()/2;
+            track.set(x+design.dp(1),y+design.dp(1),x+w-design.dp(1),y+h-design.dp(1));float r=track.height()/2;
             paint.setShader(null);paint.setStyle(Paint.Style.FILL);
             if(unlocked&&available){paint.setShader(new android.graphics.LinearGradient(track.left,0,track.right,0,Ui.withAlpha(design.accent,82),Ui.withAlpha(design.accent,20),android.graphics.Shader.TileMode.CLAMP));}
             else paint.setColor(design.dark?design.bg:design.raised);
             canvas.drawRoundRect(track,r,r,paint);paint.setShader(null);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(1));paint.setColor(unlocked&&available?Ui.withAlpha(design.accent,110):design.raised);canvas.drawRoundRect(track,r,r,paint);paint.setStyle(Paint.Style.FILL);
             float knob=h/2-design.dp(5);
-            float cx=dragging?Math.max(x+h/2,Math.min(x+w-h/2,previewX)):locked?x+w-h/2:x+h/2;
+            float cx=x+h/2+Math.max(0,w-h)*position;
             paint.setColor(!available?design.dim:locked?android.graphics.Color.WHITE:design.accent);canvas.drawCircle(cx,h/2,knob,paint);
             design.drawIcon(canvas,locked?"lock":"unlock",!available?design.surface:locked?design.bg:design.onAccent,cx,h/2,knob*0.95f);
             String label=value==null?"Lock state unavailable":locked?"Tap or slide to unlock":"Tap or slide to lock";
-            android.text.TextPaint words=new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);words.setTypeface(design.semibold());
+            words.setTypeface(design.semibold());
             words.setTextSize(design.sp(13));words.setColor(!available?design.dim:unlocked?Ui.withAlpha(design.danger,235):design.muted);
+            // Let the knob pass through the label's space without obscuring its words.
+            words.setAlpha(Math.round(255*Math.max(0,1-4*Math.abs(position-(locked?1:0)))));
             float textLeft=locked||value==null?x+design.dp(18):x+h+design.dp(4),textRight=locked||value==null?x+w-h-design.dp(4):x+w-design.dp(18);
             float textWidth=Math.max(0,textRight-textLeft);
             if(words.measureText(label)>textWidth)label=value==null?"Unavailable":locked?"Unlock":"Lock";
             // The switch remains a full-height touch target even in a very narrow card.
             // Its accessibility label always keeps the full tap/slide action text.
             String fitted=words.measureText(label)<=textWidth?label:"";
-            words.setTextAlign(Paint.Align.CENTER);Paint.FontMetrics m=words.getFontMetrics();
-            canvas.drawText(fitted,(textLeft+textRight)/2,h/2-(m.ascent+m.descent)/2,words);
+            words.setTextAlign(Paint.Align.CENTER);words.getFontMetrics(wordMetrics);
+            canvas.drawText(fitted,(textLeft+textRight)/2,h/2-(wordMetrics.ascent+wordMetrics.descent)/2,words);
         }
     }
     @Override public void connect(){
@@ -840,8 +890,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
             if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);
         }
-        private void showLights(){lights=true;preferences.edit().putString("scooter_section","Lights").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
-        private void showMain(){lights=false;preferences.edit().putString("scooter_section","").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);}
+        private void showLights(){lights=true;preferences.edit().putString("scooter_section","Lights").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);design.reveal(view);}
+        private void showMain(){lights=false;preferences.edit().putString("scooter_section","").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);design.reveal(view);}
         boolean back(){
             if(!query.isEmpty()){search.setText("");return true;}
             if(lights){showMain();return true;}
@@ -930,6 +980,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         pill.setBackground(new android.graphics.drawable.InsetDrawable(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(android.graphics.Color.WHITE,50)),fill,null),0,design.dp(7),0,design.dp(7)));
         pill.setContentDescription(label);pill.setClickable(true);pill.setFocusable(true);
         pill.setOnClickListener(v->{if(action!=null)action.run();});
+        design.pressFeedback(pill);
         return pill;
     }
     /** One divided row inside a group card: boxed icon, label with optional sub-text, then a value, switch or action. */
@@ -1086,8 +1137,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             float stroke=design.dp(2);RectF arc=new RectF(stroke,stroke,getWidth()-stroke,getHeight()-stroke);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(stroke);paint.setStrokeCap(Paint.Cap.ROUND);
             paint.setColor(design.raised);canvas.drawOval(arc,paint);
-            paint.setColor(design.accent);canvas.drawArc(arc,(SystemClock.uptimeMillis()%1000)*.36f,100,false,paint);
-            if(isShown())postInvalidateDelayed(32);
+            paint.setColor(design.accent);canvas.drawArc(arc,Ui.motionEnabled()?(SystemClock.uptimeMillis()%1000)*.36f:0,100,false,paint);
+            if(resumed&&isShown()&&Ui.motionEnabled())postInvalidateDelayed(32);
         }
     }
     /** Radio indicator: a grey ring, or a thick red ring when selected. */

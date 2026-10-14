@@ -9,6 +9,7 @@ import java.util.Set;
 
 /** Android-free placement for the dashboard's small, resizable card grid. */
 public final class DashboardLayout {
+    public static final int MAX_COLUMNS = 6;
     private static final int MAX_REQUESTED_ROW = 300;
     private static final int MAX_HEIGHT = 16;
 
@@ -45,7 +46,7 @@ public final class DashboardLayout {
      */
     public static List<Cell> settle(List<Cell> source, int columns, String priorityId) {
         if (source == null) throw new IllegalArgumentException("Missing dashboard cells");
-        int columnCount = clamp(columns, 1, 4);
+        int columnCount = clamp(columns, 1, MAX_COLUMNS);
         int maximumSavedRow = (int) Math.min(Integer.MAX_VALUE - MAX_HEIGHT,
                 MAX_REQUESTED_ROW + (long) source.size() * MAX_HEIGHT);
         List<Cell> result = new ArrayList<Cell>(source.size());
@@ -106,6 +107,57 @@ public final class DashboardLayout {
             }
             placed.add(cell);
         }
+        return result;
+    }
+
+    /**
+     * Minimum card width, including its internal padding but excluding the grid
+     * gap. These are usable content floors, not a limit on the grid's granularity:
+     * a six-column grid can give a lock two columns and a scooter four columns.
+     * Text scaling increases the content allowance while fixed padding stays fixed.
+     */
+    public static float minimumWidgetWidthDp(String type, float textScale) {
+        // Even a simple reading needs room for three separate 48 dp editor targets.
+        int width = "capacity".equals(type) ? 152 : 144;
+        float scale = Float.isFinite(textScale) ? Math.max(1, textScale) : 1;
+        return 32 + (width - 32) * scale;
+    }
+
+    /**
+     * Minimum number of columns for a widget at this measured grid width. The
+     * grid uses cardWidth = span * availableWidth / columns - gap, including a
+     * trailing gap in each card. If even a full-width card cannot meet its floor,
+     * use the entire available width; never return an out-of-bounds span.
+     */
+    public static int minimumSpan(String type, int columns, float availableWidthDp,
+            float gapDp, float textScale) {
+        int count = clamp(columns, 1, MAX_COLUMNS);
+        if (!Float.isFinite(availableWidthDp) || availableWidthDp <= 0) return count;
+        float gap = Float.isFinite(gapDp) ? Math.max(0, gapDp) : 0;
+        float minimum = minimumWidgetWidthDp(type, textScale);
+        for (int span = 1; span < count; span++)
+            if (span * (double) availableWidthDp / count - gap >= minimum - .0001)
+                return span;
+        return count;
+    }
+
+    /**
+     * Copies a rectangle into a finer grid using proportional left/right edges.
+     * Flooring shared boundaries preserves adjacent cards without introducing
+     * gaps; the default three-to-one split becomes four-to-two in six columns.
+     * Saved source rectangles are never modified.
+     */
+    public static Cell rescale(Cell source, int sourceColumns, int targetColumns) {
+        if (source == null) throw new IllegalArgumentException("Missing dashboard cell");
+        int from = clamp(sourceColumns, 1, MAX_COLUMNS);
+        int to = clamp(targetColumns, 1, MAX_COLUMNS);
+        int width = clamp(source.w, 1, from);
+        int x = clamp(source.x, 0, from - width);
+        int left = x * to / from;
+        int right = (x + width) * to / from;
+        Cell result = source.copy();
+        result.x = Math.min(to - 1, left);
+        result.w = clamp(right - left, 1, to - result.x);
         return result;
     }
 

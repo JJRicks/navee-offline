@@ -11,6 +11,12 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+This source branch also contains an UNRELEASED dashboard editor update:
+labeled Edit/Duplicate actions, optional five/six-column layouts, a configurable
+Disconnect button, and short interface animations. The descriptions below cover
+that source update; it is not part of the published 0.9.1 APK. See VERIFICATION.txt
+for checks actually performed.
+
 
 0.9.1 fixes dashboard spacing across narrow and unfolded screens. Lock and
 battery cards adapt to their available space and larger text; a flat fold no
@@ -236,11 +242,15 @@ Drag the top-left dots to move a widget, or its visible lower-right corner to
 resize it. A long press on the dots also starts movement. The full-size dashed
 outline previews the destination while neighboring cards slide aside and fill
 empty rows. Release to save that arrangement; cancellation restores the start.
-Reflow takes 200 ms and the outline transition 120 ms; disabled system animations
-are respected. Scooter/data actions inside widgets stay inactive; local scooter
+Cards animate their size and position together, with short drop-preview and
+release transitions. Disabled system animations are respected. Scooter/data
+actions inside widgets stay inactive; local scooter
 renaming remains available. Tap Done when finished.
 
-Use the gear for widget options; there is no duplicate bottom options bar.
+Use Edit with its gear beside the grip for widget options. Duplicate with a copy
+icon sits next to Edit, or wraps below it on a narrow card. The red trash icon
+at the top-right removes that widget. The options sheet retains its top-right X
+and has only a fixed ✓ Save button below its scrolling settings.
 Tap the dots for a Move dialog or the corner for Size if dragging is inconvenient.
 Those dialogs are also available inside the options menu. Dialogs follow the
 app's light/dark theme for readable controls and text. Widget menus, handles and
@@ -267,7 +277,7 @@ the same widgets to other widths. Existing custom and empty layouts are preserve
 use Restore default widgets to adopt the preset for an existing dashboard.
 Edit > Layout also offers three named saved-layout slots for this scooter.
 Each saves the widget list/options, the column choice, and all one- through
-four-column arrangements together, including folded and unfolded layouts.
+six-column arrangements together, including folded and unfolded layouts.
 Default reset and edits to the current dashboard leave these slots intact.
 Save the current layout before experimenting, then Restore to return to it.
 Replacing an occupied slot or restoring over the current dashboard asks first.
@@ -298,6 +308,8 @@ Ride recorder need at least three rows. Editing uses the same content geometry.
 
 Lock & connection is a full-width bar: tap it or slide to lock/unlock. Locked
 places the white knob on the right; unlocked places the red knob on the left.
+Disconnect is visible while connected by default. Show Disconnect button in
+this widget's options can hide it without hiding Connect or Cancel.
 While disconnected or connecting, the card shows the last verified lock time
 and a Connect or Cancel action. The page header shows connection status and
 the last-seen time, including a date for older connections. Tap it for details,
@@ -312,17 +324,30 @@ Live SPORT is pale blue (darker blue on a light background), ECO is green and
 WALK uses a green pedestrian icon. Stale modes remain grey; accessibility keeps
 the spoken mode name and reading context.
 
-Layout offers adaptive or one to four columns, limited to what fits the screen.
+Layout offers Adaptive or one to six columns in a rounded selector with a
+sliding red highlight. Swipe it sideways on narrow screens. Adaptive retains
+the familiar one- through four-column behavior; five/six columns are optional
+where the screen width permits. Each widget has a minimum usable width that
+accounts for its contents and text scale, so finer grids still have usable cards.
+New five/six-column layouts derive from the saved four-column layout where
+available, leaving the original intact. A four-column scooter card beside a
+two-column lock card in a six-column grid gives a two-thirds/one-third split.
 Each scooter retains separate arrangements for each column count. Moving or
 resizing one card moves colliding cards out of its way. Restore default widgets
 replaces only that scooter's dashboard configuration, keeping readings and rides.
+
+Short motion accompanies deliberate page changes, button presses, and confirmed
+lock-state updates as well as dashboard editing. These effects respect Android's
+disabled-animation setting; lock animation never replaces scooter confirmation.
 
 Choose a parameter for Big reading, Gauge, Live trend or History chart. The
 Live trend time-window selector includes two minutes, also for battery power.
 The chart omits redundant signed and Recent readings/live labels; values and
 recorded signs are unchanged. A chart
 needs numeric samples actually received from the scooter; text-only or unsupported
-fields cannot produce a graph. A gauge's scale is a display choice, not a new
+fields cannot produce a graph. Gauge uses a 270-degree ring, a larger centered
+value and unit, and padded minimum/maximum labels. Existing value formatting
+and grey stale-state presentation are retained. A gauge's scale is a display choice, not a new
 scooter limit. Reported battery health is not a measured capacity test.
 
 

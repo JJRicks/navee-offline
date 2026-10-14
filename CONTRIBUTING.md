@@ -56,9 +56,18 @@ store owner identity or PIN traffic. Dashboard layout is per scooter and column
 count. Dashboard defaults seed explicit one/two/three/four-column rectangles
 only for new/reset dashboards; never overwrite saved custom or empty dashboards.
 The two/four-column presets reproduce the captured folded/unfolded arrangement.
+Adaptive keeps its existing one- through four-column breakpoints; explicit
+five/six-column choices are available only when the measured width permits.
+Materialize a new finer grid from the saved four-column arrangement (or another
+available width), leaving its source untouched. Enforce each widget's minimum
+width at the current measured width and combined app/system text scale. Temporary
+window or font changes must not persist expanded rectangles until an actual edit
+is committed. The grid, size chips and size dialog must use the same limits.
 Widget scale values are stored in canonical units and converted for display.
 
-Dashboard slots keep all column layouts and widget options together per scooter.
+Dashboard slots keep all one- through six-column layouts and widget options
+together per scooter. Continue accepting existing slots with only one- through
+four-column layouts and without the optional showDisconnect field (default true).
 Editing or resetting the live dashboard must never mutate a saved slot. Validate
 a snapshot before restoring it, and preserve intentionally empty dashboards.
 `DashboardSlotsValidation` checks persistence, isolation and malformed snapshots
@@ -77,13 +86,31 @@ the same key, start a disposable emulator, and pass `--adb`, `--serial`, `--app`
 `--runner`, and `--out`; use `--help` for individual cases. This is layout validation,
 not a substitute for Samsung hardware or live Bluetooth testing.
 
-The editor uses dedicated top-left move grips and bottom-right resize
-corners, with tap-accessible Move/Size dialogs and one gear-shaped widget-options menu.
+Focused cases include `--case 344x882:1:editor` and
+`--case 725x604:1:editor` for editor actions, plus `--case 360x800:1.4:gauge`
+for the Gauge with larger app text. Gauge checks draw live, dual-unit, unknown,
+stale and long negative readings at minimum/full widths and short/tall heights;
+the number/unit block must remain inside the ring and range labels below its
+endpoints with padding. Keep its visible and spoken Last seen state.
+
+The editor uses dedicated top-left move grips and bottom-right resize corners,
+with tap-accessible Move/Size dialogs. Labeled Edit/gear and Duplicate/copy actions
+sit beside the grip, wrapping Duplicate beneath Edit when needed. Keep the red
+trash action at the top-right and all interactive targets at least 48 dp. Options
+have one fixed ✓ Save footer and retain the top-right X; edits are not a new
+transactional cancel/rollback flow. Preserve the one-lock-widget restriction and
+32-widget limit when duplicating. The connected lock's Disconnect action defaults
+on and may be hidden per widget; Connect/Cancel must remain available.
 Gesture previews must use an untouched start snapshot, pin the full requested
 rectangle, compact neighbors without overlap, save only on release and restore
-on cancellation or teardown. Preserve scrolling outside the handles. Reflow is
-200 ms and the dashed destination transition 120 ms; respect system animation
-settings. Check direct drag, long press, corner resize, cancellation, theme
+on cancellation or teardown. Preserve scrolling outside the handles. Animate
+position and size from the currently rendered rectangle when a gesture interrupts
+an earlier transition, then reset transforms on completion or cancellation.
+Current timings are 140 ms for the active card, 210 ms for neighbors, 150 ms for
+the destination outline and 180 ms for release. Respect system animation
+settings. Lock motion is visual only: value and accessibility state must retain
+the last confirmed report. Navigation arrival effects must not replay on telemetry
+refreshes. Check direct drag, long press, corner resize, cancellation, theme
 contrast and interrupted animations at each tested width. Executed results
 belong in `VERIFICATION.txt`, not inferred from an implementation change.
 
@@ -104,9 +131,9 @@ confirmed mode codes (11/2/3). Unknown codes/models and raw diagnostics/exports
 must retain their original values. Reported charge/throughput counters are not
 measured capacity or current-ride consumption.
 
-The battery ring should use the space remaining after its icon readings, with a
-thicker arc and balanced visual placement. Check four readings in one row where
-they fit, then wrapping at narrow widths or large text. Preserve charging context switches, missing/stale semantics and spoken
+The battery cell should use the space remaining after its readings, preserving
+readable percentage/range text and balanced visual placement. Check readings
+in one row where they fit, then wrapping at narrow widths or large text. Preserve charging context switches, missing/stale semantics and spoken
 labels for icon-only readings. Live footer removal must not hide stale timestamps.
 
 Connection status remains concise; errors stay reachable by tapping it. Reuse the

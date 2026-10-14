@@ -4,6 +4,8 @@ A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX
 
 Current application version: **0.9.1**. Independent project; not affiliated with NAVEE.
 
+This source branch also contains an **unreleased dashboard editor update** described below: labeled editing actions, optional five/six-column layouts, a configurable Disconnect button, and short interface animations. These changes are not yet part of the published 0.9.1 APK; see [VERIFICATION.txt](VERIFICATION.txt) for checks actually performed.
+
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
@@ -30,13 +32,17 @@ The named controls target the US UT5 MAX, model/PID 2538. Other models, regions,
 
 Tap the **pencil** to edit Home. Drag the top-left dots to move a widget, or drag its visible lower-right corner to resize it; a long press on the dots also starts a move. A dashed outline previews the full destination while neighboring cards slide aside and fill empty rows. Releasing saves the preview; cancelling restores the starting arrangement. Tap **Done** to use scooter controls again.
 
-The **gear** is the single entry to widget options. For a drag-free alternative, tap the dots for **Move** or the corner for **Size**; both dialogs also remain in the options menu. Widget options keep **Duplicate** and a red **Remove widget** button side by side at the bottom, with an **X** in the top-right corner to close. The actions stay visible while settings scroll. Widget menus, handles and the scooter-name pencil appear only while global dashboard editing is on. Dialogs follow the app's light/dark theme. Layouts are saved per scooter and separately for each column count; **Layout → Columns** offers adaptive or one to four columns, limited by the screen width.
+Beside the move grip, **Edit** with a gear opens widget options, followed by **Duplicate** with a copy icon. Duplicate wraps to a second line on narrow cards. A red **trash icon** in the top-right corner removes the widget. The options sheet keeps its **X** at the top-right and has just **✓ Save** in its fixed footer. For a drag-free alternative, tap the dots for **Move** or the corner for **Size**; both dialogs also remain in the options menu. Widget menus, handles and the scooter-name pencil appear only while global dashboard editing is on. Dialogs follow the app's light/dark theme.
+
+**Layout → Columns** offers **Adaptive** or one to six columns in a rounded selector with a sliding red highlight. Swipe the selector sideways if it does not fit. Adaptive retains the familiar one- through four-column choices; five and six columns are optional on screens wide enough to support them. Layouts remain separate for each column count. New five/six-column arrangements start from the saved four-column layout where available, without resetting it. In six columns, a four-column scooter card beside a two-column lock card gives a two-thirds/one-third split. Each widget has a minimum usable width that also accounts for text size, so six columns give finer sizing steps rather than forcing six tiny cards onto every row.
 
 Editing keeps each widget and its content at the same dimensions as normal viewing. Translucent controls float over the card, so entering or leaving edit mode does not expand cards or rearrange their contents.
 
+Cards animate their size and position together during layout changes. Short transitions also follow deliberate page changes, button presses, and confirmed lock-state updates. They respect Android's disabled-animation setting; movement never substitutes for the scooter's confirmed lock state.
+
 **Edit → Layout → Saved layouts** offers three named slots for each scooter.
 Save captures every widget and its options, the column choice, and all saved
-one- through four-column arrangements together, including folded and unfolded
+one- through six-column arrangements together, including folded and unfolded
 layouts. You can restore defaults or experiment with the current dashboard
 without changing the slots, then restore a slot to return to that setup. Saving
 over an occupied slot and restoring a slot ask for confirmation. Save your
@@ -56,9 +62,11 @@ Live SPORT is pale blue in the dark theme and a readable darker blue in the ligh
 
 Card contents adapt as you resize: rows stack at narrow widths, values fit within readable font limits, and photos, battery cells, gauges and charts use the available space. Short content stays balanced within its card instead of gathering at the top; saved card positions and sizes stay intact. Swipe anywhere within overflowing widget content to scroll it. Your scooter, Lock & connection, Gauge and Ride recorder have three-row minimums to keep their content usable.
 
+**Gauge** uses a 270° ring around a larger centered value and unit, with space below for the minimum and maximum labels. Parameter formatting and grey stale readings retain their existing behavior.
+
 The battery overview uses a tall red battery cell with percentage and estimated range, with power, reported health and temperature readings underneath. Narrow cards and large text wrap readings rather than hide values. While charging, a separate card above the widgets shows the scooter, progress to the charge limit, estimated time and battery-side power. Last-known readings stay grey and retain their timestamps.
 
-Lock & connection is a full-width bar: tap anywhere on it or slide it to lock or unlock. When locked, the white knob sits on the right; when unlocked, the red knob sits on the left. While disconnected or connecting, the card shows the last verified lock time with a Connect or Cancel button instead. The connection line in each page header shows Connected, Connecting or Disconnected with the last-seen time; tap it for details and to connect or disconnect. **More → App preferences → Time format** follows the phone by default, or selects 12-hour/24-hour clocks for displayed times.
+Lock & connection is a full-width bar: tap anywhere on it or slide it to lock or unlock. When locked, the white knob sits on the right; when unlocked, the red knob sits on the left. A **Disconnect** button is shown while connected by default; turn off **Show Disconnect button** in this widget's options to hide it. This option never hides **Connect** or **Cancel** while disconnected or connecting, when the card shows the last verified lock time. The connection line in each page header shows Connected, Connecting or Disconnected with the last-seen time; tap it for details and to connect or disconnect. **More → App preferences → Time format** follows the phone by default, or selects 12-hour/24-hour clocks for displayed times.
 
 The existing Live trend widget supports a **2 minutes** window, including for battery power. Redundant “signed” and “Recent readings • live” labels are removed from the chart presentation; the underlying values and recorded sign remain unchanged. Stats also omits repeated instructions while retaining technical explanations that affect interpretation.
 

@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Refresh Gauge with a 270° ring, a larger centered value and unit, and padded minimum/maximum labels; existing value formatting and stale-state presentation are retained.
+- Put labeled Edit and Duplicate actions beside each widget's move grip, wrapping on narrow cards. A red trash icon occupies the top-right corner; widget options now have only a fixed ✓ Save button below the settings and retain the top-right X.
+- Offer up to six dashboard columns on sufficiently wide screens, with a rounded scrolling selector and animated selection highlight. Adaptive keeps its existing one- through four-column behavior. New five/six-column arrangements derive from saved layouts; existing arrangements and slots remain intact.
+- Give each widget a minimum usable width based on its contents and text size. Saved slots support all one- through six-column arrangements, and a six-column grid allows a four/two split between the scooter and lock cards.
+- Show Disconnect in the connected lock widget by default, with a widget option to hide it. Connect and Cancel remain available when needed.
+- Add short size/position transitions during dashboard editing, confirmed-state lock movement, page transitions and button feedback, respecting Android's disabled-animation setting. Lock commands and confirmation requirements are unchanged.
+
 ## 0.9.1 — 2026-10-13
 
 - Dashboard lock controls adapt to the width of their card: narrow cards stack the lock heading and keep the action within reach. Short slider labels preserve the full-height touch target, and Connecting no longer repeats the scooter name already shown in Home's header.

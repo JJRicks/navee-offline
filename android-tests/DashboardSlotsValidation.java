@@ -54,6 +54,9 @@ public final class DashboardSlotsValidation extends Instrumentation {
             malformedSnapshots();
             boundsNamesAndIsolation();
             migrationCompatibility();
+            sixColumnPersistence();
+            legacyFourColumnSlots();
+            temporaryWidthConstraints();
             require(historyCount() == 2, "Layout changes altered history rows");
             try (Cursor row = history.rawQuery("SELECT profile,wall,power FROM readings ORDER BY wall", null)) {
                 require(row.moveToFirst() && row.getString(0).equals("alpha")
@@ -98,14 +101,14 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(preferences.edit().putInt("dashboard_columns", 4).commit(), "Could not change live columns");
         DashboardConfig reopened = new DashboardConfig(preferences, "alpha");
         require(reopened.slot(0) != null && reopened.restoreSlot(0), "Reopened config could not restore slot");
-        require(signature(reopened).equals(expected), "Full widget options/IDs/order/four layouts did not round-trip");
+        require(signature(reopened).equals(expected), "Full widget options/IDs/order/six layouts did not round-trip");
         require(preferences.getInt("dashboard_columns", -1) == 0, "Adaptive columns were not restored");
         require(signature(new DashboardConfig(preferences, "alpha")).equals(expected), "Restore did not persist live dashboard");
         // Simulate the screen closing after restore, which used to risk rewriting old state.
         reopened.save();
         require(signature(new DashboardConfig(preferences, "alpha")).equals(expected), "close/save overwrote restored state");
         require(preferences.getString(slotKey("alpha", 0), "").equals(snapshot), "Restoration changed the stored snapshot");
-        checks.add("All 15 widget types, options, IDs and independent 1–4-column rectangles survive save/recreation/restore/close");
+        checks.add("All 15 widget types, disconnect preferences, options, IDs and independent 1–6-column rectangles survive save/recreation/restore/close");
     }
 
     private void overwriteAndReset() throws Exception {
@@ -164,6 +167,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
         invalid.add("{"); invalid.add("[]"); invalid.add("null");
         invalid.add(new JSONObject(valid).put("version", 999).toString());
         invalid.add(new JSONObject(valid).put("columns", -1).toString());
+        invalid.add(new JSONObject(valid).put("columns", 7).toString());
         invalid.add(new JSONObject(valid).put("columns", "2").toString());
         invalid.add(new JSONObject(valid).put("savedAt", 0).toString());
         invalid.add(new JSONObject(valid).put("name", "").toString());
@@ -173,8 +177,8 @@ public final class DashboardSlotsValidation extends Instrumentation {
             damaged.getJSONArray("widgets").getJSONObject(0).remove(field);
             invalid.add(damaged.toString());
         }
-        String[] fields = {"id", "type", "color", "window", "min", "max", "advertisedWh", "keys", "title"};
-        Object[] values = {"", "future-type", 4, 0, "0", -999, -1, new JSONArray().put(9), 5};
+        String[] fields = {"id", "type", "color", "window", "min", "max", "advertisedWh", "keys", "title", "showDisconnect"};
+        Object[] values = {"", "future-type", 4, 0, "0", -999, -1, new JSONArray().put(9), 5, "false"};
         for (int i = 0; i < fields.length; i++) {
             JSONObject damaged = new JSONObject(valid);
             damaged.getJSONArray("widgets").getJSONObject(0).put(fields[i], values[i]);
@@ -199,7 +203,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             invalid.add(damaged.toString());
         }
         JSONObject badWidth = new JSONObject(valid);
-        badWidth.getJSONArray("widgets").getJSONObject(0).getJSONObject("layouts").put("9", new JSONArray(new int[]{0,0,1,4}));
+        badWidth.getJSONArray("widgets").getJSONObject(0).getJSONObject("layouts").put("7", new JSONArray(new int[]{0,0,1,4}));
         invalid.add(badWidth.toString());
         for (String broken : invalid) {
             require(preferences.edit().putString(slotKey("damage", 0), broken).commit(), "Could not seed corrupt slot");
@@ -238,7 +242,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             require(!alpha.saveSlot(index, "Invalid", 0) && !alpha.restoreSlot(index)
                             && alpha.slot(index) == null && !alpha.slotExists(index), "Out-of-range slot accepted");
         }
-        require(!alpha.saveSlot(0, "Invalid", -1) && !alpha.saveSlot(0, "Invalid", 5), "Invalid column choice accepted");
+        require(!alpha.saveSlot(0, "Invalid", -1) && !alpha.saveSlot(0, "Invalid", 7), "Invalid column choice accepted");
         require(beforeInvalid.equals(preferences.getAll()), "Invalid API arguments changed preferences");
         require(DashboardConfig.SLOT_COUNT == 3 && DashboardConfig.SLOT_NAME_LIMIT == 40, "Unexpected slot limits");
         StringBuilder name = new StringBuilder();
@@ -271,6 +275,134 @@ public final class DashboardSlotsValidation extends Instrumentation {
         checks.add("Existing legacy dashboard migration remains intact; saved custom scooter readings are never remigrated");
     }
 
+    private void sixColumnPersistence() throws Exception {
+        DashboardConfig config = new DashboardConfig(preferences, "six-columns");
+        config.layout(6, null);
+        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1);
+        require(lock.type.equals("lock") && scooter.type.equals("scooter"), "Unexpected default widget order");
+        require(scooter.layouts.get(6).x == 0 && scooter.layouts.get(6).w == 4
+                        && lock.layouts.get(6).x == 4 && lock.layouts.get(6).w == 2,
+                "Six-column defaults lost the two-thirds scooter/one-third lock split");
+        require(scooter.layouts.get(4).w == 3 && lock.layouts.get(4).x == 3
+                        && lock.layouts.get(4).w == 1,
+                "Adding six-column defaults changed the four-column defaults");
+        require(lock.minimumHeight() == 4, "Lock with Disconnect must reserve room for its action button");
+        lock.showDisconnect = false;
+        require(lock.minimumHeight() == 3, "Hiding Disconnect must allow the compact three-row lock");
+        lock.layouts.get(6).h = 3;
+        String expected = signature(config);
+        require(config.saveSlot(1, "Six-column split", 6), "Six-column snapshot could not be saved");
+        require(config.slot(1).columns == 6, "Six-column metadata was truncated");
+        String saved = preferences.getString(slotKey("six-columns", 1), "");
+        config.reset();
+        DashboardConfig reopened = new DashboardConfig(preferences, "six-columns");
+        require(reopened.restoreSlot(1), "Six-column slot could not be restored after recreation");
+        require(signature(reopened).equals(expected) && !reopened.widgets.get(0).showDisconnect,
+                "Six-column restore lost the saved disconnect preference or widget geometry");
+        require(preferences.getInt("dashboard_columns", -1) == 6,
+                "Six-column preference did not survive restore");
+        reopened.save();
+        require(signature(new DashboardConfig(preferences, "six-columns")).equals(expected),
+                "Six-column geometry or disconnect preference changed on save/recreation");
+        require(reopened.layout(6, null).get(0).h == 3,
+                "Restoring Disconnect=false no longer permits its compact saved lock height");
+        require(preferences.getString(slotKey("six-columns", 1), "").equals(saved),
+                "Restoring or saving the current layout rewrote its saved snapshot");
+        require(reopened.saveSlot(2, "Five-column split", 5) && reopened.restoreSlot(2)
+                        && preferences.getInt("dashboard_columns", -1) == 5,
+                "Five-column preference could not round-trip");
+        checks.add("Explicit five/six-column slots preserve every layout and Disconnect=false; default six-column scooter/lock uses 4+2 without changing 1–4");
+    }
+
+    private void legacyFourColumnSlots() throws Exception {
+        DashboardConfig config = fixture("legacy-four");
+        for (DashboardConfig.Widget widget : config.widgets) {
+            widget.layouts.remove(5); widget.layouts.remove(6);
+            widget.showDisconnect = true;
+        }
+        config.save();
+        String expected = signature(config);
+        String geometry = geometry(config, 1, 4);
+        require(config.saveSlot(0, "Existing four-column layout", 4), "Could not seed legacy slot");
+        JSONObject legacy = new JSONObject(preferences.getString(slotKey("legacy-four", 0), ""));
+        require(legacy.getInt("version") == 1, "Legacy fixture must exercise version-one snapshots");
+        JSONArray definitions = legacy.getJSONArray("widgets");
+        for (int i = 0; i < definitions.length(); i++) definitions.getJSONObject(i).remove("showDisconnect");
+        String oldSnapshot = legacy.toString();
+        require(preferences.edit().putString(slotKey("legacy-four", 0), oldSnapshot).commit(),
+                "Could not store snapshot from before disconnect options and six columns");
+        config.widgets.get(0).showDisconnect = false;
+        config.widgets.get(0).title = "Changed current layout";
+        require(config.restoreSlot(0) && signature(config).equals(expected),
+                "Legacy 1–4-column snapshot changed geometry/options or did not default Disconnect to true");
+        require(signature(new DashboardConfig(preferences, "legacy-four")).equals(expected),
+                "Legacy layout changed on recreation");
+        require(preferences.getString(slotKey("legacy-four", 0), "").equals(oldSnapshot),
+                "Loading a legacy slot rewrote its serialized snapshot");
+        config.layout(6, null);
+        require(geometry(config, 1, 4).equals(geometry), "Deriving six columns rewrote existing 1–4 geometry");
+        for (DashboardConfig.Widget widget : config.widgets) {
+            DashboardLayout.Cell source = widget.layouts.get(4), converted = widget.layouts.get(6);
+            DashboardLayout.Cell expectedCell = DashboardLayout.rescale(source, 4, 6);
+            require(converted.x == expectedCell.x && converted.w == expectedCell.w
+                            && converted.y == source.y && converted.h == source.h,
+                    "A noncolliding legacy layout did not derive six-column geometry proportionally");
+        }
+        config.layout(5, null);
+        require(geometry(config, 1, 4).equals(geometry), "Deriving five columns rewrote legacy geometry");
+        checks.add("Version-one 1–4-column snapshots without the new option restore unchanged with Disconnect=true; 5/6 are derived independently");
+    }
+
+    private void temporaryWidthConstraints() throws Exception {
+        DashboardConfig config = new DashboardConfig(preferences, "width-constraints");
+        config.layout(6, null);
+        config.save();
+        require(config.saveSlot(0, "Original wide layout", 6), "Could not save width-constraint fixture");
+        String expected = signature(config);
+        String expectedSlot = preferences.getString(slotKey("width-constraints", 0), "");
+        String stored = preferences.getString("dashboard_v1_width-constraints", "");
+        java.util.List<DashboardLayout.Cell> wide = config.layout(6, null, 900, 10, 1);
+        java.util.List<DashboardLayout.Cell> narrow = config.layout(6, null, 280, 10, 1.4f);
+        require(narrow.get(0).w > wide.get(0).w,
+                "Narrow/large-text fixture did not actually broaden the lock widget");
+        require(signature(config).equals(expected), "Temporary width constraints mutated stored cell geometry");
+        require(preferences.getString("dashboard_v1_width-constraints", "").equals(stored)
+                        && preferences.getString(slotKey("width-constraints", 0), "").equals(expectedSlot),
+                "Temporary width constraints wrote to preferences or saved slots");
+        for (int i = 0; i < narrow.size(); i++) {
+            DashboardLayout.Cell cell = narrow.get(i);
+            require(cell.w >= config.widgets.get(i).minimumWidth(6, 280, 10, 1.4f)
+                            && cell.x >= 0 && cell.x + cell.w <= 6,
+                    "Narrow layout violated a card's minimum span or bounds");
+            for (int j = 0; j < i; j++)
+                require(!DashboardLayout.overlaps(cell, narrow.get(j)), "Width adaptation overlapped cards");
+        }
+        java.util.List<DashboardLayout.Cell> restored = config.layout(6, null, 900, 10, 1);
+        for (int i = 0; i < wide.size(); i++) {
+            DashboardLayout.Cell before = wide.get(i), after = restored.get(i);
+            require(before.x == after.x && before.y == after.y && before.w == after.w && before.h == after.h,
+                    "Returning to a wide window failed to restore the original displayed geometry");
+        }
+        config.save();
+        require(signature(new DashboardConfig(preferences, "width-constraints")).equals(expected),
+                "Closing after width adaptation persisted temporary expanded cells");
+        checks.add("Narrow windows and large text widen cards without overlap or stored-layout mutation, then recover the original wide layout");
+    }
+
+    private String geometry(DashboardConfig config, int firstColumn, int lastColumn) {
+        StringBuilder result = new StringBuilder();
+        for (DashboardConfig.Widget widget : config.widgets) {
+            result.append(widget.id).append(':');
+            for (int columns = firstColumn; columns <= lastColumn; columns++) {
+                DashboardLayout.Cell cell = widget.layouts.get(columns);
+                if (cell == null) result.append("absent;");
+                else result.append(cell.x).append(',').append(cell.y).append(',')
+                        .append(cell.w).append(',').append(cell.h).append(';');
+            }
+        }
+        return result.toString();
+    }
+
     private DashboardConfig fixture(String profile) {
         DashboardConfig config = new DashboardConfig(preferences, profile);
         config.widgets.clear();
@@ -280,8 +412,9 @@ public final class DashboardSlotsValidation extends Instrumentation {
             widget.note = "Local note " + i + "\nSecond line"; widget.color = i % 4;
             widget.windowMs = (i + 1) * 120000L; widget.minimum = -40.5 - i;
             widget.maximum = 500.25 + i; widget.advertisedWh = 780.5 + i;
+            widget.showDisconnect = i % 2 != 0;
             widget.keys.clear(); widget.keys.addAll(Arrays.asList("speed_kmh", "voltage_v", "power_w"));
-            for (int columns = 1; columns <= 4; columns++) {
+            for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
                 int width = Math.min(columns, 1 + i % 2);
                 widget.layouts.put(columns, new DashboardLayout.Cell(widget.id,
                         (i + columns) % (columns - width + 1), i * 10 + columns, width, 5 + i % 3));
@@ -298,8 +431,9 @@ public final class DashboardSlotsValidation extends Instrumentation {
             result.append(w.id).append('|').append(w.type).append('|').append(w.title).append('|')
                     .append(w.metric).append('|').append(w.note).append('|').append(w.color).append('|')
                     .append(w.windowMs).append('|').append(w.minimum).append('|').append(w.maximum).append('|')
-                    .append(w.advertisedWh).append('|').append(w.keys).append('|');
-            for (int columns = 1; columns <= 4; columns++) {
+                    .append(w.advertisedWh).append('|').append(w.keys).append('|')
+                    .append(w.showDisconnect).append('|');
+            for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
                 DashboardLayout.Cell c = w.layouts.get(columns);
                 if (c == null) result.append("absent;");
                 else result.append(c.id).append(':').append(c.x).append(',').append(c.y).append(',').append(c.w).append(',').append(c.h).append(';');

@@ -8,6 +8,7 @@ import java.util.*;
 
 /** Local, per-scooter dashboard definitions with independent layouts for each column count. */
 public final class DashboardConfig {
+    public static final int MAX_COLUMNS = DashboardLayout.MAX_COLUMNS;
     public static final int SLOT_COUNT = 3;
     public static final int SLOT_NAME_LIMIT = 40;
     private static final int SLOT_VERSION = 1;
@@ -75,6 +76,7 @@ public final class DashboardConfig {
         public double minimum = 0, maximum = 100;
         /** Zero selects the model's documented rating, where known. */
         public double advertisedWh = 0;
+        public boolean showDisconnect = true;
 
         public Widget(String type) {
             this(UUID.randomUUID().toString(), type);
@@ -132,7 +134,8 @@ public final class DashboardConfig {
 
         public int minimumHeight() {
             if (type.equals("scooter")) return 3;
-            if (type.equals("lock") || type.equals("gauge") || type.equals("ride")) return 3;
+            if (type.equals("lock")) return showDisconnect ? 4 : 3;
+            if (type.equals("gauge") || type.equals("ride")) return 3;
             return type.equals("live") || type.equals("history")
                     ? 4
                     : type.equals("health")
@@ -145,11 +148,17 @@ public final class DashboardConfig {
         }
 
         public int defaultWidth(int columns) {
-            if (type.equals("metric") || type.equals("gauge")) return 1;
+            columns = Math.max(1, Math.min(MAX_COLUMNS, columns));
+            if (type.equals("metric") || type.equals("gauge"))
+                return columns > 4 ? (columns + 2) / 3 : 1;
             if (type.equals("lock") || type.equals("scooter") || type.equals("capacity"))
                 return columns;
             if (columns == 3 && (type.equals("quick") || type.equals("ride"))) return 1;
-            return Math.min(columns, 2);
+            return columns > 4 ? (columns + 1) / 2 : Math.min(columns, 2);
+        }
+
+        public int minimumWidth(int columns, float availableWidthDp, float gapDp, float textScale) {
+            return DashboardLayout.minimumSpan(type, columns, availableWidthDp, gapDp, textScale);
         }
     }
 
@@ -193,6 +202,7 @@ public final class DashboardConfig {
             w.minimum = o.optDouble("min", 0);
             w.maximum = o.optDouble("max", 100);
             w.advertisedWh = o.optDouble("advertisedWh", 0);
+            w.showDisconnect = o.optBoolean("showDisconnect", true);
             if (!Double.isFinite(w.advertisedWh)
                     || w.advertisedWh < 0
                     || w.advertisedWh > 10000) w.advertisedWh = 0;
@@ -234,7 +244,7 @@ public final class DashboardConfig {
             }
             JSONObject layouts = o.optJSONObject("layouts");
             if (layouts != null)
-                for (int c = 1; c <= 4; c++) {
+                for (int c = 1; c <= MAX_COLUMNS; c++) {
                     JSONArray p = layouts.optJSONArray(Integer.toString(c));
                     if (p != null && p.length() == 4)
                         w.layouts.put(
@@ -254,7 +264,7 @@ public final class DashboardConfig {
     public void reset() {
         widgets.clear();
         String[] types = {"lock", "scooter", "battery", "live", "capacity", "ride"};
-        // Each widget has independent rectangles for one through four columns.
+        // Each widget has independent rectangles for one through six columns.
         // Two/four columns reproduce the owner's folded/unfolded arrangement;
         // one/three columns retain its reading order and compact side-by-side groups.
         int[][][] placements = {
@@ -272,15 +282,26 @@ public final class DashboardConfig {
                 widget.layouts.put(columns, new DashboardLayout.Cell(
                         widget.id, cell[0], cell[1], cell[2], cell[3]));
             }
+            for (int columns = 5; columns <= MAX_COLUMNS; columns++)
+                widget.layouts.put(columns, DashboardLayout.rescale(widget.layouts.get(4), 4, columns));
             widgets.add(widget);
         }
         save();
     }
 
     public List<DashboardLayout.Cell> layout(int columns, String priority) {
+        columns = Math.max(1, Math.min(MAX_COLUMNS, columns));
         ArrayList<DashboardLayout.Cell> cells = new ArrayList<>();
         for (Widget w : widgets) {
             DashboardLayout.Cell cell = w.layouts.get(columns);
+            // New finer grids start from the owner's existing unfolded layout.
+            // Materializing them must not rewrite any previously saved width.
+            if (cell == null && columns > 4) {
+                int sourceColumns = w.layouts.containsKey(4) ? 4 : columns - 1;
+                while (sourceColumns > 0 && !w.layouts.containsKey(sourceColumns)) sourceColumns--;
+                if (sourceColumns > 0)
+                    cell = DashboardLayout.rescale(w.layouts.get(sourceColumns), sourceColumns, columns);
+            }
             if (cell == null) {
                 int width = w.defaultWidth(columns);
                 cell = new DashboardLayout.Cell(w.id, 0, 0, width, w.defaultHeight());
@@ -293,6 +314,26 @@ public final class DashboardConfig {
         for (DashboardLayout.Cell cell : settled)
             for (Widget w : widgets) if (w.id.equals(cell.id)) w.layouts.put(columns, cell);
         return settled;
+    }
+
+    /**
+     * Adapts measured cards to usable widths without overwriting stored placement.
+     * Temporary window/font changes can therefore expand cards and return to the
+     * original layout later. Gesture previews should start from these displayed
+     * rectangles and persist them only when the owner commits an actual edit.
+     */
+    public List<DashboardLayout.Cell> layout(int columns, String priority,
+            float availableWidthDp, float gapDp, float textScale) {
+        columns = Math.max(1, Math.min(MAX_COLUMNS, columns));
+        List<DashboardLayout.Cell> saved = layout(columns, priority);
+        ArrayList<DashboardLayout.Cell> visible = new ArrayList<>();
+        for (int i = 0; i < widgets.size(); i++) {
+            DashboardLayout.Cell cell = saved.get(i).copy();
+            cell.w = Math.max(cell.w,
+                    widgets.get(i).minimumWidth(columns, availableWidthDp, gapDp, textScale));
+            visible.add(cell);
+        }
+        return DashboardLayout.settle(visible, columns, priority);
     }
 
     public void save() {
@@ -321,6 +362,7 @@ public final class DashboardConfig {
             o.put("min", w.minimum);
             o.put("max", w.maximum);
             o.put("advertisedWh", w.advertisedWh);
+            o.put("showDisconnect", w.showDisconnect);
             o.put("keys", new JSONArray(w.keys));
             JSONObject layouts = new JSONObject();
             for (Map.Entry<Integer, DashboardLayout.Cell> e : w.layouts.entrySet()) {
@@ -364,7 +406,7 @@ public final class DashboardConfig {
 
     /** Captures every stored width together, without materializing missing width layouts. */
     public boolean saveSlot(int index, String name, int columns) {
-        if (!validSlot(index) || columns < 0 || columns > 4) return false;
+        if (!validSlot(index) || columns < 0 || columns > MAX_COLUMNS) return false;
         try {
             JSONObject snapshot = new JSONObject();
             snapshot.put("version", SLOT_VERSION);
@@ -453,7 +495,7 @@ public final class DashboardConfig {
         require(!name.isEmpty() && name.equals(slotName(name, 0)), "Invalid slot name");
         require(integer(snapshot.get("savedAt")) > 0, "Invalid slot timestamp");
         long columns = integer(snapshot.get("columns"));
-        require(columns >= 0 && columns <= 4, "Invalid column choice");
+        require(columns >= 0 && columns <= MAX_COLUMNS, "Invalid column choice");
         JSONArray definitions = snapshot.getJSONArray("widgets");
         require(definitions.length() <= 32, "Too many widgets");
         HashSet<String> ids = new HashSet<>();
@@ -472,6 +514,9 @@ public final class DashboardConfig {
             require(maximum > minimum, "Invalid gauge range");
             double advertised = number(widget.get("advertisedWh"));
             require(advertised >= 0 && advertised <= 10000, "Invalid battery rating");
+            // Optional in version-1 snapshots created before this preference existed.
+            if (widget.has("showDisconnect"))
+                require(widget.get("showDisconnect") instanceof Boolean, "Invalid disconnect preference");
             JSONArray keys = widget.getJSONArray("keys");
             require(keys.length() <= 12, "Too many reading keys");
             for (int k = 0; k < keys.length(); k++) string(keys.get(k));
@@ -485,7 +530,8 @@ public final class DashboardConfig {
             Iterator<String> widths = layouts.keys();
             while (widths.hasNext()) {
                 String width = widths.next();
-                require(Arrays.asList("1", "2", "3", "4").contains(width), "Invalid layout width");
+                require(width.length() == 1 && width.charAt(0) >= '1'
+                        && width.charAt(0) <= '0' + MAX_COLUMNS, "Invalid layout width");
                 int columnCount = Integer.parseInt(width);
                 JSONArray rectangle = layouts.getJSONArray(width);
                 require(rectangle.length() == 4, "Invalid layout rectangle");
