@@ -36,14 +36,14 @@ final class StatsCharts {
     private final Consumer<String> toggleFavourite;
     private final LinearLayout groupHolder;
     private final TextView count;
-    private final SegmentedSelector windowSelector;
+    private final StatsWindowPicker windowSelector;
     private String query, source = "", catalogSignature = "";
     private long lastDiscovery = -60000;
     private int discoveryGeneration, windowIndex;
     private boolean discovering, closed;
     private Dialog fullscreen;
     private Card fullscreenCard;
-    private SegmentedSelector fullscreenWindow;
+    private StatsWindowPicker fullscreenWindow;
 
     final class Group {
         final LinearLayout card, body;
@@ -93,9 +93,8 @@ final class StatsCharts {
         refresh();
     }
     private LinearLayout column() { LinearLayout v = new LinearLayout(host.activity()); v.setOrientation(LinearLayout.VERTICAL); return v; }
-    private SegmentedSelector selector() {
-        SegmentedSelector selector = new SegmentedSelector(ui, "Chart time window", WINDOW_LABELS, this::selectWindow);
-        selector.useCompactPadding(); selector.select(windowIndex, false); return selector;
+    private StatsWindowPicker selector() {
+        return new StatsWindowPicker(ui, WINDOW_LABELS, windowIndex, this::selectWindow);
     }
     private void selectWindow(int index) {
         if (index < 0 || index >= WINDOWS.length || index == windowIndex) return;
@@ -277,7 +276,8 @@ final class StatsCharts {
     }
     private void expand(String key) {
         if (fullscreen != null) fullscreen.dismiss();
-        fullscreen = new Dialog(host.activity()); fullscreen.requestWindowFeature(Window.FEATURE_NO_TITLE);
+        fullscreen = new Dialog(host.activity(), ui.dark ? android.R.style.Theme_Material_NoActionBar : android.R.style.Theme_Material_Light_NoActionBar);
+        fullscreen.requestWindowFeature(Window.FEATURE_NO_TITLE);
         LinearLayout content = column(); content.setPadding(ui.dp(18), ui.dp(18), ui.dp(18), ui.dp(18)); content.setBackgroundColor(ui.bg);
         LinearLayout top = new LinearLayout(host.activity()); top.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = ui.text(label(key), 20, true); top.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
@@ -290,17 +290,42 @@ final class StatsCharts {
         content.addView(fullscreenCard.view, new LinearLayout.LayoutParams(-1, 0, 1));
         fullscreen.setContentView(content);
         final Dialog opened = fullscreen; final Card expanded = fullscreenCard;
-        final SegmentedSelector expandedWindow = fullscreenWindow;
+        final StatsWindowPicker expandedWindow = fullscreenWindow;
         fullscreen.setOnDismissListener(d -> {
-            release(expanded); expandedWindow.finishMotion();
+            release(expanded); expandedWindow.close();
             if (fullscreen == opened) { fullscreenCard = null; fullscreenWindow = null; fullscreen = null; }
         });
         fullscreen.show(); Window window = fullscreen.getWindow();
-        if (window != null) window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+        if (window != null) {
+            window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(ui.bg));
+            window.getDecorView().setPadding(0, 0, 0, 0);
+            window.setStatusBarColor(ui.bg); window.setNavigationBarColor(ui.bg);
+            if (Build.VERSION.SDK_INT >= 30) window.setDecorFitsSystemWindows(false);
+            else window.getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE
+                    | View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN | View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+            content.setOnApplyWindowInsetsListener((v, insets) -> {
+                int left, topInset, right, bottom;
+                if (Build.VERSION.SDK_INT >= 30) {
+                    android.graphics.Insets safe = insets.getInsets(android.view.WindowInsets.Type.systemBars()
+                            | android.view.WindowInsets.Type.displayCutout());
+                    left = safe.left; topInset = safe.top; right = safe.right; bottom = safe.bottom;
+                } else { left = insets.getSystemWindowInsetLeft(); topInset = insets.getSystemWindowInsetTop();
+                    right = insets.getSystemWindowInsetRight(); bottom = insets.getSystemWindowInsetBottom(); }
+                v.setPadding(ui.dp(18) + left, ui.dp(18) + topInset, ui.dp(18) + right, ui.dp(18) + bottom);
+                return insets;
+            });
+            if (Build.VERSION.SDK_INT >= 30 && window.getInsetsController() != null) {
+                int mask = android.view.WindowInsetsController.APPEARANCE_LIGHT_STATUS_BARS
+                        | android.view.WindowInsetsController.APPEARANCE_LIGHT_NAVIGATION_BARS;
+                window.getInsetsController().setSystemBarsAppearance(ui.dark ? 0 : mask, mask);
+            }
+            window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
+            content.requestApplyInsets();
+        }
         content.post(this::refreshVisible);
     }
     void close() {
-        closed = true; discoveryGeneration++; if (fullscreen != null) fullscreen.dismiss(); windowSelector.finishMotion();
+        closed = true; discoveryGeneration++; if (fullscreen != null) fullscreen.dismiss(); windowSelector.close();
         for (Card card : new ArrayList<>(instances)) release(card);
     }
 }

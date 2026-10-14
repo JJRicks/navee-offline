@@ -100,6 +100,7 @@ public final class LiveStatsValidation extends Instrumentation {
             main(() -> { require(activity.service().setSimulation(true), "Sample fixture could not start"); activity.redraw(); }); settle();
             main(() -> require(Boolean.TRUE.equals(field(field(activity, "liveStatsTitle"), "live")), "Connected sample heading is not live"));
             section("Charts");
+            verifyWindowPicker(false);
             main(() -> {
                 Object browser = field(stats(), "chartBrowser"); Map<?, ?> charts = (Map<?, ?>)field(browser, "cards");
                 long numeric = activity.service().displayReadings().values().stream().filter(r -> r.number != null).count();
@@ -131,7 +132,13 @@ public final class LiveStatsValidation extends Instrumentation {
                 graph.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time, 0, graph.getWidth() * .5f, graph.getHeight() * .5f, 0));
                 graph.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time + 10, 1, graph.getWidth() * .5f, graph.getHeight() * .5f, 0));
                 require(((Number)field(graph, "selected")).intValue() >= 0, "Fullscreen trace inspection missing");
+                android.app.Dialog expanded = (android.app.Dialog)field(browser, "fullscreen");
+                View decor = expanded.getWindow().getDecorView();
+                require(decor.getPaddingLeft() == 0 && decor.getPaddingRight() == 0, "Fullscreen still has theme window insets");
+                require(decor.getWidth() == getTargetContext().getResources().getDisplayMetrics().widthPixels,
+                        "Expanded chart window does not fill display width");
             }); screenshot("chart-fullscreen");
+            verifyWindowPicker(true);
             main(() -> ((android.app.Dialog)field(field(stats(), "chartBrowser"), "fullscreen")).dismiss());
             main(() -> ((EditText)field(field(stats(), "chartBrowser"), "search")).setText("temperature_c")); settle();
             main(() -> ((android.widget.ScrollView)field(stats(), "sectionScroll")).fullScroll(View.FOCUS_DOWN)); settle();
@@ -156,6 +163,8 @@ public final class LiveStatsValidation extends Instrumentation {
             main(() -> invoke(stats(), "showFavouriteOrder", new Class<?>[]{})); settle(); screenshot("favourites-reorder");
             main(() -> {
                 android.app.AlertDialog dialog = (android.app.AlertDialog)field(stats(), "orderDialog");
+                require(dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getTypeface().equals(activity.ui().semibold()),
+                        "Reorder action does not use app typography");
                 View button = findDescription(dialog.getWindow().getDecorView(), "Move Battery power (signed) chart up");
                 require(button != null && button.isEnabled(), "Mixed reorder control missing"); button.performClick();
                 require(settings().getString("stats_favourite_order", "").startsWith("chart:power_w"), "Chart reorder not saved"); dialog.dismiss();
@@ -174,6 +183,42 @@ public final class LiveStatsValidation extends Instrumentation {
         finally { result.putInt("assertions", checks); result.putStringArrayList("screenshots", shots);
             if (activity != null) main(() -> { activity.finish(); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); });
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result); }
+    }
+    @SuppressWarnings("unchecked")
+    private void verifyWindowPicker(boolean fullscreen) throws Exception {
+        Object browser = field(stats(), "chartBrowser");
+        Object picker = field(browser, fullscreen ? "fullscreenWindow" : "windowSelector");
+        for (int index = 0; index < 8; index++) {
+            final int selected = index;
+            main(() -> ((View)field(picker, "button")).performClick()); settle();
+            main(() -> {
+                android.app.Dialog dialog = (android.app.Dialog)field(picker, "dialog");
+                require(dialog != null && dialog.isShowing(), "Window picker did not open");
+                List<TextView> choices = (List<TextView>)field(picker, "choices");
+                require(choices.size() == 8, "Window picker does not expose all eight choices");
+                for (TextView choice : choices) {
+                    android.graphics.Rect visible = new android.graphics.Rect();
+                    require(choice.isShown() && choice.getGlobalVisibleRect(visible)
+                            && visible.width() >= choice.getWidth() && visible.height() >= choice.getHeight(),
+                            "Window choice clipped or requires scrolling: " + choice.getText());
+                    require(choice.getWidth() >= activity.ui().dp(48) && choice.getHeight() >= activity.ui().dp(48),
+                            "Window choice touch target too small");
+                    require(choice.getLayout() != null && choice.getLayout().getEllipsisCount(0) == 0, "Window label truncated");
+                    for (int line = 0; line < choice.getLineCount(); line++)
+                        require(choice.getLayout().getLineWidth(line) <= choice.getWidth() - choice.getCompoundPaddingLeft() - choice.getCompoundPaddingRight() + 1,
+                                "Window label overflows its target");
+                }
+            });
+            if (index == 7) screenshot(fullscreen ? "fullscreen-window-choices" : "window-choices");
+            main(() -> {
+                ((List<TextView>)field(picker, "choices")).get(selected).performClick();
+                require(((Number)field(browser, "windowIndex")).intValue() == selected, "Window choice did not change global selection");
+                require(((Number)field(field(browser, "windowSelector"), "selected")).intValue() == selected,
+                        "Page window label is not synchronized");
+                if (fullscreen) require(((Number)field(field(browser, "fullscreenWindow"), "selected")).intValue() == selected,
+                        "Fullscreen window label is not synchronized");
+            }); settle();
+        }
     }
     @SuppressWarnings("unchecked")
     private void verifySavedTailMerge(Object browser, Object card, Ui.ChartView graph) {

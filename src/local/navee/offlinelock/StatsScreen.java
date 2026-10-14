@@ -566,8 +566,16 @@ public final class StatsScreen implements AppScreen {
         LinearLayout content = vertical(); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(8));
         ScrollView scroller = new ScrollView(host.activity()); scroller.addView(content);
         rebuildFavouriteOrder(content);
-        orderDialog = new AlertDialog.Builder(host.activity()).setTitle("Reorder favourites").setView(scroller)
+        TextView title = ui.text("Reorder favourites", 20, true);
+        title.setPadding(ui.dp(24), ui.dp(22), ui.dp(24), ui.dp(6));
+        if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
+        orderDialog = new AlertDialog.Builder(host.activity()).setCustomTitle(title).setView(scroller)
                 .setPositiveButton("Done", null).create(); orderDialog.show();
+        if (orderDialog.getWindow() != null) orderDialog.getWindow().setBackgroundDrawable(
+                new android.graphics.drawable.InsetDrawable(ui.shape(ui.surface, 24, 0), ui.dp(16)));
+        android.widget.Button done = orderDialog.getButton(AlertDialog.BUTTON_POSITIVE);
+        done.setTypeface(ui.semibold()); done.setAllCaps(false); done.setTextColor(ui.accent);
+        done.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 * ui.textScale);
     }
     private void rebuildFavouriteOrder(LinearLayout content) {
         content.removeAllViews(); List<String> order = favouriteOrder();
