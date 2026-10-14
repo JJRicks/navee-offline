@@ -1,0 +1,17 @@
+{
+  "name": "volt-owner-setup",
+  "private": true,
+  "version": "1.0.0",
+  "type": "module",
+  "scripts": {
+    "build": "node build.mjs",
+    "test": "node --test test/*.test.mjs"
+  },
+  "dependencies": {
+    "@yume-chan/adb": "2.6.4",
+    "@yume-chan/adb-daemon-webusb": "2.3.2"
+  },
+  "devDependencies": {
+    "esbuild": "0.28.2"
+  }
+}

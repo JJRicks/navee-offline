@@ -132,9 +132,11 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before using instrumentation: some parke
 
 ## First setup and everyday use
 
-Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. The current first-capture method uses a computer and ADB; daily use does not. No owner credentials are embedded in this repository or APK.
+Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the guided [Chrome/USB helper](https://pairscooter.jjricks.com/) or the existing computer ADB/Python helper; daily use needs neither. No owner credentials are embedded in this repository or APK. The [browser helper documentation](setup/web/README.md) explains its explicit consent stages, local processing, recovery, and self-hosting.
 
-On first launch the app opens a step-by-step setup: choose to capture an identity, import a backup file or enter a 12-character identity, then follow one short step per screen through USB debugging, the capture helper, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
+The Chrome/USB helper is a testing preview, not a general release. A successful real browser capture with a nearby scooter is still awaiting validation. A developer can also run the static helper locally using the linked instructions, or use the existing desktop helper. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
+
+On first launch the app opens a step-by-step setup: choose Chrome/USB capture, the desktop helper, import a backup file or enter a 12-character identity, then follow one short step per screen through USB debugging, the chosen helper, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
 
 See [SETUP.txt](SETUP.txt) for the capture helper and private backup/import instructions, and [README.txt](README.txt) for detailed app behavior and recording interpretation.
 
@@ -168,6 +170,7 @@ Old recordings have no phone route to reconstruct. Exported route/phone files co
 | `tests/` | Core Java suites and runner |
 | `android-tests/` | Separate device/emulator instrumentation |
 | `setup/capture-owner.py` | Initial owner capture/import helper |
+| `setup/web/` | Static Chrome/USB owner wizard, pinned browser ADB bundle, recovery and security tests |
 
 ## License and attribution
 
