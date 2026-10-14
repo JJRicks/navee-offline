@@ -113,7 +113,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     };
     private final Runnable settingsRebuild = this::rebuild;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged=(p,key)->{
-        if(key.equals("theme")||key.equals("units")||key.equals("temperature_unit")) {
+        if(key.equals("theme")||key.equals("units")||key.equals("temperature_unit")||key.equals("stats_density")) {
             handler.removeCallbacks(settingsRebuild);
             handler.postDelayed(settingsRebuild, Ui.motionEnabled() ? 210 : 0);
         } else if(key.equals("text_scale")) { handler.removeCallbacks(settingsRebuild); handler.post(settingsRebuild); }
@@ -1204,13 +1204,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&liveActual!=null&&scooterService.featureFresh(feature.key);
             String shown;
-            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.recent(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()),System.currentTimeMillis());}
+            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.clock(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));}
             else shown=actual==null?"Not reported":valueText(feature,actual);
             boolean choices=feature.type!=ScooterCommands.Type.CHOICE||(ble!=null&&ble.featureChoices(feature.key).length>0);
             name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&choices);
             if(toggle==null&&!inline){
                 // A long value moves under the label so the row never wraps beside the chevron.
-                boolean wide=shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
+                boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
             }else if(inline)row.setSub(actual==null?"Not reported":null);
             for(Map.Entry<Integer,View> option:options.entrySet()){
                 boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();

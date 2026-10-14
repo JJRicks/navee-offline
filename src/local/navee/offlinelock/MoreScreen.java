@@ -788,9 +788,9 @@ public final class MoreScreen implements AppScreen {
         segmentedField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
                 new String[]{"system", "12h", "24h"}, "system");
         View spacer = new View(host.activity()); cardDestination.addView(spacer, new LinearLayout.LayoutParams(-1, ui.dp(8)));
-        LinearLayout display = group();
-        preferenceChoice(display, "stats", "Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
+        segmentedField("Live Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
                 new String[]{"comfortable", "dense"}, "comfortable");
+        LinearLayout display = group();
         Row text = row(display, "text", "Text size", null, this::textSize);
         valueRefreshers.add(() -> text.value(Math.round(settings().getFloat("text_scale", 1f) * 100) + "%"));
         label("Connection & recording");
@@ -803,7 +803,6 @@ public final class MoreScreen implements AppScreen {
     }
     private void segmentedField(String title, String key, String[] labels, String[] values, String fallback) {
         TextView caption = ui.text(title, 12.5f, false); caption.setTextColor(ui.muted);
-        if (key.equals("temperature_unit")) ui.decorate(caption, "temperature");
         caption.setPadding(ui.dp(2), ui.dp(12), ui.dp(2), ui.dp(6));
         cardDestination.addView(caption);
         SegmentedSelector selector = new SegmentedSelector(ui, title, labels, choice -> {
@@ -823,22 +822,6 @@ public final class MoreScreen implements AppScreen {
         cardDestination.addView(selector, new LinearLayout.LayoutParams(-1, -2));
         preferenceSelectors.add(selector);
         restyle.run(); valueRefreshers.add(restyle);
-    }
-    private void preferenceChoice(LinearLayout box, String icon, String title, String key, String[] labels, String[] values, String fallback) {
-        Row row = row(box, icon, title, null, () -> {
-            String stored = settings().getString(key, fallback); int selected = 0;
-            for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) selected = i;
-            AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle(title)
-                    .setSingleChoiceItems(labels, selected, (d, choice) -> {
-                        settings().edit().putString(key, values[choice]).apply(); d.dismiss();
-                        if (key.equals("theme") || key.equals("stats_density")) host.rebuild(); else host.redraw();
-                    }).setNegativeButton("Close", null).create(); show(dialog);
-        });
-        valueRefreshers.add(() -> {
-            String stored = settings().getString(key, fallback), shown = labels[0];
-            for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) shown = labels[i];
-            row.value(shown);
-        });
     }
     private void preferenceToggle(LinearLayout box, String icon, String title, String detail, String key, boolean fallback) {
         Row row = toggleRow(box, icon, title, detail, enabled -> {
@@ -955,14 +938,18 @@ public final class MoreScreen implements AppScreen {
     }
     private void telemetryRate() {
         final int[] intervals = {2000, 5000, 10000};
-        String[] labels = {"Fast · every 2 seconds", "Balanced · every 5 seconds", "Battery saver · every 10 seconds"};
         int stored = settings().getInt("poll_interval_ms", 2000), selected = 0;
         for (int i = 0; i < intervals.length; i++) if (stored == intervals[i]) selected = i;
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Battery telemetry refresh")
-                .setSingleChoiceItems(labels, selected, (d, choice) -> {
+        LinearLayout box = dialogBox("Battery telemetry refresh",
+                "Ride recording always uses the faster 2-second battery refresh.");
+        SegmentedSelector selector = new SegmentedSelector(ui, "Telemetry refresh",
+                new String[]{"2 seconds", "5 seconds", "10 seconds"}, choice -> {
                     settings().edit().putInt("poll_interval_ms", intervals[choice]).apply();
-                    d.dismiss(); refresh(); host.toast("Ride recording always keeps its faster 2-second battery refresh.");
-                }).setNegativeButton("Close", null).create(); show(dialog);
+                    refresh();
+                });
+        selector.select(selected, false); box.addView(selector, new LinearLayout.LayoutParams(-1, -2));
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box)
+                .setPositiveButton("Done", null).create(); show(dialog);
     }
 
     // ---- PIN & proximity ----------------------------------------------------------------
