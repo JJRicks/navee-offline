@@ -45,6 +45,8 @@ public final class ScooterService extends Service {
     private PhoneRideRecorder phoneRecorder;private boolean phoneLocationForeground;private int phoneSavingCount;private String phoneFinalStatus;
     private PowerManager.WakeLock wakeLock;private boolean visible,foregroundStarted,gapMarked,workActive,destroyed;private int samples;private long lastNotification,backgroundDeadlineMs;
     private String trendProfile = "", recordingError;
+    private final RangeFollowPolicy rangeFollowPolicy = new RangeFollowPolicy();
+    private boolean selectingRange;
     private final ArrayDeque<Ui.Point> power=new ArrayDeque<>(),voltage=new ArrayDeque<>(),speed=new ArrayDeque<>();
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged =
             (prefs, key) -> {
@@ -268,10 +270,12 @@ public final class ScooterService extends Service {
                     }
                     if (simulating()) {
                         ble.tickSimulation();
+                        followRangeMode();
                         if (visible) changed();
                         if (visible && workActive) handler.postDelayed(this, 1000);
                         return;
                     }
+                    followRangeMode();
                     long mono = SystemClock.elapsedRealtime(), wall = System.currentTimeMillis();
                     ScooterProfiles.Profile selected = profiles.active();
                     String selectedId = selected == null ? "" : selected.id;
@@ -335,7 +339,34 @@ public final class ScooterService extends Service {
             };
 
     private void addTrend(ArrayDeque<Ui.Point> values,String key,long now){for(Telemetry.Metric m:ble.telemetry.metrics())if(m.key.equals(key)&&m.numericValue!=null&&m.updatedMs>=0&&now>=m.updatedMs&&now-m.updatedMs<2500){if(values.isEmpty()||values.peekLast().millis<m.updatedMs)values.add(new Ui.Point(m.updatedMs,m.numericValue));break;}while(!values.isEmpty()&&now-values.peek().millis>120000)values.remove();while(values.size()>240)values.remove();}
-    private void changed(){observeTelemetry();for(Runnable r:new ArrayList<>(listeners))r.run();}
+    private void changed(){observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
+    public boolean followsRidingMode() {
+        return settings.getBoolean("range_follow_mode_" + activeProfileId(), true);
+    }
+    public void followRidingMode(boolean enabled) {
+        settings.edit().putBoolean("range_follow_mode_" + activeProfileId(), enabled).apply();
+        rangeFollowPolicy.reset();
+        changed();
+    }
+    private void followRangeMode() {
+        if (destroyed || ble == null || selectingRange) return;
+        ScooterProfiles.Profile profile = profiles.active();
+        Telemetry.Metric mode = null;
+        for (Telemetry.Metric metric : ble.telemetry.metrics()) if (metric.key.equals("driving_mode")) { mode = metric; break; }
+        long now = SystemClock.elapsedRealtime();
+        ScooterProfiles.Profile bound = ble.profile();
+        boolean sameProfile = profile != null && bound != null && profile.id.equals(bound.id);
+        boolean fresh = sameProfile && mode != null && mode.numericValue != null && mode.updatedMs > 0
+                && now >= mode.updatedMs && now - mode.updatedMs <= 7000 && ble.statusAge() <= 7000;
+        Integer target = rangeFollowPolicy.next(profile == null ? "" : profile.id,
+                profile == null ? 0 : profile.pid(), mode == null ? null : mode.numericValue,
+                ble.featureChoices("range_algorithm"), ble.featureValue("range_algorithm"),
+                ble.connected(), ble.ready(), ble.pending() != null, fresh, followsRidingMode());
+        if (target != null) {
+            selectingRange = true;
+            try { ble.set("range_algorithm", target); } finally { selectingRange = false; }
+        }
+    }
     private String activeProfileId(){ScooterProfiles.Profile profile=profiles==null?null:profiles.active();
         return profile == null ? "" : profile.id;
     }

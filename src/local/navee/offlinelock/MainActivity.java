@@ -1108,7 +1108,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String explanation(ScooterCommands.Feature f){
         if(f.key.equals("energy_recovery"))return "Stronger recovery slows coasting more.";
         if(f.key.equals("display_units"))return "Units shown on the scooter’s own dashboard.";
-        if(f.key.equals("range_algorithm"))return "Changes how range is predicted, not the battery capacity.";
+        if(f.key.equals("range_algorithm"))return "Follow riding mode selects the scooter’s Sport or Eco estimate. Firmware without Eco uses its D estimate for Eco/Walk. Fixed choices stay selected until you change them.";
         if(f.key.equals("charge_limit"))return "Charging stops at this battery level.";
         if(f.key.equals("start_speed"))return "Wheel speed needed before the throttle responds. Zero allows standing starts.";
         return f.description;
@@ -1116,6 +1116,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private boolean inlineChoice(ScooterCommands.Feature f){return f.type==ScooterCommands.Type.CHOICE&&(f.key.startsWith("line_")||f.key.startsWith("star_"));}
     /** Short value forms for the right edge of a row; pickers still list the full labels. */
     private String valueText(ScooterCommands.Feature feature,int value){
+        if(feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode()) return "Follow riding mode";
         if(feature.key.equals("display_units")&&(value==0||value==1))return value==0?"Miles":"Kilometers";
         String label=featureLabel(feature,value);
         if(feature.key.equals("lock_expiry"))return label.replace(" hours"," h");
@@ -1464,6 +1465,10 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void showChoice(ScooterCommands.Feature feature){
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
         int[] choices=scooterService.ble.featureChoices(feature.key);if(choices.length==0){toast("This choice is not available on the current firmware.");return;}
+        if(feature.key.equals("range_algorithm")) {
+            int[] withFollow=new int[choices.length+1]; withFollow[0]=-1;
+            System.arraycopy(choices,0,withFollow,1,choices.length); choices=withFollow;
+        }
         choiceSheet=new ChoiceSheet(feature,choices);
     }
     /** Choice picker (ph/27). It stays open until the scooter confirms the new value by readback. */
@@ -1481,7 +1486,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(i>0)design.divider(list);
                 final int index=i;
                 LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);option.setMinimumHeight(design.dp(54));option.setPadding(design.dp(4),design.dp(6),design.dp(2),design.dp(6));
-                TextView label=design.text(featureLabel(feature,choices[i]),15,false);option.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                TextView label=design.text(feature.key.equals("range_algorithm") && choices[i]==-1 ? "Follow riding mode" : featureLabel(feature,choices[i]),15,false);option.addView(label,new LinearLayout.LayoutParams(0,-2,1));
                 RadioDot dot=new RadioDot();LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(design.dp(22),design.dp(22));dotParams.leftMargin=design.dp(10);option.addView(dot,dotParams);
                 option.setClickable(true);option.setFocusable(true);option.setBackground(rowRipple());option.setContentDescription(label.getText());
                 option.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName(android.widget.RadioButton.class.getName());info.setCheckable(true);info.setChecked(dot.checked);}});
@@ -1500,6 +1505,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         void choose(int index){
             if(scooterService==null||sent)return;BleController ble=scooterService.ble;
+            if(feature.key.equals("range_algorithm")) {
+                if(choices[index]==-1) { scooterService.followRidingMode(true); dialog.dismiss(); return; }
+                scooterService.followRidingMode(false);
+            }
             Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==choices[index]){dialog.dismiss();return;}
             failure=null;
             if(ble.set(feature.key,choices[index])){target=choices[index];sent=true;}else failure=ble.message();
@@ -1515,7 +1524,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 String feedback=ble==null?null:ble.commandResults().get(feature.key);
                 failure=feedback==null||feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")?"The scooter did not confirm this change.":feedback;target=null;
             }
-            Integer shown=waiting?target:actual;boolean enabled=ready&&pending==null&&!sent;
+            Integer shown=waiting?target:feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode() ? Integer.valueOf(-1) : actual;boolean enabled=ready&&pending==null&&!sent;
             for(int i=0;i<choices.length;i++){
                 boolean on=shown!=null&&shown==choices[i];dots.get(i).set(on);dots.get(i).setEnabled(enabled);
                 names.get(i).setTypeface(on?design.bold():design.regular());names.get(i).setTextColor(enabled||on?design.text:design.muted);

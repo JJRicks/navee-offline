@@ -199,6 +199,15 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         await(() -> activity.service().simulating(), "Simulation switch did not enable the preview"); settle();
         main(() -> {
             require(activity.service().ble.simulating() && activity.service().ble.ready() && activity.service().ble.connected(), "Simulation did not expose a local ready preview");
+            require(activity.service().followsRidingMode(), "New profiles must follow riding mode by default");
+            require(Integer.valueOf(3).equals(activity.service().ble.featureValue("range_algorithm")), "SPORT preview did not select Sport range model");
+            activity.service().followRidingMode(false);
+            require(activity.service().ble.set("range_algorithm", 2), "Fixed D estimate was rejected");
+            activity.service().ble.tickSimulation();
+            invoke(activity.service(), "followRangeMode");
+            require(Integer.valueOf(2).equals(activity.service().ble.featureValue("range_algorithm")), "Automatic policy overwrote a fixed choice");
+            activity.service().followRidingMode(true);
+            require(Integer.valueOf(3).equals(activity.service().ble.featureValue("range_algorithm")), "Re-enabling Follow did not select Sport estimate");
             require(root().findViewWithTag("simulation-banner") != null && root().findViewWithTag("simulation-banner").isShown(), "Simulation is missing its persistent visible banner");
             Map<String, TelemetryHistory.Reading> shown = activity.service().displayReadings();
             for (Telemetry.Metric expected : new Telemetry().metrics()) {
