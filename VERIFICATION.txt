@@ -1,4 +1,45 @@
-RELEASE VALIDATION 0.12.0 (versionCode 24)
+RELEASE VALIDATION 0.12.1 (versionCode 25)
+October 14, 2026
+
+Reviewed scope:
+- PR #27 independently reviewed at 8ace80a918aa8605f00a35a296174abb9ceff072,
+  then merged as 3210d11e8d017298bc6c93320aded27cf46bfc78. Both original
+  findings were verified fixed; the follow-up found no actionable issues.
+- Optional app-wide haptics, committed switch-thumb swipes, favourite-star
+  feedback before detachment, stable crease postures and More split geometry.
+- Release preparation changes only version metadata and documentation;
+  application source matches the independently reviewed head.
+
+Executed checks:
+- All 22 core suites / 53,955 checks passed on the reviewed application source.
+- Native DeveloperSettingsValidation passed 1,053 assertions, including real
+  swipes/taps, cancellation, preference persistence through redraw, silent code
+  changes and one callback in the requested direction after listener rollback.
+- The independent round-1 reproducer no longer reproduces the swipe failure.
+  Overview chart removal records TOGGLE_OFF in the emulator vibrator history.
+- Three native layout/fold cases passed at 344x882, 725x604 and 852x690 dp
+  (last at 140% app text). Flat/half-open crease screenshots were byte-identical;
+  physical-hinge classification and root stability passed. Those layout sources
+  are unchanged in the final feedback-fix commit.
+- Pinned Shizuku dependencies were explicitly verified. All 11 owner-capture
+  cleanup tests passed. Release APK and separate native runner built, signed and
+  aligned successfully; only the existing SDK/JDK warnings were emitted.
+- Official APK: 0.12.1/code 25, non-debuggable, with the same release signing
+  certificate as 0.12.0. SHA256:
+  2f9182c155c1d4daecd186391a1108989636de52964620826a83d6e0c9d2c7df
+- Pixel 10 Pro Fold updated in place from 0.12.0 to 0.12.1 over USB; installed
+  APK bytes match the release build. App data was not cleared.
+- Publication, downloaded-asset verification and launch evidence are recorded
+  with the release in the local release-verification artifacts.
+
+Limits:
+- Haptic feel and physical fold transitions still need owner testing. Emulator
+  event delivery does not establish how vibration feels on a real device.
+- Confirmed lock/ride haptics need a real scooter; no scooter command or recording
+  was exercised during this release check. Earlier battery/sensor limits remain.
+
+
+HISTORICAL RELEASE 0.12.0 (versionCode 24)
 October 14, 2026
 
 Scope:

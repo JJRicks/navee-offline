@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.12.0 (versionCode 24)
+NAVEE OFFLINE — VERSION 0.12.1 (versionCode 25)
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,14 +11,12 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
-0.12.0 adds consistent short transitions across navigation, dialogs and maps,
-fixes scrollbar flashes and restored-scroll jumps, and lets you drag Stats
-favourites by their handles. An All widgets example is placed in saved-layout
-slot 3 only when that slot does not already exist for the scooter. It includes
-all 15 widget types with useful settings and one- through six-column layouts.
-Your current dashboard, other slots, profiles and recordings remain unchanged.
-See CHANGELOG.md and VERIFICATION.txt for changes and the tested scope. Install
-over the previous official APK to retain app data; do not uninstall first.
+0.12.1 adds subtle haptics for navigation, settings, favourites and dashboard
+editing, with an on-by-default Haptic feedback switch in App preferences.
+Switch thumb swipes now save correctly. Half-folding a crease-based screen
+keeps the current layout steady, and More no longer changes its split width
+after opening. Install over the previous official APK to retain your setup,
+dashboards and recordings. See CHANGELOG.md and VERIFICATION.txt for details.
 
 GET CONNECTED
 

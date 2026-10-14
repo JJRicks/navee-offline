@@ -2,19 +2,17 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.12.0** (versionCode 24). Independent project; not affiliated with NAVEE.
+Current application version: **0.12.1** (versionCode 25). Independent project; not affiliated with NAVEE.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
 
-Version 0.12.0 smooths navigation, dialogs and map loading, fixes brief scrollbar
-flashes and scroll-position jumps, and adds grab-handle reordering for Stats
-favourites. An **All widgets** example is added to saved-layout slot 3 only when
-that slot does not already exist for the scooter. It contains all 15 widget
-types with useful settings and arrangements for one through six columns.
-Your active dashboard, other slots, profiles and recordings stay intact.
-See [VERIFICATION.txt](VERIFICATION.txt) for executed checks and remaining
+Version 0.12.1 adds subtle, optional haptic feedback for navigation, settings,
+favourites and dashboard editing. Switch thumb swipes now save correctly.
+Half-folding a crease-based screen keeps the current layout steady, and More's
+split no longer shifts after opening. Existing dashboards and recordings stay
+intact. See [VERIFICATION.txt](VERIFICATION.txt) for executed checks and remaining
 physical test limits.
 
 - **Home:** an editable dashboard for each scooter, with automatic connection, a large lock switch, battery overview, charts, and shortcuts.

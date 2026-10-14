@@ -1,5 +1,16 @@
 # Changelog
 
+## 0.12.1 — 2026-10-14
+
+- Add subtle haptic feedback for tabs, choices, switches, favourites, dashboard editing and confirmed lock/ride actions. Haptic feedback is on by default and can be disabled in App preferences; Android’s Touch feedback setting is respected.
+- Make committed switch-thumb swipes save their changes, with one callback in the requested direction. Keep canceled gestures and programmatic updates silent.
+- Play favourite-star feedback before rebuilding the card, including when removing a chart from Overview.
+- Keep the current layout steady when a foldable crease moves between flat and half-open; continue avoiding physical hinges and adapting to actual window-size changes.
+- Stop More’s split width from shifting after its entrance animation.
+- Make the Live Stats validation fixture robust to continuous live-indicator animation.
+
+Install over the previous official APK to preserve setup, dashboards and recordings. Physical haptic feel, fold transitions and scooter-confirmed lock/ride feedback still need owner testing; see VERIFICATION.txt.
+
 ## 0.12.0 — 2026-10-14
 
 - Add password-protected full app backup/restore in Developer options, including private scooter setup, history, rides/routes, charges, preferences, layouts and widget parameters. Offer restore on the welcome screen after clearing storage.

@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.12.0 (versionCode 24)
+Current version: 0.12.1 (versionCode 25)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -7,13 +7,11 @@ The app talks directly to the scooter over Bluetooth. Optional map tiles use
 internet; authentication, controls and recording require no server. First-time
 owner setup is covered in SETUP.txt.
 
-0.12.0 adds consistent short motion across navigation, dialogs and maps, fixes
-scrollbar flashes and restored-scroll jumps, and adds drag-to-reorder Stats
-favourites with cancellation restoring the starting order. Screen-reader move
-actions remain available and disabled system animations are respected.
-An All widgets example is added to slot 3 only when absent for that scooter.
-It includes all 15 types, useful options and one- through six-column layouts.
-Existing active dashboards, other layouts/slots and recorded data are preserved.
+0.12.1 adds optional haptic feedback for tabs, choices, switches, favourites,
+dashboard editing and confirmed lock/ride actions. App preferences can turn it
+off; Android's Touch feedback setting remains respected. Thumb swipes now
+commit switch changes. Crease posture changes keep the current layout steady,
+while physical hinges still separate content. More opens at a stable split.
 No new scooter command or decoded telemetry field is introduced by this pass.
 See VERIFICATION.txt for executed checks and physical validation limits.
 
