@@ -67,6 +67,16 @@ checks the real Save/Replace/Restore/default-reset dialogs, cancellation,
 recreation, and large-text/light-theme actions on a fresh emulator. Both runners
 refuse physical phones. Keep screenshot and width details in VERIFICATION.txt.
 
+`ResponsiveDashboardValidation` checks the rendered default dashboard, control and
+text bounds, and flat/half-open OEM fold callbacks. Its connected lock fixture only
+changes views; it never puts Bluetooth into READY or sends a command. The companion
+`android-tests/run-responsive.py` installs both APKs and clears app data on an
+explicitly selected disposable emulator, then records screenshots and results at
+multiple widths and text sizes. It refuses physical phones. Build both APKs with
+the same key, start a disposable emulator, and pass `--adb`, `--serial`, `--app`,
+`--runner`, and `--out`; use `--help` for individual cases. This is layout validation,
+not a substitute for Samsung hardware or live Bluetooth testing.
+
 The editor uses dedicated top-left move grips and bottom-right resize
 corners, with tap-accessible Move/Size dialogs and one gear-shaped widget-options menu.
 Gesture previews must use an untouched start snapshot, pin the full requested

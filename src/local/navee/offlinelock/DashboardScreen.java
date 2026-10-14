@@ -1017,6 +1017,8 @@ public final class DashboardScreen implements AppScreen {
                                     ui.shape(Color.argb(140, 0, 0, 0), 8, 0),
                                     left ? near : far, top ? near : far, left ? far : near, top ? far : near),
                             ui.shape(Color.WHITE, 14, 0)));
+            // The background insets position the square; glyph margins already do the same.
+            control.setPadding(0, 0, 0, 0);
             FrameLayout.LayoutParams glyph =
                     new FrameLayout.LayoutParams(ui.dp(14), ui.dp(14), gravity);
             int inset = offset + (square - ui.dp(14)) / 2;
@@ -1472,6 +1474,20 @@ public final class DashboardScreen implements AppScreen {
                 if (cells.size() == 4 && next == 3) next = 2;
                 if (next != columns) {
                     columns = next;
+                    if (mode == READINGS) for (LinearLayout cell : cells) {
+                        // A one-column list reads naturally as icon + value. Repeating
+                        // a separate icon row wastes height in narrow, large-text cards.
+                        boolean inline = columns == 1;
+                        cell.setOrientation(inline ? LinearLayout.HORIZONTAL : LinearLayout.VERTICAL);
+                        cell.setGravity(inline ? Gravity.CENTER_VERTICAL : Gravity.CENTER);
+                        View value = cell.getChildAt(1);
+                        LinearLayout.LayoutParams valueSize = (LinearLayout.LayoutParams)value.getLayoutParams();
+                        valueSize.width = inline ? 0 : -1;
+                        valueSize.weight = inline ? 1 : 0;
+                        valueSize.topMargin = inline ? 0 : ui.dp(3);
+                        valueSize.setMarginStart(inline ? ui.dp(8) : 0);
+                        value.setLayoutParams(valueSize);
+                    }
                     for (LinearLayout cell : cells)
                         if (cell.getParent() instanceof ViewGroup)
                             ((ViewGroup) cell.getParent()).removeView(cell);
@@ -1661,7 +1677,10 @@ public final class DashboardScreen implements AppScreen {
                 View strip = chargingData.getVisibility() == View.VISIBLE ? chargingData : batteryData;
                 int stripHeight = strip.getVisibility() == View.GONE ? 0
                         : strip.getMeasuredHeight() + ((LinearLayout.LayoutParams) strip.getLayoutParams()).topMargin;
-                viewSize(battery, -1, Math.max(ui.dp(96), budget - stripHeight));
+                // The percentage cell can give a little height back to wrapped readings.
+                // A fixed 96 dp floor made otherwise readable narrow cards overflow by
+                // only a few pixels; reserve the actual readable text block instead.
+                viewSize(battery, -1, Math.max(battery.minimumContentHeight(), budget - stripHeight));
             }
             super.onMeasure(widthSpec, heightSpec);
         }
@@ -2162,6 +2181,9 @@ public final class DashboardScreen implements AppScreen {
      */
     private final class BatteryCell extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint measurementPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Rect measurementBounds = new Rect();
+        private final Paint.FontMetrics measurementMetrics = new Paint.FontMetrics();
         private double percent = Double.NaN;
         private String detail = "";
         private boolean charging, live = true;
@@ -2191,6 +2213,21 @@ public final class DashboardScreen implements AppScreen {
             charging = value;
             describe();
             invalidate();
+        }
+
+        /** Enough room for a readable percentage, optional range/status and their padding. */
+        int minimumContentHeight() {
+            measurementPaint.setTypeface(ui.bold());
+            measurementPaint.setTextSize(ui.sp(24));
+            measurementPaint.getTextBounds("100", 0, 3, measurementBounds);
+            float height = measurementBounds.height() + ui.dp(24);
+            if (charging || !detail.isEmpty()) {
+                measurementPaint.setTypeface(ui.medium());
+                measurementPaint.setTextSize(ui.sp(12));
+                measurementPaint.getFontMetrics(measurementMetrics);
+                height += ui.dp(5) + measurementMetrics.descent - measurementMetrics.ascent;
+            }
+            return Math.max(ui.dp(48), (int)Math.ceil(height));
         }
 
         private void describe() {
@@ -2451,7 +2488,10 @@ public final class DashboardScreen implements AppScreen {
         }
 
         float rowHeight() {
-            return ui.dp(64 * Math.max(1, ui.textScale));
+            // Stored rectangles use grid units. Give those units enough physical height
+            // for both app text sizing and Android's accessibility font preference.
+            float systemTextScale = host.activity().getResources().getConfiguration().fontScale;
+            return ui.dp(64 * Math.max(1, ui.textScale * systemTextScale));
         }
 
         private boolean motionEnabled() {

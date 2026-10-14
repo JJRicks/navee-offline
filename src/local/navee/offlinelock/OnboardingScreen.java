@@ -1581,7 +1581,7 @@ public final class OnboardingScreen implements AppScreen {
         try {
             java.lang.reflect.Field field = host.activity().getClass().getDeclaredField("fold"); field.setAccessible(true);
             Object fold = field.get(host.activity());
-            android.graphics.Rect hinge = fold instanceof FoldMonitor ? ((FoldMonitor) fold).hinge : null;
+            android.graphics.Rect hinge = fold instanceof FoldMonitor && ((FoldMonitor) fold).isSeparating() ? ((FoldMonitor) fold).hinge : null;
             return hinge != null && hinge.height() > hinge.width() && hinge.left > 0 && hinge.height() > 0 ? hinge : null;
         } catch (ReflectiveOperationException | RuntimeException unavailable) { return null; }
     }

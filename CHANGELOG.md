@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Dashboard lock controls adapt to the width of their card: narrow cards stack the lock heading and keep the action within reach. Short slider labels preserve the full-height touch target, and Connecting no longer repeats the scooter name already shown in Home's header.
+- The battery graphic yields height to wrapped readings using its readable text size. Single-column readings put icons beside values, avoiding unnecessary inner scrolling in narrow and large-text charging cards.
+- Dashboard row height follows Android's font-size preference as well as the app's text setting, preserving saved grid positions while allowing larger text more space.
+- A fully opened fold crease no longer reserves an empty upper pane. Tabletop folds and physical hinges still split the layout; Home, setup and ride details use the same separation rule.
+- Center the dashboard editor's move and options icons in their translucent squares while retaining their 48 dp touch targets.
+- Add emulator-only dashboard layout regressions for different window widths, larger text, visible control bounds and OEM fold-state changes.
+
 ## 0.9.0 — 2026-10-13
 
 ### Dashboard and setup
