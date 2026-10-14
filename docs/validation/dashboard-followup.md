@@ -15,9 +15,10 @@ walkthrough notes 2–6, 23, 26, 37 and 38.
   release before the next layout frame.
 - Quick access can occupy one of five columns. Narrow cards show icons with full
   accessible labels and state. A 58 dp width floor protects 48 dp shortcut targets;
-  a narrow editor stacks its controls. Rails at least 96 dp wide use two editor
-  columns and can shrink to three grid rows; thinner rails retain four rows to
-  keep all four 48 dp actions and the independent resize target separated.
+  narrow rails can shrink to three grid rows. Below 96 dp, Move and Options
+  stay on the card; Options opens Edit/Duplicate/Remove in a compact popup.
+  The configuration sheet still has only Save at its bottom. Wider rails keep
+  their existing direct actions, and the resize target remains separate.
 - The recorder can be one row high at 192 dp or wider. Its secondary description
   is hidden in this compact presentation, and its resize target stays separate
   from the other edit controls. Narrower recorders retain their taller minimum.
@@ -68,6 +69,8 @@ phone installation, release publication or merge was performed for this change.
 
 ## Follow-up: three-row Quick Access rail
 
-The narrow Quick Access height floor is now three grid rows at 96–143 dp card widths. At less than 96 dp, the four editor actions must stack vertically; those extreme rails keep the four-row floor so the resize corner cannot overlap Remove. Wider cards retain their existing two-row floor. This changes the allowed minimum only and does not rewrite the owner's saved widget dimensions.
+All narrow Quick Access rails now allow three grid rows, including the roughly 72 dp rail in a 448 dp phone's five-column layout. At less than 96 dp, Move and Options remain on the card as independent 48 dp targets; Options opens an Edit/Duplicate/Remove popup. Edit opens the existing configuration sheet with Save as its only bottom action. At 96–143 dp the direct actions occupy two rows; wider cards retain their original editor and two-row minimum. The change does not rewrite stored dimensions.
 
-Signed production and native-runner APKs build and verify. The updated `ResponsiveDashboardValidation` follow-up fixture passes at unfolded 725×604 dp and Fold cover 344×882 dp with 140% app text. It requests a real five-column 4+1 layout with a three-row shortcut rail, checks measured editor bounds/48 dp target sizes/non-overlap at 96, 113, and 143 dp, and retains the 70 dp safety case. Existing draft/cancel/Undo, shortcut reordering, one-row recorder, selected readings, and scheduled-clock checks also pass. Native card screenshots inspected. All checks use disposable emulator 5592 with Bluetooth disabled; no owner phone or scooter touched.
+Claude caught that the first height rule only helped wider rails, missing the owner's five-column phone case. The revised native fixture includes that actual 448×960 dp layout, plus unfolded 725×604 and Fold cover 344×882 with 140% app text. It checks 58, 70, 72, 94, 96, 113, and 143 dp editor geometry with separate 48 dp targets; popup Edit, Duplicate and Remove, including Undo; Save-only configuration; and the existing draft, shortcut, recorder, selected-reading and schedule-clock behavior.
+
+Signed production/native-runner builds verify. All three revised follow-up cases passed on disposable emulator 5592 with Bluetooth disabled. No owner phone or scooter touched. The local evidence is under `work/round2-small-ui-evidence/compact-actions/`.

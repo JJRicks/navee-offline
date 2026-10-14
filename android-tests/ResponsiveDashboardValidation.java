@@ -535,12 +535,12 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 require(((Number)field(grid(), "columns")).intValue() == 5 && cell.w == 1 && cell.x == 4 && cell.y == 0,
                         "Five-column photo/shortcut split was expanded or displaced");
                 float railDp = ((View)tileById(quick.id)).getWidth() / activity.getResources().getDisplayMetrics().density;
-                require(cell.h == (railDp < 96 ? 4 : 3), "Narrow shortcut height does not match its editor target budget");
+                require(cell.h == 3, "One-column shortcut rail cannot shrink to three rows");
             }); screenshot("five-column-shortcut-rail");
         }
         main(() -> {
             View card = (View)tileById(quick.id);
-            measureCard(card, activity.ui().dp(70), activity.ui().dp(246));
+            measureCard(card, activity.ui().dp(70), activity.ui().dp(182));
             ViewGroup quickGrid = (ViewGroup)card.findViewWithTag("quick-access-grid");
             require(Boolean.TRUE.equals(field(quickGrid, "iconsOnly")), "Narrow shortcuts did not switch to icons");
             for (int i = 0; i < quickGrid.getChildCount(); i++) {
@@ -559,8 +559,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 occupied.add(box);
             }
             saveCardBitmap(card, "narrow-shortcut-editor");
-            require(quick.minimumHeight(70) == 4, "Sub-96dp rail lost safe editor height");
-            for (int width : new int[]{96, 113, 143}) {
+            require(controls.size() == 3, "Tiny rail needs only Move/Options/Resize on the card");
+            require(quick.minimumHeight(70) == 3, "Tiny rail still requires four rows");
+            for (int width : new int[]{58, 70, 72, 94, 96, 113, 143}) {
                 require(quick.minimumHeight(width) == 3, "Two-column editor rail cannot shrink to three rows");
                 measureCard(card, activity.ui().dp(width), activity.ui().dp(182));
                 ArrayList<Rect> boxes = new ArrayList<>();
@@ -575,6 +576,40 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 saveCardBitmap(card, "three-row-shortcut-editor-" + width);
             }
         });
+        main(() -> {
+            View card = (View)tileById(quick.id);
+            measureCard(card, activity.ui().dp(72), activity.ui().dp(182));
+            described(card, "Options for ").performClick();
+            android.widget.PopupMenu menu = (android.widget.PopupMenu)field(card.findViewWithTag("widget-editor-bar"), "actionsMenu");
+            require(menu != null && menu.getMenu().size() == 3, "Tiny rail actions menu missing");
+            menu.getMenu().performIdentifierAction(1, 0);
+        }); settle();
+        main(() -> {
+            require(described(dialogRoot(), "Save widget options") != null, "Tiny rail Edit did not open existing options");
+            require(described(dialogRoot(), "Duplicate widget") == null && described(dialogRoot(), "Remove widget") == null, "Actions leaked into Save-only options sheet");
+            invoke(dashboard(), "dismiss");
+        }); settle();
+        final int beforeDuplicate = dashboardConfig().widgets.size();
+        main(() -> {
+            View card = (View)tileById(quick.id);
+            measureCard(card, activity.ui().dp(72), activity.ui().dp(182));
+            described(card, "Options for ").performClick();
+            android.widget.PopupMenu menu = (android.widget.PopupMenu)field(card.findViewWithTag("widget-editor-bar"), "actionsMenu");
+            require(menu.getMenu().findItem(2).isEnabled(), "Tiny rail lost Duplicate");
+            menu.getMenu().performIdentifierAction(2, 0);
+        }); settleMotion();
+        require(dashboardConfig().widgets.size() == beforeDuplicate + 1, "Tiny rail actions did not duplicate");
+        main(() -> described(root(), "Undo dashboard edit").performClick()); settleMotion();
+        main(() -> {
+            View card = (View)tileById(quick.id);
+            measureCard(card, activity.ui().dp(72), activity.ui().dp(182));
+            described(card, "Options for ").performClick();
+            android.widget.PopupMenu menu = (android.widget.PopupMenu)field(card.findViewWithTag("widget-editor-bar"), "actionsMenu");
+            menu.getMenu().performIdentifierAction(3, 0);
+        }); settleMotion();
+        require(dashboardConfig().widgets.size() == beforeDuplicate - 1, "Tiny rail actions did not remove");
+        main(() -> described(root(), "Undo dashboard edit").performClick()); settleMotion();
+        require(dashboardConfig().widgets.size() == beforeDuplicate, "Undo did not restore deleted rail");
         main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
         DashboardConfig.Widget recorder = new DashboardConfig.Widget("ride");
         DashboardConfig.Widget scooter = new DashboardConfig.Widget("scooter");
@@ -1046,6 +1081,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         List<View> found = new ArrayList<>();
         CharSequence description = root.getContentDescription();
         String label = description == null ? "" : description.toString();
+        if (root.getVisibility() != View.VISIBLE) return found;
         if (label.startsWith("Move ") || label.startsWith("Options for ") || label.startsWith("Duplicate ") || label.startsWith("Remove ") || label.startsWith("Resize ")) found.add(root);
         if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) found.addAll(editorControls(((ViewGroup)root).getChildAt(i)));
         return found;

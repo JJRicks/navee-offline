@@ -150,9 +150,8 @@ public final class DashboardConfig {
         }
 
         public int minimumHeight(float widthDp) {
-            // Below 96 dp, four 48 dp editor actions stack above the resize corner.
-            // Wider icon rails use two editor columns and safely fit three grid rows.
-            if (type.equals("quick") && widthDp < 144) return widthDp < 96 ? 4 : 3;
+            // Narrow rails keep a compact editor, with secondary actions in Options.
+            if (type.equals("quick") && widthDp < 144) return 3;
             // A one-row recorder reserves an independent resize target beside its editor bar.
             if (type.equals("ride") && widthDp < 192) return 3;
             return minimumHeight();

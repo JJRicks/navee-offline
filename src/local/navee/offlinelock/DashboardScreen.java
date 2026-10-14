@@ -1380,15 +1380,20 @@ public final class DashboardScreen implements AppScreen {
             return control;
         }
 
-        /** Four icon-only actions share one row without changing the card's content area. */
+        /** Overlay actions keep their touch targets; tiny rails move secondary actions into a popup. */
         private final class EditorBar extends ViewGroup {
             final View grip, editButton, duplicateButton, removeButton;
             int target, controlColumns;
+            boolean compactRail;
+            PopupMenu actionsMenu;
 
             EditorBar(View grip) {
                 super(host.activity());
                 this.grip = grip;
                 editButton = overlay("gear", "Options for " + widget.title, () -> options(widget));
+                editButton.setOnClickListener(v -> {
+                    if (compactRail) showActions(); else options(widget);
+                });
                 duplicateButton = overlay("copy", "Duplicate " + widget.title, () -> duplicateWidget(widget));
                 removeButton = overlay("trash", "Remove " + widget.title, () -> removeWidget(widget));
                 duplicateButton.setEnabled(!widget.type.equals("lock") && config.widgets.size() < 32);
@@ -1398,20 +1403,50 @@ public final class DashboardScreen implements AppScreen {
                 for (View control : new View[] {grip, editButton, duplicateButton, removeButton}) addView(control);
             }
 
+            private void showActions() {
+                if (actionsMenu != null) actionsMenu.dismiss();
+                actionsMenu = new PopupMenu(host.activity(), editButton);
+                actionsMenu.getMenu().add(0, 1, 0, "Edit widget").setIcon(glyphDrawable("gear", ui.text, 20));
+                actionsMenu.getMenu().add(0, 2, 1, "Duplicate widget").setIcon(glyphDrawable("copy", ui.text, 20))
+                        .setEnabled(!widget.type.equals("lock") && config.widgets.size() < 32);
+                android.text.SpannableString removeLabel = new android.text.SpannableString("Remove widget");
+                removeLabel.setSpan(new android.text.style.ForegroundColorSpan(ui.danger), 0,
+                        removeLabel.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
+                actionsMenu.getMenu().add(0, 3, 2, removeLabel).setIcon(glyphDrawable("trash", ui.danger, 20));
+                if (android.os.Build.VERSION.SDK_INT >= 29) actionsMenu.setForceShowIcon(true);
+                actionsMenu.setOnMenuItemClickListener(item -> {
+                    if (!editing) return false;
+                    if (item.getItemId() == 1) options(widget);
+                    else if (item.getItemId() == 2) duplicateWidget(widget);
+                    else if (item.getItemId() == 3) removeWidget(widget);
+                    else return false;
+                    return true;
+                });
+                actionsMenu.show();
+            }
+
+            @Override protected void onDetachedFromWindow() {
+                if (actionsMenu != null) { actionsMenu.dismiss(); actionsMenu = null; }
+                super.onDetachedFromWindow();
+            }
+
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 int width = MeasureSpec.getSize(widthSpec);
+                compactRail = widget.type.equals("quick") && width < ui.dp(96);
+                duplicateButton.setVisibility(compactRail ? GONE : VISIBLE);
+                removeButton.setVisibility(compactRail ? GONE : VISIBLE);
                 controlColumns = width < ui.dp(144) ? (width >= ui.dp(96) ? 2 : 1) : 4;
                 target = Math.min(ui.dp(controlColumns < 4 ? 48 : 52),
                         (width - (compactRecorder ? ui.dp(48) : 0)) / controlColumns);
                 for (int i = 0; i < getChildCount(); i++)
                     getChildAt(i).measure(MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
                             MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
-                setMeasuredDimension(width, target * (4 / controlColumns));
+                setMeasuredDimension(width, target * ((compactRail ? 2 : 4) / controlColumns));
             }
 
             @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
                 if (controlColumns < 4) {
-                    for (int i = 0; i < 4; i++) {
+                    for (int i = 0; i < (compactRail ? 2 : 4); i++) {
                         int x = (i % controlColumns) * target, y = (i / controlColumns) * target;
                         getChildAt(i).layout(x, y, x + target, y + target);
                     }
