@@ -66,7 +66,7 @@ public final class MoreScreen implements AppScreen {
     private final Row[] menuRows = new Row[SECTIONS.length];
     private LinearLayout cardDestination, onboardingCard, sectionMenu, indexView, sectionHeader;
     private View sectionBack;
-    private TextView sectionTitle;
+    private TextView sectionTitle, sectionBackLabel;
     private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About", "Developer"};
     private static final String[] SECTION_LABELS = {"App preferences", "My scooters", "PIN & proximity unlock",
             "Experimental controls", "Data & history", "About & permissions", "Developer options"};
@@ -184,6 +184,9 @@ public final class MoreScreen implements AppScreen {
             else if (section.equals("Developer")) developerOptions();
             else privacy();
         }
+        cardDestination = column(); sections.put("Units", cardDestination);
+        sectionParent.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
+        units();
         cardDestination = content;
         showSelectedSection();
         refresh();
@@ -234,10 +237,15 @@ public final class MoreScreen implements AppScreen {
         try { return Math.max(0, Integer.parseInt(value)); } catch (NumberFormatException e) { return 0; }
     }
 
-    /** Wide mode has no submenu to close: Back leaves the tab the way Home would, keeping the submenu. */
-    public boolean back() { if (standalone || wide || selectedSection.isEmpty()) return false; selectSection(""); return true; }
+    /** Units returns to its parent; otherwise wide Back leaves the tab, keeping its selected pane. */
+    public boolean back() {
+        if ("Units".equals(selectedSection)) { selectSection("App"); return true; }
+        if (standalone || wide || selectedSection.isEmpty()) return false;
+        selectSection(""); return true;
+    }
 
     private boolean knownSection(String section) {
+        if ("Units".equals(section)) return true;
         if ("Developer".equals(section) && !developerEnabled()) return false;
         for (String candidate : SECTIONS) if (candidate.equals(section)) return true;
         return false;
@@ -253,13 +261,18 @@ public final class MoreScreen implements AppScreen {
         String shown = shownSection();
         boolean index = shown.isEmpty();
         indexView.setVisibility(index || wide ? View.VISIBLE : View.GONE);
-        sectionHeader.setVisibility(index || standalone ? View.GONE : View.VISIBLE);
+        boolean units = "Units".equals(shown);
+        sectionHeader.setVisibility(index || (standalone && !units) ? View.GONE : View.VISIBLE);
+        sectionBack.setVisibility(units || !wide ? View.VISIBLE : View.GONE);
+        sectionBackLabel.setText(units ? "App preferences" : "More");
+        sectionBack.setContentDescription(units ? "Back to App preferences" : "Back to More");
+        if (units) sectionTitle.setText("Units");
         for (int i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].equals(shown)) sectionTitle.setText(SECTION_TITLES[i]);
         for (Map.Entry<String,LinearLayout> section : sections.entrySet())
             section.getValue().setVisibility(section.getKey().equals(shown) ? View.VISIBLE : View.GONE);
         if (index || wide) dataIndexRow.value(historyFileSize());
         if (wide) for (int i = 0; i < SECTIONS.length; i++)
-            if (menuRows[i] != null) markMenuRow(menuRows[i], SECTIONS[i].equals(shown));
+            if (menuRows[i] != null) markMenuRow(menuRows[i], SECTIONS[i].equals(units ? "App" : shown));
     }
     /** Wide menu: the row whose submenu is open on the right gets a red tint and the selected state. */
     private void markMenuRow(Row row, boolean selected) {
@@ -364,12 +377,12 @@ public final class MoreScreen implements AppScreen {
         LinearLayout link = row();
         link.setMinimumHeight(ui.dp(48)); link.setPadding(0, 0, ui.dp(14), 0);
         link.addView(ui.icon("back", 16, ui.accent), new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16)));
-        TextView label = ui.text("More", 14, false); label.setTypeface(ui.medium()); label.setTextColor(ui.accent);
+        TextView label = sectionBackLabel = ui.text("More", 14, false); label.setTypeface(ui.medium()); label.setTextColor(ui.accent);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2); lp.leftMargin = ui.dp(4);
         link.addView(label, lp);
         link.setContentDescription("Back to More"); link.setFocusable(true);
         link.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 30)), null, ui.shape(Color.WHITE, 10, 0)));
-        link.setOnClickListener(v -> selectSection(""));
+        link.setOnClickListener(v -> selectSection("Units".equals(selectedSection) ? "App" : ""));
         return link;
     }
     /** Group label; keeps natural case in its text so screen readers say words, not letters. */
@@ -781,16 +794,14 @@ public final class MoreScreen implements AppScreen {
     private void preferences() {
         segmentedField("Appearance", "theme", new String[]{"Dark", "Follow system", "Light"},
                 new String[]{"dark", "system", "light"}, "dark");
-        segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
-                new String[]{"mi", "km", "dual"}, "mi");
-        segmentedField("Temperature", "temperature_unit", new String[]{"Celsius · °C", "Fahrenheit · °F"},
-                new String[]{"c", "f"}, "c");
-        segmentedField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
-                new String[]{"system", "12h", "24h"}, "system");
-        View spacer = new View(host.activity()); cardDestination.addView(spacer, new LinearLayout.LayoutParams(-1, ui.dp(8)));
         segmentedField("Live Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
                 new String[]{"comfortable", "dense"}, "comfortable");
+        View spacer = new View(host.activity());
+        cardDestination.addView(spacer, new LinearLayout.LayoutParams(-1, ui.dp(16)));
         LinearLayout display = group();
+        display.setTag("preference-display-options");
+        Row units = row(display, "ruler", "Units", "Distance, temperature & time", () -> selectSection("Units"));
+        units.view.setTag("preference-units-menu");
         Row text = row(display, "text", "Text size", null, this::textSize);
         valueRefreshers.add(() -> text.value(Math.round(settings().getFloat("text_scale", 1f) * 100) + "%"));
         label("Connection & recording");
@@ -800,6 +811,14 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(connection, "bluetooth", "Connect automatically", "When the app opens", "auto_connect", true);
         preferenceToggle(connection, "bluetooth", "Stay connected in background", "When off, idle connections close after 10 seconds. Recordings keep running.", "background_connection", false);
         preferenceToggle(connection, "screen", "Keep screen awake", "While a recording is on screen", "keep_screen_awake", true);
+    }
+    private void units() {
+        segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
+                new String[]{"mi", "km", "dual"}, "mi");
+        segmentedField("Temperature", "temperature_unit", new String[]{"Celsius · °C", "Fahrenheit · °F"},
+                new String[]{"c", "f"}, "c");
+        segmentedField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
+                new String[]{"system", "12h", "24h"}, "system");
     }
     private void segmentedField(String title, String key, String[] labels, String[] values, String fallback) {
         TextView caption = ui.text(title, 12.5f, false); caption.setTextColor(ui.muted);
