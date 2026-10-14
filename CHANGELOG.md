@@ -1,5 +1,14 @@
 # Changelog
 
+## 0.12.0 — 2026-10-14
+
+- Add consistent, short motion across tabs, submenus, dialogs, settings rebuilds and ride maps. Respect disabled Android animations.
+- Prevent scrollbar flashes and scroll-position jumps when restoring pages or changing settings; bring in map content and tiles smoothly.
+- Drag Stats favourites by their grab handles from an icon-only Reorder control. Save on drop, restore the starting order on cancellation, and retain screen-reader Move up/Move down actions.
+- Add an **All widgets** example to saved-layout slot 3 only when absent for that scooter. Include all 15 widget types with useful options and one- through six-column arrangements. Preserve the active dashboard, current column choice, existing slot 3 and other saved layouts; restoring the example remains optional.
+
+Install over the previous official APK to keep setup and recordings. Existing battery-estimate and physical sensor/recording limitations remain; see VERIFICATION.txt for current validation evidence.
+
 ## 0.11.0 — 2026-10-14
 
 - Use the owner's ten-widget Home preset and saved options for new/reset dashboards, including maximum-speed and scheduled-charging Quick access. The five-column choice adapts to narrower screens, and one- through four-column defaults keep Connect near the top. Captured widget positions, sizes and options are preserved, along with existing current layouts and saved slots.

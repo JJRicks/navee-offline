@@ -252,13 +252,19 @@ public final class DashboardValidation extends Instrumentation {
     private void verifySavedLayoutSlots() throws Exception {
         enterEditPreservingContent();
         clickText(root(), "Layout");
-        for (int i = 0; i < 3; i++) {
+        for (int i = 0; i < 2; i++) {
             require(!dialogRoot().findViewWithTag("dashboard-slot-restore-" + i).isEnabled(),
                     "An empty layout slot permits restore");
             require(dialogRoot().findViewWithTag("dashboard-slot-save-" + i).isEnabled(),
                     "An empty layout slot cannot be saved");
         }
-        screenshot("slots-empty-dark");
+        require(dialogRoot().findViewWithTag("dashboard-slot-restore-2").isEnabled()
+                        && dialogRoot().findViewWithTag("dashboard-slot-save-2").isEnabled()
+                        && config().slot(2) != null && config().slot(2).name.equals("All widgets")
+                        && config().slot(2).widgetCount == 15,
+                "Seeded example is not available beside the two empty slots");
+        String savedExample = settings().getString("dashboard_slot_v1_" + profileId + "_2", "");
+        screenshot("slots-example-dark");
         click(findDescription(dialogRoot(), "Close dashboard layout"));
         main(() -> {
             DashboardConfig.Widget custom = new DashboardConfig.Widget("note");
@@ -281,7 +287,7 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> first(dialogRoot(), EditText.class).setText("Cancelled replacement"));
         click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
         require("My commute".equals(config().slot(0).name), "Cancel replaced a saved slot");
-        check("Three named slots start empty; save enables restore and cancel leaves an existing slot intact");
+        check("Two slots start empty beside the restorable All widgets example; save enables restore and cancel leaves an existing slot intact");
 
         clickText(dialogRoot(), "Restore default widgets");
         click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
@@ -312,7 +318,8 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> first(dialogRoot(), EditText.class).setText("My replaced commute"));
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
         require("My replaced commute".equals(config().slot(0).name)
-                        && "Another view".equals(config().slot(1).name) && config().slot(2) == null,
+                        && "Another view".equals(config().slot(1).name)
+                        && savedExample.equals(settings().getString("dashboard_slot_v1_" + profileId + "_2", "")),
                 "Replacing a slot changed another slot");
         click(findDescription(dialogRoot(), "Close dashboard layout"));
         finishActivity(); launch();

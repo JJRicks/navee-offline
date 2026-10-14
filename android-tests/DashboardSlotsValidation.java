@@ -49,6 +49,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             history.execSQL("CREATE TABLE readings(profile TEXT, wall INTEGER, power REAL)");
             history.execSQL("INSERT INTO readings VALUES('alpha',1700000000000,721.5)");
             history.execSQL("INSERT INTO readings VALUES('beta',1700000000100,-61.25)");
+            allWidgetsExample();
             releaseDefaultsPreserveExistingData();
             fullRoundTrip();
             overwriteAndReset();
@@ -86,6 +87,176 @@ public final class DashboardSlotsValidation extends Instrumentation {
             try { cleanup(); } catch (Throwable ignored) { }
             finish(1, result);
         }
+    }
+
+    private void allWidgetsExample() throws Exception {
+        String profile = "example-fresh", exampleKey = slotKey(profile, 2);
+        DashboardConfig config = new DashboardConfig(preferences, profile);
+        assertCapturedDefaults(config, this::require);
+        require(preferences.getInt("dashboard_columns", -1) == 5,
+                "Saving the example changed fresh active columns");
+        require(!config.slotExists(0) && !config.slotExists(1), "Example occupied another saved slot");
+        require(config.slot(2) != null && config.slot(2).name.equals("All widgets")
+                        && config.slot(2).widgetCount == 15 && config.slot(2).columns == 6,
+                "Fresh third slot does not contain the complete named example");
+        String seeded = preferences.getString(exampleKey, "");
+        JSONObject snapshot = new JSONObject(seeded);
+        java.util.HashSet<String> exampleIds = new java.util.HashSet<>();
+        JSONArray exampleWidgets = snapshot.getJSONArray("widgets");
+        for (int i = 0; i < exampleWidgets.length(); i++) {
+            String id = exampleWidgets.getJSONObject(i).getString("id");
+            require(exampleIds.add(id) && java.util.UUID.fromString(id).toString().equals(id),
+                    "Example widget IDs are not generated UUIDs");
+            for (DashboardConfig.Widget widget : config.widgets)
+                require(!widget.id.equals(id), "Saved example shares an active widget ID");
+        }
+        Map<String, ?> original = new LinkedHashMap<>(preferences.getAll());
+        new DashboardConfig(preferences, profile);
+        require(original.equals(preferences.getAll()), "Reload rewrote the example or generated new IDs");
+
+        // Reproduce an upgrade with custom active content, two occupied slots, and a missing third.
+        config.widgets.get(0).title = "Existing connection";
+        config.widgets.get(1).keys.clear(); config.widgets.get(1).keys.add("voltage_v");
+        config.widgets.get(1).layouts.get(2).y = 28;
+        config.save();
+        require(config.saveSlot(0, "Commute", 2) && config.saveSlot(1, "Weekend", 4),
+                "Could not seed existing saved layouts");
+        require(preferences.edit().remove(exampleKey).putInt("dashboard_columns", 2)
+                        .putString("unrelated_setting", "untouched").commit(), "Could not seed upgrade preferences");
+        String active = signature(config);
+        Map<String, ?> before = new LinkedHashMap<>(preferences.getAll());
+        config = new DashboardConfig(preferences, profile);
+        Map<String, ?> after = new LinkedHashMap<>(preferences.getAll()); after.remove(exampleKey);
+        require(before.equals(after) && active.equals(signature(config)),
+                "Upgrade example changed active content, columns, another slot or unrelated data");
+        seeded = preferences.getString(exampleKey, "");
+        before = new LinkedHashMap<>(preferences.getAll());
+        new DashboardConfig(preferences, profile);
+        require(before.equals(preferences.getAll()), "Upgrade example was not idempotent");
+
+        DashboardConfig second = new DashboardConfig(preferences, "example-second");
+        after = new LinkedHashMap<>(preferences.getAll());
+        after.remove("dashboard_v1_example-second"); after.remove(slotKey("example-second", 2));
+        require(before.equals(after) && second.slot(2) != null,
+                "New profile failed to seed its own example or changed another profile");
+        JSONArray secondWidgets = new JSONObject(preferences.getString(slotKey("example-second", 2), ""))
+                .getJSONArray("widgets");
+        for (int i = 0; i < secondWidgets.length(); i++)
+            require(!exampleIds.contains(secondWidgets.getJSONObject(i).getString("id")),
+                    "Profiles share generated example IDs");
+
+        require(config.restoreSlot(2) && preferences.getInt("dashboard_columns", -1) == 6,
+                "Example did not restore its paired layouts and column choice");
+        assertAllWidgetsExample(config, this::require);
+        String geometry = geometry(config, 1, 6);
+        for (int columns = 1; columns <= 6; columns++) {
+            java.util.List<DashboardLayout.Cell> cells = config.layout(columns, null);
+            int end = 0;
+            for (int i = 0; i < cells.size(); i++) {
+                DashboardLayout.Cell cell = cells.get(i);
+                require(cell.id.equals(config.widgets.get(i).id) && cell.x >= 0 && cell.y >= 0
+                                && cell.w > 0 && cell.x + cell.w <= columns
+                                && cell.h >= config.widgets.get(i).minimumHeight(),
+                        "Example cell violates its type's constraints at " + columns + " columns");
+                end = Math.max(end, cell.y + cell.h);
+                for (int j = 0; j < i; j++)
+                    require(!DashboardLayout.overlaps(cell, cells.get(j)), "Example cells overlap");
+            }
+            for (int row = 0; row < end; row++) {
+                int occupied = 0;
+                for (DashboardLayout.Cell cell : cells)
+                    if (cell.y <= row && row < cell.y + cell.h) occupied += cell.w;
+                require(occupied == columns, "Example leaves a phantom gap at " + columns + " columns, row " + row);
+            }
+            float width = new float[] {0, 280, 312, 500, 640, 640, 600}[columns];
+            for (float scale : new float[] {1, 1.4f}) {
+                cells = config.layout(columns, null, width, 10, scale);
+                require(cells.size() == 15, "Measured example lost a widget");
+                for (int i = 0; i < cells.size(); i++) {
+                    DashboardConfig.Widget widget = config.widgets.get(i);
+                    DashboardLayout.Cell cell = cells.get(i);
+                    require(cell.x >= 0 && cell.y >= 0 && cell.x + cell.w <= columns
+                                    && cell.w >= widget.minimumWidth(columns, width, 10, scale)
+                                    && cell.h >= widget.minimumHeight(cell.w * width / columns - 10),
+                            "Measured example violates " + widget.type + " size constraints");
+                    for (int j = 0; j < i; j++)
+                        require(!DashboardLayout.overlaps(cell, cells.get(j)), "Measured example cells overlap");
+                }
+            }
+        }
+        require(geometry.equals(geometry(config, 1, 6)) && seeded.equals(preferences.getString(exampleKey, "")),
+                "Temporary window/font sizing changed the saved example");
+        DashboardLayout.Cell scooter = config.widgets.get(0).layouts.get(2), lock = config.widgets.get(1).layouts.get(2);
+        require(scooter.x == 0 && scooter.y == 0 && scooter.w == 2 && scooter.h == 3
+                        && lock.x == 0 && lock.y == 3 && lock.w == 1 && lock.h == 4,
+                "Compact example no longer keeps scooter and connection near the top");
+        config.widgets.get(0).title = "My edited example"; config.save();
+        require(seeded.equals(preferences.getString(exampleKey, "")), "Active edits mutated the saved example");
+        config.reset();
+        require(seeded.equals(preferences.getString(exampleKey, "")), "Restore defaults replaced the example");
+
+        // Owner replacements (including an intentional empty dashboard) always win.
+        require(config.saveSlot(2, "My replacement", 3), "Could not overwrite the example");
+        String replacement = preferences.getString(exampleKey, "");
+        new DashboardConfig(preferences, profile);
+        require(replacement.equals(preferences.getString(exampleKey, "")), "Reload replaced the owner's slot");
+        config.widgets.clear(); config.save();
+        require(config.saveSlot(2, "Empty on purpose", 0), "Could not save an empty slot");
+        replacement = preferences.getString(exampleKey, "");
+        config = new DashboardConfig(preferences, profile);
+        require(config.widgets.isEmpty() && config.slot(2).widgetCount == 0
+                        && replacement.equals(preferences.getString(exampleKey, "")),
+                "Seed replaced intentionally empty active or saved content");
+        require(preferences.edit().putString(exampleKey, "unreadable owner data").commit(), "Could not seed damaged slot");
+        config = new DashboardConfig(preferences, profile);
+        require(config.slotExists(2) && config.slot(2) == null
+                        && preferences.getString(exampleKey, "").equals("unreadable owner data"),
+                "Seed discarded an occupied unreadable slot");
+        require(preferences.edit().remove(exampleKey).remove("dashboard_columns").commit(), "Could not seed legacy Adaptive example");
+        config = new DashboardConfig(preferences, profile);
+        require(config.widgets.isEmpty() && !preferences.contains("dashboard_columns") && config.slot(2) != null,
+                "Seeding a legacy profile changed its empty dashboard or Adaptive choice");
+        require(preferences.edit().clear().commit(), "Could not reset isolated example fixture");
+        checks.add("All widgets seeds only an absent third slot per profile; generated IDs, current dashboards, column choices, occupied/empty/damaged slots and other saved data survive reloads and upgrades");
+        checks.add("Every example type has sensible options and explicit nonoverlapping, gap-free 1–6-column layouts; measured sizing remains safe without rewriting the saved example");
+    }
+
+    static void assertAllWidgetsExample(DashboardConfig config,
+            java.util.function.BiConsumer<Boolean, String> check) {
+        check.accept(config.widgets.size() == 15, "Example must contain every widget type exactly once");
+        java.util.HashSet<String> types = new java.util.HashSet<>();
+        for (DashboardConfig.Widget widget : config.widgets) {
+            check.accept(types.add(widget.type), "Example repeats a widget type");
+            check.accept(widget.layouts.size() == 6, "Example lacks an explicit layout width");
+            for (int columns = 1; columns <= 6; columns++)
+                check.accept(widget.layouts.containsKey(columns), "Example lacks " + columns + " columns");
+            switch (widget.type) {
+                case "scooter":
+                    check.accept(widget.keys.equals(Arrays.asList("odometer_km", "driving_mode")), "Example scooter readings changed"); break;
+                case "metric":
+                    check.accept(widget.metric.equals("battery_percent"), "Example big reading must show charge"); break;
+                case "gauge":
+                    check.accept(widget.metric.equals("speed_kmh") && widget.minimum == 0 && widget.maximum == 50,
+                            "Example speed gauge must use a sensible raw-km/h range"); break;
+                case "live":
+                    check.accept(widget.metric.equals("power_w") && widget.windowMs == 120000L, "Example live power window changed"); break;
+                case "history":
+                    check.accept(widget.metric.equals("battery_percent") && widget.windowMs == 7 * 86400000L, "Example history window changed"); break;
+                case "health":
+                    check.accept(widget.metric.equals("battery_health_percent") && widget.windowMs == 30 * 86400000L, "Example health window changed"); break;
+                case "capacity":
+                    check.accept(widget.windowMs == 90 * 86400000L && widget.advertisedWh == 0, "Example overrides model capacity or history"); break;
+                case "readings":
+                    check.accept(widget.keys.equals(Arrays.asList("voltage_v", "current_a", "power_w", "temperature_c")), "Example electrical readings changed"); break;
+                case "quick":
+                    check.accept(widget.quickActions.equals(Arrays.asList("lights", "controls", "stats", "rides")), "Example shortcuts changed"); break;
+                case "lock":
+                    check.accept(widget.showDisconnect, "Example hides manual disconnect"); break;
+                case "note":
+                    check.accept(widget.note.length() > 0 && widget.note.length() < 160, "Example explanation is missing or too long"); break;
+            }
+        }
+        check.accept(types.equals(new java.util.HashSet<>(Arrays.asList(DashboardConfig.TYPES))), "Example types do not match the available catalog");
     }
 
     private void releaseDefaultsPreserveExistingData() throws Exception {

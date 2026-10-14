@@ -2,20 +2,20 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.11.0** (versionCode 23). Independent project; not affiliated with NAVEE.
+Current application version: **0.12.0** (versionCode 24). Independent project; not affiliated with NAVEE.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
 
-Version 0.11.0 adds a searchable chart browser for recorded numerical readings,
-reorderable chart/reading favourites, full-detail ride graphs, charge recording
-and JSON export, and stronger screen-off recording protection. Battery widgets,
-compact dashboard editing, scooter selectors and preferences are easier to use.
-New or reset dashboards use the owner's ten-widget setup, with a five-column
-choice that adapts to narrower screens. Existing layouts, slots, profiles and
-recordings stay intact. See [VERIFICATION.txt](VERIFICATION.txt) for executed
-checks and remaining physical test limits.
+Version 0.12.0 smooths navigation, dialogs and map loading, fixes brief scrollbar
+flashes and scroll-position jumps, and adds grab-handle reordering for Stats
+favourites. An **All widgets** example is added to saved-layout slot 3 only when
+that slot does not already exist for the scooter. It contains all 15 widget
+types with useful settings and arrangements for one through six columns.
+Your active dashboard, other slots, profiles and recordings stay intact.
+See [VERIFICATION.txt](VERIFICATION.txt) for executed checks and remaining
+physical test limits.
 
 - **Home:** an editable dashboard for each scooter, with automatic connection, a large lock switch, battery overview, charts, and shortcuts.
 - **Scooter:** compact grouped settings for riding, battery, lights, dashboard/sounds, and security. Rename your scooter here or use its widget's pencil while editing Home.
@@ -47,6 +47,12 @@ Entering and leaving edit mode briefly slides the dashboard and pops its control
 
 Cards animate their size and position together during layout changes. Removal has a brief shrink-and-fade with soft puffs while the other cards can move immediately. Short transitions also follow deliberate page changes, button presses, and confirmed lock-state updates. They respect Android's disabled-animation setting; movement never substitutes for the scooter's confirmed lock state.
 
+Navigation uses consistent short fades and glides; dialogs rise smoothly and
+map content/tiles appear without abrupt layout jumps. Restored pages start at
+their saved scroll position, and scrollbars appear when you scroll rather than
+flashing on each settings rebuild. Transitions become immediate when Android
+animations are disabled.
+
 **Edit → Layout → Saved layouts** offers three named slots for each scooter.
 Save captures every widget and its options, the column choice, and all saved
 one- through six-column arrangements together, including folded and unfolded
@@ -58,6 +64,14 @@ Column choice is shared across all scooters on this phone; restoring a slot
 also restores that shared choice without replacing other scooters’ widgets.
 Slots are local to this phone and scooter; they contain layout settings, not
 readings, recordings, or owner credentials. Even an empty dashboard can be saved.
+
+Slot 3 receives an **All widgets** example only if no saved slot 3 exists for
+that scooter. Adding the example never overwrites a saved slot, including an
+intentionally empty layout. The example includes all 15 widget types with sensible parameters
+and one- through six-column arrangements. Open **Edit → Layout → Saved layouts**
+and restore **All widgets** to try it; save your current dashboard in another
+slot first if you want to return to it. Adding the example does not activate it
+or change your current column choice.
 
 The 15 choices are Lock & connection, Your scooter, Battery overview, Big reading, Gauge, Live trend, History chart, Reading list, Trip overview, Battery health, Capacity experiment, Charging, Quick access, Ride recorder, and Note. Customize titles, parameters, reading lists, colors, chart windows, and gauge ranges where applicable. Up to 32 widgets are allowed, with one lock widget. New widgets remain drafts until **Save**; closing without saving leaves the dashboard unchanged. A recognized UT5 MAX photo remains visible while disconnected. Existing custom layouts are preserved; add widgets through Edit or restore defaults.
 
@@ -115,7 +129,7 @@ The usual ten-second idle background timeout is unchanged. History does not prol
 
 ## Live Stats and range estimates
 
-**Readings** keeps its dynamic reading count, search and categories; the redundant favourites-only filter is removed. **Charts** uses the same searchable categories and offers every numerical parameter retained for the selected scooter or currently reported. One **Window** picker applies to all charts: 2 minutes, 10 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days or All. All eight choices appear together, including on narrow screens. Stars add charts to **Overview**, where readings and charts share a manually reorderable favourites list. Each graph expands for inspection. Only visible charts load data; missing intervals remain gaps, and older retained history may be summarized.
+**Readings** keeps its dynamic reading count, search and categories; the redundant favourites-only filter is removed. **Charts** uses the same searchable categories and offers every numerical parameter retained for the selected scooter or currently reported. One **Window** picker applies to all charts: 2 minutes, 10 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days or All. All eight choices appear together, including on narrow screens. Stars add charts to **Overview**, where readings and charts share a reorderable favourites list. Tap the Reorder icon, then drag a row by its handle; dropping saves the order, while a cancelled drag restores the starting arrangement. Screen-reader Move up/Move down actions remain available. Each graph expands for inspection. Only visible charts load data; missing intervals remain gaps, and older retained history may be summarized.
 
 **Follow riding mode** selects the supported firmware range estimator for the current mode when fresh state confirms the scooter is stationary. Fixed choices disable following for that scooter. Missing Eco support falls back to the firmware's D-mode estimator, with an explanation in the picker. Range displays still use the scooter's prediction; they do not measure usable capacity or automatically detect Boost. Unconfirmed automatic attempts are bounded across reconnects.
 

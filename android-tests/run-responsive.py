@@ -19,7 +19,7 @@ parser.add_argument('--app', type=Path, required=True)
 parser.add_argument('--runner', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
 parser.add_argument('--baseline', action='store_true', help='Only the two original reported regressions')
-parser.add_argument('--case', action='append', help='Target widthxheight:app-text-scale:mode[:system-font-scale] (repeatable)')
+parser.add_argument('--case', action='append', help='Target widthxheight:app-text-scale:mode[:system-font-scale] (repeatable; example restores saved All widgets slot)')
 args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
     parser.error('An explicit emulator serial is required; physical phones are refused')
@@ -46,7 +46,10 @@ matrix = [(344, 882, 1.0, 'cards', 1.0), (725, 604, 1.0, 'fold', 1.0)] if args.b
     (852, 690, 1.0, 'all', 1.0), (344, 882, 1.0, 'constraints', 1.0),
     (360, 800, 1.4, 'constraints', 1.0), (650, 850, 1.0, 'constraints', 1.0),
     (344, 882, 1.0, 'edit', 1.0), (725, 604, 1.0, 'edit', 1.0),
-    (344, 882, 1.0, 'editor', 1.0), (725, 604, 1.0, 'editor', 1.0)]
+    (344, 882, 1.0, 'editor', 1.0), (725, 604, 1.0, 'editor', 1.0),
+    (344, 882, 1.0, 'example', 1.0), (448, 960, 1.0, 'example', 1.0),
+    (725, 604, 1.0, 'example', 1.0), (344, 882, 1.4, 'example', 1.0),
+    (448, 960, 1.4, 'example', 1.0), (725, 604, 1.4, 'example', 1.0)]
 if args.case:
     matrix = []
     for selected in args.case:
@@ -58,7 +61,7 @@ if args.case:
         width, height = map(int, size.split('x'))
         if not 280 <= width <= 1400 or not 280 <= height <= 1600 or not 1 <= float(scale) <= 2 or not 1 <= system_scale <= 2:
             parser.error('Cases must stay within reasonable emulator dimensions/text sizes')
-        if mode not in ('all', 'cards', 'fold', 'battery', 'constraints', 'edit', 'editor', 'gauge', 'motion', 'quick', 'followup', 'chart'):
+        if mode not in ('all', 'cards', 'fold', 'battery', 'constraints', 'edit', 'editor', 'gauge', 'motion', 'quick', 'followup', 'chart', 'example'):
             parser.error('Unknown validation mode')
         matrix.append((width, height, float(scale), mode, system_scale))
 args.out.mkdir(parents=True, exist_ok=True)

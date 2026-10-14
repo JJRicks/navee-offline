@@ -75,7 +75,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().containsKey("odometer_km"), "Cached fixture did not load");
             stopUiPulse(); settle();
             String mode = arguments.getString("mode", "all");
-            if (mode.equals("chart")) {
+            if (mode.equals("example")) {
+                verifyAllWidgetsExample();
+            } else if (mode.equals("chart")) {
                 verifyChartAxes();
             } else if (mode.equals("followup")) {
                 verifyDashboardFollowup();
@@ -127,6 +129,122 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             }
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
         }
+    }
+    /** Restore the shipped example; do not construct a lookalike in the fixture. */
+    private void verifyAllWidgetsExample() throws Exception {
+        final AtomicReference<String> savedExample = new AtomicReference<>();
+        main(() -> {
+            DashboardConfig config = dashboardConfig();
+            DashboardConfig.SavedSlot slot = config.slot(2);
+            require(slot != null && "All widgets".equals(slot.name)
+                            && slot.widgetCount == DashboardConfig.TYPES.length && slot.columns == 6,
+                    "Fresh profile is missing the six-column All widgets example in slot 3");
+            String key = "dashboard_slot_v1_" + activity.service().profiles.active().id + "_2";
+            savedExample.set(settings().getString(key, null));
+            require(savedExample.get() != null, "Example slot was not persisted");
+            require(config.restoreSlot(2), "Could not restore All widgets example");
+            invoke(dashboard(), "render");
+        });
+        settleMotion(); stopUiPulse();
+        main(() -> ((ScrollView)field(activity, "scroll")).scrollTo(0, 0));
+        settle();
+        main(() -> {
+            DashboardConfig config = dashboardConfig();
+            require(settings().getInt("dashboard_columns", 0) == 6, "Example lost its preferred column setting");
+            require(config.widgets.size() == DashboardConfig.TYPES.length && tiles().size() == DashboardConfig.TYPES.length,
+                    "Example did not render all 15 widgets");
+            for (String type : DashboardConfig.TYPES) {
+                int count = 0;
+                for (DashboardConfig.Widget widget : config.widgets) if (widget.type.equals(type)) count++;
+                require(count == 1, "Example must contain exactly one " + type + " widget");
+            }
+            DashboardConfig.Widget gauge = (DashboardConfig.Widget)field(tile("gauge"), "widget");
+            DashboardConfig.Widget live = (DashboardConfig.Widget)field(tile("live"), "widget");
+            require("speed_kmh".equals(gauge.metric) && gauge.minimum == 0 && gauge.maximum == 50,
+                    "Example speed gauge lost its useful range");
+            require("power_w".equals(live.metric) && live.windowMs == 120000,
+                    "Example live chart lost its two-minute power view");
+            require(((DashboardConfig.Widget)field(tile("lock"), "widget")).showDisconnect,
+                    "Example lock card lost its Disconnect option");
+            assertNoEditorControls();
+            for (Object item : tiles()) {
+                View card = (View)item, body = (View)field(item, "body");
+                ScrollView viewport = (ScrollView)field(item, "viewport");
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
+                DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid(), "currentCell",
+                        new Class<?>[] {DashboardConfig.Widget.class}, widget);
+                require(cell != null && cell.h >= widget.minimumHeight(), "Example card is below its minimum height: " + widget.type);
+                require(viewport.getWidth() > 0 && viewport.getHeight() > 0
+                                && body.getWidth() <= viewport.getWidth(), "Example card lost its content viewport: " + widget.type);
+                // Some cards intentionally scroll at small widths. Record that geometry
+                // for inspection rather than treating supported scrolling as clipping.
+                overlayGeometry.add("example " + widget.type + " cell=" + cellText(cell)
+                        + " card=" + card.getWidth() + "x" + card.getHeight()
+                        + " body=" + body.getWidth() + "x" + body.getHeight()
+                        + " viewport=" + viewport.getWidth() + "x" + viewport.getHeight());
+            }
+            String key = "dashboard_slot_v1_" + activity.service().profiles.active().id + "_2";
+            require(savedExample.get().equals(settings().getString(key, null)), "Rendering changed the saved example");
+        });
+        assertGridAndHeader();
+        assertInitialLockVisible();
+        await(() -> ((Ui.ChartView)field(tile("history"), "chart")).pointCount() > 0
+                        && ((Ui.ChartView)field(tile("health"), "chart")).pointCount() > 0,
+                "Example history charts did not load synthetic fixture samples");
+        captureExampleSections();
+        check("Saved All widgets example restores all 15 types with useful parameters; cards fit without overlap and the compact Connect action starts on-screen");
+        check("Overlapping page captures cover every example card, including compact, wide and enlarged-text arrangements; intentional card scrolling is preserved");
+    }
+    private void captureExampleSections() throws Exception {
+        final int[] size = new int[2];
+        final Map<String, int[]> covered = new LinkedHashMap<>();
+        main(() -> {
+            ScrollView scroll = (ScrollView)field(activity, "scroll");
+            // Exclude the floating navigation bar/padding from the covered region.
+            size[1] = scroll.getHeight() - scroll.getPaddingTop() - scroll.getPaddingBottom();
+            require(size[1] > activity.ui().dp(100), "Example has no usable scroll viewport");
+            require(scroll.getChildCount() == 1, "Example scroll content is missing");
+            // A huge probe can overflow ScrollView's clamp arithmetic. Compute the
+            // actual range from measured content instead, without moving to a sentinel.
+            size[0] = Math.max(0, scroll.getChildAt(0).getHeight() - size[1]);
+            scroll.scrollTo(0, 0);
+            for (Object item : tiles()) covered.put(((DashboardConfig.Widget)field(item, "widget")).type,
+                    new int[] {Integer.MAX_VALUE, Integer.MIN_VALUE});
+        });
+        int step = Math.max(1, size[1] * 3 / 4);
+        long sectionCount = ((long)size[0] + step - 1) / step + 1;
+        require(sectionCount <= 64, "Example screenshot range is unexpectedly large: " + sectionCount);
+        final int[] previousOffset = {-1};
+        for (int index = 0; index < (int)sectionCount; index++) {
+            final int offset = (int)Math.min(size[0], (long)index * step);
+            main(() -> ((ScrollView)field(activity, "scroll")).scrollTo(0, offset));
+            settle();
+            main(() -> {
+                ScrollView scroll = (ScrollView)field(activity, "scroll");
+                int actual = scroll.getScrollY();
+                require(actual == offset, "Example scroll range changed: requested " + offset + ", got " + actual);
+                require(actual > previousOffset[0], "Example screenshot scrolling made no progress");
+                previousOffset[0] = actual;
+                int top = scroll.getPaddingTop(), bottom = scroll.getHeight() - scroll.getPaddingBottom();
+                for (Object item : tiles()) {
+                    View card = (View)item; Rect box = relativeBounds(card, scroll);
+                    if (box.bottom <= top || box.top >= bottom) continue;
+                    int[] range = covered.get(((DashboardConfig.Widget)field(item, "widget")).type);
+                    range[0] = Math.min(range[0], Math.max(0, top - box.top));
+                    range[1] = Math.max(range[1], Math.min(card.getHeight(), bottom - box.top));
+                }
+            });
+            screenshot(String.format(Locale.ROOT, "example-section-%02d", index + 1));
+        }
+        main(() -> {
+            for (Object item : tiles()) {
+                String type = ((DashboardConfig.Widget)field(item, "widget")).type;
+                int[] range = covered.get(type);
+                require(range[0] == 0 && range[1] == ((View)item).getHeight(),
+                        "Page captures missed part of example card: " + type);
+            }
+            ((ScrollView)field(activity, "scroll")).scrollTo(0, 0);
+        });
     }
     private void verifyChartAxes() throws Exception {
         main(() -> {
@@ -233,6 +351,33 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             double rawSchedule = (schedule.getTimeInMillis() + java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis())) / 1000d;
             reading(values, "scheduled_charge_time_raw", "Fixture schedule", "", rawSchedule, wall);
             TelemetryHistory store = new TelemetryHistory(getTargetContext()); history.set(store);
+            if (arguments.getString("mode", "all").equals("example")) {
+                // Fixture-only samples make the example's extra cards legible without a
+                // real scooter, synthetic rides, or changes to production example data.
+                reading(values, "speed_kmh", "18.4 km/h", "km/h", 18.4d, wall);
+                reading(values, "voltage_v", "52.1 V", "V", 52.1d, wall);
+                reading(values, "current_a", "0.28 A", "A", .28d, wall);
+                reading(values, "trip_km", "3.6 km", "km", 3.6d, wall);
+                reading(values, "trip_minutes", "14 min", "min", 14d, wall);
+                reading(values, "maximum_speed_kmh", "25 km/h", "km/h", 25d, wall);
+                reading(values, "charge_cycles", "12", "", 12d, wall);
+                reading(values, "rated_capacity_ah", "12.75 Ah", "Ah", 12.75d, wall);
+                for (int day = 6; day >= 1; day--) {
+                    long at = wall - day * 86400000L;
+                    Map<String, TelemetryHistory.Reading> past = new LinkedHashMap<>();
+                    double percent = 100 - day * 4d;
+                    reading(past, "battery_percent", percent + " %", "%", percent, at);
+                    reading(past, "battery_health_percent", "100 %", "%", 100d, at);
+                    store.record(profile.id, new TelemetryHistory.Snapshot(past, Collections.emptyMap(), at), 1, true);
+                }
+                for (int sample = 12; sample >= 1; sample--) {
+                    long at = wall - sample * 5000L;
+                    Map<String, TelemetryHistory.Reading> past = new LinkedHashMap<>();
+                    double power = 14.6 + Math.sin(sample * .6) * 4;
+                    reading(past, "power_w", power + " W", "W", power, at);
+                    store.record(profile.id, new TelemetryHistory.Snapshot(past, Collections.emptyMap(), at), 1, true);
+                }
+            }
             store.record(profile.id, new TelemetryHistory.Snapshot(values, Collections.singletonMap("timed_charging", 1), wall), 1, true);
             store.load(profile.id, saved::set);
         });
