@@ -25,7 +25,10 @@ Validated October 14, 2026. This change is stacked on
   100%, not that balancing or the charger's own final stage was measured.
 - Dashboard charging estimates consult the service's selected scooter/charger
   curve. The existing fresh paired-electrical and rated-capacity gates remain in
-  force. The result identifies learned estimates and current-rate fallbacks.
+  force. Learned estimates also require compatible live power at the current SOC.
+  A different, absent or inconsistent power reference preserves the current-rate
+  estimate, with an explanation. This checks plausibility; it does not identify
+  which charger is connected or change the manual selection.
 
 ## Data and qualification
 
@@ -43,7 +46,14 @@ rejected. Temperature is optional. SOC rollbacks, skipped percentages, gaps over
 25 seconds and wall-clock discontinuities break the affected curve interval.
 
 Retention is at most 20 journals, approximately 20 MB in total, with an 18-hour,
-6,500-sample and approximately 1 MB cap per journal. Abruptly interrupted journals
+6,500-sample and approximately 1 MB cap per journal. Non-qualifying captures are
+removed first. If all remaining files qualify, pruning removes the oldest file
+from the largest profile/charger bucket, balancing coverage instead of allowing
+frequent stock captures to evict a minority high-speed curve. Two sessions per
+bucket are protected while the global cap can accommodate them; an active capture
+reserves one of the 20 slots. The cap still takes precedence when too many buckets
+compete. The analysis worker caches closed-file qualification for subsequent
+pruning; changed files invalidate that cache. Abruptly interrupted journals
 are finalized as interrupted on next launch and excluded from learning. A
 per-scooter clear action removes that scooter's closed journals and derived curves.
 Curve parsing runs on a dedicated worker; cached estimates are read on the UI
@@ -60,9 +70,20 @@ interval prevents a learned full-charge ETA; a covered lower cutoff may still
 use its learned estimate. The remaining full-charge time then retains its stated
 current-rate fallback, without inventing taper coverage.
 
+Each completed one-percent interval also retains the median battery-side power
+from at least three paired samples inside that interval. The next interval's
+first sample, including a zero-current final cutoff packet, does not contaminate
+the previous interval's power. At the current SOC, at least two duration-qualified
+sessions must also provide consistent power (within 25% of their median). Live
+power must then be within 35% of that reference. Taper is compared with recorded
+power at the same SOC, rather than the charger's bulk power. Missing or conflicting
+power fails closed to the current-rate estimate. These are conservative heuristic
+tolerances pending hardware validation, not charger identification or an accuracy
+guarantee; temperature and other changes can also cause a mismatch.
+
 ## Validation
 
-- `bash tests/run.sh`: all 16 suites passed, 46,271 assertions/checks including 52
+- `bash tests/run.sh`: all 16 suites passed, 46,296 assertions/checks including 77
   charge-journal/curve checks. Existing charging estimates retain their 135 checks.
 - The new checks cover freshness/source pairing, invalid values, cadence,
   retention, process interruption, profile/charger separation, gaps, clock jumps,
@@ -70,9 +91,19 @@ current-rate fallback, without inventing taper coverage.
   synthetic 40–100% sessions with different durations yield an averaged 75-minute
   50–100% estimate. Two completed sessions with charging-off/zero-current final
   packets retain a learned one-minute 99–100% interval.
+- Review regression: two 52 V / 2.75 A, three-minute-per-percent stock sessions
+  cannot override the approximately 63-minute current-rate estimate at 60% with
+  twice the live current. Matching stock power retains its learned 120-minute
+  estimate. Recorded taper uses the same-SOC reference successfully; missing,
+  zero, conflicting and out-of-tolerance power preserve the fallback. Tests also
+  cover zero-current completion and the inclusive tolerance boundaries.
+- Retention regressions preserve minority scooter/charger curves through 25
+  qualifying stock captures and 30 short/failed captures while enforcing the
+  same global file/byte bounds.
 - App and separate instrumentation APK built and signature-verified.
 - `ChargeCaptureValidation` passed 49 assertions per case on disposable emulator
-  5588: 344×882 dp dark/default font and 725×604 dp light/140% font. Screenshots
+  5588 initially and 5586 after the review fixes: 344×882 dp dark/default font and
+  725×604 dp light/140% font. Screenshots
   were inspected for readable controls and wrapping.
 - Native checks cover disconnected and simulation start refusal without creating
   files; per-profile charger selection; background-work admission only for active
@@ -99,8 +130,9 @@ python3 android-tests/run-charge-capture.py \
   --out /path/to/disposable-evidence
 ```
 
-Local evidence is under `work/charge-capture-validation/final-native`, with build
-and core logs beside the worktree. APKs/screenshots are not committed.
+Local evidence is under `work/charge-capture-validation/final-native` and
+`work/charge-capture-validation/review-native`, with build and core logs alongside.
+APKs/screenshots are not committed.
 
 ## Integration and remaining hardware validation
 
@@ -115,3 +147,9 @@ stock/high-speed curves, radio behavior during a full screen-off charge, and
 real-world ETA accuracy still require hardware testing. The conservative fallback
 remains until the required data exists. This is an experimental observed-SOC
 estimate, not a battery-health or charger-identification measurement.
+
+The optional reconnect grace from review is deliberately deferred: disconnect
+still ends an explicit capture immediately, and charge capture does not enable
+automatic reconnection. This preserves the bounded, already-tested lifecycle
+until full screen-off hardware captures can establish appropriate reconnect
+behavior. Existing gap handling remains for data interruptions within a connection.
