@@ -1,26 +1,30 @@
-# Live Stats refresh validation
+# Live Stats browser validation
 
-Scope: walkthrough notes 7, 14, 16 (Stats section navigation), 18 and 19.
+PR15 combines the original Live Stats organization pass with the owner's follow-up from the integrated test build.
 
-- Overview has a larger Favourites heading and a dashed, actionable empty state. The empty area opens Readings (or scrolls its existing wide pane to the top).
-- The Favourites filter has a filter glyph, a clear selected outline, and a layout that stacks when its text and count need more space.
-- Reading categories use one rounded group each, with larger headings and disclosure arrows. Unset expansion preferences default to collapsed; explicit prior choices remain saved. Search and the favourites filter open matching groups.
-- Readings share available width between labels and values. Values stack below the label before their words are split by a narrow value column.
-- The shared sliding selector replaces Stats' individual section pills. Compact padding keeps all default-size labels visible; larger text retains the existing horizontal-scroll fallback.
-- A return within 10 seconds retains the selected section. Longer tab or app absences reset to Overview and clear its saved scroll. Monotonic time and boot count prevent a reboot from extending the grace period.
-- The page and navigation label are Live Stats. Its heading is grey while disconnected. The connected pulse is decorative, stops when hidden/unfocused and respects Android's animation setting.
-- Power, voltage and scooter speed are three independent chart cards, each using its own measured trend and unit. Speed respects the display units. Stale charts remain grey and gaps stay intact.
+## Behavior
+
+- Overview keeps the battery summary and an actionable empty Favourites state. Readings and charts have independent stars and can coexist in a single manually ordered list. Reorder exposes labelled 48dp up/down buttons; the mixed order survives navigation and process recreation. Existing reading favourites migrate in stable catalogue order.
+- Readings keep the dynamic reading count, its alignment, and its 48dp row spacing. The redundant Favourites filter is removed. Search opens matching rounded, otherwise collapsed categories.
+- Charts discover every numerical key retained for the active scooter, plus current numerical readings. Text-only values are excluded. Search matches label, key, and category using the same group structure as Readings. Categories start collapsed unless the rider has chosen otherwise.
+- One saved time-window control applies to every chart, including favourite and expanded views: 2 minutes, 10 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days, or All. Expanded views expose the same control and the existing measured-point trace inspection.
+- All starts at the earliest retained sample before choosing a history tier. A recent two-minute dataset therefore retains detail rather than being reduced against an epoch-wide range. Older minute/daily tiers retain the existing storage policy and aggregation; the page explains that older data is summarized. Connection gaps remain explicit.
+- Charts allocate their graph only after entering the viewport. Collapsed, filtered, and offscreen graphs do not query. Visible graphs refresh from live values and query history at most every five seconds, with one in-flight query per card, at most 600 saved points plus a bounded live tail. Historical-key discovery runs at most once a minute. Results are guarded against window/source changes, closed screens, and removed cards.
+- Display conversions respect distance/speed and temperature preferences. Saved or disconnected readings stay muted and timestamped. Simulator data is labelled and uses only the sample source, without history writes or real-history queries.
+- Live Stats has a larger pulse dot closer to the heading. The pulse stops when hidden/unfocused and respects reduced motion.
+- The original 10-second away reset, wide independent Readings pane, disclosure/accessibility labels, and narrow-value stacking remain.
 
 ## Validation
 
-`bash tests/run.sh`: all 15 suites passed (46,219 assertions/checks).
-`bash build.sh` and `bash android-tests/build.sh`: signed app and isolated runner built successfully. Only the existing Java 8/deprecation/native-access warnings were emitted.
+`bash tests/run.sh`: all 16 suites pass (46,228 checks), including mixed favourite ordering migration, duplicate/unknown IDs, persistence, add/remove, and boundary moves.
 
-The new `LiveStatsValidation` runner refuses physical devices, existing private app data, missing Bluetooth permissions and enabled Bluetooth. It uses a synthetic scooter profile and the existing sample-data mode, and verifies that no actual Bluetooth transport or recording starts.
+`bash build.sh` and `bash android-tests/build.sh`: signed app and separate runner build and verify. Existing Java8/deprecation/native-access warnings only.
 
-All five final native cases passed. Screenshots were inspected in compact and unfolded layouts, including light-theme large text and the large-font stacked-value regression.
+`HistoryValidation`: six isolated SQLite fixture groups pass. New checks cover recorded numerical-key discovery, exclusion of text/cache-only values, profile isolation, All preserving recent detail and reconnect gaps, All including the oldest retained tier, and shared-window bounds. Existing retention, pressure pruning, storage cap/journal, and clear tests also pass.
 
-The native matrix covers:
+`LiveStatsValidation` refuses physical devices, existing private data, missing Bluetooth permissions, and enabled Bluetooth. It creates a synthetic profile and sample data; no real scooter command, ride, or charge capture is started. Tests cover the reading-count geometry, collapsed groups, search, numerical catalogue completeness, lazy graph creation, fullscreen sample data/trace inspection, chart stars, mixed overview, saved manual ordering, and retention/expiry of sections.
+
+All five native UI cases passed (930 assertions total):
 
 | Viewport (dp) | Theme | System font | Motion |
 | --- | --- | --- | --- |
@@ -30,17 +34,21 @@ The native matrix covers:
 | 650 × 850 | Light | 130% | Enabled |
 | 344 × 882 | Dark | 100% | Disabled |
 
-Checks include the empty affordance; default collapsed groups; heading, filter, and disclosure readability; search and favourites; distinct chart instances/data/units; default section-label fit; tab and app-background retention/expiry; and live/disconnected heading state. Screenshots cover Overview, collapsed/filtered Readings, and both ends of the chart list.
+The final saved/live-tail merge also has a dedicated regression: returning to a chart must retain intermediate persisted samples and reconnect gaps. It was rerun in narrow and unfolded large-text cases.
 
-Reproduce on a **fresh disposable emulator**, using the app/runner built with the same local key:
+The runner scrolls matching charts into view before asserting lazy graph creation. The removed-filter check is scoped to Readings so the separate wide Overview heading is not mistaken for a filter.
+
+Reproduce on a **fresh disposable emulator** with matching app and runner signatures:
 
 ```sh
 python3 android-tests/run-live-stats.py \
   --adb /path/to/sdk/platform-tools/adb \
-  --serial emulator-5588 \
+  --serial emulator-5594 \
   --app /path/to/stats.apk \
   --runner /path/to/parked-validation.apk \
   --out /path/to/evidence
+adb -s emulator-5594 shell am instrument -w \
+  local.navee.offlinelock.tests/local.navee.offlinelock.tests.HistoryValidation
 ```
 
-This command intentionally replaces app data on the explicitly selected emulator. It never selects a physical phone. No phone installation or live scooter command is part of this validation.
+The first command replaces app data on the explicitly selected disposable emulator. This pass does not install on the owner's Pixel. Actual scooter firmware availability still determines which numerical parameters appear.

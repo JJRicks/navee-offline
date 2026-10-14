@@ -71,8 +71,10 @@ public final class LiveStatsValidation extends Instrumentation {
                     require(title.getCurrentTextColor() == activity.ui().text && title.getCompoundDrawablesRelative()[2] != null,
                             "Category heading lacks readable disclosure");
                 }
-                TextView filter = (TextView)field(stats(), "filterButton"); assertTextFits(filter);
-                require(filter.getCompoundDrawablesRelative()[0] != null && filter.getContentDescription().toString().contains("Filter"), "Filter affordance is missing");
+                require(findText((View)field(stats(), "readingsSection"), "Favourites") == null, "Redundant favourites filter remains on Readings");
+                TextView count = (TextView)field(stats(), "resultCount");
+                require(count.getText().toString().matches("[0-9]+ readings"), "Reading count missing");
+                require(((View)count.getParent()).getHeight() >= activity.ui().dp(48), "Count row lost its spacing");
             });
             screenshot("readings-collapsed");
             main(() -> ((EditText)field(stats(), "search")).setText("voltage")); settle();
@@ -80,7 +82,6 @@ public final class LiveStatsValidation extends Instrumentation {
                 Map<?, ?> rows = (Map<?, ?>)field(stats(), "rows"); Object voltage = rows.get("voltage_v");
                 require(((View)field(voltage, "layout")).isShown(), "Search did not open matching category");
                 ((View)field(voltage, "star")).performClick();
-                ((TextView)field(stats(), "filterButton")).performClick();
                 require(settings().getStringSet("stats_favourites", java.util.Collections.emptySet()).contains("voltage_v"), "Star did not save favourite");
             }); settle();
             main(() -> {
@@ -92,7 +93,7 @@ public final class LiveStatsValidation extends Instrumentation {
                 require(wholeWord, "Narrow value column split a word instead of stacking");
             });
             screenshot("readings-filtered");
-            main(() -> { ((EditText)field(stats(), "search")).setText(""); ((TextView)field(stats(), "filterButton")).performClick();
+            main(() -> { ((EditText)field(stats(), "search")).setText("");
                 invoke(stats(), "selectSection", new Class<?>[]{String.class}, "Overview"); }); settle();
             main(() -> require(((View)field(stats(), "favouritesCard")).isShown()
                     && !root().findViewWithTag("stats-empty-favourites").isShown(), "Favourite did not replace empty state"));
@@ -100,24 +101,67 @@ public final class LiveStatsValidation extends Instrumentation {
             main(() -> require(Boolean.TRUE.equals(field(field(activity, "liveStatsTitle"), "live")), "Connected sample heading is not live"));
             section("Charts");
             main(() -> {
-                Map<?, ?> charts = (Map<?, ?>)field(stats(), "charts"); require(charts.size() == 3, "Charts are still a single selectable graph");
-                for (String key : new String[]{"power_w", "voltage_v", "speed_kmh"}) {
-                    Ui.ChartView chart = (Ui.ChartView)charts.get(key);
-                    require(chart != null && chart.getVisibility() == View.VISIBLE && chart.pointCount() > 1, "Missing independent chart " + key);
-                    require(chart.getParent() != ((View)charts.get(key.equals("power_w") ? "voltage_v" : "power_w")).getParent(), "Charts share a card");
-                }
-                require("W".equals(field(charts.get("power_w"), "unit")), "Power chart unit wrong");
-                require("V".equals(field(charts.get("voltage_v"), "unit")), "Voltage chart unit wrong");
-                require("mph".equals(field(charts.get("speed_kmh"), "unit")), "Speed chart did not convert units");
-                View tabs = root().findViewWithTag("live-stats-sections");
-                require(tabs != null, "Shared segmented selector missing");
-                if (tabs.getResources().getConfiguration().fontScale <= 1.01f) {
-                    View track = (View)field(tabs, "track");
-                    require(track.getWidth() <= tabs.getWidth(), "Default section labels do not all fit the selector");
-                }
+                Object browser = field(stats(), "chartBrowser"); Map<?, ?> charts = (Map<?, ?>)field(browser, "cards");
+                long numeric = activity.service().displayReadings().values().stream().filter(r -> r.number != null).count();
+                require(charts.size() == numeric && charts.size() > 30, "Numerical chart catalogue is incomplete");
+                for (Object card : charts.values()) require(field(card, "graph") == null, "Collapsed chart eagerly allocated a graph");
+                require(!charts.containsKey("scooter_serial"), "Text field presented as numerical chart");
+                ((EditText)field(browser, "search")).setText("Battery power");
+            }); settle();
+            main(() -> ((android.widget.ScrollView)field(stats(), "sectionScroll")).fullScroll(View.FOCUS_DOWN)); settle();
+            main(() -> {
+                Object browser = field(stats(), "chartBrowser"); Map<?, ?> charts = (Map<?, ?>)field(browser, "cards");
+                Object card = charts.get("power_w"); Ui.ChartView graph = (Ui.ChartView)field(card, "graph");
+                require(graph != null && graph.pointCount() > 1 && graph.isShown(), "Visible chart did not load sample history");
+                require("W".equals(field(graph, "unit")), "Power chart unit wrong");
+                verifySavedTailMerge(browser, card, graph);
+                int allocated = 0; for (Object value : charts.values()) if (field(value, "graph") != null) allocated++;
+                require(allocated <= 2, "Search loaded hidden numerical charts");
+                ((View)field(card, "star")).performClick();
+                require(settings().getStringSet("stats_chart_favourites", java.util.Collections.emptySet()).contains("power_w"), "Chart favourite not persisted");
+                invoke(browser, "selectWindow", new Class<?>[]{int.class}, 7);
+                require(settings().getInt("stats_chart_window", -1) == 7, "All window not persisted");
+                invoke(browser, "expand", new Class<?>[]{String.class}, "power_w");
+            }); settle();
+            main(() -> {
+                Object browser = field(stats(), "chartBrowser"); Object card = field(browser, "fullscreenCard");
+                Ui.ChartView graph = (Ui.ChartView)field(card, "graph");
+                require(graph != null && graph.pointCount() > 1 && graph.getHeight() > activity.ui().dp(220), "Fullscreen graph did not expand/load");
+                long time = SystemClock.uptimeMillis();
+                graph.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time, 0, graph.getWidth() * .5f, graph.getHeight() * .5f, 0));
+                graph.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time + 10, 1, graph.getWidth() * .5f, graph.getHeight() * .5f, 0));
+                require(((Number)field(graph, "selected")).intValue() >= 0, "Fullscreen trace inspection missing");
+            }); screenshot("chart-fullscreen");
+            main(() -> ((android.app.Dialog)field(field(stats(), "chartBrowser"), "fullscreen")).dismiss());
+            main(() -> ((EditText)field(field(stats(), "chartBrowser"), "search")).setText("temperature_c")); settle();
+            main(() -> ((android.widget.ScrollView)field(stats(), "sectionScroll")).fullScroll(View.FOCUS_DOWN)); settle();
+            main(() -> {
+                Object browser = field(stats(), "chartBrowser"); Map<?, ?> cards = (Map<?, ?>)field(browser, "cards");
+                Object card = cards.get("temperature_c"); Ui.ChartView graph = (Ui.ChartView)field(card, "graph");
+                require(graph != null && graph.pointCount() > 1 && "°C".equals(field(graph, "unit")), "Temperature history missing/unit incorrect");
+            }); screenshot("charts-search");
+            section("Overview");
+            main(() -> {
+                require(((Map<?, ?>)field(stats(), "favouriteRows")).containsKey("voltage_v"), "Reading favourite lost when starring chart");
+                require(((Map<?, ?>)field(stats(), "favouriteCharts")).containsKey("power_w"), "Chart not added to mixed overview");
+                List<?> order = (List<?>)invoke(stats(), "favouriteOrder", new Class<?>[]{});
+                require(order.size() == 2, "Mixed favourites count is wrong");
+                ((android.widget.ScrollView)field(stats(), "sectionScroll")).fullScroll(View.FOCUS_DOWN);
+            }); settle();
+            main(() -> {
+                Object card = ((Map<?, ?>)field(stats(), "favouriteCharts")).get("power_w");
+                Ui.ChartView graph = (Ui.ChartView)field(card, "graph");
+                require(graph != null && graph.pointCount() > 1, "Favourite chart did not load when scrolled into view");
+            }); screenshot("overview-chart");
+            main(() -> invoke(stats(), "showFavouriteOrder", new Class<?>[]{})); settle(); screenshot("favourites-reorder");
+            main(() -> {
+                android.app.AlertDialog dialog = (android.app.AlertDialog)field(stats(), "orderDialog");
+                View button = findDescription(dialog.getWindow().getDecorView(), "Move Battery power (signed) chart up");
+                require(button != null && button.isEnabled(), "Mixed reorder control missing"); button.performClick();
+                require(settings().getString("stats_favourite_order", "").startsWith("chart:power_w"), "Chart reorder not saved"); dialog.dismiss();
             });
-            screenshot("charts-top");
-            main(() -> ((android.widget.ScrollView)field(stats(), "sectionScroll")).fullScroll(View.FOCUS_DOWN)); settle(); screenshot("charts-bottom");
+            navigate("home"); navigate("stats");
+            main(() -> require(((List<?>)invoke(stats(), "favouriteOrder", new Class<?>[]{})).get(0).equals("chart:power_w"), "Mixed order did not survive screen recreation"));
             verifyRetention();
             main(() -> { activity.service().setSimulation(false); activity.redraw(); }); settle();
             main(() -> { require(!Boolean.TRUE.equals(field(field(activity, "liveStatsTitle"), "live")), "Disconnect left a live pulse");
@@ -125,11 +169,29 @@ public final class LiveStatsValidation extends Instrumentation {
                         "Stats validation touched real Bluetooth");
                 require(!activity.service().isRecording() && !activity.service().phoneSaving(), "Stats started recording"); });
             result.putString("result", "PASS");
-        } catch (Throwable error) { result.putString("result", "FAIL"); result.putString("error", error.toString());
+        } catch (Throwable error) { result.putString("result", "FAIL"); Throwable cause = error; while (cause.getCause() != null) cause = cause.getCause(); result.putString("error", error.toString() + ": " + cause.toString());
             error.printStackTrace(); try { if (activity != null) screenshot("failure"); } catch (Throwable ignored) {} }
         finally { result.putInt("assertions", checks); result.putStringArrayList("screenshots", shots);
             if (activity != null) main(() -> { activity.finish(); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); });
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result); }
+    }
+    @SuppressWarnings("unchecked")
+    private void verifySavedTailMerge(Object browser, Object card, Ui.ChartView graph) {
+        long now = System.currentTimeMillis();
+        List<local.navee.offlinelock.TelemetryHistory.Point> saved = java.util.Arrays.asList(
+                new local.navee.offlinelock.TelemetryHistory.Point(now - 8000, 10, true),
+                new local.navee.offlinelock.TelemetryHistory.Point(now - 5000, 20, false),
+                new local.navee.offlinelock.TelemetryHistory.Point(now - 2000, 30, true));
+        try { Field f = card.getClass().getDeclaredField("saved"); f.setAccessible(true); f.set(card, saved); }
+        catch (Exception e) { throw new IllegalStateException(e); }
+        List<local.navee.offlinelock.TelemetryHistory.Point> tail = (List<local.navee.offlinelock.TelemetryHistory.Point>)field(card, "tail");
+        tail.clear(); tail.add(new local.navee.offlinelock.TelemetryHistory.Point(now - 9000, 5, true));
+        tail.add(new local.navee.offlinelock.TelemetryHistory.Point(now, 40, false));
+        invoke(card, "draw", new Class<?>[]{boolean.class}, true);
+        List<Ui.Point> points = (List<Ui.Point>)field(graph, "points");
+        require(points.size() == 4 && points.get(1).value == 20 && points.get(2).gapBefore && points.get(3).value == 40,
+                "Old live tail erased recorded samples collected while chart was offscreen");
+        invoke(browser, "refreshVisible", new Class<?>[]{});
     }
     private void verifyRetention() {
         section("Diagnostics"); navigate("home"); navigate("stats");
@@ -156,6 +218,20 @@ public final class LiveStatsValidation extends Instrumentation {
             require(getTargetContext().checkSelfPermission(permission) == PackageManager.PERMISSION_GRANTED, "Nearby permission missing");
         BluetoothManager manager = getTargetContext().getSystemService(BluetoothManager.class);
         require(manager == null || manager.getAdapter() == null || !manager.getAdapter().isEnabled(), "Disable emulator Bluetooth first");
+    }
+    private View findText(View root, String text) {
+        if (root instanceof TextView && ((TextView)root).getText().toString().equals(text) && root.isShown()) return root;
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) {
+            View found = findText(((ViewGroup)root).getChildAt(i), text); if (found != null) return found;
+        }
+        return null;
+    }
+    private View findDescription(View root, String description) {
+        if (description.equals(String.valueOf(root.getContentDescription()))) return root;
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) {
+            View found = findDescription(((ViewGroup)root).getChildAt(i), description); if (found != null) return found;
+        }
+        return null;
     }
     private void assertTextFits(TextView text) {
         require(text.getWidth() >= activity.ui().dp(48) && text.getHeight() >= activity.ui().dp(48), "Filter target too small");

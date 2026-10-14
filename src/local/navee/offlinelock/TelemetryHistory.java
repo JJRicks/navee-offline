@@ -379,6 +379,46 @@ public final class TelemetryHistory {
                 });
     }
 
+    /** Numerical keys with retained samples for this scooter, including keys absent from latest. */
+    public void recordedKeys(String profile, Consumer<Set<String>> callback) {
+        task(() -> {
+            Set<String> keys = new LinkedHashSet<>();
+            try {
+                if (profile != null) {
+                    SQLiteDatabase db = helper.getReadableDatabase();
+                    String sql = "SELECT DISTINCT k.name FROM keys k JOIN ("
+                            + "SELECT kid FROM detail WHERE pid=(SELECT id FROM profiles WHERE name=?) UNION "
+                            + "SELECT kid FROM minute WHERE pid=(SELECT id FROM profiles WHERE name=?) UNION "
+                            + "SELECT kid FROM daily WHERE pid=(SELECT id FROM profiles WHERE name=?)) d ON k.id=d.kid";
+                    try (Cursor c = db.rawQuery(sql, new String[]{profile, profile, profile})) {
+                        while (c.moveToNext()) if (known(c.getString(0))) keys.add(c.getString(0));
+                    }
+                }
+            } catch (Exception e) { status = "Could not read history"; }
+            Set<String> result = Collections.unmodifiableSet(keys);
+            reply(() -> callback.accept(result));
+        });
+    }
+
+    /** A zero window means all retained history, with resolution based on its actual age. */
+    public void queryWindow(String profile, String key, long windowMs, long toWall,
+            Consumer<List<Point>> callback) {
+        task(() -> {
+            List<Point> result = Collections.emptyList();
+            try {
+                if (known(key) && profile != null && toWall > 0 && windowMs >= 0) {
+                    SQLiteDatabase db = helper.getReadableDatabase();
+                    long from = windowMs > 0 ? Math.max(0, toWall - windowMs) : Long.MAX_VALUE;
+                    if (windowMs == 0) for (String table : new String[]{"detail", "minute", "daily"})
+                        from = Math.min(from, firstWall(db, table, profile, key, 0, toWall));
+                    if (from <= toWall) result = queryNow(db, profile, key, Math.max(0, from - 1), toWall);
+                }
+            } catch (Exception e) { status = "Could not read history"; }
+            List<Point> delivered = result;
+            reply(() -> callback.accept(delivered));
+        });
+    }
+
     private List<Point> queryNow(
             SQLiteDatabase db, String profile, String key, long from, long to) {
         long span = to - from;
