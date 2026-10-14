@@ -1,4 +1,83 @@
-RELEASE 0.10.0 (versionCode 22)
+RELEASE 0.11.0 (versionCode 23)
+October 14, 2026
+
+Reviewed feature integration:
+- PRs #14–21 are merged through integration-preserving main commit 31cf4b3.
+  Each feature's final head has an exact-commit Claude review requesting no
+  further changes; core-tests and web-setup CI checks passed on those heads.
+  Review does not substitute for hardware validation.
+- Final integrated product evidence is documented in
+  docs/validation/round2-integrated.md. Its tested product commit is ef169c8;
+  the document preserves earlier runs and the resolved large-text graph issue.
+- All 20 combined pure suites pass: 53,855 checks. During release preparation,
+  the combined release branch also passed these suites and all 11 owner-capture
+  cleanup guard tests. Final default-preset and release-APK checks are separate.
+- The integrated production APK and separate native runner build and verify.
+  These are feature-integration artifacts, not a claimed new 0.11.0 release APK.
+- Final ride checks: 123 each at 344x882 dp dark/default text and 725x604 dp
+  light/140% text (246 total), including complete 4,096-sample detail, original
+  readouts, usable graph height, cancellation/retry, worker-error recovery and
+  fractional time ticks. Screenshots were inspected.
+- Earlier unchanged-domain integration evidence remains: Stats 2,340 assertions
+  across 344 dp, 448 dp/140% and unfolded 725 dp/140%; all eight time choices
+  visible/selectable; charge lifecycle/JSON export 75; Units/preferences 427;
+  actual five-column 448 dp dashboard/three-row rails; six SQLite history groups.
+- Phone ride fixtures pass all six groups with GPS permission both denied and
+  granted, including screen-off beyond the idle deadline and cleanup/export.
+  These synthetic tests bypass the production Bluetooth-authenticated Start
+  prerequisite; they do not establish real outdoor GPS or overnight BLE capture.
+- Tests used disposable emulators with Bluetooth disabled and no owner identity.
+  Earlier runs, their APK hashes, logs and screenshots are retained locally;
+  this section does not claim a new owner-phone installation.
+
+Release-specific checks:
+- The release includes the owner's ten-widget Home preset and all captured
+  options/rectangles. Maximum speed is the first Quick access item, followed by
+  Scheduled charging. Five columns are the initial choice; narrower screens
+  use the existing adaptive fallback. Fresh widget IDs are generated and no
+  owner identity, name or setup data is bundled.
+- Native defaults/slots validation passes 1,374 assertions, matching every
+  captured option and rectangle, preserving existing dashboards and columns,
+  legacy Adaptive choices, other profiles, saved slots and recorded history.
+- The final signed 0.11.0 APK passes card checks at 344x882, 411x840,
+  448x960 and 725x604 dp,
+  plus 360x800 and 725x604 dp with 140% app text. Folded, unfolded and large-text
+  screenshots were inspected. Connected/disconnected/connecting lock controls,
+  scooter readings and battery readings fit without hidden inner overflow.
+- Independent review found that four newer widgets without 1–4-column saved
+  rectangles could settle above Lock on narrow first-run screens. Explicit
+  supplemental positions now keep the captured cards unchanged and fill the
+  two-column gaps beside Lock/Battery with Quick access/Charging. The new
+  first-screen Connect assertion reproduces the failure on the old APK and
+  passes on the fixed APK at 344 and 411 dp. All 40 captured rectangles and
+  widget options remain unchanged; fallback positions do not overlap.
+- The shared ride-map selector has 6 dp more top spacing. Focused native checks
+  pass 29 assertions each at 344 dp/default text and 725 dp/140% text, measuring
+  the actual 6 dp gap and retained 48 dp targets; screenshots were inspected.
+  The final combined APK includes this same one-file spacing change.
+- Fresh launches pass with Nearby permission denied and granted, including
+  onboarding, all five tabs, dark/light/system themes and activity recreation.
+- Production APK and native runner build. APK signing/alignment pass and its
+  signing certificate matches official 0.10.0. The production manifest remains
+  non-debuggable. Pinned Shizuku dependencies were explicitly verified.
+- Existing Java 8/deprecated-API and SDK native-access build warnings remain;
+  no new compile, signing or alignment failure occurred.
+- Release assets provide SHA256SUMS. Downloaded-asset verification and the
+  owner's USB upgrade are recorded with the published release, separately from
+  these emulator checks. No physical scooter command was sent during this pass.
+
+Physical limits:
+- Parked mode switching and confirmed range/control readback remain to be checked
+  on the scooter; automatic range following waits for fresh stationary state.
+- Real overnight charging, BLE loss, vendor battery restrictions, charger curve
+  accuracy and outdoor GPS/barometer/motion quality remain unverified. An ongoing
+  notification is not guaranteed non-dismissable on current Android versions.
+- Charger labels are selected manually. Learned ETA requires compatible live
+  power at the current state of charge; fallback estimates are not guarantees.
+  Reported health and the capacity experiment are not measured usable capacity.
+
+
+HISTORICAL RELEASE 0.10.0 (versionCode 22)
 October 13, 2026
 
 - Release packages the merged dashboard editor work (PR #12) and speed-gauge

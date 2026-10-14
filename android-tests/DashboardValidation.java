@@ -59,7 +59,7 @@ import local.navee.offlinelock.TelemetryHistory;
 public final class DashboardValidation extends Instrumentation {
     private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
     private static final String[] DESTINATIONS = {"Home", "Scooter", "Live Stats", "Rides", "More"};
-    private static final String[] DEFAULT_TYPES = {"lock", "scooter", "battery", "live", "capacity", "ride"};
+    private static final String[] DEFAULT_TYPES = {"lock", "scooter", "battery", "live", "capacity", "ride", "quick", "health", "history", "charging"};
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
     private static final String RENAMED = "Synthetic renamed scooter";
     private static final String HOME_RENAMED = "Synthetic Home rename";
@@ -84,10 +84,10 @@ public final class DashboardValidation extends Instrumentation {
             for (String destination : DESTINATIONS) { clickDescription(destination); assertNavigationFits(); assertNoScooterWork(); }
             clickDescription("Home"); awaitDashboard();
             main(() -> require(types().equals(new HashSet<>(Arrays.asList(DEFAULT_TYPES)))
-                    && config().widgets.size() == DEFAULT_TYPES.length && settings().getInt("dashboard_columns", 0) == 0,
+                    && config().widgets.size() == DEFAULT_TYPES.length && settings().getInt("dashboard_columns", 0) == 5,
                     "Fresh Home did not provide the default dashboard widgets"));
             assertGrid(); scrollHomeTop(); screenshot("default-dark");
-            check("Six-widget defaults match the captured folded/unfolded layouts, survive reload and reset only the selected profile; navigation and cards fit");
+            check("Ten-widget defaults match the captured folded/unfolded layouts, survive reload and reset only the selected profile; navigation and cards fit");
 
             if ("layout-slots".equals(arguments.getString("mode"))) {
                 verifySavedLayoutSlots();
@@ -290,15 +290,15 @@ public final class DashboardValidation extends Instrumentation {
         clickText(root(), "Layout");
         clickText(dialogRoot(), "Restore default widgets");
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
-        require(config().widgets.size() == 6 && config().slot(0).widgetCount == 7,
+        require(config().widgets.size() == DEFAULT_TYPES.length && config().slot(0).widgetCount == DEFAULT_TYPES.length + 1,
                 "Default reset overwrote a saved slot");
         clickText(root(), "Layout");
         click(dialogRoot().findViewWithTag("dashboard-slot-restore-0"));
         click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
-        require(config().widgets.size() == 6, "Cancel restored a slot");
+        require(config().widgets.size() == DEFAULT_TYPES.length, "Cancel restored a slot");
         click(dialogRoot().findViewWithTag("dashboard-slot-restore-0"));
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
-        require(config().widgets.size() == 7, "Restore did not recreate saved widgets");
+        require(config().widgets.size() == DEFAULT_TYPES.length + 1, "Restore did not recreate saved widgets");
         require(expected.equals(settings().getString("dashboard_v1_" + profileId, "")),
                 "Restored widget options or paired rectangles differ from the saved dashboard");
         assertGrid(); assertEditInputsInert(); assertNoScooterWork();
@@ -316,7 +316,7 @@ public final class DashboardValidation extends Instrumentation {
                 "Replacing a slot changed another slot");
         click(findDescription(dialogRoot(), "Close dashboard layout"));
         finishActivity(); launch();
-        require(config().widgets.size() == 7 && "My replaced commute".equals(config().slot(0).name),
+        require(config().widgets.size() == DEFAULT_TYPES.length + 1 && "My replaced commute".equals(config().slot(0).name),
                 "Saved or active dashboard did not survive activity recreation");
         check("Replacing one slot preserves the other slots; saved and current layouts survive activity recreation");
 
@@ -406,7 +406,7 @@ public final class DashboardValidation extends Instrumentation {
         try {
             DashboardConfig fresh = new DashboardConfig(isolated, "fresh");
             assertCapturedDefaults(fresh);
-            require(isolated.getInt("dashboard_columns", 0) == 0, "Fresh defaults did not retain adaptive columns");
+            require(isolated.getInt("dashboard_columns", 0) == 5, "Fresh defaults did not select five columns");
             fresh.save();
             String original = isolated.getString("dashboard_v1_fresh", "");
             Set<String> originalIds = new HashSet<>();
@@ -418,7 +418,7 @@ public final class DashboardValidation extends Instrumentation {
 
             DashboardConfig other = new DashboardConfig(isolated, "other");
             other.widgets.clear();
-            // Deliberately retain Quick access, which is no longer in the new preset.
+            // Deliberately retain an existing custom widget subset.
             other.widgets.add(new DashboardConfig.Widget("quick"));
             DashboardConfig.Widget note = new DashboardConfig.Widget("note");
             note.title = "Existing custom card"; note.note = "Keep this local reminder";
@@ -452,7 +452,9 @@ public final class DashboardValidation extends Instrumentation {
                 require(!originalIds.contains(widget.id), "Explicit reset reused a previous widget identity");
             Map<String, ?> afterReset = new LinkedHashMap<>(isolated.getAll());
             beforeReset.remove("dashboard_v1_fresh"); afterReset.remove("dashboard_v1_fresh");
-            require(beforeReset.equals(afterReset), "Reset changed another profile or the explicit global column choice");
+            beforeReset.remove("dashboard_columns"); afterReset.remove("dashboard_columns");
+            require(isolated.getInt("dashboard_columns", 0) == 5 && beforeReset.equals(afterReset),
+                    "Reset failed to restore columns or changed another profile/slot");
             require(new DashboardConfig(isolated, "empty").widgets.isEmpty(), "Reset repopulated another profile's empty dashboard");
             String resetSaved = isolated.getString("dashboard_v1_fresh", "");
             DashboardConfig resetReloaded = new DashboardConfig(isolated, "fresh");
@@ -462,49 +464,7 @@ public final class DashboardValidation extends Instrumentation {
         } finally { require(isolated.edit().clear().commit(), "Could not remove isolated default-layout fixture"); }
     }
     private void assertCapturedDefaults(DashboardConfig configuration) {
-        String[] titles = {"Lock & connection", "Your scooter", "Battery overview", "Live trend", "Capacity experiment", "Ride recorder"};
-        // Columns 2 and 4 are the owner's sanitized captured layout; 1 and 3 are width-specific fallbacks.
-        // Within each column count, rectangles follow DEFAULT_TYPES and contain x/y/width/height.
-        int[][][] rectangles = {
-            {{0,4,1,4}, {0,0,1,4}, {0,8,1,4}, {0,12,1,5}, {0,17,1,6}, {0,23,1,4}},
-            {{0,4,1,4}, {0,0,2,4}, {1,4,1,4}, {0,8,2,5}, {0,13,2,6}, {0,19,2,4}},
-            {{2,0,1,4}, {0,0,2,4}, {2,4,1,5}, {0,4,2,5}, {0,13,3,6}, {0,9,1,4}},
-            {{3,0,1,4}, {0,0,3,4}, {2,4,2,5}, {0,4,2,5}, {0,13,4,6}, {0,9,2,4}}
-        };
-        require(configuration.widgets.size() == DEFAULT_TYPES.length, "Preset widget count differs from the captured six");
-        Set<String> ids = new HashSet<>();
-        for (int i = 0; i < DEFAULT_TYPES.length; i++) {
-            DashboardConfig.Widget widget = configuration.widgets.get(i);
-            require(widget.id != null && !widget.id.isEmpty() && ids.add(widget.id), "Preset has a missing or duplicate widget identity");
-            long window = i == 3 ? 900000L : i == 4 ? 7776000000L : 86400000L;
-            List<String> keys = i == 1 ? Arrays.asList("odometer_km", "driving_mode")
-                    : Arrays.asList("remaining_range_km", "power_w", "battery_health_percent", "temperature_c");
-            require(widget.type.equals(DEFAULT_TYPES[i]) && widget.title.equals(titles[i])
-                    && widget.metric.equals("power_w") && widget.keys.equals(keys) && widget.note.isEmpty()
-                    && widget.color == 0 && widget.windowMs == window && widget.minimum == 0
-                    && widget.maximum == 100 && widget.advertisedWh == 0,
-                    "Preset options differ from the captured " + DEFAULT_TYPES[i] + " widget");
-            for (int columns = 1; columns <= 4; columns++) {
-                int[] expected = rectangles[columns - 1][i];
-                DashboardLayout.Cell cell = widget.layouts.get(columns);
-                require(cell != null && widget.id.equals(cell.id)
-                        && sameCell(cell, new DashboardLayout.Cell(widget.id, expected[0], expected[1], expected[2], expected[3])),
-                        "Preset " + widget.type + " differs from its " + columns + "-column rectangle");
-            }
-        }
-        for (int columns = 1; columns <= 4; columns++) {
-            List<DashboardLayout.Cell> cells = configuration.layout(columns, null);
-            require(cells.size() == DEFAULT_TYPES.length, "Settling the preset dropped a widget");
-            for (int i = 0; i < cells.size(); i++) {
-                DashboardLayout.Cell cell = cells.get(i); int[] expected = rectangles[columns - 1][i];
-                require(cell.id.equals(configuration.widgets.get(i).id) && cell.x >= 0 && cell.y >= 0
-                        && cell.w > 0 && cell.x + cell.w <= columns && cell.h >= configuration.widgets.get(i).minimumHeight()
-                        && sameCell(cell, new DashboardLayout.Cell(cell.id, expected[0], expected[1], expected[2], expected[3])),
-                        "Settling altered the " + columns + "-column " + DEFAULT_TYPES[i] + " preset rectangle");
-                for (int j = 0; j < i; j++) require(!DashboardLayout.overlaps(cell, cells.get(j)),
-                        "Preset cards overlap in " + columns + " columns");
-            }
-        }
+        DashboardSlotsValidation.assertCapturedDefaults(configuration, DashboardValidation::require);
     }
     private void verifyScooterStatsMigration() throws Exception {
         SharedPreferences isolated = getTargetContext().getSharedPreferences("dashboard_migration_validation", Context.MODE_PRIVATE);
@@ -729,8 +689,8 @@ public final class DashboardValidation extends Instrumentation {
             require(!activity.service().readingFresh("battery_percent") && !activity.service().featureFresh("headlight"),
                     "Cache must not provide command freshness");
             Map<?, ?> stats = (Map<?, ?>)field(tile("scooter"), "amounts");
-            require(stats.keySet().equals(new HashSet<>(Arrays.asList("odometer_km", "driving_mode"))),
-                    "My Scooter's defaults should contain only odometer and drive mode");
+            require(stats.keySet().equals(new HashSet<>(Arrays.asList("odometer_km", "remaining_range_km", "driving_mode"))),
+                    "My Scooter's defaults should contain odometer, estimated range and drive mode");
             TextView odometer = (TextView)stats.get("odometer_km"), mode = (TextView)stats.get("driving_mode");
             require("100.00 mi".contentEquals(odometer.getText()) && "3 (raw)".contentEquals(mode.getText()),
                     "My Scooter did not format its cached odometer and unknown-model mode: "

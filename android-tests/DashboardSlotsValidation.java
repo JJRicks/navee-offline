@@ -49,6 +49,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             history.execSQL("CREATE TABLE readings(profile TEXT, wall INTEGER, power REAL)");
             history.execSQL("INSERT INTO readings VALUES('alpha',1700000000000,721.5)");
             history.execSQL("INSERT INTO readings VALUES('beta',1700000000100,-61.25)");
+            releaseDefaultsPreserveExistingData();
             fullRoundTrip();
             overwriteAndReset();
             emptyAndMissingLayouts();
@@ -85,6 +86,159 @@ public final class DashboardSlotsValidation extends Instrumentation {
             try { cleanup(); } catch (Throwable ignored) { }
             finish(1, result);
         }
+    }
+
+    private void releaseDefaultsPreserveExistingData() throws Exception {
+        DashboardConfig fresh = new DashboardConfig(preferences, "release-fresh");
+        assertCapturedDefaults(fresh, this::require);
+        require(preferences.getInt("dashboard_columns", -1) == 5, "Fresh install must select five columns");
+        String original = signature(fresh);
+        require(signature(new DashboardConfig(preferences, "release-fresh")).equals(original),
+                "Reloading release defaults changed IDs, options or saved geometry");
+        fresh.widgets.get(0).title = "My existing lock";
+        fresh.widgets.get(1).keys.clear(); fresh.widgets.get(1).keys.add("voltage_v");
+        fresh.widgets.get(2).layouts.get(5).y = 40;
+        fresh.save();
+        require(preferences.edit().putInt("dashboard_columns", 6).putString("unrelated_setting", "keep").commit(), "Could not seed existing preferences");
+        require(fresh.saveSlot(1, "My backup", 6), "Could not save pre-reset layout");
+        String existing = signature(fresh), slot = preferences.getString(slotKey("release-fresh", 1), "");
+        Map<String, ?> before = new LinkedHashMap<>(preferences.getAll());
+        require(signature(new DashboardConfig(preferences, "release-fresh")).equals(existing)
+                        && before.equals(preferences.getAll()), "Upgrade changed an existing dashboard or preferences");
+        DashboardConfig second = new DashboardConfig(preferences, "release-second");
+        assertCapturedDefaults(second, this::require);
+        require(preferences.getInt("dashboard_columns", -1) == 6, "A new profile overwrote another profile's column choice");
+        for (DashboardConfig.Widget widget : second.widgets)
+            for (DashboardConfig.Widget first : fresh.widgets)
+                require(!widget.id.equals(first.id), "New profiles share widget IDs");
+        require(preferences.edit().remove("dashboard_columns").commit(), "Could not seed legacy Adaptive choice");
+        new DashboardConfig(preferences, "release-fresh");
+        new DashboardConfig(preferences, "release-legacy-new-profile");
+        require(!preferences.contains("dashboard_columns"), "Existing Adaptive choice was replaced on upgrade/new profile");
+        before = new LinkedHashMap<>(preferences.getAll());
+        fresh.reset(); assertCapturedDefaults(fresh, this::require);
+        require(preferences.getInt("dashboard_columns", -1) == 5, "Explicit restore did not reset columns to five");
+        require(slot.equals(preferences.getString(slotKey("release-fresh", 1), "")), "Restore defaults changed a saved slot");
+        Map<String, ?> after = new LinkedHashMap<>(preferences.getAll());
+        before.remove("dashboard_v1_release-fresh"); before.remove("dashboard_columns");
+        after.remove("dashboard_v1_release-fresh"); after.remove("dashboard_columns");
+        require(before.equals(after), "Restore defaults changed another profile, slot or unrelated preference");
+        require(fresh.restoreSlot(1) && signature(fresh).equals(existing)
+                        && preferences.getInt("dashboard_columns", -1) == 6,
+                "Restoring the backup failed to recover custom widgets and columns after default reset");
+        fresh.reset();
+        String five = geometry(fresh, 5, 5);
+        for (int columns = 1; columns <= 4; columns++) {
+            ArrayList<DashboardLayout.Cell> captured = new ArrayList<>();
+            int end = 0;
+            for (int i = 0; i < 6; i++) {
+                DashboardLayout.Cell cell = fresh.widgets.get(i).layouts.get(columns).copy();
+                captured.add(cell); end = Math.max(end, cell.y + cell.h);
+            }
+            for (int i = 6; i < 10; i++) {
+                DashboardLayout.Cell cell = fresh.widgets.get(i).layouts.get(columns);
+                DashboardConfig.Widget widget = fresh.widgets.get(i);
+                if (columns == 2 && (widget.type.equals("quick") || widget.type.equals("charging"))) {
+                    require(matchesTwoColumnGap(widget, cell), "Two-column supplemental card lost its safe gap");
+                    require(widget.minimumWidth(2, 312, 10, 1) == 1 && widget.minimumHeight(146) <= 4,
+                            "Two-column gap cannot contain the card at narrow default size");
+                } else {
+                    require(cell != null && cell.y >= end && cell.x == 0 && cell.w == columns,
+                            "Supplemental default must follow captured cards at " + columns + " columns");
+                    end = cell.y + cell.h;
+                }
+            }
+            java.util.List<DashboardLayout.Cell> settled = fresh.layout(columns, null);
+            for (int i = 0; i < 6; i++) {
+                DashboardLayout.Cell old = captured.get(i), cell = settled.get(i);
+                require(cell.x == old.x && cell.y == old.y && cell.w == old.w && cell.h == old.h,
+                        "Fallback cards displaced the captured " + fresh.widgets.get(i).type + " at " + columns + " columns");
+            }
+            for (int i = 0; i < settled.size(); i++)
+                for (int j = 0; j < i; j++)
+                    require(!DashboardLayout.overlaps(settled.get(i), settled.get(j)),
+                            "Fallback default cards overlap at " + columns + " columns");
+        }
+        for (int columns = 1; columns <= 6; columns++) {
+            java.util.List<DashboardLayout.Cell> cells = fresh.layout(columns, null, columns * 80, 10, 1.4f);
+            require(cells.size() == 10, "Adaptive fallback lost a default widget");
+            for (int i = 0; i < cells.size(); i++) {
+                DashboardLayout.Cell cell = cells.get(i);
+                require(cell.x >= 0 && cell.y >= 0 && cell.x + cell.w <= columns,
+                        "Adaptive default escaped its available columns");
+                for (int j = 0; j < i; j++)
+                    require(!DashboardLayout.overlaps(cell, cells.get(j)), "Adaptive default cards overlap");
+            }
+        }
+        require(geometry(fresh, 5, 5).equals(five)
+                        && preferences.getInt("dashboard_columns", -1) == 5,
+                "Fallback sizing rewrote the captured five-column layout or preference");
+        require(preferences.edit().clear().commit(), "Could not reset isolated default fixture");
+        checks.add("Captured ten-widget options/layouts and fresh IDs match; narrow fallbacks retain early lock access; five-column defaults preserve upgrades, Adaptive choices, other profiles and slots");
+    }
+
+    /** Golden sanitized release capture, independent of the production default factory. */
+    static void assertCapturedDefaults(DashboardConfig configuration,
+            java.util.function.BiConsumer<Boolean, String> check) {
+        try {
+            JSONArray expected = new JSONArray(
+                    "[{\"type\":\"lock\",\"title\":\"Lock & connection\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,4,1,4],\"2\":[0,4,1,4],\"3\":[2,0,1,4],\"4\":[2,3,2,4],\"5\":[0,3,2,4],\"6\":[4,0,2,4]}}"
+                    + ",{\"type\":\"scooter\",\"title\":\"Your scooter\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"remaining_range_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,0,1,4],\"2\":[0,0,2,4],\"3\":[0,0,2,4],\"4\":[0,0,3,3],\"5\":[0,0,3,3],\"6\":[0,0,4,4]}}"
+                    + ",{\"type\":\"battery\",\"title\":\"Battery overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,4],\"2\":[0,8,1,4],\"3\":[2,4,1,5],\"4\":[2,7,2,5],\"5\":[2,3,3,4],\"6\":[3,4,3,5]}}"
+                    + ",{\"type\":\"live\",\"title\":\"Live trend\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":900000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,12,1,5],\"2\":[0,12,2,5],\"3\":[0,4,2,5],\"4\":[0,3,2,5],\"5\":[0,13,5,4],\"6\":[0,4,3,5]}}"
+                    + ",{\"type\":\"capacity\",\"title\":\"Capacity experiment\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":7776000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,17,1,6],\"2\":[0,17,2,6],\"3\":[0,13,3,6],\"4\":[0,12,4,6],\"5\":[0,22,5,5],\"6\":[0,13,6,6]}}"
+                    + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,23,1,4],\"2\":[0,23,2,4],\"3\":[0,9,1,4],\"4\":[0,8,2,4],\"5\":[0,7,5,1],\"6\":[0,9,3,4]}}"
+                    + ",{\"type\":\"quick\",\"title\":\"Quick access\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[3,0,2,3]}}"
+                    + ",{\"type\":\"health\",\"title\":\"Battery health\",\"metric\":\"battery_health_percent\",\"note\":\"\",\"color\":0,\"window\":2592000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[0,8,5,5]}}"
+                    + ",{\"type\":\"history\",\"title\":\"History chart\",\"metric\":\"battery_percent\",\"note\":\"\",\"color\":0,\"window\":604800000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[0,17,5,5]}}"
+                    + ",{\"type\":\"charging\",\"title\":\"Charging\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[0,27,5,4]}}]");
+            check.accept(configuration.widgets.size() == expected.length(), "Captured default widget count changed");
+            java.util.HashSet<String> ids = new java.util.HashSet<>();
+            for (int i = 0; i < expected.length(); i++) {
+                DashboardConfig.Widget widget = configuration.widgets.get(i);
+                JSONObject wanted = expected.getJSONObject(i);
+                check.accept(ids.add(widget.id) && java.util.UUID.fromString(widget.id).toString().equals(widget.id),
+                        "Default widget ID is not freshly generated");
+                check.accept(widget.type.equals(wanted.getString("type")) && widget.title.equals(wanted.getString("title"))
+                                && widget.metric.equals(wanted.getString("metric")) && widget.note.equals(wanted.getString("note"))
+                                && widget.color == wanted.getInt("color") && widget.windowMs == wanted.getLong("window")
+                                && widget.minimum == wanted.getDouble("min") && widget.maximum == wanted.getDouble("max")
+                                && widget.advertisedWh == wanted.getDouble("advertisedWh")
+                                && widget.showDisconnect == wanted.getBoolean("showDisconnect")
+                                && widget.absoluteAxis == wanted.getBoolean("absoluteAxis"),
+                        "Captured options changed for " + widget.type);
+                check.accept(new JSONArray(widget.keys).toString().equals(wanted.getJSONArray("keys").toString())
+                                && new JSONArray(widget.quickActions).toString().equals(wanted.getJSONArray("quickActions").toString()),
+                        "Captured readings or shortcut order changed for " + widget.type);
+                JSONObject layouts = wanted.getJSONObject("layouts");
+                boolean supplemental = i >= 6; // Only these cards lacked captured smaller-grid positions.
+                check.accept(widget.layouts.size() == layouts.length() + (supplemental ? 4 : 0),
+                        "Captured/supplemental layout set changed for " + widget.type);
+                for (int columns = 1; columns <= 6; columns++) {
+                    JSONArray rectangle = layouts.optJSONArray(Integer.toString(columns));
+                    DashboardLayout.Cell cell = widget.layouts.get(columns);
+                    if (rectangle == null) {
+                        boolean gapCard = columns == 2 && (widget.type.equals("quick") || widget.type.equals("charging"));
+                        check.accept(supplemental && columns <= 4
+                                        ? cell != null && cell.id.equals(widget.id) && (gapCard
+                                                ? matchesTwoColumnGap(widget, cell)
+                                                : cell.x == 0 && cell.w == columns && cell.y > 0)
+                                        : cell == null,
+                                "Unexpected supplemental rectangle for " + widget.type + " at " + columns + " columns");
+                        continue;
+                    }
+                    check.accept(cell != null && cell.id.equals(widget.id) && cell.x == rectangle.getInt(0)
+                                    && cell.y == rectangle.getInt(1) && cell.w == rectangle.getInt(2) && cell.h == rectangle.getInt(3),
+                            "Captured " + columns + "-column rectangle changed for " + widget.type);
+                }
+            }
+        } catch (Exception failure) { throw new AssertionError("Default capture mismatch", failure); }
+    }
+
+    private static boolean matchesTwoColumnGap(DashboardConfig.Widget widget, DashboardLayout.Cell cell) {
+        return cell != null && cell.x == 1 && cell.w == 1 && cell.h == 4
+                && (widget.type.equals("quick") && cell.y == 4
+                        || widget.type.equals("charging") && cell.y == 8);
     }
 
     private void fullRoundTrip() throws Exception {
@@ -126,7 +280,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(config.saveSlot(0, "Alternate", 4), "Could not replace slot one");
         require(preferences.getString(slotKey("alpha", 1), "").equals(secondSnapshot), "Overwriting slot one changed slot two");
         config.reset();
-        require(config.widgets.size() == 6, "Default reset failed");
+        require(config.widgets.size() == 10 && preferences.getInt("dashboard_columns", -1) == 5, "Default reset failed");
         require(config.slot(0) != null && config.slot(1) != null, "Default reset erased saved slots");
         require(config.restoreSlot(0) && signature(config).equals(replacement), "Reset damaged alternate layout");
         require(preferences.getInt("dashboard_columns", -1) == 4, "Explicit column choice was not restored");
@@ -287,9 +441,10 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(scooter.layouts.get(6).x == 0 && scooter.layouts.get(6).w == 4
                         && lock.layouts.get(6).x == 4 && lock.layouts.get(6).w == 2,
                 "Six-column defaults lost the two-thirds scooter/one-third lock split");
-        require(scooter.layouts.get(4).w == 3 && lock.layouts.get(4).x == 3
-                        && lock.layouts.get(4).w == 1,
-                "Adding six-column defaults changed the four-column defaults");
+        require(scooter.layouts.get(4).w == 3 && scooter.layouts.get(4).h == 3
+                        && lock.layouts.get(4).x == 2 && lock.layouts.get(4).y == 3
+                        && lock.layouts.get(4).w == 2,
+                "Adding six-column defaults changed the captured four-column defaults");
         require(lock.minimumHeight() == 4, "Lock with Disconnect must reserve room for its action button");
         lock.showDisconnect = false;
         require(lock.minimumHeight() == 3, "Hiding Disconnect must allow the compact three-row lock");

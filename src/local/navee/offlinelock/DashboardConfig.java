@@ -190,7 +190,14 @@ public final class DashboardConfig {
             } catch (Exception ignored) {
                 widgets.clear();
             }
-        reset();
+        // A new profile must not change another profile's global column choice.
+        // Missing columns on an older installation mean Adaptive, so only a genuinely
+        // first dashboard gets the release's five-column preference automatically.
+        boolean firstDashboard = !preferences.contains(COLUMN_KEY);
+        if (firstDashboard)
+            for (String key : preferences.getAll().keySet())
+                if (key.startsWith("dashboard_v1_")) { firstDashboard = false; break; }
+        loadDefaults(firstDashboard);
     }
 
     private static ArrayList<Widget> readWidgets(JSONArray a) throws JSONException {
@@ -281,32 +288,15 @@ public final class DashboardConfig {
         return result;
     }
 
+    /** Explicit Restore defaults resets the column choice, but never any saved slots. */
     public void reset() {
+        loadDefaults(true);
+    }
+
+    private void loadDefaults(boolean resetColumns) {
         widgets.clear();
-        String[] types = {"lock", "scooter", "battery", "live", "capacity", "ride"};
-        // Each widget has independent rectangles for one through six columns.
-        // Two/four columns reproduce the owner's folded/unfolded arrangement;
-        // one/three columns retain its reading order and compact side-by-side groups.
-        int[][][] placements = {
-            {{0, 4, 1, 4}, {0, 4, 1, 4}, {2, 0, 1, 4}, {3, 0, 1, 4}}, // lock
-            {{0, 0, 1, 4}, {0, 0, 2, 4}, {0, 0, 2, 4}, {0, 0, 3, 4}}, // scooter
-            {{0, 8, 1, 4}, {1, 4, 1, 4}, {2, 4, 1, 5}, {2, 4, 2, 5}}, // battery
-            {{0, 12, 1, 5}, {0, 8, 2, 5}, {0, 4, 2, 5}, {0, 4, 2, 5}}, // live
-            {{0, 17, 1, 6}, {0, 13, 2, 6}, {0, 13, 3, 6}, {0, 13, 4, 6}}, // capacity
-            {{0, 23, 1, 4}, {0, 19, 2, 4}, {0, 9, 1, 4}, {0, 9, 2, 4}} // ride
-        };
-        for (int i = 0; i < types.length; i++) {
-            Widget widget = new Widget(types[i]);
-            for (int columns = 1; columns <= 4; columns++) {
-                int[] cell = placements[i][columns - 1];
-                widget.layouts.put(columns, new DashboardLayout.Cell(
-                        widget.id, cell[0], cell[1], cell[2], cell[3]));
-            }
-            for (int columns = 5; columns <= MAX_COLUMNS; columns++)
-                widget.layouts.put(columns, DashboardLayout.rescale(widget.layouts.get(4), 4, columns));
-            widgets.add(widget);
-        }
-        save();
+        widgets.addAll(DefaultDashboard.create());
+        save(resetColumns);
     }
 
     public List<DashboardLayout.Cell> layout(int columns, String priority) {
@@ -361,8 +351,15 @@ public final class DashboardConfig {
     }
 
     public void save() {
+        save(false);
+    }
+
+    private void save(boolean resetColumns) {
         try {
-            preferences.edit().putString(storageKey, writeWidgets(widgets).toString()).apply();
+            SharedPreferences.Editor edit = preferences.edit()
+                    .putString(storageKey, writeWidgets(widgets).toString());
+            if (resetColumns) edit.putInt(COLUMN_KEY, DefaultDashboard.COLUMNS);
+            edit.apply();
         } catch (JSONException e) {
             throw new IllegalStateException(e);
         }

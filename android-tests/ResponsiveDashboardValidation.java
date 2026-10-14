@@ -94,6 +94,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 if (mode.equals("editor")) { verifyEditorActions(); check("Save/duplicate/remove and Undo/Redo preserve the intended widgets and settings; six-column sizing and cancelled resize keep safe layout constraints"); }
             } else if (!mode.equals("fold")) {
                 assertGridAndHeader(); check("Default cards fit the available window and start immediately after the header");
+                assertInitialLockVisible();
                 if (!mode.equals("battery")) { assertLockStates(); check("Connected, disconnected and connecting lock controls fit without inner scrolling"); }
                 assertDefaultCardContents(); screenshot("default-disconnected");
                 check("Default scooter and battery readings fit without hidden overflow");
@@ -269,6 +270,25 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 occupied.add(box); first = Math.min(first, box.top);
             }
             require(first <= activity.ui().dp(16), "Default grid has phantom leading rows");
+        });
+    }
+    /** Narrow fresh installs must expose the safety/connection action before any scrolling. */
+    private void assertInitialLockVisible() {
+        main(() -> {
+            int columns = ((Number)field(grid(), "columns")).intValue();
+            float scale = activity.ui().textScale * getTargetContext().getResources().getConfiguration().fontScale;
+            ScrollView scroll = (ScrollView)field(activity, "scroll");
+            if (columns != 2 || scale > 1.05f || scroll.getHeight() < activity.ui().dp(600)) return;
+            require(scroll.getScrollY() == 0, "Fresh default visibility must be checked before scrolling");
+            TextView connect = (TextView)field(activity, "connectionAction");
+            require("Connect".contentEquals(connect.getText()), "Fresh disconnected dashboard lost Connect");
+            for (View view : new View[] {(View)tile("lock"), connect}) {
+                Rect visible = new Rect();
+                require(view.getGlobalVisibleRect(visible) && visible.width() == view.getWidth()
+                                && visible.height() == view.getHeight(),
+                        "Fresh two-column lock/Connect is not fully visible on the first screen");
+            }
+            check("Fresh two-column lock and Connect remain fully visible on the first screen at default text");
         });
     }
     private void assertDefaultCardContents() {

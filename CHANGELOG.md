@@ -1,5 +1,22 @@
 # Changelog
 
+## 0.11.0 — 2026-10-14
+
+- Use the owner's ten-widget Home preset and saved options for new/reset dashboards, including maximum-speed and scheduled-charging Quick access. The five-column choice adapts to narrower screens, and one- through four-column defaults keep Connect near the top. Captured widget positions, sizes and options are preserved, along with existing current layouts and saved slots.
+- Browse searchable, categorized charts for every recorded numerical parameter. One compact 2-minute-through-All picker controls live and expanded graphs; star and manually reorder a mix of reading/chart favourites in Overview.
+- Keep the Readings count and spacing while removing its redundant favourites filter; enlarge and bring the Live Stats pulse closer to its title.
+- Inspect original ride values and sample timestamps by tapping or sliding inline/fullscreen graphs. Expanded views load the complete committed recording asynchronously, preserve short peaks, support multiple sensor overlays and independent scales, and retain a usable plot with large text. Add ride renaming, retry after failed detail loads and clear fractional time ticks.
+- Move basemap/provider controls into App preferences, enable USGS for new preferences, add elevation route coloring, and reject implausible altitude excursions from derived metrics while retaining raw data. New rides use positive current as draw; existing journals retain their original interpretation.
+- Add breathing room between the ride map and its controls.
+- Add explicit charge recording with manual Stock/High-speed labels, qualified per-scooter charging curves and versioned JSON export. Learned ETA requires matching live power at the current battery level; otherwise use the current-rate estimate.
+- Protect active ride/charge recording with immediate ongoing Stop notifications, appropriate foreground-service behavior and a renewed bounded CPU wake lock. Add Background recording guidance and Android settings shortcuts; the ordinary ten-second idle timeout remains.
+- Let narrow Quick access rails use three rows, with separate Move/Options targets on the thinnest cards. Keep new widgets as drafts until Save, improve shortcut reordering/removal and duplicate animation, compact empty grid rows, and allow a wide recorder to use one row.
+- Refine battery/health/capacity cards, fit short reading values with their units, separate charging power/time tiles, and distinguish draw/charge power colors. Chart widgets gain Relative/Absolute scaling with bounded percentage axes and responsive time labels.
+- Group distance/speed, temperature and time format under Units, add preference spacing, simplify charging labels and use confirmed-state sliding scooter selectors with wrapping light patterns.
+- Follow the current riding mode's supported firmware range estimator while stationary, with fixed choices available and bounded attempts across reconnects. Range remains scooter-reported; automatic Boost detection is not included.
+
+Upgrade over the previous official APK to retain setup and recordings. Battery capacity, charging ETA and phone-sensor results remain estimates. Real overnight Bluetooth/charger behavior, physical range/control readback and outdoor sensor accuracy still need owner testing. See VERIFICATION.txt for the tested integration scope and separate release checks.
+
 ## 0.10.0 — 2026-10-13
 
 - Limit speed-gauge scale summaries and editor prefills to tenths while preserving exact stored bounds on unchanged saves.

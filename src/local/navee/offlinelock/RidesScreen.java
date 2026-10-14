@@ -1033,7 +1033,11 @@ public final class RidesScreen implements AppScreen {
                     : choice == 2 ? "GPS acceleration · blue −2 → gray 0 → orange +2 m/s² · gray dashed: missing"
                     : choice == 3 ? elevationLegend(track) : powerLegend);
         }); colors.select(0, false);
-        if (!track.points.isEmpty()) { top.addView(colors); top.addView(legend); top.addView(selection); }
+        if (!track.points.isEmpty()) {
+            LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2);
+            colorParams.topMargin = ui.dp(6);
+            top.addView(colors, colorParams); top.addView(legend); top.addView(selection);
+        }
         boolean basemap = MapPreferences.enabled(preferences); map.setStreets(basemap); attribution.setVisibility(basemap ? View.VISIBLE : View.GONE);
         bottom.addView(ui.sectionLabel("Phone & route"));
         note(bottom, track.status);
