@@ -42,14 +42,20 @@ public final class SegmentedSelector extends HorizontalScrollView {
     }
 
     public void select(int selected, boolean animate) {
-        int next = Math.max(0, Math.min(track.choices.size() - 1, selected));
+        // -1 represents an unknown/unreported scooter setting, not the first choice.
+        int next = Math.max(-1, Math.min(track.choices.size() - 1, selected));
         if (track.selected == next) {
             if (!Ui.motionEnabled()) track.finishMotion();
             return;
         }
         track.selected = next;
         track.updateSelection(animate);
-        if (track.getWidth() > 0) revealSelection(animate);
+        if (next >= 0 && track.getWidth() > 0) revealSelection(animate);
+    }
+
+    @Override public void setEnabled(boolean enabled) {
+        super.setEnabled(enabled);
+        if (track != null) for (TextView button : track.choices) button.setEnabled(enabled);
     }
 
     /** The containing screen can settle this before it is removed or rebuilt. */
@@ -111,6 +117,7 @@ public final class SegmentedSelector extends HorizontalScrollView {
                     }
                 });
                 button.setOnClickListener(v -> {
+                    if (!SegmentedSelector.this.isEnabled() || !button.isEnabled()) return;
                     if (selected == choice) return;
                     select(choice, true);
                     if (onSelected != null) onSelected.accept(choice);
@@ -146,7 +153,7 @@ public final class SegmentedSelector extends HorizontalScrollView {
             }
             RectF end = target();
             if (animation != null) { ValueAnimator old = animation; animation = null; old.cancel(); }
-            if (end.isEmpty()) return;
+            if (end.isEmpty()) { indicator.setEmpty(); invalidate(); return; }
             if (!animate || indicator.isEmpty() || !isShown() || !isAttachedToWindow() || !Ui.motionEnabled()) {
                 indicator.set(end); invalidate(); return;
             }
