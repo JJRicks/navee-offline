@@ -59,4 +59,20 @@ Evidence root: `../next-integration-evidence/`.
 - `search-native-coordinates-diagnostic.patch` preserves the reverted diagnostic edit.
 - Adjacent `../next-integration-core.log`, `../next-integration-final-build.log`, and `../next-integration-final-runner.log` preserve build/core output.
 
-PR #18 received later independent review feedback about light-map route contrast and zoom-control clipping. Its current tested head here is `18f1c1b`; a later fix head must be integrated and the targeted ride matrix rerun. Independent PR reviews remain separate from these local results.
+## Review follow-up checkpoint
+
+Integrated product head `8eccd5a629da52dba9119316a41702c8d42ff302` adds:
+
+- Dashboard test-only correction `d65ca2718f7864d566b24e59d62b32e44c32098f`, pushed to PR #17 and handed back once for independent review.
+- Ride review fixes `485294dcc66984112f7fbec0d91d1ce5c0fcc790`, including light-map route contrast, full zoom-control bounds, and bounded visible chart drawing.
+- Battery reading fit `a3d92b92abedadb0414bca9634e0b1c90d3ae6ae`, keeping short values and units on one line before allowing long diagnostics to wrap at the readable font floor.
+
+The combined app and native runner rebuilt successfully. All 19 core suites passed again, now 53,760 checks. Targeted combined native validation passed:
+
+- Dashboard follow-up at 540×960, exercising the corrected draft-choice assertion.
+- Rides at 344×882 dark/100%, 725×604 dark/100%, and 360×800 light/140%; 50 checks each.
+- Battery widgets at 344×882 dark/100%; 87 assertions including the short reading, plus 361 saved-slot assertions.
+
+The large/light grade route and compact one-line voltage screenshots were inspected. Evidence is in `../next-integration-evidence/review-followup-matrix/`. APK `../next-integration-evidence/review-followup.apk` SHA-256: `9d5931f2e73a2df5fa621393b70b25e5724583b7ec89734d6fed5f793eec3ed0`.
+
+PR #20's later review requested a compatibility gate between observed charging power and learned charger curves. That follow-up is not in this checkpoint and needs its final head integrated, then core and charge-capture tests rerun. Independent PR reviews remain separate from these local results.
