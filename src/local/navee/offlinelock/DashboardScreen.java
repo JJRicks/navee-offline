@@ -904,6 +904,8 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private ChargingEstimate.Result chargingEstimate(Map<String, TelemetryHistory.Reading> values) {
+        ScooterService service = host.service();
+        if (service != null) return service.chargingEstimate(values);
         return ChargingEstimate.calculate(
                 chargeValue(values, "charging_state"),
                 chargeValue(values, "voltage_v"),

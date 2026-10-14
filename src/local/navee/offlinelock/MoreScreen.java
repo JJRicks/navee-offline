@@ -88,7 +88,10 @@ public final class MoreScreen implements AppScreen {
     private Row readPinRow, setPinRow, bondRow, pinRow, proximityRow;
     private Row nearbyRow, locationRow, notificationRow;
     private Row developerIndexRow, simulationRow;
-    private TextView simulationStatus;
+    private TextView simulationStatus, chargeCaptureStatus, chargeLearningStatus;
+    private Row chargeCaptureRow, clearChargeRow;
+    private SegmentedSelector chargeChargerSelector;
+    private ChargeSessionStore.Charger chosenCharger=ChargeSessionStore.Charger.STOCK;
     private android.widget.Toast developerCountdown;
     private int developerTaps;
     private long lastDeveloperTap;
@@ -872,7 +875,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout clear = group();
         dangerRow(clear, "Clear this scooter's history", () -> clearHistory(false));
         dangerRow(clear, "Clear all connected history", () -> clearHistory(true));
-        footnote("Ride recordings and owner setup are kept separately.");
+        footnote("Ride recordings, charge recordings and owner setup are kept separately.");
     }
     private void refreshHistoryStorage() {
         if (historyUsage == null || service() == null || service().history == null || historyStoragePending) return;
@@ -1331,10 +1334,45 @@ public final class MoreScreen implements AppScreen {
         simulationStatus.setTextColor(ui.orange);
         simulationStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         footnote("Sample data only. Bluetooth and recording are paused. Simulation turns off when the app process restarts.");
+        label("Charge recording");
+        ScooterService current=service();
+        chosenCharger=current!=null&&current.chargeCharger()!=null?current.chargeCharger():ChargeSessionStore.Charger.STOCK;
+        chargeChargerSelector=new SegmentedSelector(ui,"Attached charger",new String[]{"Stock","High-speed"},choice->{
+            ScooterService s=service();if(s==null||s.isChargeRecording())return;
+            chosenCharger=choice==0?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED;
+            s.setChargeCharger(chosenCharger);refreshDeveloper();
+        });
+        chargeChargerSelector.setTag("charge-charger-selector");chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
+        preferenceSelectors.add(chargeChargerSelector);
+        LinearLayout.LayoutParams chargerParams=new LinearLayout.LayoutParams(-1,-2);chargerParams.bottomMargin=ui.dp(12);
+        cardDestination.addView(chargeChargerSelector,chargerParams);
+        LinearLayout capture=group();
+        chargeCaptureRow=row(capture,"battery","Record this charge",null,()->{
+            ScooterService s=service();if(s==null)return;
+            if(s.isChargeRecording()){s.stopChargeRecording();refreshDeveloper();return;}
+            String unavailable=s.chargeCaptureUnavailable();if(unavailable!=null){host.toast(unavailable);return;}
+            String charger=chosenCharger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
+            AlertDialog dialog=new AlertDialog.Builder(host.activity()).setTitle("Record this charge?")
+                    .setMessage("Use the "+charger+" charger currently attached. The app saves battery percentage, voltage, current, power and temperature locally every 10 seconds. It keeps Bluetooth awake in the background with a Stop notification.\n\nCapture stops at 100%, when charging ends, on disconnect, or when the app process ends. Up to 20 recordings are kept, at most about 20 MB. Nothing is uploaded. The selected charger is not detected automatically.")
+                    .setNegativeButton("Cancel",null).setPositiveButton("Start recording",(d,which)->{
+                        if(!s.startChargeRecording(chosenCharger))host.toast(s.chargeCaptureStatus());refreshDeveloper();
+                    }).create();show(dialog);
+        });chargeCaptureRow.view.setTag("charge-capture-action");
+        chargeCaptureStatus=footnote("");chargeCaptureStatus.setTag("charge-capture-status");
+        chargeLearningStatus=footnote("");chargeLearningStatus.setTag("charge-learning-status");
+        footnote("Choose the charger currently attached. Estimates average matching scooter and charger sessions only after two usable recordings cover the remaining percentage range. Each needs at least 10 complete percentage intervals. Unobserved taper keeps the current-rate estimate.");
+        LinearLayout chargeData=group();
+        clearChargeRow=row(chargeData,"trash","Clear this scooter's charge recordings",null,()->{
+            ScooterService s=service();if(s==null||s.isChargeRecording())return;
+            AlertDialog dialog=new AlertDialog.Builder(host.activity()).setTitle("Clear charge recordings?")
+                    .setMessage("Remove this scooter's local charge samples and learned charge curves. Ride recordings and other scooters are kept.")
+                    .setNegativeButton("Cancel",null).setPositiveButton("Clear recordings",(d,which)->s.clearChargeRecordings(this::refreshDeveloper)).create();show(dialog);
+        });clearChargeRow.view.setTag("charge-clear-action");
         LinearLayout visibility = group();
         Row hide = row(visibility, "close", "Hide developer options", null, () -> {
             if (closed) return;
             ScooterService s = service();
+            if(s!=null&&s.isChargeRecording()){host.toast("Stop charge recording before hiding developer options");return;}
             if (s != null && !s.setSimulation(false)) { refreshDeveloper(); return; }
             selectedSection = "";
             settings().edit().putBoolean("developer_options", false).putString("more_section", "").apply();
@@ -1356,8 +1394,23 @@ public final class MoreScreen implements AppScreen {
             refreshSwitch(simulationRow, simulating, enabled && s != null);
             simulationStatus.setVisibility(simulating ? View.VISIBLE : View.GONE);
         }
+        if(chargeCaptureRow!=null){
+            boolean capturing=s!=null&&s.isChargeRecording();
+            String unavailable=s==null?"Connect your scooter first":s.chargeCaptureUnavailable();
+            chargeCaptureRow.title.setText(capturing?"Stop charge recording":"Record this charge");
+            chargeCaptureRow.enabled(enabled&&s!=null&&(capturing||unavailable==null));
+            chargeCaptureStatus.setText(capturing||unavailable==null?s.chargeCaptureStatus():unavailable);
+            chargeLearningStatus.setText(s==null?"":s.chargeLearningSummary());
+            clearChargeRow.enabled(enabled&&s!=null&&!capturing);
+            chargeChargerSelector.setAlpha(capturing?.5f:1f);
+            setChildrenEnabled(chargeChargerSelector,!capturing);
+        }
         // A stale saved shortcut must not reveal the section after developer options are hidden.
         if (!enabled && "Developer".equals(selectedSection)) selectSection("");
+    }
+
+    private void setChildrenEnabled(View view,boolean enabled){
+        view.setEnabled(enabled);if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)setChildrenEnabled(((ViewGroup)view).getChildAt(i),enabled);
     }
 
     private void licenses() {
