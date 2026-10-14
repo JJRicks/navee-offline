@@ -133,11 +133,32 @@ navee_build_app() {
     navee_find_sdk
     navee_find_java
     mkdir -p "$BUILD_DIR" "$(dirname -- "$APK_PATH")"
-    rm -rf -- "$BUILD_DIR/generated" "$BUILD_DIR/classes" "$BUILD_DIR/dex"
+    rm -rf -- "$BUILD_DIR/generated" "$BUILD_DIR/classes" "$BUILD_DIR/dex" "$BUILD_DIR/dependencies"
     mkdir -p "$BUILD_DIR/generated" "$BUILD_DIR/classes" "$BUILD_DIR/dex"
 
+    python3 - "$APP_DIR/setup/owner-capture-guard.sh" "$BUILD_DIR/generated" <<'PYGUARD'
+import json, pathlib, sys
+script = pathlib.Path(sys.argv[1]).read_text()
+target = pathlib.Path(sys.argv[2]) / "local/navee/offlinelock/OwnerCaptureGuardScript.java"
+target.parent.mkdir(parents=True, exist_ok=True)
+target.write_text("package local.navee.offlinelock; final class OwnerCaptureGuardScript { static final String TEXT = " + json.dumps(script) + "; }\n")
+PYGUARD
+    python3 "$APP_DIR/setup/shizuku-dependencies.py" --prepare "$BUILD_DIR/dependencies"
+    local dep_classpath="" dep
+    local dep_jars=()
+    for dep in "$BUILD_DIR/dependencies/aidl-13.1.5.jar" "$BUILD_DIR/dependencies/annotation-1.3.0.jar" \
+            "$BUILD_DIR/dependencies/api-13.1.5.jar" "$BUILD_DIR/dependencies/provider-13.1.5.jar" \
+            "$BUILD_DIR/dependencies/shared-13.1.5.jar"; do
+        dep_classpath="$dep_classpath:$dep"
+        dep_jars+=("$dep")
+    done
+    for source_file in "$APP_DIR"/aidl/local/navee/offlinelock/*.aidl; do
+        "$BUILD_TOOLS/aidl" -I"$APP_DIR/aidl" -p"$SDK_DIR/platforms/android-36/framework.aidl" \
+            -o"$BUILD_DIR/generated" "$source_file"
+    done
+
     "$BUILD_TOOLS/aapt" package -f -m \
-        -M "$APP_DIR/AndroidManifest.xml" -S "$APP_DIR/res" -I "$ANDROID_JAR" \
+        -M "$APP_DIR/AndroidManifest.xml" -S "$APP_DIR/res" -A "$APP_DIR/licenses" -I "$ANDROID_JAR" \
         -J "$BUILD_DIR/generated" -F "$BUILD_DIR/resources.apk"
 
     # javac argument files support quoted paths, including spaces in source paths.
@@ -150,11 +171,11 @@ navee_build_app() {
         return 1
     }
     javac --release 8 -encoding UTF-8 \
-        -classpath "$ANDROID_JAR:$BUILD_TOOLS/core-lambda-stubs.jar" \
+        -classpath "$ANDROID_JAR:$BUILD_TOOLS/core-lambda-stubs.jar$dep_classpath" \
         -d "$BUILD_DIR/classes" "@$BUILD_DIR/sources.txt"
     jar cf "$BUILD_DIR/compiled.jar" -C "$BUILD_DIR/classes" .
     "$BUILD_TOOLS/d8" --lib "$ANDROID_JAR" --min-api 26 \
-        --output "$BUILD_DIR/dex" "$BUILD_DIR/compiled.jar"
+        --output "$BUILD_DIR/dex" "$BUILD_DIR/compiled.jar" "${dep_jars[@]}"
     cp "$BUILD_DIR/resources.apk" "$BUILD_DIR/unsigned.apk"
     zip -q -j "$BUILD_DIR/unsigned.apk" "$BUILD_DIR"/dex/classes*.dex
     "$BUILD_TOOLS/zipalign" -P 16 -f 4 "$BUILD_DIR/unsigned.apk" "$BUILD_DIR/aligned.apk"

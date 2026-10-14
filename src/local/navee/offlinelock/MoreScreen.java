@@ -1279,10 +1279,12 @@ public final class MoreScreen implements AppScreen {
     private void licenses() {
         LinearLayout box = dialogBox("Licenses & attribution", "Navee Offline is an independent project, not affiliated with NAVEE or its app vendor.");
         note(box, "Saira typeface\nCopyright 2020 The Saira Project Authors. SIL Open Font License 1.1; not covered by the app's MIT licence.");
+        note(box, "Shizuku API 13.1.5\nCopyright (c) 2021 RikkaW. MIT License. Optional phone-only owner setup.");
+        note(box, "AndroidX annotations 1.3.0\nCopyright The Android Open Source Project. Apache License 2.0.");
         note(box, "Protocol research reference\npepperonas/navee-st3-pro, MIT License.");
         note(box, "UT5 MAX photo\nSupplied by the project user; its author and licence were not supplied. The app's licence grants no rights to the photo or NAVEE marks.");
         note(box, "Maps\nMap data and tiles belong to the selected provider. USGS Topo: U.S. Geological Survey, National Geospatial Program. OpenStreetMap: © OpenStreetMap contributors.");
-        note(box, "Full notices ship with the app source in NOTICE and licenses/.");
+        note(box, "Full notices ship with the app source in NOTICE and licenses/. Dependency and font licenses are also bundled in the APK assets.");
         ScrollView inner = new ScrollView(host.activity()); inner.addView(box);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(inner).setPositiveButton("Close", null).create(); show(dialog);
     }

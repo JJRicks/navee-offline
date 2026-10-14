@@ -1289,6 +1289,17 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
+        if(request==ShizukuSetupActivity.REQUEST){
+            OwnerIdentityParser.Result owner=ShizukuCaptureClient.get(this).takeApproved();
+            if(result==RESULT_OK&&owner!=null){try{
+                if(pendingOwnerFile().exists())throw new IllegalStateException();
+                JSONObject setup=new JSONObject();setup.put("owner_identity",owner.identity);setup.put("role",owner.role);setup.put("name","My UT5 MAX");
+                stageOwnerImport(setup.toString());
+                if(onboarding!=null)onboarding.onOwnerImportStaged();
+                maybeApplyOwnerImport();
+            }catch(Exception ignored){toast("The owner setup could not be imported. Retry setup when the pending import is finished.");}}
+            return;
+        }
         if(request==ENABLE_BLUETOOTH){if(result==RESULT_OK){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}else pendingConnect=pendingScan=false;return;}
         if(request==SAVE_DOCUMENT){File staging=new File(documents.getString("path",new File(getFilesDir(),"missing-export").getAbsolutePath()));if(result!=RESULT_OK||data==null||data.getData()==null){staging.delete();documents.edit().clear().apply();return;}Uri destination=data.getData();new Thread(()->{try(InputStream in=new FileInputStream(staging);OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null)throw new java.io.IOException();copy(in,out);handler.post(()->toast("Saved."));}catch(Exception e){handler.post(()->toast("The export could not be saved."));}finally{staging.delete();documents.edit().clear().commit();}},"Navee-save").start();return;}
         if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));maybeApplyOwnerImport();}catch(Exception e){toast(e instanceof IllegalArgumentException?e.getMessage():"The setup file could not be read.");if(onboarding!=null)onboarding.onOwnerImported(false);}}

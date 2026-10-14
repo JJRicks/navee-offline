@@ -93,16 +93,18 @@ All lighting controls are under **Scooter → Lights**. The former “Headlight�
 
 ## Build
 
-This is a Java Android project with an SDK-only shell build, rather than a Gradle project. No Gradle dependency downloads are needed. Use macOS, Linux, or a suitable shell environment with:
+This is a Java Android project with an SDK-only shell build, rather than a Gradle project. Shizuku dependencies are fetched explicitly once and verified against pinned SHA-256 hashes; normal builds remain offline. Use macOS, Linux, or a suitable shell environment with:
 
 - Android SDK platform **36**, build-tools **36.1.0**, and platform-tools for installation.
 - A JDK supporting `javac --release` (JDK 17 or newer).
+- Python 3 for the explicit dependency fetch/verification and generated safety-guard source.
 
 ```sh
 git clone https://github.com/JJRicks/navee-offline.git
 cd navee-offline
 export ANDROID_SDK_ROOT=/path/to/Android/sdk
 export JAVA_HOME=/path/to/jdk
+python3 setup/shizuku-dependencies.py --fetch
 bash build.sh
 ```
 
@@ -118,6 +120,7 @@ Run the existing core suites without an Android device or Android SDK:
 
 ```sh
 bash tests/run.sh
+python3 tests/owner-capture-guard-test.py
 ```
 
 They cover framing/authentication, telemetry decoding, named commands, owner identity parsing, ride persistence/energy integration, phone route quality/continuity, and dashboard placement. GitHub Actions runs these suites on pushes and pull requests.
@@ -132,11 +135,13 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before using instrumentation: some parke
 
 ## First setup and everyday use
 
-Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the guided [Chrome/USB helper](https://pairscooter.jjricks.com/) or the existing computer ADB/Python helper; daily use needs neither. No owner credentials are embedded in this repository or APK. The [browser helper documentation](setup/web/README.md) explains its explicit consent stages, local processing, recovery, and self-hosting.
+Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the guided [Chrome/USB helper](https://pairscooter.jjricks.com/), the optional **Use Shizuku on this phone** route on Android 11+, or the existing computer ADB/Python helper. Daily use needs none of these helpers. No owner credentials are embedded in this repository or APK. The [browser helper documentation](setup/web/README.md) explains its explicit consent stages, local processing, recovery, and self-hosting.
+
+The Shizuku route guides installation/start, explicit permission for broad debugging access, capture consent, and a separate import confirmation. It accepts shell-backed Shizuku 13+ only, reads fresh authentication frames from NAVEE's verified Android UID, restores the previous logging setting and stops NAVEE before making the identity available. The identity remains in memory until an explicit import; it is not uploaded or copied to Downloads. A detached safety guard and non-secret cleanup journal handle interruption. See [setup/SHIZUKU.md](setup/SHIZUKU.md) for its permissions, lifecycle and limitations. Never run the legacy computer capture helper simultaneously with another capture method.
 
 The Chrome/USB helper is a testing preview, not a general release. A successful real browser capture with a nearby scooter is still awaiting validation. A developer can also run the static helper locally using the linked instructions, or use the existing desktop helper. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
 
-On first launch the app opens a step-by-step setup: choose Chrome/USB capture, the desktop helper, import a backup file or enter a 12-character identity, then follow one short step per screen through USB debugging, the chosen helper, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
+On first launch the app opens a step-by-step setup: choose Chrome/USB capture, Shizuku, the desktop helper, import a backup file or enter a 12-character identity, then follow the selected route through capture, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
 
 See [SETUP.txt](SETUP.txt) for the capture helper and private backup/import instructions, and [README.txt](README.txt) for detailed app behavior and recording interpretation.
 

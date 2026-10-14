@@ -32,7 +32,38 @@ Do not clear its temporary recovery record while cleanup remains unverified.
 See setup/web/README.md for self-hosting and security details. The existing
 desktop ADB/Python method below remains available.
 
-BEFORE YOU START
+PHONE-ONLY CAPTURE WITH SHIZUKU (ANDROID 11+)
+
+In first-run setup (or More → My scooters → Run setup again), choose
+"Use Shizuku on this phone". Follow the official linked guide to install Shizuku,
+pair Wireless debugging and start it. This route supports Shizuku 13+ started
+through debugging; root-backed Shizuku is not accepted. This first version supports
+the primary Android user only; work and secondary profiles need a private backup.
+It also checks that NAVEE is not installed in another Android profile, because
+NAVEE logging settings are shared across profiles.
+
+The app explains Shizuku's broad debugging permission before requesting it.
+Granting permission does not start capture. Review the capture step, confirm
+ownership/permission and tap Start capture. NAVEE opens; connect your parked
+scooter there and return to Volt. The app captures only a fresh, verified NAVEE
+authentication frame. Capture lasts at most 90 seconds plus bounded cleanup.
+
+A separate Import owner setup button appears only after cleanup is confirmed.
+Nothing is uploaded or copied to Downloads. Until import, the identity lives
+only in memory; leaving this setup or ending the app discards it. After import,
+it lives in Volt's private profile storage. Export a private backup separately
+if desired. Revoke Volt under Shizuku → Authorized applications and disable
+Wireless debugging when done; Shizuku is not needed for normal scooter use.
+
+On cancel/timeout, the app stops NAVEE and restores its exact previous logging
+setting. A detached guard also attempts restoration after two minutes if Volt
+or its helper disappears. If cleanup is not confirmed, re-open this route,
+restart Shizuku, grant access, and choose Restore NAVEE logging before retrying.
+Do not run two capture methods together; the older computer helper does not
+participate in the new shared capture lock. OEM versions can remove the debug
+message this method relies on; a successful NAVEE connection is still required.
+
+COMPUTER CAPTURE — BEFORE YOU START
 
 1. Install the official NAVEE app on your phone, sign into your own account,
    and check that it can connect to your scooter.
