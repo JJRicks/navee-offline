@@ -4,10 +4,10 @@ PR15 combines the original Live Stats organization pass with the owner's follow-
 
 ## Behavior
 
-- Overview keeps the battery summary and an actionable empty Favourites state. Readings and charts have independent stars and can coexist in a single manually ordered list. Reorder exposes labelled 48dp up/down buttons; the mixed order survives navigation and process recreation. Existing reading favourites migrate in stable catalogue order.
-- Readings keep the dynamic reading count, its alignment, and its 48dp row spacing. The redundant Favourites filter is removed. Search opens matching rounded, otherwise collapsed categories.
+- Overview keeps the battery summary and an actionable empty Favourites state. Readings and charts have independent stars and can coexist in a single manually ordered list. Reorder exposes labelled 48 dp up/down buttons; the mixed order survives navigation and process recreation. Existing reading favourites migrate in stable catalogue order.
+- Readings keep the dynamic reading count, its alignment, and its 48 dp row spacing. The redundant Favourites filter is removed. Search opens matching rounded, otherwise collapsed categories.
 - Charts discover every numerical key retained for the active scooter, plus current numerical readings. Text-only values are excluded. Search matches label, key, and category using the same group structure as Readings. Categories start collapsed unless the rider has chosen otherwise.
-- One saved time-window control applies to every chart, including favourite and expanded views: 2 minutes, 10 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days, or All. Expanded views expose the same control and the existing measured-point trace inspection.
+- One compact saved time-window picker applies to every chart, including favourite and expanded views: 2 minutes, 10 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days, or All. The picker opens all eight choices together in a two-column grid, without horizontal scrolling. Expanded views expose the same control and the existing measured-point trace inspection.
 - All starts at the earliest retained sample before choosing a history tier. A recent two-minute dataset therefore retains detail rather than being reduced against an epoch-wide range. Older minute/daily tiers retain the existing storage policy and aggregation; the page explains that older data is summarized. Connection gaps remain explicit.
 - Charts allocate their graph only after entering the viewport. Collapsed, filtered, and offscreen graphs do not query. Visible graphs refresh from live values and query history at most every five seconds, with one in-flight query per card, at most 600 saved points plus a bounded live tail. Historical-key discovery runs at most once a minute. Results are guarded against window/source changes, closed screens, and removed cards.
 - Display conversions respect distance/speed and temperature preferences. Saved or disconnected readings stay muted and timestamped. Simulator data is labelled and uses only the sample source, without history writes or real-history queries.
@@ -52,3 +52,11 @@ adb -s emulator-5594 shell am instrument -w \
 ```
 
 The first command replaces app data on the explicitly selected disposable emulator. This pass does not install on the owner's Pixel. Actual scooter firmware availability still determines which numerical parameters appear.
+
+## Claude feedback follow-up
+
+- Replaced only the Stats time-window strip with a compact picker. All eight options appear in a themed two-column dialog, including on 344 dp and 448 dp phones. The app-wide shared segmented selector remains unchanged, so the separate light/prefs selector improvements still integrate independently.
+- Expanded charts use a no-inset page window with matching system-bar appearance and safe content padding; the underlying simulator banner and app navigation no longer show around the chart.
+- The reorder dialog uses the app's title/button typeface, button case/colors, and rounded surface.
+- Targeted native checks open both the page and fullscreen pickers and select every option. Every choice must be fully visible, at least 48 dp, untruncated, and synchronized with the global selection. The matrix covers 344 dp, 448 dp, 360 dp at 140%, 725 dp unfolded, and 650 dp at 140%; fullscreen width and reorder typography are checked too.
+- Both signed builds and all five targeted native cases pass: 3,900 assertions total. The narrow and large-text picker, fullscreen, and reorder screenshots were inspected. The shared segmented selector and stored-history code are unchanged in this follow-up.
