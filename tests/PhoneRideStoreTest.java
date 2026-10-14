@@ -255,6 +255,23 @@ public final class PhoneRideStoreTest {
                 blocked = true;
             }
             check(blocked, "Invalid ID cannot traverse private files");
+            store.start("long", 1700000000000L, 1000, "pocket");
+            StringBuilder longRows = new StringBuilder();
+            for (int i = 0; i < 6500; i++) longRows.append(gps(1000 + i * 1000L, 43.82 + i * .00001, 2, i == 1235 ? 15 : 5, .1, 1500.0, 2.0));
+            store.appendBatch("long", longRows.toString(), ""); store.stop("long", 1700006500000L, 6501000);
+            PhoneRideStore.Track longTrack = store.loadSnapshot("long");
+            check(longTrack.points.size() <= 3000 && longTrack.fullPoints().size() == 6500, "Full phone snapshot retains all accepted fixes beyond map preview cap");
+            near(15, longTrack.fullPoints().get(1235).speedMps, 0, "Short GPS speed peak remains in full source");
+            check(longTrack.points.stream().noneMatch(p -> p.monoMs == 1236000), "Phone peak omitted by preview is covered by full-data regression");
+            java.util.List<RideChartData.Series> longSeries = RideChartData.build(java.util.Collections.emptyList(), longTrack, false, true);
+            check(longSeries.get(2).values.size() == 6500, "Expanded phone graph uses every accepted fix");
+            near(54, longSeries.get(2).sampleAt(1235000).value, 0.00001, "Phone peak can be inspected in display units at its source elapsed time");
+            Thread.currentThread().interrupt(); boolean canceled = false;
+            try { store.loadSnapshot("long"); } catch (InterruptedIOException expected) { canceled = true; } finally { Thread.interrupted(); }
+            check(canceled && store.loadSnapshot("long").fullPoints().size() == 6500, "Canceled phone load closes reader and retries cleanly");
+            try (RandomAccessFile oversized = new RandomAccessFile(store.rawCsv("oversized"), "rw")) { oversized.setLength(128L * 1024 * 1024 + 1); }
+            boolean tooLarge = false; try { store.loadSnapshot("oversized"); } catch (IOException expected) { tooLarge = true; }
+            check(tooLarge, "Oversized phone journal reports a load error instead of a silently partial full graph");
             System.out.println("PhoneRideStoreTest: " + checks + " assertions passed");
         } finally {
             File[] files = dir.listFiles();

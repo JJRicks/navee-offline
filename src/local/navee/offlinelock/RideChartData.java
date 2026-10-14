@@ -15,13 +15,18 @@ public final class RideChartData {
     public static final class Series {
         public final String key, label, unit; public final int color, index; public final List<Value> values;
         public final double min, max;
+        public final long endTime;
         public final long typicalIntervalMs; private final boolean hasData, ordered;
-        Series(int index, String unit, List<Value> values) {
+        private double drawnFrom = Double.NaN, drawnTo; private int drawnColumns; private int[] drawn;
+        Series(int index, String unit, List<Value> values) { this(index, unit, values, false); }
+        Series(int index, String unit, List<Value> values, boolean fullDetail) {
             this.index = index; key = KEYS[index]; label = LABELS[index]; this.unit = unit; color = COLORS[index]; this.values = Collections.unmodifiableList(values);
             double low = Double.POSITIVE_INFINITY, high = Double.NEGATIVE_INFINITY;
-            for (Value p : values) if (p.value != null && Double.isFinite(p.value)) { low = Math.min(low, p.value); high = Math.max(high, p.value); }
+            long end = 0;
+            for (Value p : values) { checkCanceled(); end = Math.max(end, p.time); if (p.value != null && Double.isFinite(p.value)) { low = Math.min(low, p.value); high = Math.max(high, p.value); } }
+            endTime = end;
             hasData=Double.isFinite(low);boolean sorted=true;List<Long> intervals=new ArrayList<>();
-            for(int i=1;i<values.size();i++){long delta=values.get(i).time-values.get(i-1).time;if(delta<0)sorted=false;if(delta>0)intervals.add(delta);}
+            for(int i=1;i<values.size();i++){checkCanceled();if(fullDetail)RideStore.checkDetailMemory();long delta=values.get(i).time-values.get(i-1).time;if(delta<0)sorted=false;if(delta>0)intervals.add(delta);}
             ordered=sorted;Collections.sort(intervals);typicalIntervalMs=intervals.isEmpty()?1000:intervals.get(intervals.size()/2);
             if (!Double.isFinite(low)) { low = 0; high = 1; }
             if (index == 4) { low = 0; high = 100; }
@@ -62,6 +67,35 @@ public final class RideChartData {
             int first=bound(from,false),end=bound(to,true);
             return new int[]{Math.max(0,first-1),Math.min(values.size(),end+1)};
         }
+        /** Pixel buckets retain first/last/min/max and every discontinuity. Negative entries
+         * encode the first index of a new path as -(index+1); inspection still uses all values. */
+        public int[] drawIndices(double from, double to, int columns) {
+            columns = Math.max(1, Math.min(4096, columns));
+            if (drawn != null && from == drawnFrom && to == drawnTo && columns == drawnColumns) return drawn;
+            ArrayList<Integer> output = new ArrayList<>();
+            int[] visible = visibleRange(from, to); int first = -1, last = -1, low = -1, high = -1, bucket = -1;
+            boolean start = true; Value previous = null;
+            for (int i = visible[0]; i < visible[1]; i++) {
+                Value value = values.get(i); boolean valid = value.value != null && Double.isFinite(value.value);
+                int nextBucket = (int)Math.floor((value.time - from) / Math.max(1, to - from) * columns);
+                boolean gap = previous == null || !connects(previous, value);
+                if (first >= 0 && (gap || nextBucket != bucket || !valid)) {
+                    emitBucket(output, first, last, low, high, start); first = -1; start = gap || !valid;
+                } else if (gap || !valid) start = true;
+                if (valid) {
+                    if (first < 0) { first = last = low = high = i; bucket = nextBucket; }
+                    else { last = i; if (value.value < values.get(low).value) low = i; if (value.value > values.get(high).value) high = i; }
+                }
+                previous = value;
+            }
+            if (first >= 0) emitBucket(output, first, last, low, high, start);
+            drawn = new int[output.size()]; for (int i = 0; i < drawn.length; i++) drawn[i] = output.get(i);
+            drawnFrom = from; drawnTo = to; drawnColumns = columns; return drawn;
+        }
+        private static void emitBucket(List<Integer> out, int first, int last, int low, int high, boolean start) {
+            int[] indices = {first, low, high, last}; Arrays.sort(indices); int previous = -1;
+            for (int i : indices) if (i != previous) { out.add(start ? -i - 1 : i); start = false; previous = i; }
+        }
         private int bound(double time,boolean after){int low=0,high=values.size();while(low<high){int middle=(low+high)>>>1;long value=values.get(middle).time;if(value<time||(after&&value==time))low=middle+1;else high=middle;}return low;}
     }
     public static Set<String> defaults() { return new LinkedHashSet<String>(Arrays.asList("power_w", "speed_kmh")); }
@@ -70,38 +104,61 @@ public final class RideChartData {
         if (powerW == null || speedKmh == null || !Double.isFinite(powerW) || !Double.isFinite(speedKmh) || speedKmh < 3) return null;
         return powerW / speedKmh * (miles ? RideStore.KM_PER_MILE : 1);
     }
-    private static Long alignTime(PhoneRideStore.Point phone, List<RideStore.Point> scooter) {
-        if (scooter.isEmpty()) return phone.elapsedMs;
-        RideStore.Point nearest = null; long delta = Long.MAX_VALUE;
-        for (RideStore.Point p : scooter) {
-            long monoDelta = phone.monoMs - p.monotonicMs;
-            // Matching wall/source deltas identify the same boot, including recovered recordings.
-            if (Math.abs((phone.wallMs - p.wallMs) - monoDelta) > 3000) continue;
-            if (Math.abs(monoDelta) < delta) { delta = Math.abs(monoDelta); nearest = p; }
+    private static final class ClockIndex {
+        final List<RideStore.Point> points;
+        ClockIndex(List<RideStore.Point> source) { points = new ArrayList<>(source); points.sort(Comparator.comparingLong(p -> p.monotonicMs)); }
+        Long align(PhoneRideStore.Point phone) {
+            if (points.isEmpty()) return phone.elapsedMs;
+            int low = 0, high = points.size();
+            while (low < high) { int mid = (low + high) >>> 1; if (points.get(mid).monotonicMs < phone.monoMs) low = mid + 1; else high = mid; }
+            int left = low - 1, right = low;
+            while (left >= 0 || right < points.size()) {
+                checkCanceled();
+                long ld = left < 0 ? Long.MAX_VALUE : Math.abs(phone.monoMs - points.get(left).monotonicMs);
+                long rd = right >= points.size() ? Long.MAX_VALUE : Math.abs(phone.monoMs - points.get(right).monotonicMs);
+                if (Math.min(ld, rd) > 120000) break;
+                RideStore.Point p = ld <= rd ? points.get(left--) : points.get(right++);
+                long monoDelta = phone.monoMs - p.monotonicMs;
+                // Matching wall/source deltas identify the same boot, including recovered recordings.
+                if (Math.abs((phone.wallMs - p.wallMs) - monoDelta) <= 3000)
+                    return Math.max(0, p.elapsedMs + monoDelta);
+            }
+            return null;
         }
-        return nearest == null || delta > 120000 ? null : Math.max(0, nearest.elapsedMs + phone.monoMs - nearest.monotonicMs);
     }
     public static List<Series> build(List<RideStore.Point> scooter, PhoneRideStore.Track phone, boolean miles) {
+        return build(scooter, phone, miles, false);
+    }
+    public static List<Series> build(List<RideStore.Point> scooter, PhoneRideStore.Track phone, boolean miles, boolean fullDetail) {
+        if (fullDetail) RideStore.checkDetailMemory();
         List<Series> result = new ArrayList<>();
+        List<PhoneRideStore.Point> phonePoints = phone == null ? Collections.emptyList() : fullDetail ? phone.fullPoints() : phone.points;
+        ClockIndex clocks = new ClockIndex(scooter); List<Long> alignedTimes = new ArrayList<>();
+        for (PhoneRideStore.Point p : phonePoints) { checkCanceled(); if (fullDetail) RideStore.checkDetailMemory(); alignedTimes.add(clocks.align(p)); }
         for (int index = 0; index < KEYS.length; index++) {
             List<Value> values = new ArrayList<>();
             if (index == 2 || index == 5 || index == 6) {
-                if (phone != null) for (PhoneRideStore.Point p : phone.points) {
+                for (int position = 0; position < phonePoints.size(); position++) {
+                    checkCanceled(); PhoneRideStore.Point p = phonePoints.get(position);
+                    if (fullDetail) RideStore.checkDetailMemory();
                     Double v = index == 2 ? p.speedMps : index == 5 ? p.relativeAltitudeM : p.gpsAccelerationMps2;
                     if (v != null) v *= index == 2 ? (miles ? 3.6 / RideStore.KM_PER_MILE : 3.6) : index == 5 && miles ? 3.280839895 : 1;
                     // Phone capture begins asynchronously. Align source monotonic clocks to the
                     // scooter timeline, rather than pretending both recorders started at once.
-                    Long aligned = alignTime(p, scooter);
+                    Long aligned = alignedTimes.get(position);
                     if (aligned != null) values.add(new Value(aligned, v, p.segment));
                 }
             } else for (RideStore.Point p : scooter) {
+                checkCanceled();
+                if (fullDetail) RideStore.checkDetailMemory();
                 Double v = index == 0 ? p.powerW : index == 1 ? p.speedKmh : index == 3 ? p.voltageV : index == 4 ? p.batteryPercent : energyPerDistance(p.powerW, p.speedKmh, miles);
                 if (index == 1 && v != null && miles) v /= RideStore.KM_PER_MILE;
                 values.add(new Value(p.elapsedMs, v, p.segment));
             }
             String unit = index == 0 ? "W" : index == 1 || index == 2 ? miles ? "mph" : "km/h" : index == 3 ? "V" : index == 4 ? "%" : index == 5 ? miles ? "ft" : "m" : index == 6 ? "m/s²" : miles ? "Wh/mi" : "Wh/km";
-            result.add(new Series(index, unit, values));
+            result.add(new Series(index, unit, values, fullDetail));
         }
         return Collections.unmodifiableList(result);
     }
+    private static void checkCanceled() { if (Thread.currentThread().isInterrupted()) throw new java.util.concurrent.CancellationException("Ride chart loading canceled"); }
 }

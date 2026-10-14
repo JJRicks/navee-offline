@@ -10,6 +10,7 @@ import java.io.*;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.*;
 import local.navee.offlinelock.*;
 
 /** Empty-emulator-only visual/data fixture. Never uses owner profiles or connects Bluetooth. */
@@ -49,6 +50,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
                 ((CheckBox)choices.getChildAt(7)).performClick(); invoke(panel, "expand", new Class[0]);
             }); settle();
             View full = root(); RideChartView chart = (RideChartView)find(full, RideChartView.class);
+            awaitFull(ancestor(chart, "ChartPanel"));
             check(chart != null && chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph has usable height");
             main(() -> { ViewGroup choices = (ViewGroup)field(ancestor(chart,"ChartPanel"),"choices");
                 ScrollView overlays = (ScrollView)choices.getParent(); overlays.scrollTo(0, choices.getHeight());
@@ -74,6 +76,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             main(() -> { EditText input = (EditText)find(renameDialog.getWindow().getDecorView(), EditText.class);input.setText(new String(new char[199]).replace('\0','a')+"🛴extra");check(input.length()==199&&!Character.isHighSurrogate(input.getText().charAt(input.length()-1)),"Rename field limits length without splitting emoji"); input.setText("Evening campus loop"); renameDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
             check(activity.service().rides.get(id).label.equals("Evening campus loop"), "Pencil rename saves to journal");
             verifySavingAndEmptyPhone();
+            verifyFullDetail();
             check(!activity.service().ble.connected() && !activity.service().isRecording(), "No scooter connection or active recording");
             result.putString("result", "PASS");
         } catch (Throwable error) { result.putString("result", "FAIL"); result.putString("error", error.toString()); try { screenshot("failure"); } catch (Throwable ignored) {} }
@@ -82,6 +85,65 @@ public final class RidesAnalysisValidation extends Instrumentation {
             if (activity != null) main(() -> { activity.finish(); ScooterService.setUiVisible(false); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); });
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
         }
+    }
+    void awaitFull(Object panel) {
+        long until = SystemClock.uptimeMillis() + 15000;
+        while (!(boolean)field(panel,"fullDataLoaded") && SystemClock.uptimeMillis() < until) settle();
+        check((boolean)field(panel,"fullDataLoaded") && "All samples".contentEquals(((TextView)field(panel,"loadStatus")).getText()), "Full source loads asynchronously and is labeled accurately");
+    }
+    void verifyFullDetail() throws Exception {
+        ScooterService service = activity.service(); long wall = System.currentTimeMillis() - 5000000;
+        RideStore synthetic = new RideStore(new File(getTargetContext().getFilesDir(),"rides"));
+        String longId = synthetic.start("fixture","Long full-detail fixture",wall,1000);
+        service.phoneRides.start(longId,wall,1000,"pocket"); StringBuilder phone = new StringBuilder();
+        for(int i=0;i<4096;i++) {
+            long mono=1000+i*1000L; Map<String,RideStore.Sample> row=new LinkedHashMap<>();
+            row.put("voltage_v",new RideStore.Sample(50d,"","V",0x72,mono)); row.put("current_a",new RideStore.Sample((i==1235?3456d:100d)/50,"","A",0x72,mono));
+            row.put("speed_kmh",new RideStore.Sample(20d,mono)); row.put("battery_percent",new RideStore.Sample(80d,mono));
+            if(i==2048)synthetic.markGap(wall+i*1000L-500,mono-500,"Fixture gap");
+            synthetic.sample(wall+i*1000L,mono,row);
+            phone.append(PhoneRideStore.row("GPS",wall+i*1000L,mono,43.82+i*.00001,-111.78,2,i==1235?15:5,.1,1500,2));
+        }
+        synthetic.stop(wall+4096000,4097000);service.phoneRides.appendBatch(longId,phone.toString(),"");service.phoneRides.stop(longId,wall+4096000,4097000);
+        main(()->{service.rides=synthetic;service.settings.edit().putStringSet("ride_chart_series",new LinkedHashSet<>(Arrays.asList("power_w","speed_kmh","gps_speed"))).commit();invoke(screen,"showDetails",new Class[]{String.class},longId);});settle();
+        Object panel=ancestor(find(root(),RideChartView.class),"ChartPanel");
+        List<RideChartData.Series> preview=(List<RideChartData.Series>)field(panel,"data");
+        check(preview.get(0).values.size()<=600 && preview.get(0).values.stream().noneMatch(p->p.time==1235000),"Inline long ride stays bounded and omits the deliberately off-stride spike");
+        ExecutorService loader=(ExecutorService)field(screen,"chartLoader");CountDownLatch entered=new CountDownLatch(1),release=new CountDownLatch(1);
+        Future<?> blocker=loader.submit(()->{entered.countDown();try{release.await();}catch(InterruptedException ignored){Thread.currentThread().interrupt();}});
+        check(entered.await(3,TimeUnit.SECONDS),"Deterministic loading blocker starts off the UI thread");
+        Object firstExpanded;
+        try {
+            main(()->invoke(panel,"expand",new Class[0]));settle();firstExpanded=ancestor(find(root(),RideChartView.class),"ChartPanel");
+            Future<?> pending=(Future<?>)field(panel,"fullLoad");
+            check("Loading…".contentEquals(((TextView)field(firstExpanded,"loadStatus")).getText())&&!(boolean)field(firstExpanded,"fullDataLoaded"),"Preview remains visible while source loading is pending");
+            main(()->{RideChartView chart=(RideChartView)field(firstExpanded,"chart");double span=(double)field(chart,"to")-(double)field(chart,"from");chart.zoomBy(2);check((double)field(chart,"to")-(double)field(chart,"from")<span,"UI remains responsive while the worker is busy");((AlertDialog)field(panel,"expandedDialog")).dismiss();});settle();
+            check(pending.isCancelled()&&field(panel,"fullLoad")==null,"Closing fullscreen cancels its pending load");
+            AlertDialog detail=(AlertDialog)((List<?>)field(screen,"dialogs")).get(((List<?>)field(screen,"dialogs")).size()-1);
+            main(()->invoke(panel,"expand",new Class[0]));settle();Future<?> detached=(Future<?>)field(panel,"fullLoad");
+            AlertDialog child=(AlertDialog)field(panel,"expandedDialog");main(detail::dismiss);settle();
+            check(detached.isCancelled()&&!child.isShowing(),"Removing the source ride cancels and dismisses its expanded chart");
+        } finally { release.countDown();blocker.get(5,TimeUnit.SECONDS); }
+        settle();check(!(boolean)field(firstExpanded,"fullDataLoaded"),"A canceled result cannot populate a dismissed chart");
+        main(()->{setField(service,"phoneSavingCount",1);invoke(screen,"showDetails",new Class[]{String.class},longId);});settle();
+        Object retriedPanel=ancestor(find(root(),RideChartView.class),"ChartPanel");main(()->invoke(retriedPanel,"expand",new Class[0]));settle();
+        Object expanded=ancestor(find(root(),RideChartView.class),"ChartPanel");TextView status=(TextView)field(expanded,"loadStatus");
+        check("Preview · Retry".contentEquals(status.getText())&&status.isEnabled(),"Unavailable full source is visibly identified as preview with Retry");
+        main(()->{setField(service,"phoneSavingCount",0);status.performClick();});awaitFull(expanded);settle();
+        List<RideChartData.Series> full=(List<RideChartData.Series>)field(expanded,"data");
+        check(full.get(0).values.size()==4096&&full.get(2).values.size()==4096,"Expanded graph includes all scooter samples and accepted GPS fixes beyond both preview caps");
+        check(full.get(0).values.get(2047).segment!=full.get(0).values.get(2048).segment,"Full source retains the journal gap boundary");
+        check(Math.abs(full.get(0).sampleAt(1235000).value-3456)<.0001,"Short power spike survives loading");
+        check(Math.abs(full.get(2).sampleAt(1235000).value-54/RideStore.KM_PER_MILE)<.0001,"Full GPS peak aligns with scooter time and displayed miles");
+        RideChartView chart=(RideChartView)field(expanded,"chart");
+        main(()->{setField(chart,"from",1234000d);setField(chart,"to",1236000d);chart.invalidate();});settle();
+        main(()->{android.graphics.RectF plot=(android.graphics.RectF)field(chart,"plot");long start=SystemClock.uptimeMillis();touch(chart,start,0,MotionEvent.ACTION_DOWN,new float[]{plot.centerX(),plot.centerY()});touch(chart,start,40,MotionEvent.ACTION_UP,new float[]{plot.centerX(),plot.centerY()});View readout=(View)field(expanded,"inspection");check(text(readout,"3456.00 W")!=null&&text(readout,"At 20:35.000")!=null,"Native tap reaches a full-source spike omitted by inline preview");
+            touch(chart,start+600,0,MotionEvent.ACTION_DOWN,new float[]{plot.centerX(),plot.centerY()});touch(chart,start+600,40,MotionEvent.ACTION_MOVE,new float[]{plot.right-1,plot.centerY()});touch(chart,start+600,70,MotionEvent.ACTION_UP,new float[]{plot.right-1,plot.centerY()});check(text(readout,"100.00 W")!=null,"Sliding reads the adjacent original value after the brief spike");});
+        settle(); screenshot("full-detail-spike");
+        main(()->{for(Object dialog:new ArrayList<>((List<?>)field(screen,"dialogs")))((AlertDialog)dialog).dismiss();invoke(screen,"showDetails",new Class[]{String.class},id);});settle();
+        Object other=ancestor(find(root(),RideChartView.class),"ChartPanel");main(()->invoke(other,"expand",new Class[0]));settle();Object otherExpanded=ancestor(find(root(),RideChartView.class),"ChartPanel");awaitFull(otherExpanded);
+        check(((List<RideChartData.Series>)field(otherExpanded,"data")).get(0).values.size()==240,"Changing rides loads only the selected ride, never a stale full result");
+        main(()->{for(Object dialog:new ArrayList<>((List<?>)field(screen,"dialogs")))((AlertDialog)dialog).dismiss();});
     }
     void verifyZoomButtons(View root){for(String label:new String[]{"Zoom out ride chart","Fit the whole ride in the chart","Zoom in ride chart"}){View button=byDescription(root,label);ViewGroup row=(ViewGroup)button.getParent();check(button.getTop()>=row.getPaddingTop()&&button.getBottom()<=row.getHeight()-row.getPaddingBottom(),"Zoom button fits inside row: "+label);}}
     void verifyMapContrast(RouteMapView map){

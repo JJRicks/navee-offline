@@ -71,6 +71,35 @@ public final class RideChartDataTest {
         check(together.get(2).sampleAt(1000).time == 1000, "Phone readout uses the aligned scooter elapsed timestamp");
         check(unordered.sampleAt(2000).value == 1 && unordered.sampleAt(1500) == null, "Unordered timeline permits exact points but not reversed segments");
         check(new RideChartData.Series(0, "W", Collections.emptyList()).sampleAt(0) == null, "Empty series inspection is safe");
+        List<RideChartData.Value> dense = new ArrayList<>();
+        for (int i = 0; i < 100000; i++) { Double value = 100d; if (i == 12345) value = 9999d; else if (i == 12346) value = -9876d; else if (i == 45001) value = null; dense.add(new RideChartData.Value(i * 100L, value, i < 60000 ? 0 : 1)); }
+        RideChartData.Series denseSeries = new RideChartData.Series(0, "W", dense);
+        int[] plan = denseSeries.drawIndices(0, 9999900, 320);
+        check(plan.length < 320 * 4 + 20, "Dense rendering is bounded by pixel columns and gap edges");
+        Set<Integer> kept = new HashSet<>(); for (int encoded : plan) kept.add(encoded < 0 ? -encoded - 1 : encoded);
+        for (int index : new int[]{0,12345,12346,45000,45002,59999,60000,99999}) check(kept.contains(index), "Drawing preserves endpoint/extremum/gap edge " + index);
+        for (int encoded : plan) if (encoded == -45003 || encoded == -60001) check(encoded < 0, "New paths are encoded at data gaps");
+        check(Arrays.stream(plan).anyMatch(i -> i == -45003) && Arrays.stream(plan).anyMatch(i -> i == -60001), "Pixel compression never joins a missing sample or segment boundary");
+        check(plan == denseSeries.drawIndices(0, 9999900, 320), "Scrubbing reuses the unchanged viewport drawing plan");
+        check(denseSeries.sampleAt(1234500) == dense.get(12345), "Inspection accesses original full source, including a brief spike");
+        int[] zoomed = denseSeries.drawIndices(1234000,1235000,320);
+        check(Arrays.stream(zoomed).anyMatch(i -> i == 12345 || i == -12346), "Zoom resolves the original short spike");
+        check(denseSeries.values.size() == 100000 && denseSeries.endTime == 9999900, "Drawing never removes source data");
+        RideChartData.Series isolated = new RideChartData.Series(0, "W", Arrays.asList(new RideChartData.Value(0, null, 0), new RideChartData.Value(1000, 321d, 0), new RideChartData.Value(2000, null, 0)));
+        check(Arrays.equals(isolated.drawIndices(0,2000,1),new int[]{-2}), "An isolated valid source sample remains a visible standalone point");
+        String bootId=store.start("fixture","Reboot clocks",600000,1000);
+        Map<String,RideStore.Sample> bootRow=new HashMap<>();bootRow.put("speed_kmh",new RideStore.Sample(20d,1000));store.sample(600000,1000,bootRow);
+        bootRow.put("speed_kmh",new RideStore.Sample(20d,2000));store.sample(601000,2000,bootRow);
+        bootRow.put("speed_kmh",new RideStore.Sample(20d,1000));store.sample(700000,1000,bootRow);store.stop(701000,2000);
+        List<RideStore.Point> bootPoints=store.fullTrend(bootId);
+        phoneStore.start("boot",700000,1000,"pocket");phoneStore.appendBatch("boot",PhoneRideStore.row("GPS",700500,1500,43.82,-111.78,2,5,.1,1500,2),"");
+        List<RideChartData.Value> bootPhone=RideChartData.build(bootPoints,phoneStore.loadSnapshot("boot"),false,true).get(2).values;
+        check(bootPhone.size()==1&&bootPhone.get(0).time==bootPoints.get(2).elapsedMs+500,"Indexed alignment disambiguates repeated monotonic clocks by matching the correct boot's wall offset");
+        phoneStore.start("unmatched",900000,1000,"pocket");phoneStore.appendBatch("unmatched",PhoneRideStore.row("GPS",900500,1500,43.82,-111.78,2,5,.1,1500,2),"");
+        check(RideChartData.build(bootPoints,phoneStore.loadSnapshot("unmatched"),false,true).get(2).values.isEmpty(),"Unmatched phone clock epoch is excluded instead of assigned a fabricated elapsed timestamp");
+        Thread.currentThread().interrupt(); boolean canceled = false;
+        try { RideChartData.build(points, null, false, true); } catch (java.util.concurrent.CancellationException expected) { canceled = true; } finally { Thread.interrupted(); }
+        check(canceled, "Full chart preparation honors cancellation before posting UI data");
         System.out.println("RideChartDataTest: " + checks + " assertions passed");
     }
 }

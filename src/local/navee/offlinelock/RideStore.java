@@ -39,6 +39,14 @@ public final class RideStore {
     private static final String HEADER = "schema_version,event,recorded_utc,wall_ms,monotonic_ms,frame,key,numeric,text,unit,source_command,sensor_updated_monotonic_ms,sensor_age_ms,current_direction,details\n";
 
     public enum CurrentDirection { UNCONFIRMED, POSITIVE_IS_DRAW, NEGATIVE_IS_DRAW }
+    /** Full detail must either fit in memory or fail explicitly, never silently thin data. */
+    public static final class DetailMemoryException extends RuntimeException { DetailMemoryException() { super("Not enough memory to load all ride samples"); } }
+    static void checkDetailMemory() {
+        Runtime runtime = Runtime.getRuntime();
+        long headroom = runtime.maxMemory() - (runtime.totalMemory() - runtime.freeMemory());
+        long reserve = Math.min(32L * 1024 * 1024, runtime.maxMemory() / 8);
+        if (headroom < reserve) throw new DetailMemoryException();
+    }
 
     public static final class Sample {
         public final Double number;
@@ -434,6 +442,19 @@ public final class RideStore {
         Accumulator a = active != null && active.id.equals(id) ? active : read(file(id));
         return trendPoints(a, maxPoints);
     }
+    /** Replay a finished journal without the preview cap or holding the recorder monitor. */
+    public List<Point> fullTrend(String id) throws IOException {
+        File source = file(id);
+        synchronized (this) {
+            if (active != null && active.id.equals(id)) throw new IOException("Ride is still recording");
+        }
+        long length = source.length(), modified = source.lastModified();
+        Accumulator replay = read(source, true);
+        if (replay == null || !replay.stopped) throw new IOException("Finished ride unavailable");
+        if (!source.isFile() || source.length() != length || source.lastModified() != modified)
+            throw new IOException("Ride changed while loading; try again");
+        return Collections.unmodifiableList(replay.points);
+    }
     private static List<Point> trendPoints(Accumulator a, int maxPoints) {
         if (a == null || maxPoints <= 0) return Collections.emptyList();
         List<Point> source = new ArrayList<Point>(a.points);
@@ -465,6 +486,7 @@ public final class RideStore {
         double throughputWh, drawWh, regeneratedWh, speedDistance, movingDistance;
         double movingThroughputWh, stationaryThroughputWh, unknownMotionThroughputWh;
         final ArrayList<Point> points = new ArrayList<Point>();
+        boolean keepAllPoints;
         Accumulator(String id, String scooterId, String label, long wall, long mono) {
             this.id = id; this.scooterId = scooterId; this.label = label;
             startWall = lastWall = wall; lastMono = mono;
@@ -533,7 +555,8 @@ public final class RideStore {
             previousPower = power; previousSpeed = speed; samples++;
             Point point = new Point(wall, mono, elapsed, (int)Math.min(Integer.MAX_VALUE, gaps), voltage, power, speed, soc, odo);
             lastPoint = point;
-            if ((samples - 1) % pointStride == 0) {
+            if (keepAllPoints) points.add(point);
+            else if ((samples - 1) % pointStride == 0) {
                 if (points.size() >= MAX_TREND_POINTS) {
                     for (int i = points.size() - 2; i > 0; i -= 2) points.remove(i);
                     pointStride *= 2;
@@ -560,7 +583,8 @@ public final class RideStore {
                 ? sample.number : null;
     }
 
-    private Accumulator read(File file) throws IOException {
+    private Accumulator read(File file) throws IOException { return read(file, false); }
+    private Accumulator read(File file, boolean keepAll) throws IOException {
         if (!file.isFile()) return null;
         String id = file.getName().substring(0, file.getName().length() - 4);
         Reader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
@@ -572,12 +596,15 @@ public final class RideStore {
         try {
             List<String> r;
             while ((r = csvRecord(reader)) != null) {
+                if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Ride loading canceled");
+                if (keepAll) checkDetailMemory();
                 if (r.size() != 15 || !"1".equals(r.get(0))) { pending = null; continue; }
                 String event = r.get(1);
                 try {
                     long wall = Long.parseLong(r.get(3)), mono = Long.parseLong(r.get(4));
                     if ("START".equals(event) && a == null) {
                         a = new Accumulator(id, r.get(6), r.get(8), wall, mono);
+                        a.keepAllPoints = keepAll;
                         a.direction = direction(r.get(13));
                     } else if (a != null && "RENAME".equals(event)) {
                         a.label = trim(r.get(14), 200);

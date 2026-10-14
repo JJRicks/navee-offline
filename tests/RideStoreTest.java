@@ -26,6 +26,7 @@ public final class RideStoreTest {
         sessionsAreIndependentAndManageable();
         highRateRecordingRemainsBoundedAndReplayable();
         renamePreservesMeasurements();
+        fullDetailPreservesUnthinnedSamples();
         System.out.println("RideStoreTest: " + assertions + " assertions passed");
     }
     private static File directory() throws Exception { return Files.createTempDirectory("navee-rides-test-").toFile(); }
@@ -287,6 +288,35 @@ public final class RideStoreTest {
         check(small.size() == 12 && small.get(11).elapsedMs == s.elapsedMs, "Requested chart resolution respected");
         RideStore.Summary replay = new RideStore(dir).get(id);
         check(s.toJson().equals(replay.toJson()), "High-rate persisted analysis matches live analysis");
+    }
+    private static void fullDetailPreservesUnthinnedSamples() throws Exception {
+        RideStore store = new RideStore(directory()); String id = store.start("UT5", "Full detail", WALL, 0);
+        final int frames = 4096, spike = 1235;
+        for (int i = 0; i < frames; i++) {
+            long mono = i * 1000L;
+            if (i == 2048) store.markGap(WALL + mono - 500, mono - 500, "Disconnected");
+            Map<String, RideStore.Sample> row = snapshot(mono, i == spike ? 4321 : 100, 20, i * .001);
+            if (i == 3001) row.remove("speed_kmh");
+            store.sample(WALL + mono, mono, row);
+        }
+        boolean rejected = false;
+        try { store.fullTrend(id); } catch (java.io.IOException expected) { rejected = true; }
+        check(rejected, "Full-detail reader refuses an active journal");
+        store.stop(WALL + frames * 1000L, frames * 1000L);
+        List<RideStore.Point> preview = store.trend(id, 600), full = store.fullTrend(id);
+        check(preview.size() <= 600 && full.size() == frames, "Preview bounded; full replay includes every committed frame");
+        check(preview.stream().noneMatch(p -> p.elapsedMs == spike * 1000L), "Single-frame spike lies between preview samples");
+        near(4321, full.get(spike).powerW, "Full-detail keeps the exact short spike");
+        check(full.get(spike).elapsedMs == spike * 1000L && full.get(spike).wallMs == WALL + spike * 1000L
+                && full.get(spike).monotonicMs == spike * 1000L, "Full-detail preserves source clocks");
+        check(full.get(2047).segment != full.get(2048).segment, "Full-detail retains explicit gap edges");
+        check(full.get(3001).speedKmh == null, "Full-detail retains missing values without filling them");
+        check(full.get(0).elapsedMs == 0 && full.get(frames - 1).elapsedMs == (frames - 1) * 1000L, "Full-detail retains both endpoints");
+        rejected = false; try { full.clear(); } catch (UnsupportedOperationException expected) { rejected = true; }
+        check(rejected, "Full snapshot cannot be changed by the UI");
+        Thread.currentThread().interrupt(); boolean canceled = false;
+        try { store.fullTrend(id); } catch (java.io.InterruptedIOException expected) { canceled = true; } finally { Thread.interrupted(); }
+        check(canceled && store.fullTrend(id).size() == frames, "Canceled full replay closes its reader and can be retried");
     }
     private static void renamePreservesMeasurements() throws Exception {
         File dir = directory(); RideStore store = new RideStore(dir);
