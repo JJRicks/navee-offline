@@ -559,9 +559,11 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(parameter != null, "Gauge parameter option missing"); parameter.performClick();
         }); settle();
         main(() -> {
-            for (TextView text : texts(dialogRoot())) if (text.getText().toString().equals("Battery charge")) {
-                ((View)text.getParent()).performClick(); break;
+            boolean chosen = false;
+            for (TextView text : texts(dialogRoot())) if (text.getText().toString().equals("Battery voltage")) {
+                chosen = ((View)text.getParent()).performClick(); break;
             }
+            require(chosen, "Draft parameter choice was not exercised");
             require(dashboardConfig().widgets.size() == before, "Sub-option saved a draft card");
             invoke(dashboard(), "dismiss");
         }); settle();

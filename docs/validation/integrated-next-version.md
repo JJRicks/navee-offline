@@ -1,0 +1,62 @@
+# Local next-version integration validation — 2026-10-14
+
+This is compatibility validation, not an independent review or merge approval. The integration branch is local only; no owner phone, remote merge, release, or deployment was used.
+
+## Source and build
+
+- Branch: `codex/next-version-validation` in `work/next-integration-validation`.
+- Baseline: `5cb5e46c521494a689c258770b264c3ad917f233`.
+- Tested integrated product head: `561e3f9052395b4a04c62cafeeb1791a91c57633`.
+- Feature heads: range `374da66`, stats `120c208`, preferences `abc0dba`, dashboard `0eeba03`, rides `18f1c1b`, battery/charts `83f5fd79632d725d803c8d47e42856a7bed18803`, charge capture `b2a1bfdbbbac68cfdd8581a8542313389a74dcb9`, selectors `bb54199534889342f749d9c26ce172354b457ab0`.
+- Production APK build, signing verification, and alignment: passed.
+- APK: `../next-integration-evidence/final.apk` (relative to the worktree).
+- SHA-256: `c0db11e2351b188846a845fe4977439115050c513c1d10ebad5d08677faeff73`.
+- Native runner: `../next-integration-evidence/final-build/parked-validation/parked-validation.apk`.
+- All Android actions explicitly targeted emulator `emulator-5586`. Bluetooth was disabled. Existing emulator 5554 and physical devices were untouched.
+
+## Merge resolutions
+
+Test registrations and core suite lists were combined. `ScooterService.changed()` retains charge observation, telemetry observation, and range follow in sequence. `MainActivity.ChoiceSheet.refresh()` retains the range follow-mode display and confirmed-state selector behavior; the range algorithm remains in its existing radio choice flow. No unresolved conflicts remain.
+
+The dashboard draft test now selects Battery voltage and asserts that the click occurred. The previous Battery charge label was renamed by the preferences change, and its optional loop could silently skip the intended sub-option action. This is a strengthened test-only correction.
+
+## Results
+
+| Validation | Result |
+| --- | --- |
+| Core suites | All 19 passed, 53,751 checks; run after charge integration. Later changes affect UI/text fit/selectors only. |
+| Dashboard | Passed 540×960 follow-up, 344×882 cards, 725×604 editor cases. Draft cancel/save, top normalization, narrow shortcuts, one-row recorder, fitted values, pinned selections, scheduled time labels, editor targets, undo/redo, and six-column fit covered. |
+| Live Stats | Passed 344×882 and 725×604, dark, 100% text. |
+| Rides | Passed 344×882 and 725×604, dark, 100% text; 33 checks each. |
+| Battery widgets | Passed 344×882 dark/100% (85 assertions) and 360×800 light/140% (75 assertions), motion enabled. |
+| Saved dashboard slots | Passed 361 assertions across 13 workflows. |
+| Navigation and organization | Passed all 11 workflows, including all five destinations, grouped settings/search, More timeout, map preferences, offline route interaction, and large/light text. |
+| Preferences/developer/selectors | Passed 814 assertions, including confirmed-state pending/rejected/unknown choices, seven-tap developer gate, simulation isolation, and background teardown. |
+| Charge session capture | Passed 49 assertions on the combined service callback. An earlier separate integrated charge run also passed. No real Bluetooth charging capture claimed. |
+| Focused keyboard comparison | Baseline and final integrated app both passed three native filter-dismiss/immediate-refocus cycles. |
+
+Representative dashboard, Stats, and battery screenshots were inspected. The large-text battery fixture intentionally creates a tall card and remains scrollable; its lower stats extending below the viewport are not clipped from the card.
+
+## Search fixture limitation
+
+The existing full `SearchFocusValidation` is not green on the baseline: it failed at the outside-navigation dismissal assertion. The integrated full run reached a swipe assertion and failed there. That swipe starts at the scroller's bottom using view coordinates and does not account for the floating navigation overlay or IME surface pan.
+
+A diagnostic fixture using native coordinates then observed one later observer-driven focus dismissal: native tap (540, 631) lay inside field bounds (47, 563–1033, 700), focus was acquired after ACTION_UP, then `SearchFocus.Binding.observeKeyboard` cleared it while the IME was hidden. This one sequence was not independently reproduced in focused comparisons, so it is not classified as a newly introduced product bug.
+
+`SearchFocus.java` is byte-for-byte unchanged from the baseline. The matched focused fixture ran three cycles of opening battery search, natively tapping Favourites, then immediately refocusing. Both baseline and integrated versions passed. The sole adaptation for the integrated fixture is the navigation accessibility label Stats → Live Stats; assertions and timing are identical.
+
+No product change or speculative fix PR was made. Diagnostic SearchFocus edits were removed from the integration worktree and preserved only as an evidence patch. The full fixture remains an explicit validation limitation, not a passing result.
+
+## Evidence and remaining review work
+
+Evidence root: `../next-integration-evidence/`.
+
+- `final-matrix/results.json`, per-suite logs, instrumentation results and screenshots.
+- `final-navigation/results.json`, individual runner output and screenshots.
+- `baseline-search/`, `navigation/SearchFocusValidation.txt`, and `search-fixed/` preserve full-fixture failures.
+- `baseline-focused/` and `integrated-focused-current/` preserve passing focused results.
+- `integrated-focused-fixture.patch` records the one-line navigation-label adaptation.
+- `search-native-coordinates-diagnostic.patch` preserves the reverted diagnostic edit.
+- Adjacent `../next-integration-core.log`, `../next-integration-final-build.log`, and `../next-integration-final-runner.log` preserve build/core output.
+
+PR #18 received later independent review feedback about light-map route contrast and zoom-control clipping. Its current tested head here is `18f1c1b`; a later fix head must be integrated and the targeted ride matrix rerun. Independent PR reviews remain separate from these local results.
