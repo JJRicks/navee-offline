@@ -49,3 +49,11 @@ Signed production and native-runner builds verify. All 20 combined pure suites p
 An additional unfolded 725×604 dp, 140% text, light-theme case fails at check 42: the fullscreen graph does not retain its required 160dp height. The failure screenshot confirms that the surrounding controls compress the plot into a thin strip with overlapping Y labels. This is a real geometry issue, handed back to the ride agent for a scoped PR18 fix; the assertion was not weakened. Earlier Stats and unchanged-domain evidence remains preserved.
 
 Work paused at the user's request before a fix was integrated. Next: integrate the ride agent's corrected head, rebuild app/runner, and rerun focused ride coverage including the failing large-text unfolded case. No release, deployment, owner-phone install, or GitHub merge was performed.
+
+## Resumed adaptive ride validation — complete
+
+Integrated PR18 `0f00c46f8cd981e0f1f62e4cdd295d19a9a44326` cleanly at tested product commit `ef169c882dd4d842385b1b7bb41bb39dbb573f6c`. The scoped follow-up allocates fullscreen control space without crushing the graph, provides preview/retry after background-loader failures, and formats fractional time ticks distinctly at close zoom. No store/service integration conflict was introduced.
+
+Signed production and native-runner builds verify. All 20 combined pure suites pass again (53,855 checks). Focused native ride validation passes 123 assertions each at 344×882 dp dark/default text and the previously failing 725×604 dp light/140% text (246 total). This includes graph height after load, inspection and retry; reachable controls/help; induced worker-error recovery; complete 4,096-sample source data; readout bounds; and fractional tick labels. The compact and unfolded large-text screenshots were inspected, confirming a usable graph with readable axes. The earlier failing geometry is resolved.
+
+Exact APKs, SHA-256 hashes, product identity, build/core logs, native results and screenshots are preserved in `work/round2-integration-evidence/rides-adaptive-final/`. Earlier Stats, preferences, dashboard, charge/background and phone-sensor evidence remains preserved; unchanged domains were not repeated. Validation used only emulator 5596, with Bluetooth disabled and no owner phone. This remains a local compatibility branch, not an independent PR approval or release.
