@@ -42,6 +42,7 @@
         <item name="android:textColorPrimary">#F4F5F0</item>
         <item name="android:textColorSecondary">#9A9C95</item>
         <item name="android:colorControlActivated">#E32B2F</item>
+        <item name="android:windowAnimationStyle">@style/VoltMotion.Dialog</item>
     </style>
     <style name="VoltDialogLight" parent="android:style/Theme.Material.Light.Dialog.Alert">
         <item name="android:colorAccent">#D3252A</item>
@@ -50,5 +51,22 @@
         <item name="android:textColorPrimary">#161716</item>
         <item name="android:textColorSecondary">#62645E</item>
         <item name="android:colorControlActivated">#D3252A</item>
+        <item name="android:windowAnimationStyle">@style/VoltMotion.Dialog</item>
+    </style>
+
+    <!-- Window motion (see Motion.java): sheets rise, full-screen pages slide in, dialogs fade in and up.
+         Android's own animation scale (including Remove animations) applies to all three. -->
+    <style name="VoltMotion" />
+    <style name="VoltMotion.Dialog">
+        <item name="android:windowEnterAnimation">@anim/volt_dialog_enter</item>
+        <item name="android:windowExitAnimation">@anim/volt_dialog_exit</item>
+    </style>
+    <style name="VoltMotion.Sheet">
+        <item name="android:windowEnterAnimation">@anim/volt_sheet_enter</item>
+        <item name="android:windowExitAnimation">@anim/volt_sheet_exit</item>
+    </style>
+    <style name="VoltMotion.Page">
+        <item name="android:windowEnterAnimation">@anim/volt_page_enter</item>
+        <item name="android:windowExitAnimation">@anim/volt_page_exit</item>
     </style>
 </resources>

@@ -4378,11 +4378,13 @@ public final class DashboardScreen implements AppScreen {
             // the unpersisted draft; Save already consumed its arrival marker.
             view.post(() -> { if (dialog == null) pendingAddedWidgetId = null; });
         });
-        created.show();
-        // Replace AlertDialog's wrapping panel so the settings scroll and the footer stays
-        // pinned against the bottom edge of the sheet.
+        // Build the sheet completely before it is shown: replacing AlertDialog's wrapping panel
+        // after show() drew one centred, empty frame before the sheet jumped to the bottom.
+        // The custom panel keeps the settings scrolling and the footer pinned to the sheet's edge.
+        created.create();
         created.setContentView(sheet);
         Window window = created.getWindow();
+        Motion.present(created, Motion.SHEET);
         if (window != null) {
             GradientDrawable shape = new GradientDrawable();
             shape.setColor(ui.surface);
@@ -4397,6 +4399,8 @@ public final class DashboardScreen implements AppScreen {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
                     | WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN);
         }
+        created.show();
+        if (window != null) window.setLayout(-1, -2);
     }
 
     private void changedWidget(DashboardConfig.Widget widget) {
@@ -5198,17 +5202,15 @@ public final class DashboardScreen implements AppScreen {
                         .setView(scroll)
                         .setNegativeButton("Close", null)
                         .create();
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(ui.accent);
         if (dialog.getWindow() != null) {
             dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 24, 0));
-            dialog.getWindow()
-                    .setLayout(
-                            -1,
-                            (int)
-                                    (host.activity().getResources().getDisplayMetrics().heightPixels
-                                            * .86));
+            dialog.getWindow().setLayout(-1, (int) (host.activity().getResources().getDisplayMetrics().heightPixels * .86));
         }
+        Motion.present(dialog, Motion.DIALOG);
+        dialog.show();
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(ui.accent);
+        if (dialog.getWindow() != null)
+            dialog.getWindow().setLayout(-1, (int) (host.activity().getResources().getDisplayMetrics().heightPixels * .86));
     }
 
     private void dismiss() {

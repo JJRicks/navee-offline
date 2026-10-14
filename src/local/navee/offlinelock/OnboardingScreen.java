@@ -342,9 +342,12 @@ public final class OnboardingScreen implements AppScreen {
     }
 
     private void go(int next) {
-        step = next;
-        prefs.edit().putInt(KEY_STEP, next).apply();
-        render();
+        // Steps move like pages: forward arrives from the right, Back returns from the left.
+        Motion.page(root, Integer.signum(next - step), () -> {
+            step = next;
+            prefs.edit().putInt(KEY_STEP, next).apply();
+            render();
+        });
         if (title != null) title.post(() -> {
             if (!closed && title != null) title.performAccessibilityAction(AccessibilityNodeInfo.ACTION_ACCESSIBILITY_FOCUS, null);
         });
@@ -1483,8 +1486,9 @@ public final class OnboardingScreen implements AppScreen {
         if (closed) return;
         dialogs.add(dialog);
         dialog.setOnDismissListener(d -> dialogs.remove(dialog));
-        dialog.show();
         if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 22, ui.outline));
+        Motion.present(dialog, Motion.DIALOG);
+        dialog.show();
         if (dialog.getButton(AlertDialog.BUTTON_POSITIVE) != null) dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(ui.accent);
         if (dialog.getButton(AlertDialog.BUTTON_NEGATIVE) != null) dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(ui.muted);
     }

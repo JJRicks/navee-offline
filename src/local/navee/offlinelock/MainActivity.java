@@ -114,7 +114,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         bodyRefreshScheduled=false;
         if(resumed&&!destroyed&&design!=null)refreshBodyNow();
     };
-    private final Runnable settingsRebuild = this::rebuild;
+    private final Runnable settingsRebuild = () -> transitionRebuild(0);
+    /** Tab order of the page being left, so the next rebuild can slide its nav dot from there. */
+    private int navFrom = -1;
+    private View pageHeader;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged=(p,key)->{
         if(key.equals("theme")||key.equals("units")||key.equals("temperature_unit")||key.equals("stats_density")) {
             handler.removeCallbacks(settingsRebuild);
@@ -247,6 +250,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         boolean awake=resumed&&preferences.getBoolean("keep_screen_awake",true)&&scooterService!=null&&scooterService.isRecording();
         if(awake)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
+    /** Rebuild under a crossfade from the current window; a direction (tab order) brings the new page in from that side. */
+    private void transitionRebuild(int direction){
+        FrameLayout before=root;
+        android.graphics.Bitmap previous=!destroyed&&!rebuilding&&before!=null&&before.isAttachedToWindow()?Motion.capture(before):null;
+        rebuild();
+        if(previous!=null){if(root!=before)Motion.crossfade(root,previous,direction,pageHeader,scroll);else previous.recycle();}
+    }
     @Override public void rebuild(){
         if(destroyed||rebuilding)return;handler.removeCallbacks(settingsRebuild);rebuilding=true;
         displayedSimulation = scooterService != null && scooterService.simulating();
@@ -268,10 +278,10 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(changed&&horizontalHinge())handler.post(this::rebuild);return insets;
         });
         if(OnboardingScreen.needed(this,scooterService)){
-            clearDashboardLock();profileTitle=null;scroll=null;pageFrame=null;
+            clearDashboardLock();profileTitle=null;scroll=null;pageFrame=null;pageHeader=null;
             onboarding=new OnboardingScreen(this,new OnboardingScreen.Listener(){public void onFinished(){onboarding=null;selectedPage="home";rebuild();}});
             screen=onboarding;root.addView(onboarding.view(),new FrameLayout.LayoutParams(-1,-1));
-            setContentView(root);root.requestApplyInsets();styleSystemBars();
+            Motion.quietScrollbars(root);setContentView(root);root.requestApplyInsets();styleSystemBars();
             rebuilding=false;redraw();return;
         }
         onboarding=null;
@@ -285,7 +295,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         simulationNotice.setPadding(design.dp(12), design.dp(6), design.dp(12), design.dp(6));
         simulationNotice.setContentDescription("Simulated scooter. Sample data, Bluetooth paused. Tap to exit simulation.");
         simulationNotice.setOnClickListener(v -> {
-            if (scooterService != null) { scooterService.setSimulation(false); rebuild(); }
+            if (scooterService != null) { scooterService.setSimulation(false); transitionRebuild(0); }
         });
         simulationNotice.setVisibility(displayedSimulation ? View.VISIBLE : View.GONE);
         shell.addView(simulationNotice, new LinearLayout.LayoutParams(-1, -2));
@@ -294,11 +304,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         LinearLayout content=column();appBody.addView(content,new LinearLayout.LayoutParams(expanded?0:-1,expanded?-1:0,1));
         LinearLayout header=makeHeader();
         if(horizontalHinge()){
-            ScrollView upper=new ScrollView(this);upper.setFillViewport(false);upper.setClipToPadding(false);upper.addView(header);
+            ScrollView upper=new ScrollView(this);upper.setFillViewport(false);upper.setClipToPadding(false);upper.addView(header);pageHeader=upper;
             int upperHeight=Math.max(1,fold.hinge.top-topInset);
             content.addView(upper,new LinearLayout.LayoutParams(-1,upperHeight));
             View spacer=new View(this);spacer.setBackgroundColor(design.bg);content.addView(spacer,new LinearLayout.LayoutParams(-1,Math.max(design.dp(12),fold.hinge.height())));
-        }else content.addView(header);
+        }else{content.addView(header);pageHeader=header;}
         pageFrame=new FrameLayout(this);content.addView(pageFrame,new LinearLayout.LayoutParams(-1,0,1));
         screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(boolean showDisconnect){return makeDashboardLock(showDisconnect);}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void quickAction(String id){MainActivity.this.quickAction(id);}public void rename(){renameScooter();}public void connectionDetails(){showConnectionDetails();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
         if(horizontalHinge()&&screen instanceof DashboardScreen){
@@ -312,16 +322,16 @@ public final class MainActivity extends Activity implements ScreenHost {
         scrollPage=selectedPage;pageFrame.addView(scroll,new FrameLayout.LayoutParams(-1,-1));
         if(!expanded){
             // The tab bar floats over the page; pad the scroller so the last card can scroll clear of it.
-            View bar=design.floatingNav(names,icons,java.util.Arrays.asList(pages).indexOf(selectedPage),NAV_CENTER,i->select(pages[i]));
+            View bar=design.floatingNav(names,icons,java.util.Arrays.asList(pages).indexOf(selectedPage),navFrom,NAV_CENTER,i->select(pages[i]));
             FrameLayout.LayoutParams barParams=new FrameLayout.LayoutParams(-1,design.floatingNavHeight(),Gravity.BOTTOM);
             barParams.leftMargin=design.dp(14);barParams.rightMargin=design.dp(14);barParams.bottomMargin=design.dp(10);
             pageFrame.addView(bar,barParams);
             scroll.setClipToPadding(false);
             scroll.setPadding(scroll.getPaddingLeft(),scroll.getPaddingTop(),scroll.getPaddingRight(),scroll.getPaddingBottom()+design.floatingNavHeight()+design.dp(16));
         }
-        setContentView(root);root.requestApplyInsets();
+        Motion.quietScrollbars(root);setContentView(root);root.requestApplyInsets();
         styleSystemBars();
-        int restore=scrollPositions.containsKey(selectedPage)?scrollPositions.get(selectedPage):0;ScrollView target=scroll;target.post(()->{if(scroll==target)target.scrollTo(0,restore);});
+        int restore=scrollPositions.containsKey(selectedPage)?scrollPositions.get(selectedPage):0;Motion.scrollBeforeDraw(scroll,restore);
         rebuilding=false;redraw();
     }
     private void styleSystemBars(){
@@ -505,8 +515,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(selectedPage.equals("stats"))markStatsAway();
         if(page.equals("stats")){expireStatsSection(true);if(resumed)markStatsActive();}
         if(page.equals("more")){expireMoreSection(true);if(resumed)markMoreActive();}
-        selectedPage=page;preferences.edit().putString("last_page",page).apply();rebuild();
-        if(scroll!=null)design.reveal(scroll);
+        int from=java.util.Arrays.asList(pages).indexOf(selectedPage),to=java.util.Arrays.asList(pages).indexOf(page);
+        selectedPage=page;preferences.edit().putString("last_page",page).apply();
+        navFrom=from;transitionRebuild(Integer.signum(to-from));navFrom=-1;
     }
     /** Brief returns preserve the Live Stats section; a longer absence starts at Overview. */
     private void markStatsAway(){
@@ -966,8 +977,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
             if(keyboard!=null)keyboard.hideSoftInputFromWindow(search.getWindowToken(),0);
         }
-        private void showLights(){lights=true;preferences.edit().putString("scooter_section","Lights").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);design.reveal(view);}
-        private void showMain(){lights=false;preferences.edit().putString("scooter_section","").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);design.reveal(view);}
+        private void showLights(){Motion.page(scroll,1,()->{lights=true;preferences.edit().putString("scooter_section","Lights").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);});}
+        private void showMain(){Motion.page(scroll,-1,()->{lights=false;preferences.edit().putString("scooter_section","").apply();clearSearch();placeSections();applyFilter();refresh();if(scroll!=null)scroll.scrollTo(0,0);});}
         boolean back(){
             if(!query.isEmpty()){search.setText("");return true;}
             if(lights){showMain();return true;}
@@ -1445,8 +1456,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     private AlertDialog showSheet(View content){
         ScrollView holder=new ScrollView(this);holder.addView(content,new ScrollView.LayoutParams(-1,-2));
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setView(holder).create();
-        dialog.show();
         android.view.Window window=dialog.getWindow();
+        Motion.present(dialog,Motion.SHEET);
         if(window!=null){
             android.graphics.drawable.GradientDrawable sheet=new android.graphics.drawable.GradientDrawable();sheet.setColor(design.bg);
             float r=design.dp(24);sheet.setCornerRadii(new float[]{r,r,r,r,0,0,0,0});sheet.setStroke(design.dp(1),design.raised);
@@ -1454,6 +1465,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
             window.getDecorView().setPadding(0,0,0,0);
         }
+        dialog.show();
+        if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
         return dialog;
     }
     private void editFeature(ScooterCommands.Feature feature){

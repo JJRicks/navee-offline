@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- Custom accessibility actions need app-owned ids so they never collide with Android's. -->
+    <item name="reorder_move_up" type="id" />
+    <item name="reorder_move_down" type="id" />
+</resources>

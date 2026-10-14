@@ -57,7 +57,7 @@ final class StatsCharts {
             title.setFocusable(true);
             if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
             expanded = prefs.getBoolean("stats_chart_group_" + name, false);
-            title.setOnClickListener(v -> { expanded = !expanded;
+            title.setOnClickListener(v -> { Motion.animateChanges(groupHolder); expanded = !expanded;
                 prefs.edit().putBoolean("stats_chart_group_" + name, expanded).apply(); filter(); });
             card.addView(title, new LinearLayout.LayoutParams(-1, -2)); card.addView(body);
         }
@@ -295,7 +295,8 @@ final class StatsCharts {
             release(expanded); expandedWindow.close();
             if (fullscreen == opened) { fullscreenCard = null; fullscreenWindow = null; fullscreen = null; }
         });
-        fullscreen.show(); Window window = fullscreen.getWindow();
+        Window window = fullscreen.getWindow();
+        Motion.present(fullscreen, Motion.PAGE);
         if (window != null) {
             window.setBackgroundDrawable(new android.graphics.drawable.ColorDrawable(ui.bg));
             window.getDecorView().setPadding(0, 0, 0, 0);
@@ -320,8 +321,9 @@ final class StatsCharts {
                 window.getInsetsController().setSystemBarsAppearance(ui.dark ? 0 : mask, mask);
             }
             window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT);
-            content.requestApplyInsets();
         }
+        fullscreen.show();
+        if (window != null) { window.setLayout(WindowManager.LayoutParams.MATCH_PARENT, WindowManager.LayoutParams.MATCH_PARENT); content.requestApplyInsets(); }
         content.post(this::refreshVisible);
     }
     void close() {

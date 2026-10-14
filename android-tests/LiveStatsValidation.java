@@ -161,14 +161,42 @@ public final class LiveStatsValidation extends Instrumentation {
                 require(graph != null && graph.pointCount() > 1, "Favourite chart did not load when scrolled into view");
             }); screenshot("overview-chart");
             main(() -> invoke(stats(), "showFavouriteOrder", new Class<?>[]{})); settle(); screenshot("favourites-reorder");
+            final View[] chartHandle = new View[1];
             main(() -> {
-                android.app.AlertDialog dialog = (android.app.AlertDialog)field(stats(), "orderDialog");
-                require(dialog.getButton(android.app.AlertDialog.BUTTON_POSITIVE).getTypeface().equals(activity.ui().semibold()),
+                View sheet = ((android.app.AlertDialog)field(stats(), "orderDialog")).getWindow().getDecorView();
+                View done = findText(sheet, "Done");
+                require(done instanceof android.widget.TextView && ((android.widget.TextView)done).getTypeface().equals(activity.ui().semibold()),
                         "Reorder action does not use app typography");
-                View button = findDescription(dialog.getWindow().getDecorView(), "Move Battery power (signed) chart up");
-                require(button != null && button.isEnabled(), "Mixed reorder control missing"); button.performClick();
-                require(settings().getString("stats_favourite_order", "").startsWith("chart:power_w"), "Chart reorder not saved"); dialog.dismiss();
+                chartHandle[0] = findDescription(sheet, "Drag to reorder Battery power (signed) chart");
+                require(chartHandle[0] != null && chartHandle[0].getWidth() >= activity.ui().dp(48) && chartHandle[0].getHeight() >= activity.ui().dp(48),
+                        "Mixed reorder handle missing or under 48 dp");
+                // A gesture Android cancels after the chart has crossed the reading must not count as a drop.
+                dragHandle(chartHandle[0], android.view.MotionEvent.ACTION_CANCEL);
+            }); settle(); settle();
+            main(() -> {
+                View row = (View)chartHandle[0].getParent(); ViewGroup list = (ViewGroup)row.getParent();
+                require(list.indexOfChild(row) == 1 && "reading:voltage_v".equals(((List<?>)invoke(stats(), "favouriteOrder", new Class<?>[]{})).get(0))
+                        && !settings().getString("stats_favourite_order", "").startsWith("chart:power_w"), "Cancelled drag changed the saved order");
+                for (int i = 0; i < list.getChildCount(); i++) require(list.getChildAt(i).getTranslationY() == 0, "Cancelled drag left a row displaced");
+                require(row.getScaleX() == 1 && row.getTranslationZ() == 0, "Cancelled drag left the row lifted");
+                // Drag the chart's handle above the reading; it settles in the first slot on release.
+                dragHandle(chartHandle[0], android.view.MotionEvent.ACTION_UP);
             });
+            awaitOrder("chart:power_w", "Dragged chart reorder not saved");
+            main(() -> {
+                View row = (View)chartHandle[0].getParent();
+                require(row.getTranslationY() == 0 && row.getScaleX() == 1 && row.getTranslationZ() == 0, "Dropped row did not settle in place");
+                require("Battery power (signed) chart".contentEquals(row.getContentDescription()), "Reorder row is not named for screen readers");
+                require(row.performAccessibilityAction(reorderAction(row, "Move down"), null), "Move down action missing");
+            });
+            awaitOrder("reading:voltage_v", "Accessible move down not saved");
+            main(() -> {
+                View row = (View)chartHandle[0].getParent();
+                require(reorderAction(row, "Move down") == 0, "Last row still offers Move down");
+                require(row.performAccessibilityAction(reorderAction(row, "Move up"), null), "Move up action missing");
+            });
+            awaitOrder("chart:power_w", "Accessible move up not saved");
+            main(() -> ((android.app.AlertDialog)field(stats(), "orderDialog")).dismiss());
             navigate("home"); navigate("stats");
             main(() -> require(((List<?>)invoke(stats(), "favouriteOrder", new Class<?>[]{})).get(0).equals("chart:power_w"), "Mixed order did not survive screen recreation"));
             verifyRetention();
@@ -270,6 +298,27 @@ public final class LiveStatsValidation extends Instrumentation {
             View found = findText(((ViewGroup)root).getChildAt(i), text); if (found != null) return found;
         }
         return null;
+    }
+    /** Lifts a reorder handle past the row above it, then ends the gesture with {@code end} (release or cancel). */
+    private void dragHandle(View handle, int end) {
+        View row = (View)handle.getParent();
+        long time = SystemClock.uptimeMillis(); float lift = -1.2f * row.getHeight();
+        handle.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0));
+        for (int step = 1; step <= 6; step++) handle.dispatchTouchEvent(android.view.MotionEvent.obtain(
+                time, time + step * 16, android.view.MotionEvent.ACTION_MOVE, 10, 10 + lift * step / 6, 0));
+        handle.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time + 120, end, 10, 10 + lift, 0));
+    }
+    /** The id of a labelled custom accessibility action the view offers right now, or 0. */
+    private int reorderAction(View view, String label) {
+        android.view.accessibility.AccessibilityNodeInfo info = view.createAccessibilityNodeInfo();
+        for (android.view.accessibility.AccessibilityNodeInfo.AccessibilityAction action : info.getActionList())
+            if (label.contentEquals(String.valueOf(action.getLabel()))) return action.getId();
+        return 0;
+    }
+    private void awaitOrder(String first, String failure) {
+        long deadline = SystemClock.uptimeMillis() + 3000;
+        while (!settings().getString("stats_favourite_order", "").startsWith(first) && SystemClock.uptimeMillis() < deadline) settle();
+        require(settings().getString("stats_favourite_order", "").startsWith(first), failure);
     }
     private View findDescription(View root, String description) {
         if (description.equals(String.valueOf(root.getContentDescription()))) return root;

@@ -39,6 +39,8 @@ public final class RouteMapView extends View {
                 }
             };
     private final Set<String> pending = new HashSet<String>();
+    /** When each newly loaded tile arrived, so it fades up over the grid instead of popping in. */
+    private final Map<String, Long> arrivals = new HashMap<String, Long>();
     private final Map<String, Long> failed = new HashMap<String, Long>();
     private final Consumer<PhoneRideStore.Point> selection;
     private final int powerLow, powerHigh;
@@ -95,7 +97,7 @@ public final class RouteMapView extends View {
         generation++;
         provider = new MapTiles(ui.context, tileUrl);
         maximumTileZoom = MapSource.maximumTileZoom(tileUrl);
-        pending.clear(); failed.clear(); tiles.evictAll();
+        pending.clear(); failed.clear(); tiles.evictAll(); arrivals.clear();
         notifyStatus();
         invalidate();
     }
@@ -127,6 +129,7 @@ public final class RouteMapView extends View {
         generation++;
         pending.clear();
         tiles.evictAll();
+        arrivals.clear();
     }
 
     @Override
@@ -447,6 +450,8 @@ public final class RouteMapView extends View {
                 endX = (int) Math.floor((left + getWidth()) / size),
                 startY = (int) Math.floor(top / size),
                 endY = (int) Math.floor((top + getHeight()) / size);
+        long now = android.os.SystemClock.uptimeMillis();
+        boolean fading = false;
         for (int ty = startY; ty <= endY; ty++)
             for (int tx = startX; tx <= endX; tx++) {
                 if (ty < 0 || ty >= n) continue;
@@ -454,8 +459,10 @@ public final class RouteMapView extends View {
                 String key = tileZoom + "/" + wrapX + "/" + ty;
                 Bitmap tile = tiles.get(key);
                 if (tile != null) {
+                    int alpha = tileAlpha(key, now);
+                    fading |= alpha < 255;
                     paint.setStyle(Paint.Style.FILL);
-                    paint.setAlpha(255);
+                    paint.setAlpha(alpha);
                     canvas.drawBitmap(
                             tile,
                             null,
@@ -467,6 +474,16 @@ public final class RouteMapView extends View {
                             paint);
                 } else request(key, tileZoom, wrapX, ty);
             }
+        paint.setAlpha(255);
+        if (fading) postInvalidateOnAnimation();
+    }
+
+    private int tileAlpha(String key, long now) {
+        Long arrived = arrivals.get(key);
+        if (arrived == null) return 255;
+        float progress = (now - arrived) / (float) Motion.CHANGE_MS;
+        if (progress >= 1 || !Ui.motionEnabled()) { arrivals.remove(key); return 255; }
+        return Math.round(255 * Motion.FADE.getInterpolation(Math.max(0, progress)));
     }
 
     private void request(String key, int z, int tx, int ty) {
@@ -492,7 +509,10 @@ public final class RouteMapView extends View {
                                 if (provider != requestedProvider) return;
                                 pending.remove(key);
                                 if (closed) return;
-                                if (result != null) tiles.put(key, result);
+                                if (result != null) {
+                                    tiles.put(key, result);
+                                    if (Ui.motionEnabled()) arrivals.put(key, android.os.SystemClock.uptimeMillis());
+                                }
                                 else failed.put(key, android.os.SystemClock.elapsedRealtime());
                                 notifyStatus();
                                 if (attached) invalidate();

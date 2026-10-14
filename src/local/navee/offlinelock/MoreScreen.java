@@ -224,7 +224,7 @@ public final class MoreScreen implements AppScreen {
         int split = saved.lastIndexOf(':');
         final int section = split > 0 && saved.substring(0, split).equals(shownSection()) ? parseScroll(saved.substring(split + 1)) : 0;
         final int menu = prefs.getInt(WIDE_MENU_SCROLL, 0);
-        sectionScroll.post(() -> { if (!closed) { sectionScroll.scrollTo(0, section); menuScroll.scrollTo(0, menu); } });
+        Motion.scrollBeforeDraw(sectionScroll, section); Motion.scrollBeforeDraw(menuScroll, menu);
     }
     /**
      * The submenu expired while this screen stayed alive (the app was in the background for more
@@ -286,13 +286,22 @@ public final class MoreScreen implements AppScreen {
     private void selectSection(String section) {
         if (closed || (!section.isEmpty() && !knownSection(section)) || section.equals(selectedSection)) return;
         final ScrollView pane = sectionScroller();
-        sectionScrollPositions.put(shownSection(), pane.getScrollY());
-        selectedSection = section;
-        if (!standalone) settings().edit().putString("more_section", section).apply();
-        showSelectedSection(); refresh();
-        String shown = shownSection();
-        final int position = sectionScrollPositions.containsKey(shown) ? sectionScrollPositions.get(shown) : 0;
-        pane.post(() -> { if (!closed && section.equals(selectedSection)) pane.scrollTo(0, position); });
+        String leaving = shownSection();
+        sectionScrollPositions.put(leaving, pane.getScrollY());
+        Motion.page(pane, sectionDirection(leaving, section), () -> {
+            selectedSection = section;
+            if (!standalone) settings().edit().putString("more_section", section).apply();
+            showSelectedSection(); refresh();
+            String shown = shownSection();
+            Motion.scrollBeforeDraw(pane, sectionScrollPositions.containsKey(shown) ? sectionScrollPositions.get(shown) : 0);
+        });
+    }
+    /** Deeper levels arrive from the right and leave the same way back; wide panes simply crossfade. */
+    private int sectionDirection(String from, String to) {
+        if ("Units".equals(to)) return 1;
+        if ("Units".equals(from)) return -1;
+        if (wide) return 0;
+        return to.isEmpty() ? -1 : 1;
     }
 
     private ScooterService service() { return host.service(); }
@@ -673,8 +682,9 @@ public final class MoreScreen implements AppScreen {
             dialogs.remove(dialog);
             if (onDismiss != null) onDismiss.run();
         });
-        dialog.show();
         if (dialog.getWindow() != null) dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 22, ui.outline));
+        Motion.present(dialog, Motion.DIALOG);
+        dialog.show();
         if (dialog.getButton(AlertDialog.BUTTON_POSITIVE) != null) dialog.getButton(AlertDialog.BUTTON_POSITIVE).setTextColor(ui.accent);
         if (dialog.getButton(AlertDialog.BUTTON_NEGATIVE) != null) dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setTextColor(ui.muted);
     }
