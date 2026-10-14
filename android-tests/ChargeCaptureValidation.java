@@ -64,6 +64,25 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 // Postpone the unrelated disconnected-frame handler so the notification action,
                 // rather than automatic disconnect cleanup, must close this synthetic journal.
                 setField(service,"chargeUpdating",true);
+                service.visible(false);
+                require(((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"Capture did not acquire its wake lock immediately");
+                require((notice.flags&Notification.FLAG_ONGOING_EVENT)!=0,"Capture notification is not ongoing");
+                require(service.getForegroundServiceType()==android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,"Charge foreground type changed");
+            });
+            try{
+                getUiAutomation().executeShellCommand("input keyevent 223").close();
+                SystemClock.sleep(11000);
+                main(()->{
+                    require(!getTargetContext().getSystemService(android.os.PowerManager.class).isInteractive(),"Screen-off fixture remained interactive");
+                    require(service.isChargeRecording()&&service.workAllowed()&&service.backgroundDeadlineMs()==0,"Screen-off capture hit idle timeout");
+                    require(((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"Wake lock lost with screen off");
+                    setField(service,"wakeLockRenewedMs",SystemClock.elapsedRealtime()-6*60*1000L);
+                    invoke(service,"updateRecordingWakeLock",new Class<?>[]{});
+                    require(SystemClock.elapsedRealtime()-(Long)field(service,"wakeLockRenewedMs")<1000,"Long-running capture did not renew before expiry");
+                });
+            }finally{getUiAutomation().executeShellCommand("input keyevent 224").close();getUiAutomation().executeShellCommand("wm dismiss-keyguard").close();}
+            main(()->{
+                Notification notice=(Notification)invoke(service,"notification",new Class<?>[]{});
                 try{notice.actions[0].actionIntent.send();}catch(Exception e){throw new IllegalStateException(e);}
             });await(()->!service.isChargeRecording(),"Stop notification did not end capture");
             main(()->{
@@ -90,6 +109,18 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(field(service.ble,"gatt")==null&&field(service.ble,"scanner")==null,"Fixture touched real Bluetooth transport");
                 require(!service.isRecording()&&!service.phoneSaving()&&field(service,"phoneRecorder")==null,"Charge fixture started sensors or rides");
             });
+            AtomicReference<Boolean> exported=new AtomicReference<>(false);AtomicReference<File> exportFile=new AtomicReference<>();
+            main(()->require(service.exportChargeRecordings(file->{exportFile.set(file);exported.set(true);}),"Export action refused saved journals"));
+            await(exported::get,"Export callback missing");
+            require(exportFile.get()!=null&&exportFile.get().isFile(),"JSON export file missing");
+            String json;
+            try(BufferedReader reader=new BufferedReader(new FileReader(exportFile.get()))){StringBuilder data=new StringBuilder();String line;while((line=reader.readLine())!=null)data.append(line);json=data.toString();}
+            org.json.JSONObject document=new org.json.JSONObject(json);
+            require(document.getString("format").equals("navee-charge-recordings-v1"),"Export schema invalid");
+            require(document.getString("charger_selection").equals("manual"),"Export implies automatic charger detection");
+            org.json.JSONArray sessions=document.getJSONArray("sessions");require(sessions.length()>0,"Saved journals absent from export");
+            for(int index=0;index<sessions.length();index++)require(sessions.getJSONObject(index).getString("profile_id").equals(profile),"Unrelated scooter leaked into export");
+            require(!json.contains("owner_identity")&&!json.contains("000000000000"),"Owner identity leaked into export");
             AtomicReference<Boolean> cleared=new AtomicReference<>(false);
             main(()->require(service.clearChargeRecordings(()->cleared.set(true)),"Charge clear refused idle capture"));
             await(cleared::get,"Charge clear callback missing");require(files().length==0,"Per-profile clear left charge files");

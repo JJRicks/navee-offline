@@ -191,6 +191,32 @@ public final class ChargeSessionStore {
         }
         return new Snapshot(curves,sessions,bytes);
     }
+    /** Stream saved journals for one scooter. No owner credentials, names, or radio identifiers. */
+    public synchronized int exportJson(String targetProfile, Writer out) throws IOException {
+        if(targetProfile==null||!targetProfile.matches("[A-Za-z0-9_-]{1,128}"))throw new IllegalArgumentException("Select a scooter");
+        if(active!=null)throw new IllegalStateException("Stop charge recording before exporting");
+        out.write("{\"format\":\"navee-charge-recordings-v1\",\"charger_selection\":\"manual\",\"sessions\":[");
+        int count=0;
+        for(File file:files()) {
+            if(!file.getName().endsWith(".csv"))continue;
+            Session session=read(file);
+            if(session==null||!targetProfile.equals(session.profile))continue;
+            if(count++>0)out.write(",");
+            out.write("{\"id\":\""+file.getName().replace(".csv","")+"\",\"profile_id\":\""+session.profile
+                    +"\",\"charger\":\""+session.charger.name()+"\",\"started_wall_ms\":"+session.startedWall
+                    +",\"started_elapsed_ms\":"+session.startedMono+",\"stop_reason\":"+(session.stop==null?"null":"\""+session.stop.name()+"\"")
+                    +",\"qualified_for_learning\":"+(session.evidence()!=null)+",\"samples\":[");
+            boolean first=true;
+            for(Point point:session.points) {
+                if(!first)out.write(",");first=false;
+                out.write("{\"wall_ms\":"+point.wall+",\"elapsed_ms\":"+point.mono+",\"battery_percent\":"+point.soc
+                        +",\"voltage_v\":"+point.voltage+",\"current_a\":"+point.current+",\"power_w\":"+point.signedPower
+                        +",\"temperature_c\":"+point.temperature+",\"gap_before\":"+point.gap+"}");
+            }
+            out.write("]}");
+        }
+        out.write("]}");out.flush();return count;
+    }
     public static String key(String profile,Charger charger){return profile+":"+charger.name();}
     public static boolean fresh(Value value,long now){return value!=null&&value.value!=null&&Double.isFinite(value.value)&&value.source>=0&&value.mono>0&&now>=value.mono&&now-value.mono<=MAX_FRAME_AGE_MS;}
     private static boolean between(double value,double low,double high){return Double.isFinite(value)&&value>=low&&value<=high;}
@@ -246,15 +272,18 @@ public final class ChargeSessionStore {
         return values.size()%2==1?values.get(middle):(values.get(middle-1)+values.get(middle))/2;
     }
     private static final class Point {
-        final long wall,mono;final double soc,power;final boolean gap;
-        Point(long wall,long mono,double soc,double power,boolean gap){this.wall=wall;this.mono=mono;this.soc=soc;this.power=Math.abs(power);this.gap=gap;}
+        final long wall,mono;final double soc,power,voltage,current,signedPower;final Double temperature;final boolean gap;
+        Point(long wall,long mono,double soc,double voltage,double current,double signedPower,Double temperature,boolean gap){
+            this.wall=wall;this.mono=mono;this.soc=soc;this.voltage=voltage;this.current=current;this.signedPower=signedPower;
+            this.power=Math.abs(signedPower);this.temperature=temperature;this.gap=gap;
+        }
     }
     private static final class Evidence {
         final double[] minutes=new double[100],watts=new double[100];
         Evidence(){Arrays.fill(minutes,Double.NaN);Arrays.fill(watts,Double.NaN);}
     }
     private static final class Session {
-        String profile;Charger charger;Stop stop;List<Point> points=new ArrayList<>();
+        String profile;Charger charger;Stop stop;long startedWall,startedMono;List<Point> points=new ArrayList<>();
         Evidence evidence(){
             if(stop==null||stop==Stop.INTERRUPTED||stop==Stop.PROCESS_ENDED||stop==Stop.ERROR||points.size()<61)return null;
             Evidence result=new Evidence();boolean[] repeated=new boolean[100];List<Double> powerSamples=new ArrayList<>();
@@ -291,7 +320,7 @@ public final class ChargeSessionStore {
                 if(++lines>MAX_SAMPLES+3||line.length()>512)return null;
                 String[] parts=line.split(",",-1);
                 try{
-                    if(lines==1){if(parts.length!=5||!parts[0].equals("charge-v1")||!parts[1].matches("[A-Za-z0-9_-]{1,128}"))return null;session.profile=parts[1];session.charger=Charger.valueOf(parts[2]);}
+                    if(lines==1){if(parts.length!=5||!parts[0].equals("charge-v1")||!parts[1].matches("[A-Za-z0-9_-]{1,128}"))return null;session.profile=parts[1];session.charger=Charger.valueOf(parts[2]);session.startedWall=Long.parseLong(parts[3]);session.startedMono=Long.parseLong(parts[4]);if(session.startedWall<=0||session.startedMono<=0)return null;}
                     else if(parts.length==2&&parts[0].equals("end")){if(session.stop!=null)return null;session.stop=Stop.valueOf(parts[1]);}
                     else if(parts.length==9&&parts[0].equals("s")&&session.stop==null){
                         long wall=Long.parseLong(parts[1]),mono=Long.parseLong(parts[2]);double soc=Double.parseDouble(parts[3]);
@@ -299,7 +328,7 @@ public final class ChargeSessionStore {
                         if(wall<=0||mono<=0||!between(soc,0,100)||!between(volts,1,100)||!between(amps,-30,30)||!between(power,-3000,3000)
                                 ||Math.abs(volts*amps-power)>.001||!(parts[8].equals("0")||parts[8].equals("1")))return null;
                         if(!parts[7].isEmpty()&&!between(Double.parseDouble(parts[7]),-40,100))return null;
-                        session.points.add(new Point(wall,mono,soc,power,parts[8].equals("1")));
+                        session.points.add(new Point(wall,mono,soc,volts,amps,power,parts[7].isEmpty()?null:Double.valueOf(parts[7]),parts[8].equals("1")));
                     }else return null;
                 }catch(IllegalArgumentException bad){return null;}
             }
