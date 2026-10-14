@@ -41,7 +41,7 @@ public final class MapPreferences {
         body.addView(edit);
         ScrollView scroll = new ScrollView(host.activity()); scroll.addView(body);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(scroll).setPositiveButton("Done", null).create();
-        dialog.show(); dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 22, ui.outline));
+        dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 22, ui.outline)); Motion.present(dialog, Motion.DIALOG); dialog.show();
         return dialog;
     }
     private static void custom(ScreenHost host, Runnable saved) {
@@ -54,7 +54,7 @@ public final class MapPreferences {
         ScrollView scroll = new ScrollView(host.activity()); scroll.addView(body);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(scroll).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create();
         dialog.setOnDismissListener(d -> saved.run());
-        dialog.show(); dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 22, ui.outline));
+        dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 22, ui.outline)); Motion.present(dialog, Motion.DIALOG); dialog.show();
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             String value = url.getText().toString().trim(), text = credit.getText().toString().trim(), address = link.getText().toString().trim();
             if (!MapTiles.validUrl(value)) { url.setError("Use HTTPS with {z}, {x} and {y}."); return; }

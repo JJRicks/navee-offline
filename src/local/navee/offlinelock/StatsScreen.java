@@ -56,7 +56,7 @@ public final class StatsScreen implements AppScreen {
     private final LinkedHashMap<String, StatsCharts.Card> favouriteCharts = new LinkedHashMap<>();
     private boolean chartBrowserReady;
     private final android.view.ViewTreeObserver.OnScrollChangedListener chartScroll = () -> { if (chartBrowserReady) chartBrowserRefresh(); };
-    private final TextView reorderFavourites;
+    private final View reorderFavourites;
     private AlertDialog orderDialog;
     private final SegmentedSelector sectionTabs;
     private final Set<String> favourites;
@@ -153,8 +153,8 @@ public final class StatsScreen implements AppScreen {
             panes.addView(new View(host.activity()), new LinearLayout.LayoutParams(ui.dp(20), 1));
             panes.addView(readingsScroll, new LinearLayout.LayoutParams(0, -1, 1));
             final int left = savedSectionScroll, right = savedReadingsScroll;
-            sectionScroll.post(() -> sectionScroll.scrollTo(0, left));
-            readingsScroll.post(() -> readingsScroll.scrollTo(0, right));
+            Motion.scrollBeforeDraw(sectionScroll, left);
+            Motion.scrollBeforeDraw(readingsScroll, right);
         }
 
         // Overview: the battery ring beside range and electrical detail, then the rider's favourite readings.
@@ -176,9 +176,15 @@ public final class StatsScreen implements AppScreen {
         if (Build.VERSION.SDK_INT >= 28) favouritesTitle.setAccessibilityHeading(true);
         LinearLayout favouriteHeader = new LinearLayout(host.activity()); favouriteHeader.setGravity(Gravity.CENTER_VERTICAL);
         favouriteHeader.addView(favouritesTitle, new LinearLayout.LayoutParams(0, -2, 1));
-        reorderFavourites = ui.secondaryButton("Reorder", this::showFavouriteOrder);
-        reorderFavourites.setContentDescription("Reorder favourite readings and charts");
-        favouriteHeader.addView(reorderFavourites, new LinearLayout.LayoutParams(-2, -2));
+        FrameLayout reorder = new FrameLayout(host.activity());
+        reorder.addView(ui.icon("reorder", 22, ui.text), new FrameLayout.LayoutParams(ui.dp(22), ui.dp(22), Gravity.CENTER));
+        reorder.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 40)), null, ui.shape(Color.WHITE, 24, 0)));
+        reorder.setContentDescription("Reorder favourite readings and charts");
+        if (Build.VERSION.SDK_INT >= 26) reorder.setTooltipText("Reorder favourites");
+        reorder.setClickable(true); reorder.setFocusable(true); reorder.setOnClickListener(v -> showFavouriteOrder());
+        ui.pressFeedback(reorder);
+        reorderFavourites = reorder;
+        favouriteHeader.addView(reorderFavourites, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
         overviewSection.addView(favouriteHeader);
         favouritesCard = ui.groupCard(); overviewSection.addView(favouritesCard);
         favouritesHint = ui.text("Choose your favourites\nStar a reading or chart to add it here", 14, false);
@@ -273,6 +279,12 @@ public final class StatsScreen implements AppScreen {
         for (String known : SECTIONS) if (known.equals(section)) return known;
         return "Overview";
     }
+    private int tabsTop() {
+        View tabs = sectionTabs;
+        int top = 0;
+        while (tabs != null && tabs != page) { top += tabs.getTop(); tabs = tabs.getParent() instanceof View ? (View) tabs.getParent() : null; }
+        return tabs == page ? top + page.getTop() : 0;
+    }
     private void showSection() {
         overviewSection.setVisibility(selectedSection.equals("Overview") ? View.VISIBLE : View.GONE);
         readingsSection.setVisibility(readingsShown() ? View.VISIBLE : View.GONE);
@@ -280,7 +292,11 @@ public final class StatsScreen implements AppScreen {
         diagnosticsSection.setVisibility(selectedSection.equals("Diagnostics") ? View.VISIBLE : View.GONE);
     }
     private void selectSection(String section) {
-        selectedSection = validSection(section); showSection();
+        String next = validSection(section);
+        java.util.List<String> order = java.util.Arrays.asList(wide ? WIDE_SECTIONS : SECTIONS);
+        Motion.shared(page, Integer.signum(order.indexOf(next) - order.indexOf(selectedSection)),
+                overviewSection, readingsSection, chartsSection, diagnosticsSection);
+        selectedSection = next; showSection();
         sectionTabs.select(java.util.Arrays.asList(wide ? WIDE_SECTIONS : SECTIONS).indexOf(selectedSection), true);
         boolean hideChartSearch = !selectedSection.equals("Charts") && chartBrowser.search.hasFocus();
         if (!readingsShown() || hideChartSearch) {
@@ -290,8 +306,8 @@ public final class StatsScreen implements AppScreen {
             if (hideChartSearch) chartBrowser.search.clearFocus();
         }
         preferences.edit().putString("stats_section", selectedSection).apply();
-        // When wide only the left pane changes, so only it returns to the top.
-        refresh(); sectionScroll.post(() -> sectionScroll.scrollTo(0, 0));
+        // Keep the section tabs where the finger left them; never scroll past them into the new section.
+        refresh(); Motion.scrollBeforeDraw(sectionScroll, Math.min(sectionScroll.getScrollY(), tabsTop()));
     }
     /** Two equal buttons side by side, stacked full width when either label would have to break. */
     private final class StackingRow extends LinearLayout {
@@ -378,7 +394,7 @@ public final class StatsScreen implements AppScreen {
             if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
             boolean expanded = preferences.getBoolean("stats_group_" + metric.group, false);
             group = new Group(metric.group, wrapper, body, title, expanded); final Group created = group;
-            title.setOnClickListener(v -> { created.expanded = !created.expanded; preferences.edit().putBoolean("stats_group_" + created.name, created.expanded).apply(); applyFilter(); });
+            title.setOnClickListener(v -> { Motion.animateChanges(readingsSection); created.expanded = !created.expanded; preferences.edit().putBoolean("stats_group_" + created.name, created.expanded).apply(); applyFilter(); });
             wrapper.addView(title, new LinearLayout.LayoutParams(-1, -2)); wrapper.addView(body, new LinearLayout.LayoutParams(-1, -2));
             groups.put(metric.group, group); readingsSection.addView(wrapper);
         }
@@ -563,44 +579,43 @@ public final class StatsScreen implements AppScreen {
     }
     private void showFavouriteOrder() {
         if (orderDialog != null) orderDialog.dismiss();
-        LinearLayout content = vertical(); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(8));
-        ScrollView scroller = new ScrollView(host.activity()); scroller.addView(content);
-        rebuildFavouriteOrder(content);
+        LinearLayout content = vertical(); content.setPadding(ui.dp(18), ui.dp(8), ui.dp(18), ui.dp(18));
+        View grab = new View(host.activity()); grab.setBackground(ui.shape(ui.outline, 2, 0));
+        LinearLayout.LayoutParams grabParams = new LinearLayout.LayoutParams(ui.dp(36), ui.dp(4));
+        grabParams.gravity = Gravity.CENTER_HORIZONTAL; grabParams.bottomMargin = ui.dp(10); content.addView(grab, grabParams);
+        LinearLayout head = new LinearLayout(host.activity()); head.setGravity(Gravity.CENTER_VERTICAL);
         TextView title = ui.text("Reorder favourites", 20, true);
-        title.setPadding(ui.dp(24), ui.dp(22), ui.dp(24), ui.dp(6));
         if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
-        orderDialog = new AlertDialog.Builder(host.activity()).setCustomTitle(title).setView(scroller)
-                .setPositiveButton("Done", null).create(); orderDialog.show();
-        if (orderDialog.getWindow() != null) orderDialog.getWindow().setBackgroundDrawable(
-                new android.graphics.drawable.InsetDrawable(ui.shape(ui.surface, 24, 0), ui.dp(16)));
-        android.widget.Button done = orderDialog.getButton(AlertDialog.BUTTON_POSITIVE);
-        done.setTypeface(ui.semibold()); done.setAllCaps(false); done.setTextColor(ui.accent);
-        done.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14 * ui.textScale);
-    }
-    private void rebuildFavouriteOrder(LinearLayout content) {
-        content.removeAllViews(); List<String> order = favouriteOrder();
+        head.addView(title, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView done = ui.secondaryButton("Done", () -> { if (orderDialog != null) orderDialog.dismiss(); });
+        head.addView(done, new LinearLayout.LayoutParams(-2, -2));
+        content.addView(head);
+        TextView hint = ui.caption("Drag a handle to move a reading or chart. The order is saved as you go.");
+        hint.setPadding(0, ui.dp(6), 0, ui.dp(14)); content.addView(hint);
         Map<String, TelemetryHistory.Reading> readings = service.displayReadings();
-        for (int i = 0; i < order.size(); i++) {
-            String id = order.get(i), key = id.substring(id.indexOf(':') + 1);
+        ReorderList list = new ReorderList(ui, ids -> {
+            saveFavouriteOrder(new ArrayList<>(ids)); refreshFavourites(service.displayReadings());
+        });
+        for (String id : favouriteOrder()) {
+            String key = id.substring(id.indexOf(':') + 1), name = readings.get(key) == null ? key : readings.get(key).label;
             boolean chart = id.startsWith("chart:");
-            LinearLayout row = new LinearLayout(host.activity()); row.setGravity(Gravity.CENTER_VERTICAL);
-            TextView label = ui.text(readings.get(key).label + (chart ? " · Chart" : ""), 14, false);
-            row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
-            for (int direction : new int[]{-1, 1}) {
-                TextView button = ui.text(direction < 0 ? "↑" : "↓", 23, true); button.setGravity(Gravity.CENTER);
-                boolean enabled = direction < 0 ? i > 0 : i < order.size() - 1;
-                button.setEnabled(enabled); button.setTextColor(enabled ? ui.text : ui.dim); button.setFocusable(true);
-                button.setContentDescription("Move " + readings.get(key).label + (chart ? " chart" : " reading") + (direction < 0 ? " up" : " down"));
-                button.setOnClickListener(v -> {
-                    List<String> current = favouriteOrder();
-                    if (StatsFavouriteOrder.move(current, id, direction)) {
-                        saveFavouriteOrder(current); refreshFavourites(service.displayReadings()); rebuildFavouriteOrder(content);
-                    }
-                });
-                row.addView(button, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
-            }
-            content.addView(row, new LinearLayout.LayoutParams(-1, -2));
+            list.add(id, name + (chart ? " · Chart" : ""), name + (chart ? " chart" : " reading"));
         }
+        content.addView(list, new LinearLayout.LayoutParams(-1, -2));
+        ScrollView scroller = new ScrollView(host.activity()); scroller.addView(content);
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(scroller).create();
+        android.view.Window window = dialog.getWindow();
+        if (window != null) {
+            GradientDrawable sheet = new GradientDrawable(); sheet.setColor(ui.bg);
+            float r = ui.dp(24); sheet.setCornerRadii(new float[]{r, r, r, r, 0, 0, 0, 0}); sheet.setStroke(ui.dp(1), ui.raised);
+            window.setBackgroundDrawable(sheet); window.setGravity(Gravity.BOTTOM);
+            window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            window.getDecorView().setPadding(0, 0, 0, 0);
+        }
+        Motion.present(dialog, Motion.SHEET);
+        orderDialog = dialog; dialog.setOnDismissListener(d -> { if (orderDialog == dialog) orderDialog = null; });
+        dialog.show();
+        if (window != null) window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
     }
     private void refreshDevices(Map<String, TelemetryHistory.Reading> readings) {
         StringBuilder signature = new StringBuilder(); List<TelemetryHistory.Reading> device = new ArrayList<TelemetryHistory.Reading>();

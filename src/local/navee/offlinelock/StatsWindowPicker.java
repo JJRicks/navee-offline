@@ -79,12 +79,14 @@ final class StatsWindowPicker extends LinearLayout {
         }
         opened.setContentView(content);
         opened.setOnDismissListener(d -> { if (dialog == opened) dialog = null; });
-        opened.show(); Window window = opened.getWindow();
+        Window window = opened.getWindow();
+        Motion.present(opened, Motion.DIALOG);
         if (window != null) {
             window.setBackgroundDrawable(ui.shape(ui.surface, 24, ui.outline)); window.getDecorView().setPadding(0, 0, 0, 0);
             int available = getResources().getDisplayMetrics().widthPixels - ui.dp(32);
             window.setLayout(Math.max(1, Math.min(ui.dp(520), available)), WindowManager.LayoutParams.WRAP_CONTENT);
         }
+        opened.show();
     }
     void close() { if (dialog != null) { Dialog old = dialog; dialog = null; old.dismiss(); } }
 }

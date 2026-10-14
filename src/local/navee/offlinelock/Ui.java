@@ -89,26 +89,6 @@ public final class Ui {
     public float sp(float value) { return value * context.getResources().getDisplayMetrics().scaledDensity * textScale; }
     /** Shared motion policy, including Android's accessibility/remove-animation setting. */
     public static boolean motionEnabled() { return android.animation.ValueAnimator.areAnimatorsEnabled(); }
-    /** A short arrival cue for deliberate navigation; data refreshes never replay it. */
-    public void reveal(View view) {
-        if (!motionEnabled() || !view.isAttachedToWindow()) return;
-        view.animate().cancel();
-        view.setAlpha(.94f); view.setTranslationY(dp(8));
-        final class Arrival extends android.animation.AnimatorListenerAdapter implements View.OnAttachStateChangeListener {
-            void finish() {
-                view.removeOnAttachStateChangeListener(this);
-                view.setAlpha(1); view.setTranslationY(0);
-            }
-            @Override public void onAnimationEnd(android.animation.Animator animation) { finish(); }
-            @Override public void onAnimationCancel(android.animation.Animator animation) { finish(); }
-            @Override public void onViewDetachedFromWindow(View detached) { detached.animate().cancel(); finish(); }
-            @Override public void onViewAttachedToWindow(View attached) {}
-        }
-        Arrival arrival = new Arrival(); view.addOnAttachStateChangeListener(arrival);
-        view.animate().alpha(1).translationY(0).setDuration(180)
-                .setInterpolator(new android.view.animation.PathInterpolator(.2f, 0, 0, 1))
-                .setListener(arrival).start();
-    }
     /** Native pressed feedback leaves layout sizes unchanged. */
     public void pressFeedback(View view) {
         if (!motionEnabled()) return;
@@ -515,17 +495,22 @@ public final class Ui {
      * The selected side tab shows white with a small red dot; the selected centre button gains a ring.
      */
     public View floatingNav(String[] labels, String[] icons, int selected, int center, java.util.function.IntConsumer onSelect) {
+        return floatingNav(labels, icons, selected, -1, center, onSelect);
+    }
+    /** {@code previous} is the tab being left; the selection dot glides over from it. */
+    public View floatingNav(String[] labels, String[] icons, int selected, int previous, int center, java.util.function.IntConsumer onSelect) {
         android.widget.FrameLayout bar = new android.widget.FrameLayout(context);
         bar.setClipChildren(false); bar.setClipToPadding(false);
         LinearLayout pill = new LinearLayout(context);
         pill.setOrientation(LinearLayout.HORIZONTAL); pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setClipChildren(false); // the selection dot travels across tabs
         pill.setBackground(shape(surface, 26, raised));
         pill.setElevation(dp(6));
         bar.addView(pill, new android.widget.FrameLayout.LayoutParams(-1, dp(56), Gravity.BOTTOM));
         for (int i = 0; i < labels.length; i++) {
             final int index = i; boolean on = i == selected;
             LinearLayout item = new LinearLayout(context);
-            item.setOrientation(LinearLayout.VERTICAL); item.setGravity(Gravity.CENTER);
+            item.setOrientation(LinearLayout.VERTICAL); item.setGravity(Gravity.CENTER); item.setClipChildren(false);
             if (i == center) {
                 // A plain spacer under the raised button, which carries the label and the action.
                 item.setFocusable(false); item.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -538,6 +523,14 @@ public final class Ui {
                 View dot = new View(context); dot.setBackground(shape(accent, 3, 0));
                 LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(dp(5), dp(5)); dp.topMargin = dp(4);
                 dot.setVisibility(on ? View.VISIBLE : View.INVISIBLE); item.addView(dot, dp);
+                if (on && previous >= 0 && previous != selected && motionEnabled()) {
+                    final int steps = previous - selected;
+                    Motion.beforeNextDraw(item, () -> {
+                        // Equal-width tabs: the dot starts under the tab being left and settles here.
+                        dot.setTranslationX(steps * item.getWidth());
+                        dot.animate().translationX(0).setDuration(Motion.ENTER_MS).setInterpolator(Motion.STANDARD).start();
+                    }, null);
+                }
                 item.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)), null, shape(Color.WHITE, 22, 0)));
                 item.setOnClickListener(v -> { if (onSelect != null) onSelect.accept(index); });
                 pressFeedback(item);
@@ -1021,7 +1014,12 @@ public final class Ui {
                 p.moveTo(4, 12); p.lineTo(9, 17); p.lineTo(20, 6); canvas.drawPath(p, paint);
             } else if (key.equals("plus")) { canvas.drawLine(12, 4, 12, 20, paint); canvas.drawLine(4, 12, 20, 12, paint); }
             else if (key.equals("close")) { canvas.drawLine(5, 5, 19, 19, paint); canvas.drawLine(5, 19, 19, 5, paint); }
-            else if (key.equals("chevron") || key.equals("back")) {
+            else if (key.equals("reorder")) {
+                // Up and down arrows side by side: "change the order".
+                p.moveTo(8, 19); p.lineTo(8, 5); p.moveTo(4.5f, 8.5f); p.lineTo(8, 5); p.lineTo(11.5f, 8.5f);
+                p.moveTo(16, 5); p.lineTo(16, 19); p.moveTo(12.5f, 15.5f); p.lineTo(16, 19); p.lineTo(19.5f, 15.5f);
+                canvas.drawPath(p, paint);
+            } else if (key.equals("chevron") || key.equals("back")) {
                 p.moveTo(key.equals("back") ? 15 : 9, 5); p.lineTo(key.equals("back") ? 8 : 16, 12); p.lineTo(key.equals("back") ? 15 : 9, 19); canvas.drawPath(p, paint);
             } else if (key.equals("search")) {
                 canvas.drawCircle(10.5f, 10.5f, 6.5f, paint); canvas.drawLine(15.5f, 15.5f, 20.5f, 20.5f, paint);

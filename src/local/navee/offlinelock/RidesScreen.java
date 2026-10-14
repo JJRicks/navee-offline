@@ -1,5 +1,6 @@
 package local.navee.offlinelock;
 
+import android.animation.ValueAnimator;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
@@ -170,7 +171,7 @@ public final class RidesScreen implements AppScreen {
             root = new PaneHost(); root.addView(panes);
         } else { detailScroll = null; detailPane = null; root = scroll; }
         refresh();
-        if (wide) { int restore = wideListScroll; scroll.post(() -> { if (!closed) scroll.scrollTo(0, restore); }); }
+        if (wide) Motion.scrollBeforeDraw(scroll, wideListScroll);
     }
     private LinearLayout vertical() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.VERTICAL); return result; }
     private LinearLayout horizontal() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.HORIZONTAL); return result; }
@@ -187,6 +188,8 @@ public final class RidesScreen implements AppScreen {
         endButton.setContentDescription(error == null ? "End and save the ride" : "Retry save");
         endButton.setEnabled(service.rides != null && !saving);
         updateSensorsRow();
+        if ((activeCard.getVisibility() == View.VISIBLE) != recording && activeCard.getParent() instanceof ViewGroup)
+            Motion.animateChanges((ViewGroup) activeCard.getParent());
         activeCard.setVisibility(recording ? View.VISIBLE : View.GONE); if (recording) refreshActive();
         refreshHistory(); updateComparisonActions();
         for (Runnable refresh : new ArrayList<>(phoneRefreshers)) refresh.run();
@@ -416,7 +419,7 @@ public final class RidesScreen implements AppScreen {
         boolean changed = !detailKey.startsWith(id + ":");
         refreshHistory();
         if (changed && detailScroll != null) {
-            detailScroll.scrollTo(0, 0);
+            Motion.scrollBeforeDraw(detailScroll, 0);
             View title = detailPane.findViewWithTag("ride-title");
             if (title instanceof TextView) detailPane.announceForAccessibility("Showing " + ((TextView) title).getText());
         }
@@ -590,7 +593,11 @@ public final class RidesScreen implements AppScreen {
         boolean loading, finished;
         PhoneOverview(String id, LinearLayout route, LinearLayout phone, ChartPanel graph) {
             this.id=id; this.route=route; this.phone=phone; this.graph=graph;
-            placeholder=ui.caption("");placeholder.setGravity(Gravity.CENTER);placeholder.setMinHeight(ui.dp(INLINE_MAP_DP));route.addView(placeholder);
+            placeholder=ui.caption("");placeholder.setGravity(Gravity.CENTER);placeholder.setMinHeight(ui.dp(INLINE_MAP_DP));
+            PhoneRideStore known=service.phoneRides;
+            // A ride without phone files never reserves map space, so nothing flashes or jumps away.
+            if(known!=null&&!service.phoneSaving()&&!known.rawCsv(id).isFile()&&!known.motionCsv(id).isFile()){finished=true;return;}
+            route.addView(placeholder);
             phoneRefreshers.add(this);
             route.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
                 @Override public void onViewAttachedToWindow(View v) { run(); }
@@ -626,7 +633,8 @@ public final class RidesScreen implements AppScreen {
             }
             });
         }
-        private void finish(){finished=true;phoneRefreshers.remove(this);route.removeView(placeholder);}
+        /** The map or notice that replaces the placeholder fades up in place; anything below glides (the chart's own controls simply update). */
+        private void finish(){finished=true;phoneRefreshers.remove(this);if(route.getParent() instanceof ViewGroup)Motion.animateChanges((ViewGroup)route.getParent(),graph);route.removeView(placeholder);}
     }
     private final class ChartPanel extends LinearLayout {
         final String rideId;
@@ -756,8 +764,12 @@ public final class RidesScreen implements AppScreen {
                     List<RideChartData.Series> prepared = RideChartData.build(all, track, miles, true);
                     host.activity().runOnUiThread(() -> {
                         if (!currentLoad(generation, expanded, dialog)) return;
-                        fullLoad = null; expanded.fullDataLoaded = true; expanded.applyData(prepared);
-                        expanded.loadStatus.setText("All samples"); expanded.loadStatus.setContentDescription("All recorded chart samples loaded");
+                        fullLoad = null; expanded.fullDataLoaded = true;
+                        // The preview sharpens into the full journal rather than swapping in one frame.
+                        Motion.page(expanded, 0, () -> {
+                            expanded.applyData(prepared);
+                            expanded.loadStatus.setText("All samples"); expanded.loadStatus.setContentDescription("All recorded chart samples loaded");
+                        });
                     });
                 } catch (java.io.InterruptedIOException | java.util.concurrent.CancellationException canceled) {
                     // Closing, replacing the ride, or leaving Rides cancels without a late UI update.
@@ -835,9 +847,11 @@ public final class RidesScreen implements AppScreen {
         if (chosen == null) { emptyDetail(stopped.isEmpty() ? "none" : "missing"); return; }
         String key = chosen.id + ":" + chosen.sampleCount + ":" + chosen.label + ":" + service.phoneSaving() + ":" + (service.phoneRides != null);
         if (key.equals(detailKey)) return;
-        int keep = detailKey.startsWith(chosen.id + ":") ? detailScroll.getScrollY() : 0;
-        clearDetail(key); buildDetail(chosen);
-        if (keep > 0) detailScroll.post(() -> { if (!closed) detailScroll.scrollTo(0, keep); });
+        boolean sameRide = detailKey.startsWith(chosen.id + ":");
+        int keep = sameRide ? detailScroll.getScrollY() : 0;
+        final RideStore.Summary ride = chosen;
+        Runnable change = () -> { clearDetail(key); buildDetail(ride); Motion.scrollBeforeDraw(detailScroll, keep); };
+        if (sameRide) change.run(); else Motion.replace(detailScroll, change);
     }
     private void clearDetail(String key) {
         detailKey = key; detailPane.removeAllViews();
@@ -1158,6 +1172,7 @@ public final class RidesScreen implements AppScreen {
                 try {
                     PhoneRideStore.Track pa = service.phoneRides.load(a.id), pb = service.phoneRides.load(b.id);
                     host.activity().runOnUiThread(() -> { if (closed) return;
+                        if (group.getParent() instanceof ViewGroup) Motion.animateChanges((ViewGroup) group.getParent());
                         compareLine(group, "GPS distance", distance(pa.distanceMeters == null ? null : pa.distanceMeters / 1000), distance(pb.distanceMeters == null ? null : pb.distanceMeters / 1000));
                         compareLine(group, "Estimated ascent", height(pa.ascentMeters), height(pb.ascentMeters));
                         compareLine(group, "Estimated descent", height(pa.descentMeters), height(pb.descentMeters));
@@ -1420,17 +1435,32 @@ public final class RidesScreen implements AppScreen {
     /** Small dark rounded route outline; a neutral glyph when the ride has no GPS route. */
     private final class RouteThumb extends View {
         private float[] route; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private float shown = 1; private ValueAnimator reveal;
         RouteThumb() { super(host.activity()); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); }
-        void setRoute(float[] value) { route = value; invalidate(); }
+        void setRoute(float[] value) {
+            // A route that loads while the row is on screen draws in over the placeholder icon.
+            boolean arriving = route == null && value != null && isShown() && isLaidOut() && Motion.enabled();
+            route = value;
+            if (reveal != null) { reveal.cancel(); reveal = null; shown = 1; }
+            if (arriving) {
+                reveal = ValueAnimator.ofFloat(0, 1); reveal.setDuration(Motion.CHANGE_MS); reveal.setInterpolator(Motion.FADE);
+                reveal.addUpdateListener(a -> { shown = (float) a.getAnimatedValue(); invalidate(); });
+                shown = 0; reveal.start();
+            }
+            invalidate();
+        }
+        @Override protected void onDetachedFromWindow() { if (reveal != null) { reveal.cancel(); reveal = null; shown = 1; } super.onDetachedFromWindow(); }
         @Override protected void onDraw(Canvas canvas) {
             paint.setStyle(Paint.Style.FILL); paint.setColor(ui.raised);
             canvas.drawRoundRect(new RectF(0, 0, getWidth(), getHeight()), ui.dp(9), ui.dp(9), paint);
-            if (route == null || route.length < 4) { ui.drawIcon(canvas, "route", ui.dim, getWidth() / 2f, getHeight() / 2f, ui.dp(18)); return; }
+            boolean placeholder = route == null || route.length < 4;
+            if (placeholder || shown < 1) ui.drawIcon(canvas, "route", placeholder ? ui.dim : Ui.withAlpha(ui.dim, Math.round(Color.alpha(ui.dim) * (1 - shown))), getWidth() / 2f, getHeight() / 2f, ui.dp(18));
+            if (placeholder) return;
             float inset = ui.dp(7), w = getWidth() - 2 * inset, h = getHeight() - 2 * inset;
             float scale = Math.min(w / Math.max(1e-4f, route[0]), h / Math.max(1e-4f, route[1]));
             if (route[0] < 1e-4f && route[1] < 1e-4f) scale = 0;
             float ox = inset + (w - route[0] * scale) / 2, oy = inset + (h - route[1] * scale) / 2;
-            paint.setColor(ui.accent);
+            paint.setColor(Ui.withAlpha(ui.accent, Math.round(Color.alpha(ui.accent) * shown)));
             if (route.length == 4 || scale == 0) { canvas.drawCircle(ox + route[2] * scale, oy + route[3] * scale, ui.dp(2.5f), paint); return; }
             Path path = new Path(); path.moveTo(ox + route[2] * scale, oy + route[3] * scale);
             for (int i = 4; i + 1 < route.length; i += 2) path.lineTo(ox + route[i] * scale, oy + route[i + 1] * scale);
@@ -1613,8 +1643,9 @@ public final class RidesScreen implements AppScreen {
                 : String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60);
     }
     private void show(AlertDialog dialog, int style, Runnable onDismiss) {
-        dialogs.add(dialog); dialog.setOnDismissListener(d -> { dialogs.remove(dialog); if (onDismiss != null) onDismiss.run(); }); dialog.show();
+        dialogs.add(dialog); dialog.setOnDismissListener(d -> { dialogs.remove(dialog); if (onDismiss != null) onDismiss.run(); });
         Window window = dialog.getWindow();
+        Motion.present(dialog, style == PAGE ? Motion.PAGE : style == SHEET ? Motion.SHEET : Motion.DIALOG);
         if (window != null) {
             if (style == PAGE) {
                 window.setBackgroundDrawable(new ColorDrawable(ui.bg));
@@ -1626,6 +1657,9 @@ public final class RidesScreen implements AppScreen {
                 window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
             } else window.setBackgroundDrawable(new InsetDrawable(ui.shape(ui.surface, 24, ui.raised), ui.dp(16), ui.dp(24), ui.dp(16), ui.dp(24)));
         }
+        dialog.show();
+        if (window != null && style == PAGE) window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+        else if (window != null && style == SHEET) window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         for (int which : new int[]{AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE, AlertDialog.BUTTON_NEUTRAL}) {
             TextView button = dialog.getButton(which);
             if (button != null) { button.setTextColor(ui.accent); button.setTypeface(ui.semibold()); }

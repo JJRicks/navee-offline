@@ -1,0 +1,6 @@
+<?xml version="1.0" encoding="utf-8"?>
+<set xmlns:android="http://schemas.android.com/apk/res/android"
+    android:interpolator="@interpolator/volt_exit" android:shareInterpolator="true">
+    <translate android:fromXDelta="0" android:toXDelta="8%" android:duration="200" />
+    <alpha android:fromAlpha="1" android:toAlpha="0" android:duration="180" />
+</set>
