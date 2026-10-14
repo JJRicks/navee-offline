@@ -28,6 +28,8 @@ public final class ChargingEstimate {
         public final Double inputWatts, inputAmps;
         public final Double remainingMinutesToLimit, remainingMinutesToFull, targetPercent;
         public final String status;
+        public final boolean learnedToLimit, learnedToFull;
+        public final int learnedSessions;
 
         private Result(
                 boolean charging,
@@ -37,6 +39,12 @@ public final class ChargingEstimate {
                 Double remainingMinutesToFull,
                 Double targetPercent,
                 String status) {
+            this(charging,inputWatts,inputAmps,remainingMinutesToLimit,remainingMinutesToFull,targetPercent,status,false,false,0);
+        }
+
+        private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
+                Double targetPercent,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions) {
+            this.learnedToLimit=learnedToLimit;this.learnedToFull=learnedToFull;this.learnedSessions=learnedSessions;
             this.charging = charging;
             this.inputWatts = inputWatts;
             this.inputAmps = inputAmps;
@@ -102,6 +110,28 @@ public final class ChargingEstimate {
         else if (target < 100)
             status += " The 100% time assumes a higher charge limit.";
         return result(true, watts, amps, limit, full, target, status);
+    }
+
+    /** Learned curves may replace a usable current-rate estimate, never bypass its fresh paired-data gate. */
+    public static Result withObservedCurve(Result baseline,Value soc,ChargeSessionStore.Curve curve) {
+        if(baseline==null||!baseline.charging||baseline.inputWatts==null||baseline.remainingMinutesToFull==null
+                ||!valid(soc)||!Double.isFinite(soc.number)||soc.number<0||soc.number>100||curve==null)return baseline;
+        ChargeSessionStore.Duration full=curve.estimate(soc.number,100);
+        ChargeSessionStore.Duration limit=baseline.targetPercent==null?null:curve.estimate(soc.number,baseline.targetPercent);
+        if(full==null&&limit==null)return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
+                baseline.remainingMinutesToLimit,baseline.remainingMinutesToFull,baseline.targetPercent,
+                "Current-rate estimate; not enough matching charge curves cover the remaining range. Taper can lengthen charging. "
+                        +(baseline.targetPercent==null?"Cutoff unknown; 100% assumes charging continues.":baseline.targetPercent<100?"100% assumes a higher cutoff.":""));
+        int sessions=full==null?limit.sessions:limit==null?full.sessions:Math.min(full.sessions,limit.sessions);
+        String charger=curve.charger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
+        String status="Observed average from "+sessions+" "+charger+" charges; charger selection is manual.";
+        if(full==null)status+=" Full-charge taper is not covered; 100% uses the current-rate estimate.";
+        if(limit==null&&baseline.targetPercent!=null)status+=" Time to the limit uses the current-rate estimate.";
+        if(baseline.targetPercent==null)status+=" Cutoff unknown; 100% assumes charging continues.";
+        else if(baseline.targetPercent<100)status+=" The 100% time assumes a higher charge limit.";
+        return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
+                limit==null?baseline.remainingMinutesToLimit:limit.minutes,full==null?baseline.remainingMinutesToFull:full.minutes,
+                baseline.targetPercent,status,limit!=null,full!=null,sessions);
     }
 
     private static boolean valid(Value value) {
