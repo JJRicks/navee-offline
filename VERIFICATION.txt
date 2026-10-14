@@ -1,3 +1,29 @@
+TEMPERATURE UNITS AND LARGER SCOOTER VALUES — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- All fourteen pure suites pass 46,194 checks/assertions, including 54 temperature
+  tests for freezing, negative readings, inverse conversion, ranges, missing and
+  nonfinite readings, and default/future preferences. Production and runner builds
+  pass signing/alignment checks.
+- Larger My Scooter values pass three existing responsive native cases at
+  344x882 dp, 725x604 dp, and 360x800 dp with 140% text. Default caption/value
+  bounds and no inner overflow pass; screenshots inspected at all three sizes.
+  This matrix uses the two-reading default. The unchanged fitter also handles
+  custom lists, but the larger multi-reading values were not independently
+  exercised in that matrix.
+- The combined temperature build passes another 725x604 dp native card case.
+  Manual emulator check selects Fahrenheit through App preferences, confirms
+  selection after the rebuild, and shows cached 23 C as 73 F in Stats. Selector
+  and Stats screenshots inspected. Celsius remains the default; raw telemetry,
+  stored history and gauge bounds stay Celsius, with inverse conversion on edits.
+- Final signed preview updated the Pixel in place. The disposable emulator was
+  stopped after restoring its screen/font overrides. No release or merge occurred.
+  Temperature chart/ride-summary formatting and gauge-limit edits are integrated
+  but were not individually exercised through the UI in this pass.
+
+Preview APK SHA-256:
+19282da6a857197c8a9da36de67c9558a6a23feb25602f2da4e09a57ccee29a9
+
 READINGS PICKER AND COMPACT SCOOTER CAPTIONS — PREVIEW FOLLOW-UP
 October 13, 2026
 

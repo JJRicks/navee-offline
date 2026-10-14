@@ -113,7 +113,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     };
     private final Runnable settingsRebuild = this::rebuild;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged=(p,key)->{
-        if(key.equals("theme")||key.equals("units")) {
+        if(key.equals("theme")||key.equals("units")||key.equals("temperature_unit")) {
             handler.removeCallbacks(settingsRebuild);
             handler.postDelayed(settingsRebuild, Ui.motionEnabled() ? 210 : 0);
         } else if(key.equals("text_scale")) { handler.removeCallbacks(settingsRebuild); handler.post(settingsRebuild); }

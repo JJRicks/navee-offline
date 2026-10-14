@@ -600,7 +600,7 @@ public final class RidesScreen implements AppScreen {
         valueRow(quality, "Unknown motion", quantity(s.unknownMotionThroughputWh, "Wh", 2));
         valueRow(quality, "Voltage min / max", quantity(s.minimumVoltageV, "V", 2) + " / " + quantity(s.maximumVoltageV, "V", 2));
         valueRow(quality, "Peak power", quantity(s.peakAbsolutePowerW, "W", 0));
-        valueRow(quality, "Temperature", quantity(s.minimumTemperatureC, "°C", 0) + " / " + quantity(s.maximumTemperatureC, "°C", 0));
+        valueRow(quality, "Temperature", temperature(s.minimumTemperatureC) + " / " + temperature(s.maximumTemperatureC));
         body.addView(quality);
         if (s.recovered) note(body, "This recording recovered after a process restart. The missing interval was excluded.");
         if (s.odometerReset) note(body, "The odometer moved backwards; distance and efficiency are unavailable.");
@@ -1582,6 +1582,9 @@ public final class RidesScreen implements AppScreen {
                 (int) (Color.blue(a) + (Color.blue(b) - Color.blue(a)) * fraction));
     }
     private static String quantity(Double value, String unit, int decimals) { return value == null ? "Not measured" : String.format(Locale.US, "%." + decimals + "f %s", value, unit); }
+    private String temperature(Double celsius) {
+        return celsius == null ? "Not measured" : DisplayTemperature.format(celsius, preferences.getString("temperature_unit", "c"), 0);
+    }
     private static String change(Double drop) { return drop == null ? "Not measured" : String.format(Locale.US, "%.0f points %s", Math.abs(drop), drop >= 0 ? "used" : "gained"); }
     private static String percent(double coverage) { return String.format(Locale.US, "%.0f%%", coverage * 100); }
     private static String coverage(RideStore.Summary s) { return "Power coverage " + percent(s.electricalCoverage) + " · " + duration(s.electricalCoverageMs) + " observed / " + duration(s.elapsedMs) + " recorded"; }

@@ -759,6 +759,10 @@ public final class DashboardScreen implements AppScreen {
         return preferences.getString("units", "mi");
     }
 
+    private String temperatureUnit() {
+        return preferences.getString("temperature_unit", "c");
+    }
+
     private String format(TelemetryHistory.Reading r) {
         if (r == null || r.value == null) return "—";
         if (r.key.equals("driving_mode") && r.number != null) {
@@ -766,6 +770,8 @@ public final class DashboardScreen implements AppScreen {
             return Telemetry.drivingModeLabel(profile == null ? 0 : profile.pid(), r.number);
         }
         if (r.number != null) {
+            if (DisplayTemperature.isTemperature(r.key))
+                return DisplayTemperature.format(r.number, temperatureUnit(), 0);
             if (r.key.endsWith("_kmh")) return DisplayUnits.speed(r.number, units());
             if (r.key.endsWith("_km"))
                 return DisplayUnits.metricText(
@@ -804,12 +810,15 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private double chartNumber(String key, double value) {
+        if (DisplayTemperature.isTemperature(key))
+            return DisplayTemperature.fromCelsius(value, temperatureUnit());
         return !units().equals("km") && (key.endsWith("_km") || key.endsWith("_kmh"))
                 ? value / 1.609344
                 : value;
     }
 
     private String chartUnit(String key, Map<String, TelemetryHistory.Reading> values) {
+        if (DisplayTemperature.isTemperature(key)) return DisplayTemperature.unit(temperatureUnit());
         if (key.endsWith("_kmh")) return units().equals("km") ? "km/h" : "mph";
         if (key.endsWith("_km")) return units().equals("km") ? "km" : "mi";
         TelemetryHistory.Reading r = values.get(key);
@@ -1452,11 +1461,11 @@ public final class DashboardScreen implements AppScreen {
                         item.setTooltipText(label(key));
                         label.setTextSize(12.5f * ui.textScale);
                         item.addView(label, new LinearLayout.LayoutParams(-1, -2));
-                        // The two glanceable stats can grow into a roomy card. Width
-                        // and per-row height still bring them down to the readable
-                        // floor on compact cards or with larger accessibility text.
+                        // Short captions leave more room for prominent readings. The
+                        // fitter still uses actual width and each row's height budget,
+                        // keeping narrow/short cards and long readings readable.
                         TextView value = new FittedValue(
-                                "—", 12, widget.keys.size() <= 2 ? 24 : 18,
+                                "—", 12, widget.keys.size() <= 2 ? 32 : 28,
                                 key.equals("driving_mode") ? 1 : 2);
                         item.addView(value, new LinearLayout.LayoutParams(-1, -2));
                         scooterStats.add(item);
@@ -2436,12 +2445,9 @@ public final class DashboardScreen implements AppScreen {
                                                 result.electricalCoverage * 100);
                         if (result.minimumTemperatureC != null
                                 && result.maximumTemperatureC != null)
-                            evidence +=
-                                    String.format(
-                                            Locale.US,
-                                            "\nPack: %.0f–%.0f °C",
-                                            result.minimumTemperatureC,
-                                            result.maximumTemperatureC);
+                            evidence += "\nPack: " + DisplayTemperature.range(
+                                    result.minimumTemperatureC, result.maximumTemperatureC,
+                                    temperatureUnit(), 0);
                         evidence +=
                                 "\n"
                                         + result.windowDays
@@ -4459,7 +4465,9 @@ public final class DashboardScreen implements AppScreen {
                         v -> {
                             try {
                                 double n = Double.parseDouble(input.getText().toString());
-                                if (!units().equals("km")
+                                if (DisplayTemperature.isTemperature(widget.metric))
+                                    n = DisplayTemperature.toCelsius(n, temperatureUnit());
+                                else if (!units().equals("km")
                                         && (widget.metric.endsWith("_km")
                                                 || widget.metric.endsWith("_kmh"))) n *= 1.609344;
                                 if (!Double.isFinite(n)

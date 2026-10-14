@@ -2,6 +2,9 @@
 
 ## Unreleased
 
+- Add a Celsius/Fahrenheit selector under App preferences for temperature readings, dashboard gauges and charts, and ride summaries. Stored telemetry and gauge bounds remain in Celsius; Fahrenheit scale edits convert back before saving.
+- Let My Scooter values grow larger while retaining width/height fitting, the readable minimum and long-value wrapping.
+
 - Modernize the shared widget-readings picker with a themed searchable sheet, icons, selection counter and pinned Save button. Preserve filtered selections and enforce the 12-reading limit. My Scooter uses compact captions for all parameters while retaining full names for search, accessibility and tooltips.
 
 - Make the battery overview's empty capacity easier to distinguish with a dim red track, faint diagonal texture and thin outline; stale and unavailable readings remain neutral grey.

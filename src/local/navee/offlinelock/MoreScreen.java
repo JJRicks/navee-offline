@@ -783,6 +783,8 @@ public final class MoreScreen implements AppScreen {
                 new String[]{"dark", "system", "light"}, "dark");
         segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
                 new String[]{"mi", "km", "dual"}, "mi");
+        segmentedField("Temperature", "temperature_unit", new String[]{"Celsius · °C", "Fahrenheit · °F"},
+                new String[]{"c", "f"}, "c");
         segmentedField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
                 new String[]{"system", "12h", "24h"}, "system");
         View spacer = new View(host.activity()); cardDestination.addView(spacer, new LinearLayout.LayoutParams(-1, ui.dp(8)));
@@ -801,12 +803,13 @@ public final class MoreScreen implements AppScreen {
     }
     private void segmentedField(String title, String key, String[] labels, String[] values, String fallback) {
         TextView caption = ui.text(title, 12.5f, false); caption.setTextColor(ui.muted);
+        if (key.equals("temperature_unit")) ui.decorate(caption, "temperature");
         caption.setPadding(ui.dp(2), ui.dp(12), ui.dp(2), ui.dp(6));
         cardDestination.addView(caption);
         SegmentedSelector selector = new SegmentedSelector(ui, title, labels, choice -> {
             if (closed || values[choice].equals(settings().getString(key, fallback))) return;
             settings().edit().putString(key, values[choice]).apply();
-            // MainActivity coalesces the theme/units rebuild after the 190ms slide. A second
+            // MainActivity coalesces theme and display-unit rebuilds after the 190ms slide. A second
             // immediate rebuild here would destroy the animation (and the user's scroll position).
             if (key.equals("time_format")) host.redraw();
         });
