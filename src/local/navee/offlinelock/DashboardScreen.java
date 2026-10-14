@@ -2574,6 +2574,8 @@ public final class DashboardScreen implements AppScreen {
         private final Paint measurementPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final Rect measurementBounds = new Rect();
         private final Paint.FontMetrics measurementMetrics = new Paint.FontMetrics();
+        private final Path trackClip = new Path();
+        private final RectF trackBounds = new RectF();
         private double percent = Double.NaN;
         private String detail = "";
         private boolean charging, live = true;
@@ -2635,9 +2637,27 @@ public final class DashboardScreen implements AppScreen {
         protected void onDraw(Canvas canvas) {
             float w = getWidth(), h = getHeight(), corner = ui.dp(14);
             if (w <= 0 || h <= 0) return;
+            boolean knownLive = live && !Double.isNaN(percent);
+            int track = knownLive
+                    ? blend(ui.dark ? ui.bg : ui.surface, ui.accent, ui.dark ? .26f : .12f)
+                    : ui.raised;
+            trackBounds.set(0, 0, w, h);
             paint.setStyle(Paint.Style.FILL);
-            paint.setColor(ui.raised);
-            canvas.drawRoundRect(new RectF(0, 0, w, h), corner, corner, paint);
+            paint.setColor(track);
+            canvas.drawRoundRect(trackBounds, corner, corner, paint);
+            // Quiet diagonal texture marks unused capacity even when the track and card
+            // have similar brightness. Unknown and last-seen readings remain neutral.
+            trackClip.reset();
+            trackClip.addRoundRect(trackBounds, corner, corner, Path.Direction.CW);
+            int saved = canvas.save();
+            canvas.clipPath(trackClip);
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(ui.dp(1));
+            paint.setColor(blend(track, knownLive ? ui.accent : ui.dim, .25f));
+            for (float x = -h; x < w; x += ui.dp(12))
+                canvas.drawLine(x, h, x + h, 0, paint);
+            canvas.restoreToCount(saved);
+            paint.setStyle(Paint.Style.FILL);
             int fill = !live ? blend(ui.raised, ui.dim, ui.dark ? .45f : .6f)
                     : !Double.isNaN(percent) && percent < 15 && !charging ? ui.orange : ui.accent;
             float top = h;
@@ -2647,6 +2667,14 @@ public final class DashboardScreen implements AppScreen {
                 paint.setColor(fill);
                 canvas.drawRoundRect(new RectF(0, top, w, h), round, round, paint);
             }
+            // Keep the full-capacity silhouette visible against the surrounding card.
+            float edge = Math.max(1, ui.dp(1));
+            paint.setStyle(Paint.Style.STROKE);
+            paint.setStrokeWidth(edge);
+            paint.setColor(knownLive ? blend(track, ui.accent, .6f) : ui.outline);
+            trackBounds.inset(edge / 2, edge / 2);
+            canvas.drawRoundRect(trackBounds, Math.max(0, corner - edge / 2), Math.max(0, corner - edge / 2), paint);
+            paint.setStyle(Paint.Style.FILL);
             String amount = Double.isNaN(percent) ? "—" : Long.toString(Math.round(percent));
             String unit = Double.isNaN(percent) ? "" : "%";
             String line = charging ? "Charging" : detail;

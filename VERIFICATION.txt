@@ -1,3 +1,19 @@
+BATTERY TRACK CONTRAST — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- Paint-only battery overview change: tinted empty capacity, faint diagonal
+  texture and full-capacity outline. Fill geometry and reading logic are unchanged.
+- Production build passes compilation, APK signing and alignment. Updated the
+  Pixel in place without resetting data; launch returned Status: ok with the
+  existing activity receiving the intent.
+- Inspected the native unfolded Pixel screenshot in dark mode at simulated 78%:
+  empty capacity is visibly distinct from the solid fill and surrounding card.
+  Light mode and real-scooter behavior were not retested for this paint-only pass;
+  the earlier automated suite results below apply to the preceding preview.
+
+Preview APK SHA-256:
+f29b7b5dcc25760439a89794abdfed94d5a8c3d1243dcbf50687609e1fe88b20
+
 QUICK ACCESS AND EDITOR POLISH — PREVIEW FOLLOW-UP
 October 13, 2026
 
