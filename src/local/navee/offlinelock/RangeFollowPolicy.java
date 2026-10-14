@@ -1,8 +1,11 @@
 package local.navee.offlinelock;
 
+import java.util.HashMap;
+import java.util.Map;
+
 /** Selects a firmware range model; never invents or rescales a reported distance. */
 public final class RangeFollowPolicy {
-    private String attempted = "";
+    private final Map<String, String> attempted = new HashMap<>();
 
     /** UT5 MAX uses 2=Eco, 3=Sport and 11=Walk. Some firmware only offers D/S. */
     public static Integer target(int pid, Double ridingMode, int[] offered) {
@@ -18,18 +21,20 @@ public final class RangeFollowPolicy {
         if (values != null) for (int value : values) if (value == needle) return true;
         return false;
     }
-    /** At most one attempt per mode per connection. Busy/stale observations never consume it. */
+    /** At most one attempt per profile/mode, including reconnects after an unconfirmed write. */
     public Integer next(String profile, int pid, Double mode, int[] offered, Integer current,
             boolean connected, boolean ready, boolean busy, boolean fresh, boolean enabled) {
-        if (!connected || !enabled) { reset(); return null; }
+        if (!enabled) { if (profile != null) attempted.remove(profile); return null; }
+        // A mutation timeout can itself reconnect BLE. Forgetting here would retry forever.
+        if (!connected) return null;
         if (!ready || busy || !fresh || profile == null || profile.isEmpty() || current == null) return null;
         Integer target = target(pid, mode, offered);
-        String key = profile + ":" + mode + ":" + target;
-        if (target == null) { attempted = ""; return null; }
-        if (target.equals(current)) { attempted = key; return null; }
-        if (key.equals(attempted)) return null;
-        attempted = key;
+        String key = mode + ":" + target;
+        if (target == null) return null;
+        if (target.equals(current)) { attempted.put(profile, key); return null; }
+        if (key.equals(attempted.get(profile))) return null;
+        attempted.put(profile, key);
         return target;
     }
-    public void reset() { attempted = ""; }
+    public void reset() { attempted.clear(); }
 }

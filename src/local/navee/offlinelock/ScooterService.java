@@ -361,7 +361,7 @@ public final class ScooterService extends Service {
         Integer target = rangeFollowPolicy.next(profile == null ? "" : profile.id,
                 profile == null ? 0 : profile.pid(), mode == null ? null : mode.numericValue,
                 ble.featureChoices("range_algorithm"), ble.featureValue("range_algorithm"),
-                ble.connected(), ble.ready(), ble.pending() != null, fresh, followsRidingMode());
+                ble.connected(), ble.ready() && ble.stationary(), ble.pending() != null, fresh, followsRidingMode());
         if (target != null) {
             selectingRange = true;
             try { ble.set("range_algorithm", target); } finally { selectingRange = false; }

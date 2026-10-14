@@ -1108,7 +1108,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String explanation(ScooterCommands.Feature f){
         if(f.key.equals("energy_recovery"))return "Stronger recovery slows coasting more.";
         if(f.key.equals("display_units"))return "Units shown on the scooter’s own dashboard.";
-        if(f.key.equals("range_algorithm"))return "Follow riding mode selects the scooter’s Sport or Eco estimate. Firmware without Eco uses its D estimate for Eco/Walk. Fixed choices stay selected until you change them.";
+        if(f.key.equals("range_algorithm"))return "Follow riding mode selects the scooter’s Sport or Eco estimate when stopped. Firmware without Eco uses its D estimate for Eco/Walk. Fixed choices stay selected until you change them.";
         if(f.key.equals("charge_limit"))return "Charging stops at this battery level.";
         if(f.key.equals("start_speed"))return "Wheel speed needed before the throttle responds. Zero allows standing starts.";
         return f.description;

@@ -26,8 +26,13 @@ public final class RangeFollowPolicyTest {
         eq(2, next(p, "owner", 2, 3)); // switch to Eco
         eq(3, next(p, "owner", 3, 2)); // back to Sport
         eq(3, next(p, "another scooter", 3, 2));
-        eq(null, p.next("owner",2538,3d,DS,2,false,false,false,true,true));
-        eq(3, next(p, "owner", 3, 2)); // reconnect
+        for (int reconnect = 0; reconnect < 5; reconnect++) {
+            eq(null, p.next("owner",2538,3d,DS,2,false,false,false,true,true));
+            eq(null, next(p, "owner", 3, 2)); // unconfirmed command must not repeat on reconnect
+        }
+        eq(null, p.next("owner",2538,null,DS,2,true,true,false,true,true));
+        eq(null, next(p, "owner", 3, 2)); // transient missing mode must not erase attempt
+        eq(null, next(p, "another scooter", 3, 2)); // returning to a profile retains its guard
         eq(null, p.next("owner",2538,3d,DS,2,true,true,false,true,false)); // fixed choice
         eq(3, next(p, "owner", 3, 2)); // explicitly enable follow again
         eq(null, p.next("",2538,3d,DS,2,true,true,false,true,true));
