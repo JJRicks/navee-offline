@@ -30,6 +30,32 @@ public final class RideChartData {
             min = low; max = high;
         }
         public boolean available() { return hasData; }
+        public boolean connects(Value left, Value right) {
+            return left != null && right != null && left.value != null && right.value != null
+                    && Double.isFinite(left.value) && Double.isFinite(right.value)
+                    && left.segment == right.segment && right.time > left.time
+                    && right.time - left.time <= Math.max(10000, typicalIntervalMs * 3);
+        }
+        /** A real plotted sample, never interpolation or a value carried across a gap. */
+        public Value sampleAt(double time) {
+            if (!Double.isFinite(time) || values.isEmpty()) return null;
+            if (!ordered) {
+                // Old recovered journals can have nonmonotonic source time. Preserve their
+                // source order and only inspect a real point or a valid adjacent segment.
+                for (Value value : values) if (value.time == time) return value;
+                for (int i = 1; i < values.size(); i++) {
+                    Value left = values.get(i - 1), right = values.get(i);
+                    if (left.time < time && time < right.time && connects(left, right))
+                        return time - left.time <= right.time - time ? left : right;
+                }
+                return null;
+            }
+            int next = bound(time, false);
+            if (next < values.size() && values.get(next).time == time) return values.get(next);
+            if (next == 0 || next == values.size()) return null;
+            Value left = values.get(next - 1), right = values.get(next);
+            return connects(left, right) ? time - left.time <= right.time - time ? left : right : null;
+        }
         /** Half-open point range includes one neighbor on either side for clipped edge segments. */
         public int[] visibleRange(double from,double to){
             if(!ordered)return new int[]{0,values.size()};

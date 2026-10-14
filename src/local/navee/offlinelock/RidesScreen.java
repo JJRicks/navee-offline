@@ -630,22 +630,59 @@ public final class RidesScreen implements AppScreen {
     private final class ChartPanel extends LinearLayout {
         final List<RideStore.Point> measured; PhoneRideStore.Track phone;
         final RideChartView chart; final Flow choices; final Set<String> chosen;
+        final LinearLayout inspection; String inspectionSignature = "";
         final boolean full; List<RideChartData.Series> data;
         ChartPanel(List<RideStore.Point> measured, PhoneRideStore.Track phone, boolean full) {
             super(host.activity()); this.measured = measured; this.phone = phone; this.full = full;
             setOrientation(VERTICAL); setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12)); setBackground(ui.shape(ui.surface, 20, 0));
             LinearLayout head = horizontal(); head.setGravity(Gravity.CENTER_VERTICAL); head.addView(ui.text("Ride readings", 18, true), new LinearLayout.LayoutParams(0, -2, 1));
             if (!full) { TextView expand = ui.secondaryButton("Expand", this::expand); iconize(expand, "fit"); head.addView(expand, new LinearLayout.LayoutParams(-2, -2)); }
-            addView(head); choices = new Flow(); choices.setPadding(0, ui.dp(8), 0, ui.dp(10)); addView(choices);
+            addView(head); choices = new Flow(); choices.setPadding(0, ui.dp(8), 0, ui.dp(10));
+            if (full) {
+                // Keep the expanded plot useful on short windows and enlarged text. All
+                // overlay choices remain in their own scrollable, visibly fading list.
+                ScrollView overlays = new ScrollView(host.activity()) {
+                    @Override protected void onMeasure(int width, int height) { super.onMeasure(width, MeasureSpec.makeMeasureSpec(ui.dp(112), MeasureSpec.AT_MOST)); }
+                };
+                overlays.setVerticalFadingEdgeEnabled(true); overlays.setFadingEdgeLength(ui.dp(16)); overlays.addView(choices); addView(overlays);
+            } else addView(choices);
             chosen = new LinkedHashSet<>(preferences.getStringSet("ride_chart_series", RideChartData.defaults()));
             chart = new RideChartView(ui);
             android.widget.HorizontalScrollView chartScroll = new android.widget.HorizontalScrollView(host.activity()); chartScroll.setFillViewport(true); chartScroll.addView(chart, new android.widget.HorizontalScrollView.LayoutParams(-1, full ? -1 : ui.dp(280)));
             addView(chartScroll, new LinearLayout.LayoutParams(-1, full ? 0 : ui.dp(280), full ? 1 : 0));
+            inspection = horizontal(); inspection.setGravity(Gravity.CENTER_VERTICAL);
+            // Reserve the same height before/after a touch so scrubbing never moves the plot.
+            inspection.setMinimumHeight(Math.max(ui.dp(68), (int)ui.sp(56) + ui.dp(12)));
+            android.widget.HorizontalScrollView readings = new android.widget.HorizontalScrollView(host.activity());
+            readings.setHorizontalScrollBarEnabled(false); readings.setHorizontalFadingEdgeEnabled(true); readings.setFadingEdgeLength(ui.dp(16));
+            readings.addView(inspection, new android.widget.HorizontalScrollView.LayoutParams(-2, -2)); addView(readings);
+            chart.setInspectionListener(this::inspect);
             LinearLayout zoom = horizontal(); zoom.setGravity(Gravity.CENTER); zoom.setBaselineAligned(false); zoom.setPadding(0, ui.dp(6), 0, ui.dp(8));
             TextView[] buttons = {ui.secondaryButton("−", () -> chart.zoomBy(.5)), ui.secondaryButton("Fit", chart::reset), ui.secondaryButton("+", () -> chart.zoomBy(2))};
             buttons[0].setContentDescription("Zoom out ride chart"); buttons[1].setContentDescription("Fit the whole ride in the chart"); buttons[2].setContentDescription("Zoom in ride chart");
             for (TextView button : buttons) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1); p.setMargins(ui.dp(3), 0, ui.dp(3), 0); zoom.addView(button, p); } addView(zoom);
-            TextView hint = ui.caption("Pinch to zoom time · drag to pan · energy/distance hidden below 3 km/h (1.9 mph)"); hint.setPadding(0, ui.dp(6), 0, 0); addView(hint); update();
+            TextView hint = ui.caption("Slide to inspect · pinch to zoom · drag time labels to pan · energy/distance needs 3 km/h (1.9 mph)"); hint.setPadding(0, ui.dp(6), 0, 0); addView(hint); update();
+        }
+        void inspect(double time, List<RideChartData.Series> selected) {
+            StringBuilder signature = new StringBuilder(Double.isFinite(time) ? "selected" : "idle");
+            for (RideChartData.Series s : selected) { RideChartData.Value value = s.sampleAt(time); signature.append('|').append(s.key).append(':').append(s.unit).append(':').append(value == null ? "gap" : value.time + ":" + value.value); }
+            if (signature.toString().equals(inspectionSignature)) return;
+            inspectionSignature = signature.toString(); inspection.removeAllViews();
+            if (!Double.isFinite(time) || selected.isEmpty()) {
+                TextView hint = ui.caption(selected.isEmpty() ? "Choose readings above" : "Tap or slide the graph to inspect readings");
+                hint.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8)); inspection.addView(hint); return;
+            }
+            for (RideChartData.Series s : selected) {
+                RideChartData.Value value = s.sampleAt(time);
+                LinearLayout cell = vertical(); cell.setMinimumWidth(ui.dp(124)); cell.setPadding(ui.dp(10), ui.dp(6), ui.dp(10), ui.dp(6));
+                TextView label = ui.text((s.index % 3 == 0 ? "━ " : s.index % 3 == 1 ? "┄ " : "⋯ ") + s.label, 12, false);
+                label.setSingleLine(true); cell.addView(label);
+                TextView reading = ui.text(RideChartView.sampleValue(s, value), 17, true); reading.setSingleLine(true); cell.addView(reading);
+                boolean available = value != null && value.value != null && Double.isFinite(value.value);
+                TextView stamp = ui.caption(available ? "At " + RideChartView.sampleTime(value.time) : "No recorded sample"); stamp.setSingleLine(true); cell.addView(stamp);
+                cell.setContentDescription(s.label + ": " + reading.getText() + ", " + stamp.getText());
+                inspection.addView(cell);
+            }
         }
         void setPhone(PhoneRideStore.Track track) { phone = track; update(); }
         void update() {
