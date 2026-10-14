@@ -1017,6 +1017,8 @@ public final class DashboardScreen implements AppScreen {
                                     ui.shape(Color.argb(140, 0, 0, 0), 8, 0),
                                     left ? near : far, top ? near : far, left ? far : near, top ? far : near),
                             ui.shape(Color.WHITE, 14, 0)));
+            // The background insets position the square; glyph margins already do the same.
+            control.setPadding(0, 0, 0, 0);
             FrameLayout.LayoutParams glyph =
                     new FrameLayout.LayoutParams(ui.dp(14), ui.dp(14), gravity);
             int inset = offset + (square - ui.dp(14)) / 2;
@@ -2179,6 +2181,9 @@ public final class DashboardScreen implements AppScreen {
      */
     private final class BatteryCell extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Paint measurementPaint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final Rect measurementBounds = new Rect();
+        private final Paint.FontMetrics measurementMetrics = new Paint.FontMetrics();
         private double percent = Double.NaN;
         private String detail = "";
         private boolean charging, live = true;
@@ -2212,17 +2217,15 @@ public final class DashboardScreen implements AppScreen {
 
         /** Enough room for a readable percentage, optional range/status and their padding. */
         int minimumContentHeight() {
-            Paint measure = new Paint(Paint.ANTI_ALIAS_FLAG);
-            measure.setTypeface(ui.bold());
-            measure.setTextSize(ui.sp(24));
-            Rect digits = new Rect();
-            measure.getTextBounds("100", 0, 3, digits);
-            float height = digits.height() + ui.dp(24);
+            measurementPaint.setTypeface(ui.bold());
+            measurementPaint.setTextSize(ui.sp(24));
+            measurementPaint.getTextBounds("100", 0, 3, measurementBounds);
+            float height = measurementBounds.height() + ui.dp(24);
             if (charging || !detail.isEmpty()) {
-                measure.setTypeface(ui.medium());
-                measure.setTextSize(ui.sp(12));
-                Paint.FontMetrics metrics = measure.getFontMetrics();
-                height += ui.dp(5) + metrics.descent - metrics.ascent;
+                measurementPaint.setTypeface(ui.medium());
+                measurementPaint.setTextSize(ui.sp(12));
+                measurementPaint.getFontMetrics(measurementMetrics);
+                height += ui.dp(5) + measurementMetrics.descent - measurementMetrics.ascent;
             }
             return Math.max(ui.dp(48), (int)Math.ceil(height));
         }

@@ -10,12 +10,16 @@ import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.graphics.Bitmap;
 import android.graphics.Rect;
+import android.graphics.drawable.Drawable;
+import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.File;
@@ -50,6 +54,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private MainActivity activity;
     private boolean admitted;
     private final ArrayList<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
+    private final ArrayList<String> overlayGeometry = new ArrayList<>();
 
     @Override public void onCreate(Bundle args) { arguments = args == null ? new Bundle() : args; start(); }
     @Override public void onStart() {
@@ -66,7 +71,10 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().containsKey("odometer_km"), "Cached fixture did not load");
             stopUiPulse(); settle();
             String mode = arguments.getString("mode", "all");
-            if (!mode.equals("fold")) {
+            if (mode.equals("edit")) {
+                verifyEditOverlays();
+                check("Move and options glyphs stay centered in their visible squares with full 48 dp targets; resize target remains intact");
+            } else if (!mode.equals("fold")) {
                 assertGridAndHeader(); check("Default cards fit the available window and start immediately after the header");
                 if (!mode.equals("battery")) { assertLockStates(); check("Connected, disconnected and connecting lock controls fit without inner scrolling"); }
                 assertDefaultCardContents(); screenshot("default-disconnected");
@@ -74,6 +82,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 if (mode.equals("constraints")) {
                     verifyMinimumLockAndCharging();
                     check("Minimum lock height restores cleanly; minimum battery size fits its active charging readings");
+                    verifyLockWidthTransitions();
+                    check("Lock headings restore margins, weights and child bounds across LTR/RTL narrow-wide-narrow measurements");
                 }
             }
             if (mode.equals("all") || mode.equals("fold")) {
@@ -86,6 +96,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             try { if (admitted && activity != null) screenshot("failure"); } catch (Throwable ignored) { }
         } finally {
             result.putStringArrayList("checks", checks); result.putStringArrayList("screenshots", screenshots);
+            result.putStringArrayList("overlay_geometry", overlayGeometry);
             result.putInt("width_dp", getTargetContext().getResources().getConfiguration().screenWidthDp);
             result.putBoolean("physical_device_tested", false); result.putInt("scooter_mutations", 0);
             if (admitted && activity != null) {
@@ -261,6 +272,61 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         }
         assertGridAndHeader(); assertDefaultCardContents();
     }
+    private void verifyLockWidthTransitions() {
+        main(() -> {
+            LinearLayout heading = (LinearLayout)((View)field(activity, "lockTitle")).getParent();
+            LinearLayout offline = (LinearLayout)((View)field(activity, "offlineTitle")).getParent().getParent();
+            for (LinearLayout row : new LinearLayout[] {heading, offline}) {
+                int left = row.getLeft(), top = row.getTop(), width = row.getWidth(), height = row.getHeight(), direction = row.getLayoutDirection();
+                boolean ready = row == heading;
+                try {
+                    for (int layoutDirection : new int[] {View.LAYOUT_DIRECTION_LTR, View.LAYOUT_DIRECTION_RTL}) {
+                      row.setLayoutDirection(layoutDirection);
+                      boolean rtl = layoutDirection == View.LAYOUT_DIRECTION_RTL;
+                      for (int widthDp : new int[] {132, 540, 132}) {
+                        int targetWidth = activity.ui().dp(widthDp);
+                        // Remeasure the parent only, as a resized window does. Forcing its children
+                        // would conceal stale child measurement or unresolved margin behavior.
+                        row.forceLayout();
+                        row.measure(View.MeasureSpec.makeMeasureSpec(targetWidth, View.MeasureSpec.EXACTLY),
+                                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                        row.layout(0, 0, targetWidth, row.getMeasuredHeight());
+                        boolean narrow = widthDp == 132;
+                        require(row.getOrientation() == (narrow ? LinearLayout.VERTICAL : LinearLayout.HORIZONTAL), "Lock header did not adapt to " + widthDp + " dp");
+                        View first = row.getChildAt(0), second = row.getChildAt(1);
+                        LinearLayout.LayoutParams params = (LinearLayout.LayoutParams)second.getLayoutParams();
+                        int gap = activity.ui().dp(ready ? 12 : 10);
+                        require(params.leftMargin == (!narrow && !rtl ? gap : 0) && params.rightMargin == (!narrow && rtl ? gap : 0),
+                                "Lock header retained stale resolved margins at " + widthDp + " dp: " + params.leftMargin + "," + params.rightMargin);
+                        if (ready) {
+                            LinearLayout.LayoutParams state = (LinearLayout.LayoutParams)first.getLayoutParams();
+                            require(state.width == (narrow ? -1 : 0) && state.weight == (narrow ? 0 : 1), "Lock state retained stale width/weight");
+                            require(narrow ? second.getTop() == first.getBottom() + activity.ui().dp(4)
+                                    : rtl ? first.getLeft() == second.getRight() + gap : second.getLeft() == first.getRight() + gap,
+                                    "Lock caption gap did not follow its orientation");
+                        } else {
+                            require(first.getVisibility() == (narrow ? View.GONE : View.VISIBLE), "Offline lock symbol did not adapt");
+                            require(params.width == (narrow ? -1 : 0) && params.weight == (narrow ? 0 : 1), "Offline status retained stale width/weight");
+                            require(narrow ? second.getLeft() == 0 : rtl ? first.getLeft() == second.getRight() + gap
+                                    : second.getLeft() == first.getRight() + gap, "Offline words retained a stale start position");
+                        }
+                        for (View child : new View[] {first, second}) if (child.getVisibility() != View.GONE)
+                            require(child.getWidth() > 0 && child.getLeft() >= 0 && child.getTop() >= 0
+                                    && child.getRight() <= row.getWidth() && child.getBottom() <= row.getHeight(), "Lock heading child lies outside resized parent");
+                      }
+                    }
+                } finally {
+                    row.setLayoutDirection(direction);
+                    row.forceLayout();
+                    row.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+                    row.layout(left, top, left + width, top + height);
+                }
+            }
+            ((View)tile("lock")).requestLayout();
+        });
+        settle();
+    }
     private void verifyFoldCallbacks() throws Exception {
         Rect horizontal = new Rect(0, root().getHeight() / 2, root().getWidth(), root().getHeight() / 2);
         Rect vertical = new Rect(root().getWidth() / 2, 0, root().getWidth() / 2, root().getHeight());
@@ -305,6 +371,63 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(service.ble.state() == BleController.State.DISCONNECTED && !service.isRecording() && !service.phoneSaving(), "Unexpected Bluetooth or recording work");
             require(((Number)field(service.ble, "mutationSequence")).longValue() == 0 && service.ble.commandResults().isEmpty(), "Unexpected scooter command");
         });
+    }
+    private void verifyEditOverlays() throws Exception {
+        main(() -> invoke(dashboard(), "toggleEditing"));
+        settle(); screenshot("edit-overlays");
+        main(() -> {
+            int moves = 0, options = 0, resizes = 0;
+            ArrayList<String> failures = new ArrayList<>();
+            for (Object item : tiles()) {
+                ViewGroup card = (ViewGroup)item;
+                for (int i = 0; i < card.getChildCount(); i++) {
+                    View child = card.getChildAt(i);
+                    CharSequence description = child.getContentDescription();
+                    if (description == null) continue;
+                    String label = description.toString();
+                    if (!label.startsWith("Move ") && !label.startsWith("Options for ") && !label.startsWith("Resize ")) continue;
+                    require(child instanceof ViewGroup, label + " has no glyph container");
+                    require(child.getWidth() == activity.ui().dp(48) && child.getHeight() == activity.ui().dp(48)
+                            && child.isClickable() && child.isFocusable(), label + " lost its accessible 48 dp target");
+                    Rect target = relativeBounds(child, card);
+                    require(target.left >= 0 && target.top >= 0 && target.right <= card.getWidth() && target.bottom <= card.getHeight(),
+                            label + " target extends outside its card");
+                    ViewGroup control = (ViewGroup)child;
+                    require(control.getChildCount() == 1, label + " has unexpected glyph children");
+                    View glyph = control.getChildAt(0);
+                    Rect glyphBox = relativeBounds(glyph, control);
+                    require(glyphBox.left >= 0 && glyphBox.top >= 0 && glyphBox.right <= control.getWidth() && glyphBox.bottom <= control.getHeight(),
+                            label + " glyph is clipped");
+                    if (label.startsWith("Resize ")) {
+                        resizes++;
+                        require(glyphBox.equals(new Rect(0, 0, control.getWidth(), control.getHeight())), "Resize mark lost its full-size canvas");
+                        continue;
+                    }
+                    if (label.startsWith("Move ")) moves++; else options++;
+                    InsetDrawable inset = findInset(control.getBackground());
+                    require(inset != null, label + " has no visible inset square");
+                    Rect square = new Rect(inset.getDrawable().getBounds());
+                    require(square.width() == activity.ui().dp(26) && square.height() == activity.ui().dp(26), label + " visual square changed size");
+                    float dx = glyphBox.exactCenterX() - square.exactCenterX(), dy = glyphBox.exactCenterY() - square.exactCenterY();
+                    overlayGeometry.add(label + ": target=" + control.getWidth() + "x" + control.getHeight()
+                            + ", square=" + square + ", glyph=" + glyphBox + ", center_delta=" + dx + "," + dy);
+                    if (Math.abs(dx) > 1 || Math.abs(dy) > 1) failures.add(label + " glyph is off-center by " + dx + "," + dy + " px");
+                }
+            }
+            require(moves == tiles().size() && options == moves && resizes == moves, "Not all widget edit controls were inspected");
+            require(failures.isEmpty(), failures.toString());
+        });
+    }
+    private InsetDrawable findInset(Drawable drawable) {
+        if (drawable instanceof InsetDrawable) return (InsetDrawable)drawable;
+        if (drawable instanceof LayerDrawable) {
+            LayerDrawable layers = (LayerDrawable)drawable;
+            for (int i = 0; i < layers.getNumberOfLayers(); i++) {
+                InsetDrawable found = findInset(layers.getDrawable(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
     }
     private void forceMeasure(View view) {
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++)

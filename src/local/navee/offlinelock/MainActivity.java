@@ -348,10 +348,12 @@ public final class MainActivity extends Activity implements ScreenHost {
             setOrientation(stack?VERTICAL:HORIZONTAL);
             LinearLayout.LayoutParams stateSize=(LinearLayout.LayoutParams)state.getLayoutParams();
             int stateWidthParam=stack?-1:0;float stateWeight=stack?0:1;
-            if(stateSize.width!=stateWidthParam||stateSize.weight!=stateWeight){stateSize.width=stateWidthParam;stateSize.weight=stateWeight;state.setLayoutParams(stateSize);}
+            stateSize.width=stateWidthParam;stateSize.weight=stateWeight;
             LinearLayout.LayoutParams kindSize=(LinearLayout.LayoutParams)kind.getLayoutParams();
             int kindWidthParam=stack?-1:-2,kindTop=stack?design.dp(4):0,kindStart=stack?0:design.dp(12);
-            if(kindSize.width!=kindWidthParam||kindSize.topMargin!=kindTop||kindSize.getMarginStart()!=kindStart){kindSize.width=kindWidthParam;kindSize.topMargin=kindTop;kindSize.setMarginStart(kindStart);kind.setLayoutParams(kindSize);}
+            kindSize.width=kindWidthParam;kindSize.topMargin=kindTop;kindSize.setMarginStart(kindStart);
+            // Resolve relative margins for this pass without requesting another layout.
+            kindSize.resolveLayoutDirection(kind.getLayoutDirection());
             super.onMeasure(widthSpec,heightSpec);
         }
     }
@@ -378,7 +380,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             symbol.setVisibility(stack?GONE:VISIBLE);
             LinearLayout.LayoutParams wordsSize=(LinearLayout.LayoutParams)words.getLayoutParams();
             int wordsWidth=stack?-1:0,wordsTop=0,wordsStart=stack?0:design.dp(10);float wordsWeight=stack?0:1;
-            if(wordsSize.width!=wordsWidth||wordsSize.weight!=wordsWeight||wordsSize.topMargin!=wordsTop||wordsSize.getMarginStart()!=wordsStart){wordsSize.width=wordsWidth;wordsSize.weight=wordsWeight;wordsSize.topMargin=wordsTop;wordsSize.setMarginStart(wordsStart);words.setLayoutParams(wordsSize);}
+            wordsSize.width=wordsWidth;wordsSize.weight=wordsWeight;wordsSize.topMargin=wordsTop;wordsSize.setMarginStart(wordsStart);
+            wordsSize.resolveLayoutDirection(words.getLayoutDirection());
             super.onMeasure(widthSpec,heightSpec);
         }
     }

@@ -1,6 +1,24 @@
 DASHBOARD RESPONSIVENESS — UNRELEASED PATCH VALIDATION
 October 13, 2026
 
+Claude review follow-up: the move/options overlay backgrounds contributed
+asymmetric padding on top of the glyph margins. The reviewed head reproduced
+a 6 dp horizontal/downward shift for all twelve move/options icons at 344x882
+and 725x604 dp. Clearing only the control's padding centers all twelve icons
+(0 px measured center delta) in both native cases. All eighteen move/options/
+resize controls retain 48 dp clickable/focusable targets inside their cards.
+The rebuilt app and separate instrumentation pass signing/alignment checks;
+compact and expanded edit screenshots were inspected. The focused edit mode
+is part of the responsive runner. No owner phone or scooter was used.
+
+Both optional review cleanups are included: lock rows update their existing
+layout parameters with explicit relative-margin resolution, and the battery
+reuses measurement Paint, Rect and FontMetrics objects. Rebuilt app and native
+instrumentation passed. Three focused native cases passed at 344x882 dp,
+360x800 dp with 140% app text, and 852x690 dp. Each checks minimum lock and
+charging sizes/restoration plus narrow-wide-narrow (132/540/132 dp) lock-row
+transitions in both LTR and RTL, including resolved margins and child bounds.
+
 The Galaxy Fold 5 reports were reproduced against v0.9.0 on isolated Android 16:
 a flat horizontal OEM crease split the Home header from its grid; at 344 dp the
 connected lock body exceeded its viewport (835 versus 666 px), and the default
