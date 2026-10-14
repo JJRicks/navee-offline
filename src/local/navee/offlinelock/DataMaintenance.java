@@ -16,13 +16,20 @@ public final class DataMaintenance {
     public static boolean readyForStartup(Context context) {
         if (active) return false;
         if (recovered) return true;
-        if (AppDataBackup.needsRecovery(context)) return false;
+        if (AppDataBackup.needsRecovery(context) || BackupExportCache.hasOrphans(context.getCacheDir())) return false;
         recovered = true;
         return true;
     }
     public static synchronized void ensureRecovered(Context context) throws IOException {
         if (recovered) return;
-        try { AppDataBackup.recover(context); recovered = true; }
+        // MainActivity's startup gate has not exposed any backup controls yet. Never clean
+        // this cache after entering maintenance: its current export may still be in use.
+        if (active) throw new IOException("Close the current backup session before recovering app data.");
+        try {
+            AppDataBackup.recover(context);
+            BackupExportCache.removeOrphans(context.getCacheDir());
+            recovered = true;
+        }
         catch (Exception error) { throw new IOException("An interrupted restore needs recovery.", error); }
     }
 }

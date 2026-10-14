@@ -15,15 +15,29 @@ public final class AppDataArchiveTest {
     private static final class Crash extends Error {}
     private static final class Store implements AppDataArchive.Storage {
         final File root;boolean failOnce,failAlways,crash;int version=24;
+        final List<String> synced=new ArrayList<>();String failSync;boolean assertDurability,crashAfterSyncFailure;
         Store(File root)throws Exception{this.root=root;root.mkdirs();files().mkdirs();work().mkdirs();database().getParentFile().mkdirs();if(!prefsFile().exists())preferences(empty());}
         public File files(){return new File(root,"files");}public File database(){return new File(root,"databases/"+AppDataArchive.DATABASE);}
         public File work(){return new File(root,"no-backup/transfer");}public int versionCode(){return version;}File prefsFile(){return new File(root,"prefs.bin");}
         public Map<String,Map<String,Object>> preferences()throws IOException{return AppDataArchive.decodePreferences(Files.readAllBytes(prefsFile().toPath()));}
         public void preferences(Map<String,Map<String,Object>> value)throws IOException {
+            if(assertDurability) {
+                check(synced.contains("no-backup/transfer/transaction/previous/files/rides")&&synced.contains("no-backup/transfer/transaction/previous/files/phone-rides")&&synced.contains("no-backup/transfer/transaction/previous/files/charge-recordings"),"snapshot nested recording names durable before live mutation");
+                check(synced.contains("no-backup/transfer/transaction/previous/database")&&synced.contains("no-backup/transfer/transaction/previous"),"snapshot database and preferences names durable before live mutation");
+                check(synced.contains("no-backup/transfer")&&synced.contains("no-backup")&&synced.contains("")&&synced.contains("state:active"),"parent chain and active marker durable before live mutation");
+            }
             if(failAlways||failOnce){failOnce=false;throw new IOException("Injected preferences disk failure");}
             Files.write(prefsFile().toPath(),AppDataArchive.encodePreferences(value));if(crash){crash=false;throw new Crash();}
         }
         public void validateDatabase(File database)throws IOException{if(!Arrays.equals(Files.readAllBytes(database.toPath()),new byte[]{1,2,3,4}))throw new IOException("Bad fixture database");}
+        public void syncDirectory(File directory)throws IOException {
+            String path=root.toPath().relativize(directory.toPath()).toString();
+            File marker=new File(directory,"state");String state=marker.isFile()?new String(Files.readAllBytes(marker.toPath()),"UTF-8"):"";
+            String event=state.isEmpty()?path:"state:"+state;
+            if(event.equals(failSync)){failSync=null;if(crashAfterSyncFailure)crash=true;throw new IOException("Injected directory sync failure");}
+            if(assertDurability&&state.equals("committed"))check(synced.containsAll(Arrays.asList("files/rides","files/phone-rides","files/charge-recordings","files","databases","")),"live directory entries durable before committed marker");
+            AppDataArchive.syncDirectory(directory);synced.add(path);if(!state.isEmpty())synced.add(event);
+        }
     }
     private static Map<String,Map<String,Object>> empty(){Map<String,Map<String,Object>> result=new LinkedHashMap<>();for(String name:AppDataArchive.PREFERENCES)result.put(name,new LinkedHashMap<>());return result;}
     private static void check(boolean condition,String message){checks++;if(!condition)throw new AssertionError(message);}
@@ -63,7 +77,7 @@ public final class AppDataArchiveTest {
             file(new File(existing.files(),"rides/ffffffff-ffff-ffff-ffff-ffffffffffff.csv"),new byte[]{9});
             file(new File(existing.files(),"pending-owner-import.json"),new byte[]{8});
             File journal=new File(existing.root,"owner_capture_cleanup.xml");file(journal,new byte[]{7});
-            AppDataArchive.apply(existing,stage(existing,backup));compare(source,existing);
+            existing.assertDurability=true;AppDataArchive.apply(existing,stage(existing,backup));existing.assertDurability=false;compare(source,existing);
             check(!new File(existing.files(),"rides/ffffffff-ffff-ffff-ffff-ffffffffffff.csv").exists(),"restore replaces rather than merges recordings");
             check(Files.readAllBytes(journal.toPath())[0]==7&&new File(existing.files(),"pending-owner-import.json").exists(),"target cleanup journal and pending documents remain untouched");
             Store rollback=fixture(new File(root,"rollback"));Map<String,Map<String,Object>> original=rollback.preferences();original.get("app_settings").put("retain","prior state");rollback.preferences(original);
@@ -79,6 +93,21 @@ public final class AppDataArchiveTest {
             check(new File(death.work(),"transaction/state").isFile(),"process death leaves a recovery journal");
             Store reopened=new Store(death.root);check(AppDataArchive.recover(reopened),"fresh process reports rollback");check(reopened.preferences().equals(before),"fresh process recovers all pre-restore preferences");
             check(!AppDataArchive.recover(reopened),"recovery is idempotent");
+            for(String failedBoundary:new String[]{"no-backup/transfer/transaction/previous","state:active","files/rides","state:committed"}) {
+                Store syncFailure=fixture(new File(root,"sync-"+UUID.randomUUID()));
+                Map<String,Map<String,Object>> prior=syncFailure.preferences();prior.get("app_settings").put("prior",failedBoundary);syncFailure.preferences(prior);
+                File originalRide=new File(syncFailure.files(),"rides/ffffffff-ffff-ffff-ffff-ffffffffffff.csv");file(originalRide,new byte[]{8,7,6});
+                AppDataArchive.Prepared syncPrepared=stage(syncFailure,backup);syncFailure.failSync=failedBoundary;
+                rejects(()->AppDataArchive.apply(syncFailure,syncPrepared),"directory sync failure must not report restore success at "+failedBoundary);
+                check(syncFailure.preferences().equals(prior)&&Arrays.equals(Files.readAllBytes(originalRide.toPath()),new byte[]{8,7,6}),"directory sync failure retains or recovers original dataset at "+failedBoundary);
+                check(!AppDataArchive.recover(syncFailure),"completed sync-failure rollback needs no further recovery");
+            }
+            Store rollbackDeath=fixture(new File(root,"rollback-sync-death"));
+            Map<String,Map<String,Object>> rollbackBefore=rollbackDeath.preferences();rollbackBefore.get("app_settings").put("old-data",true);rollbackDeath.preferences(rollbackBefore);
+            AppDataArchive.Prepared afterCommit=stage(rollbackDeath,backup);rollbackDeath.failSync="state:committed";rollbackDeath.crashAfterSyncFailure=true;
+            try{AppDataArchive.apply(rollbackDeath,afterCommit);throw new AssertionError("rollback crash expected");}catch(Crash expected){}
+            check(new String(Files.readAllBytes(new File(rollbackDeath.work(),"transaction/state").toPath()),"UTF-8").equals("active"),"rollback after committed sync failure re-arms recovery before writes");
+            check(AppDataArchive.recover(rollbackDeath)&&rollbackDeath.preferences().equals(rollbackBefore),"a second interruption during rollback still recovers the old dataset");
             Store repeat=fixture(new File(root,"repeat"));Map<String,Map<String,Object>> repeatBefore=repeat.preferences();repeatBefore.get("app_settings").put("original",true);repeat.preferences(repeatBefore);
             AppDataArchive.Prepared repeated=stage(repeat,backup);repeat.failAlways=true;
             rejects(()->AppDataArchive.apply(repeat,repeated),"failed apply and failed rollback preserve recovery");

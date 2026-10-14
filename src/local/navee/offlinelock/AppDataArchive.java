@@ -2,9 +2,11 @@ package local.navee.offlinelock;
 
 import java.io.*;
 import java.nio.ByteBuffer;
+import java.nio.channels.FileChannel;
 import java.nio.charset.CodingErrorAction;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
+import java.nio.file.StandardOpenOption;
 import java.security.*;
 import java.util.*;
 import java.util.zip.*;
@@ -33,6 +35,7 @@ final class AppDataArchive {
         Map<String, Map<String, Object>> preferences() throws IOException;
         void preferences(Map<String, Map<String, Object>> value) throws IOException;
         void validateDatabase(File database) throws IOException;
+        default void syncDirectory(File directory) throws IOException { AppDataArchive.syncDirectory(directory); }
     }
     static final class Prepared {
         final File directory;
@@ -142,9 +145,14 @@ final class AppDataArchive {
             snapshot(storage,previous); // A full rollback exists before the first live-data mutation.
             if(!prepared.directory.renameTo(incoming))throw new IOException("Could not prepare the restore transaction.");
             prepared.consumed=true;
-            state(transaction,"active");active=true;
+            // Persist the snapshot's parent chain before a durable active marker permits live writes.
+            storage.syncDirectory(transaction);
+            storage.syncDirectory(storage.work());
+            storage.syncDirectory(storage.work().getParentFile());
+            storage.syncDirectory(storage.work().getParentFile().getParentFile());
+            state(storage,transaction,"active");active=true;
             replace(storage,new File(incoming,"data"),prepared.preferences);
-            state(transaction,"committed");
+            state(storage,transaction,"committed");
         } catch(Exception failure) {
             if(active) {
                 try { rollback(storage,transaction); }
@@ -190,14 +198,18 @@ final class AppDataArchive {
     private static void rollback(Storage storage,File transaction)throws IOException {
         File previous=new File(transaction,"previous");
         Map<String,Map<String,Object>> prefs=decodePreferences(readFile(new File(previous,PREFS),MAX_PREFERENCES));
+        // A committed rename can succeed before its directory sync fails. Re-arm recovery
+        // durably before rollback writes, so another interruption cannot expose a mixed tree.
+        state(storage,transaction,"active");
         // Discard staged new data first so recovery can reclaim enough disk space for the old data.
         deleteTree(new File(transaction,"incoming"));
         replace(storage,previous,prefs);
-        state(transaction,"committed");deleteTree(transaction);
+        state(storage,transaction,"committed");deleteTree(transaction);
     }
     private static void snapshot(Storage storage,File destination)throws IOException {
         for(FileEntry entry:collect(storage.files(),storage.database()))copyFile(entry.file,contained(destination,entry.name),MAX_FILE_BYTES);
         writePreferencesFile(new File(destination,PREFS),storage.preferences());
+        syncDirectories(storage,destination);
     }
     private static void replace(Storage storage,File source,Map<String,Map<String,Object>> prefs)throws IOException {
         // Clear all replaced roots first. Unknown files within these app-owned journal directories
@@ -211,6 +223,13 @@ final class AppDataArchive {
         }
         File db=new File(source,"database/"+DATABASE);if(db.exists())copyFile(db,storage.database(),64L*1024*1024);
         storage.preferences(prefs);
+        // File fsync alone does not persist new names or deleted journals. Complete the live
+        // directory updates before committed allows recovery to discard the previous dataset.
+        for(String name:DIRECTORIES)storage.syncDirectory(new File(storage.files(),name));
+        storage.syncDirectory(storage.files());
+        File databaseDirectory=storage.database().getParentFile();
+        if(databaseDirectory.exists())storage.syncDirectory(databaseDirectory);
+        storage.syncDirectory(storage.files().getParentFile());
     }
     private static void checkDatabaseClosed(Storage storage)throws IOException {
         for(String suffix:new String[]{"-journal","-wal","-shm"}) {
@@ -224,10 +243,24 @@ final class AppDataArchive {
     private static boolean isStage(Storage storage,File directory)throws IOException {
         return directory.isDirectory()&&directory.getName().matches("stage-[a-f0-9-]{36}")&&directory.getCanonicalFile().getParentFile().equals(storage.work().getCanonicalFile());
     }
-    private static void state(File transaction,String value)throws IOException {
+    private static void state(Storage storage,File transaction,String value)throws IOException {
         File temporary=new File(transaction,"state.tmp");
         try(FileOutputStream out=new FileOutputStream(temporary)){out.write(value.getBytes(StandardCharsets.UTF_8));out.getFD().sync();}
         if(!temporary.renameTo(new File(transaction,"state")))throw new IOException("Could not save restore recovery state.");
+        storage.syncDirectory(transaction);
+    }
+
+    /** Persist directory entries as well as file bytes; never silently weaken restore durability. */
+    static void syncDirectory(File directory)throws IOException {
+        if(!directory.isDirectory()||Files.isSymbolicLink(directory.toPath()))throw new IOException("Restore storage cannot be synchronized.");
+        try(FileChannel channel=FileChannel.open(directory.toPath(),StandardOpenOption.READ)){channel.force(true);}
+    }
+    private static void syncDirectories(Storage storage,File directory)throws IOException {
+        if(Files.isSymbolicLink(directory.toPath()))throw new IOException("Unexpected restore storage link.");
+        File[] children=directory.listFiles();
+        if(children==null)throw new IOException("Restore storage cannot be read.");
+        for(File child:children)if(child.isDirectory())syncDirectories(storage,child);
+        storage.syncDirectory(directory);
     }
 
     private static final class FileEntry {

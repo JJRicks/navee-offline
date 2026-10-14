@@ -119,6 +119,9 @@ public final class AppDataBackup {
                 // API commits keep Android's process-local preferences caches coherent.
                 if(!edit.commit())throw new IOException("App preferences could not be written. Previous data will be recovered.");
             }
+            // SharedPreferences commits sync XML bytes; persist the rename/directory entries too
+            // before the archive transaction can discard its rollback snapshot.
+            AppDataArchive.syncDirectory(new File(context.getApplicationInfo().dataDir,"shared_prefs"));
         }
         public void validateDatabase(File file)throws IOException {
             byte[] header=new byte[16];

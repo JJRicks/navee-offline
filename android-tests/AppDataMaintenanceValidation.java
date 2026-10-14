@@ -57,6 +57,14 @@ public final class AppDataMaintenanceValidation extends Instrumentation {
             main(() -> require(!DataMaintenance.readyForStartup(getTargetContext()) && !DataMaintenance.recovered(),
                     "Pending recovery was admitted through the clean startup path"));
             require(pending.delete() && transfer.delete(), "Could not remove startup fixture marker");
+            File orphan = cacheFile("volt-encrypted-123.voltbackup");
+            File unrelated = cacheFile("fixture-preserved-cache");
+            main(() -> require(!DataMaintenance.readyForStartup(getTargetContext()) && !DataMaintenance.recovered(),
+                    "An orphan export skipped the off-main startup cleanup"));
+            DataMaintenance.ensureRecovered(getTargetContext());
+            require(!orphan.exists() && unrelated.isFile(), "Startup cleanup removed the wrong cache files");
+            require(DataMaintenance.recovered(), "Orphan export cleanup did not finish startup recovery");
+            require(unrelated.delete(), "Could not remove unrelated cache fixture");
             require(prefs("app_settings").edit().putBoolean("auto_connect", false)
                     .putBoolean("background_connection", false).commit(), "Fixture settings failed");
             main(() -> {
@@ -69,7 +77,13 @@ public final class AppDataMaintenanceValidation extends Instrumentation {
             require(connected.await(10, TimeUnit.SECONDS), "Service did not connect");
             require(DataMaintenance.recovered(), "Clean service startup did not finish the recovery gate");
             refusals();
+            File currentExport = cacheFile("volt-encrypted-current.voltbackup");
+            main(() -> require(DataMaintenance.readyForStartup(getTargetContext()) && currentExport.isFile(),
+                    "A repeated startup deleted this process's export"));
             drainAndFreeze();
+            DataMaintenance.ensureRecovered(getTargetContext());
+            require(currentExport.isFile(), "Recovery deleted an active backup session's export");
+            require(currentExport.delete(), "Could not remove current export fixture");
             result.putString("result", "PASS");
         } catch (Throwable failure) {
             result.putString("result", "FAIL");
@@ -203,6 +217,11 @@ public final class AppDataMaintenanceValidation extends Instrumentation {
     }
 
     private SharedPreferences prefs(String name) { return getTargetContext().getSharedPreferences(name, Context.MODE_PRIVATE); }
+    private File cacheFile(String name) throws Exception {
+        File file = new File(getTargetContext().getCacheDir(), name);
+        try (FileOutputStream output = new FileOutputStream(file)) { output.write(42); }
+        return file;
+    }
     private void main(Runnable action) {
         AtomicReference<Throwable> failure = new AtomicReference<>();
         runOnMainSync(() -> { try { action.run(); } catch (Throwable error) { failure.set(error); } });

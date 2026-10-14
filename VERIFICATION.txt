@@ -19,19 +19,22 @@ Scope:
 - Version metadata and usage/release documentation are updated to 0.12.0/code 24.
 
 Executed release-specific checks:
-- Full backup core suite: 71 checks for authenticated multi-record round trips,
+- Full backup core suite: 89 checks for authenticated multi-record round trips,
   archive bounds/traversal/duplicates, wrong passwords/tampering/truncation,
   preference types, failing writes, interrupted apply, repeatable rollback and
-  staging cleanup. Android fixture: 58 assertions using actual SQLite and real
+  staging cleanup, directory-sync ordering/failures, and repeated interruption
+  during rollback after a failed committed-marker sync. Android fixture: 58 assertions using actual SQLite and real
   cached SharedPreferences, preserving target cleanup state and OS permissions.
 - Actual Android Clear storage journey: exported synthetic data from real app
   stores, pulled its encrypted file outside the app, cleared app storage, pushed
   the saved file back and restored. Export 29 / restore 42 assertions pass;
   all preference values and five durable files match, real profile/dashboard/
   ride/phone/charge/history readers reopen them, and Nearby remains denied.
-- Service maintenance: 66 assertions verify refusal during active work, draining
+- Service maintenance: 73 assertions verify refusal during active work, draining
   accepted charge/history writes, closed SQLite and no resumed actions after
-  freezing. No scooter commands or owner-phone data are used.
+  freezing, cold-start encrypted-export cleanup and active-export preservation.
+  An additional 11 core cache-cleanup checks preserve unrelated entries and links.
+  No scooter commands or owner-phone data are used.
 - Dashboard transfers: 9,184 assertions cover all 15 types/options, paired 1–6
   layouts, all slots, 33 malformed inputs, failed-commit rollback, imported empty
   slot 3 persistence and explicit example replacement. Saved-slot regression
@@ -40,7 +43,7 @@ Executed release-specific checks:
   placement, private password input and Activity recreation during work. Fresh
   launch passes eight check groups each with Nearby denied and granted.
 - These backup checks use a disposable Android 16 emulator. Newest production
-  candidate SHA256: eb63dabc9f7082e24bd9c5d4a991698783d0df98dab875729b139154e2c9659f.
+  candidate SHA256: a8b79d1441ec3dbec2349c0ac2109a5d01cecf76d08ff4713949b1da90f0c756.
   No physical phone was installed or cleared. File-picker/cloud-provider failures
   and hardware storage faults are not claimed exhaustively tested. Full backup
   restores app observations, not scooter firmware settings or Android grants.
@@ -49,7 +52,7 @@ Executed release-specific checks:
   each with animations enabled and disabled. The original review also covered
   snapshot lifecycle, page restoration, accessibility and expanded ride graphs.
   PR #23 merged as b7fff13 with successful main CI checks.
-- All 21 core suites pass (53,926 checks), as do all 11 owner-capture cleanup
+- All 22 core suites pass (53,955 checks), as do all 11 owner-capture cleanup
   guards. Pinned Shizuku dependencies were explicitly verified before building.
 - The combined release APK and native runner build, sign and align successfully.
   APK version is 0.12.0/code 24; production remains non-debuggable and uses the
