@@ -185,7 +185,7 @@ public final class UiOrganizationValidation extends Instrumentation {
                 require(findTextContaining(dialogRoot, "Power ") != null, "Tapping the route did not expose synchronized readings");
             });
             verifyMapGestures(map);
-            clickText(dialogRoot, "Grade"); clickText(dialogRoot, "GPS accel"); clickText(dialogRoot, "Power");
+            clickText(dialogRoot, "Grade"); clickText(dialogRoot, "Accel"); clickText(dialogRoot, "Power");
             clickDescription(dialogRoot, "Zoom in"); clickDescription(dialogRoot, "Zoom out"); clickDescription(dialogRoot, "Fit route");
             ScrollView scroller = first(dialogRoot, ScrollView.class);
             main(() -> scroller.fullScroll(View.FOCUS_UP)); waitForIdleSync();

@@ -96,6 +96,7 @@ public final class RidesScreen implements AppScreen {
     private final Set<String> selected;
     private final Map<String, RouteThumb> thumbs = new HashMap<String, RouteThumb>();
     private final List<AlertDialog> dialogs = new ArrayList<AlertDialog>();
+    private final List<Runnable> phoneRefreshers = new ArrayList<>();
     private String historySignature = "", chartKey, storageText = "";
     private int visibleHistory = 20, savedCount;
     private Boolean activeStyled;
@@ -187,6 +188,7 @@ public final class RidesScreen implements AppScreen {
         updateSensorsRow();
         activeCard.setVisibility(recording ? View.VISIBLE : View.GONE); if (recording) refreshActive();
         refreshHistory(); updateComparisonActions();
+        for (Runnable refresh : new ArrayList<>(phoneRefreshers)) refresh.run();
     }
     /** Buttons keep their spoken label in step with the visible one. */
     private static void label(TextView button, String text) {
@@ -549,7 +551,7 @@ public final class RidesScreen implements AppScreen {
         row.setPadding(0, ui.dp(4), 0, ui.dp(12)); body.addView(row);
     }
     private void renameRide(String id, TextView title) {
-        EditText name = input("Ride name"); name.setText(title.getText()); name.setSelectAllOnFocus(true);
+        EditText name = input("Ride name"); name.setFilters(new android.text.InputFilter[]{new android.text.InputFilter.LengthFilter(200)}); name.setText(title.getText()); name.setSelectAllOnFocus(true);
         LinearLayout box = dialogBody("Rename ride", null); box.addView(name);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Cancel", null).setPositiveButton("Save", null).create();
         show(dialog, DIALOG, null); dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
@@ -579,13 +581,37 @@ public final class RidesScreen implements AppScreen {
                 "Throughput", quantity(ride.measuredThroughputWh, "Wh", 2), "Power coverage", percent(ride.electricalCoverage)});
         LinearLayout phone = vertical(); body.addView(phone);
         detailSections(body, ride.id, ride, measured, afterDelete);
-        PhoneRideStore store = service.phoneRides; if (store == null || service.phoneSaving()) return;
-        phoneLoader.execute(() -> {
+        if (service.phoneRides != null) new PhoneOverview(ride.id, route, phone, graph);
+    }
+    /** A pending sensor save refreshes the already-open compact dialog as well as the wide pane. */
+    private final class PhoneOverview implements Runnable {
+        final String id; final LinearLayout route, phone; final ChartPanel graph; final TextView placeholder;
+        boolean loading, finished;
+        PhoneOverview(String id, LinearLayout route, LinearLayout phone, ChartPanel graph) {
+            this.id=id; this.route=route; this.phone=phone; this.graph=graph;
+            placeholder=ui.caption("");placeholder.setGravity(Gravity.CENTER);placeholder.setMinHeight(ui.dp(INLINE_MAP_DP));route.addView(placeholder);
+            phoneRefreshers.add(this);
+            route.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+                @Override public void onViewAttachedToWindow(View v) { run(); }
+                @Override public void onViewDetachedFromWindow(View v) { finished=true;phoneRefreshers.remove(PhoneOverview.this); }
+            });
+            placeholder.setText(service.phoneSaving()?"Finishing the sensor files…":"Loading route…");
+            route.post(this);
+        }
+        @Override public void run() {
+            if(closed||finished||loading||!route.isAttachedToWindow())return;
+            if(service.phoneSaving()){placeholder.setText("Finishing the sensor files…");return;}
+            PhoneRideStore store=service.phoneRides;
+            if(store==null||(!store.rawCsv(id).isFile()&&!store.motionCsv(id).isFile())){finish();return;}
+            loading=true;placeholder.setText("Loading route…");
+            phoneLoader.execute(() -> {
             try {
-                PhoneRideStore.Track track = store.load(ride.id);
+                PhoneRideStore.Track track = store.load(id);
                 host.activity().runOnUiThread(() -> {
-                    if (closed || host.activity().isDestroyed() || !route.isAttachedToWindow()) return;
+                    if (closed || finished || host.activity().isDestroyed() || !route.isAttachedToWindow()) return;
+                    finish();
                     graph.setPhone(track);
+                    if(track.locationCount==0&&track.motionSampleCount==0)return;
                     PhoneRide map = phoneRide(track, route, phone, true);
                     if (!track.points.isEmpty()) route.addView(map.frame, 0, new LinearLayout.LayoutParams(-1, ui.dp(INLINE_MAP_DP)));
                     else { maps.remove(map.map); map.map.close(); }
@@ -595,9 +621,11 @@ public final class RidesScreen implements AppScreen {
                     });
                 });
             } catch (IOException failure) {
-                host.activity().runOnUiThread(() -> { if (!closed && route.isAttachedToWindow()) routeNotice(route, "Phone data preview unavailable", () -> rawPhoneFallback(ride.id)); });
+                host.activity().runOnUiThread(() -> { if (!closed && !finished && route.isAttachedToWindow()) {finish();routeNotice(route, "Phone data preview unavailable", () -> rawPhoneFallback(id));} });
             }
-        });
+            });
+        }
+        private void finish(){finished=true;phoneRefreshers.remove(this);route.removeView(placeholder);}
     }
     private final class ChartPanel extends LinearLayout {
         final List<RideStore.Point> measured; PhoneRideStore.Track phone;
@@ -613,10 +641,10 @@ public final class RidesScreen implements AppScreen {
             chart = new RideChartView(ui);
             android.widget.HorizontalScrollView chartScroll = new android.widget.HorizontalScrollView(host.activity()); chartScroll.setFillViewport(true); chartScroll.addView(chart, new android.widget.HorizontalScrollView.LayoutParams(-1, full ? -1 : ui.dp(280)));
             addView(chartScroll, new LinearLayout.LayoutParams(-1, full ? 0 : ui.dp(280), full ? 1 : 0));
-            LinearLayout zoom = horizontal(); zoom.setGravity(Gravity.CENTER); zoom.setBaselineAligned(false); zoom.setPadding(0, 0, 0, ui.dp(8));
+            LinearLayout zoom = horizontal(); zoom.setGravity(Gravity.CENTER); zoom.setBaselineAligned(false); zoom.setPadding(0, ui.dp(6), 0, ui.dp(8));
             TextView[] buttons = {ui.secondaryButton("−", () -> chart.zoomBy(.5)), ui.secondaryButton("Fit", chart::reset), ui.secondaryButton("+", () -> chart.zoomBy(2))};
             buttons[0].setContentDescription("Zoom out ride chart"); buttons[1].setContentDescription("Fit the whole ride in the chart"); buttons[2].setContentDescription("Zoom in ride chart");
-            for (TextView button : buttons) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1); p.setMargins(ui.dp(3), ui.dp(6), ui.dp(3), 0); zoom.addView(button, p); } addView(zoom);
+            for (TextView button : buttons) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1); p.setMargins(ui.dp(3), 0, ui.dp(3), 0); zoom.addView(button, p); } addView(zoom);
             TextView hint = ui.caption("Pinch to zoom time · drag to pan · energy/distance hidden below 3 km/h (1.9 mph)"); hint.setPadding(0, ui.dp(6), 0, 0); addView(hint); update();
         }
         void setPhone(PhoneRideStore.Track track) { phone = track; update(); }
@@ -886,7 +914,7 @@ public final class RidesScreen implements AppScreen {
         map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
         String powerLegend = "Power magnitude · blue 0 → yellow 2,000 W · gray: missing";
         TextView legend = ui.caption(powerLegend); legend.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8));
-        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Grade", "GPS accel", "Elevation"}, choice -> {
+        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Grade", "Accel", "Elev."}, choice -> {
             String key = new String[]{"power", "grade", "accel", "elevation"}[choice]; map.setMetric(key);
             legend.setText(choice == 1 ? "Grade · blue −12% → gray 0% → orange +12% · gray dashed: missing"
                     : choice == 2 ? "GPS acceleration · blue −2 → gray 0 → orange +2 m/s² · gray dashed: missing"
@@ -1488,7 +1516,7 @@ public final class RidesScreen implements AppScreen {
     }
     @Override public void close() {
         if (wide && !closed) wideListScroll = scroll.getScrollY();
-        closed = true; phoneLoader.shutdownNow(); thumbLoader.shutdownNow(); for (RouteMapView map : maps) map.close(); maps.clear();
+        closed = true; phoneRefreshers.clear(); phoneLoader.shutdownNow(); thumbLoader.shutdownNow(); for (RouteMapView map : maps) map.close(); maps.clear();
         for (AlertDialog dialog : new ArrayList<AlertDialog>(dialogs)) dialog.dismiss(); dialogs.clear();
     }
 }

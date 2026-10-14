@@ -37,7 +37,8 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(text(screen.view(), "Energy direction") == null, "Redundant current-direction selection removed");
             View root = root(); check(find(root, RideChartView.class) != null, "Unified chart exists");
             check(find(root, RouteMapView.class) != null, "Map at top of same overview");
-            main(() -> { text(root, "Elevation").performClick(); check("elevation".equals(field(find(root, RouteMapView.class), "metric")), "Elevation overlay selects recorded heights"); text(root, "Power").performClick(); }); settle(); screenshot("overview");
+            main(() -> { text(root, "Elev.").performClick(); check("elevation".equals(field(find(root, RouteMapView.class), "metric")), "Elevation overlay selects recorded heights"); text(root, "Grade").performClick(); verifyMapContrast((RouteMapView)find(root,RouteMapView.class)); }); settle(); screenshot("grade-route");
+            main(() -> { text(root,"Power").performClick();SegmentedSelector selector=(SegmentedSelector)text(root,"Elev.").getParent().getParent();View track=(View)field(selector,"track");check(track.getWidth()<=selector.getWidth(),"Short route overlay labels fit without hidden choices");verifyZoomButtons(root); }); screenshot("overview");
             Object panel = ancestor(find(root, RideChartView.class), "ChartPanel");
             Set<?> selected = (Set<?>) field(panel, "chosen"); check(selected.size() == 2 && selected.contains("power_w") && selected.contains("speed_kmh"), "Power and speed selected by default");
             List<?> data = (List<?>)field(panel, "data"); check(data.size() == 8, "Eight graph series");
@@ -47,6 +48,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             }); settle();
             View full = root(); RideChartView chart = (RideChartView)find(full, RideChartView.class);
             check(chart != null && chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph has usable height");
+            main(() -> verifyZoomButtons(full));
             check(context.getSharedPreferences("app_settings", 0).getStringSet("ride_chart_series", Collections.emptySet()).size() == 5, "Series selection persists immediately");
             double before = (double)field(chart, "to") - (double)field(chart, "from"); main(() -> chart.zoomBy(2)); settle();
             check((double)field(chart, "to") - (double)field(chart, "from") < before, "Fullscreen zoom changes time viewport");
@@ -62,8 +64,9 @@ public final class RidesAnalysisValidation extends Instrumentation {
                 View rename = byDescription(root(), "Rename ride"); check(rename != null, "Rename pencil exposed"); rename.performClick();
             }); settle();
             AlertDialog renameDialog = (AlertDialog)((List<?>)field(screen, "dialogs")).get(((List<?>)field(screen, "dialogs")).size() - 1);
-            main(() -> { EditText input = (EditText)find(renameDialog.getWindow().getDecorView(), EditText.class); input.setText("Evening campus loop"); renameDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
+            main(() -> { EditText input = (EditText)find(renameDialog.getWindow().getDecorView(), EditText.class);input.setText(new String(new char[199]).replace('\0','a')+"🛴extra");check(input.length()==199&&!Character.isHighSurrogate(input.getText().charAt(input.length()-1)),"Rename field limits length without splitting emoji"); input.setText("Evening campus loop"); renameDialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
             check(activity.service().rides.get(id).label.equals("Evening campus loop"), "Pencil rename saves to journal");
+            verifySavingAndEmptyPhone();
             check(!activity.service().ble.connected() && !activity.service().isRecording(), "No scooter connection or active recording");
             result.putString("result", "PASS");
         } catch (Throwable error) { result.putString("result", "FAIL"); result.putString("error", error.toString()); try { screenshot("failure"); } catch (Throwable ignored) {} }
@@ -71,6 +74,30 @@ public final class RidesAnalysisValidation extends Instrumentation {
             result.putInt("checks", checks); result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
             if (activity != null) main(() -> { activity.finish(); ScooterService.setUiVisible(false); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); });
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
+        }
+    }
+    void verifyZoomButtons(View root){for(String label:new String[]{"Zoom out ride chart","Fit the whole ride in the chart","Zoom in ride chart"}){View button=byDescription(root,label);ViewGroup row=(ViewGroup)button.getParent();check(button.getTop()>=row.getPaddingTop()&&button.getBottom()<=row.getHeight()-row.getPaddingBottom(),"Zoom button fits inside row: "+label);}}
+    void verifyMapContrast(RouteMapView map){
+        int casing=(int)invoke(map,"routeCasingColor",new Class[0]);check(casing==(activity.ui().dark?android.graphics.Color.WHITE:0xff20242c),"Map canvas chooses contrasting route casing");
+        setField(map,"streets",true);int tileCasing=(int)invoke(map,"routeCasingColor",new Class[0]);setField(map,"streets",false);
+        check(tileCasing==0xff20242c,"Basemap uses dark casing in either theme");
+        check((android.graphics.Color.luminance(0xffe2e2e2)+.05)/(android.graphics.Color.luminance(tileCasing)+.05)>=3,"Neutral route has at least 3:1 against casing");
+        check((android.graphics.Color.luminance(0xffffd246)+.05)/(android.graphics.Color.luminance(tileCasing)+.05)>=3,"Yellow route endpoint has at least 3:1 against casing");
+    }
+    void verifySavingAndEmptyPhone() throws Exception{
+        main(()->{for(Object dialog:new ArrayList<>((List<?>)field(screen,"dialogs")))((AlertDialog)dialog).dismiss();setField(activity.service(),"phoneSavingCount",1);invoke(screen,"showDetails",new Class[]{String.class},id);});settle();
+        View pending=root();check(text(pending,"Finishing the sensor files…")!=null&&find(pending,RouteMapView.class)==null,"Open ride explains sensor save and reserves map space");
+        main(()->{setField(activity.service(),"phoneSavingCount",0);screen.refresh();});
+        long until=SystemClock.uptimeMillis()+5000;while(find(pending,RouteMapView.class)==null&&SystemClock.uptimeMillis()<until)settle();
+        check(root()==pending&&find(pending,RouteMapView.class)!=null,"Already-open compact dialog gains map after sensor save");
+        check(text(pending,"Finishing the sensor files…")==null&&text(pending,"Loading route…")==null,"Completed load removes placeholder");
+        main(()->((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss());
+        ScooterService service=activity.service();String legacy=service.rides.start("fixture","Scooter only",System.currentTimeMillis(),900000);service.rides.stop(System.currentTimeMillis()+1000,901000);
+        for(int attempt=0;attempt<2;attempt++){
+            if(attempt==1){service.phoneRides.start(legacy,System.currentTimeMillis(),900000,"pocket");service.phoneRides.stop(legacy,System.currentTimeMillis()+1000,901000);}
+            main(()->invoke(screen,"showDetails",new Class[]{String.class},legacy));settle();
+            check(text(root(),"Phone & route")==null&&text(root(),"Export phone data")==null,"Empty phone data has no placeholder stats or export block");
+            main(()->((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss());
         }
     }
     void verifyGestures(RideChartView chart) {
@@ -126,6 +153,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
     View byDescription(View view, String text) { if (text.contentEquals(view.getContentDescription() == null ? "" : view.getContentDescription())) return view; if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){View f=byDescription(((ViewGroup)view).getChildAt(i),text);if(f!=null)return f;}return null; }
     void check(boolean condition, String message) { checks++; if (!condition) throw new AssertionError(message); }
     Object field(Object target,String name){try{Class<?> c=target.getClass();while(c!=null){try{Field f=c.getDeclaredField(name);f.setAccessible(true);return f.get(target);}catch(NoSuchFieldException e){c=c.getSuperclass();}}throw new NoSuchFieldException(name);}catch(Exception e){throw new IllegalStateException(name,e);}}
+    void setField(Object target,String name,Object value){try{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);f.set(target,value);}catch(Exception e){throw new IllegalStateException(name,e);}}
     Object invoke(Object target,String name,Class<?>[] types,Object... args){try{Method m=target.getClass().getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(target,args);}catch(Exception e){throw new IllegalStateException(name,e);}}
     void main(Runnable action){AtomicReference<Throwable> failure = new AtomicReference<>(); runOnMainSync(() -> { try { action.run(); } catch(Throwable e) { failure.set(e); } }); if(failure.get()!=null)throw new IllegalStateException(failure.get());} void settle(){waitForIdleSync();SystemClock.sleep(350);waitForIdleSync();}
     void screenshot(String label)throws Exception{File dir=new File(getTargetContext().getExternalFilesDir(null),"rides-validation");dir.mkdirs();File file=new File(dir,args.getString("variant","rides")+"-"+label+".png");android.graphics.Bitmap bitmap=getUiAutomation().takeScreenshot();try(FileOutputStream out=new FileOutputStream(file)){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}bitmap.recycle();screenshots.add(file.getAbsolutePath());}

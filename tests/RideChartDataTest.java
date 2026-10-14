@@ -44,6 +44,16 @@ public final class RideChartDataTest {
         row.put("speed_kmh", new RideStore.Sample(12d, 11000)); store.sample(2001000, 11000, row); store.stop(2001500,11500);
         List<RideChartData.Value> segmented = RideChartData.build(store.trend(gapId, 600), null, false).get(1).values;
         check(segmented.get(0).segment != segmented.get(1).segment, "Short gaps break plotted lines even below ten seconds");
+        List<RideChartData.Value> longRide=new ArrayList<>();for(int i=0;i<10000;i++)longRide.add(new RideChartData.Value(i*1000L,(double)i,i<5000?0:1));
+        RideChartData.Series series=new RideChartData.Series(0,"W",longRide);int[] visible=series.visibleRange(4500000,4510000);
+        check(visible[0]==4499&&visible[1]==4512,"Viewport keeps only visible points and edge neighbors");
+        check(series.typicalIntervalMs==1000,"Sampling interval cached once");
+        check(Arrays.equals(series.visibleRange(0,9999000),new int[]{0,10000}),"Whole-ride view retains endpoints");
+        check(Arrays.equals(series.visibleRange(-1000,-500),new int[]{0,1}),"Range before first point remains bounded");
+        check(Arrays.equals(series.visibleRange(10000000,10001000),new int[]{9999,10000}),"Range after last point remains bounded");
+        RideChartData.Series unordered=new RideChartData.Series(0,"W",Arrays.asList(new RideChartData.Value(2000,1d,0),new RideChartData.Value(1000,2d,1)));
+        check(Arrays.equals(unordered.visibleRange(1000,1500),new int[]{0,2}),"Nonmonotonic source timeline preserves safe full traversal");
+        check(Arrays.equals(new RideChartData.Series(0,"W",Collections.emptyList()).visibleRange(0,1),new int[]{0,0}),"Empty series range is safe");
         System.out.println("RideChartDataTest: " + checks + " assertions passed");
     }
 }
