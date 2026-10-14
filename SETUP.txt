@@ -10,7 +10,7 @@ Each friend should capture their own account's identity for their own scooter.
 
 GUIDED CHROME + USB OPTION
 
-On a computer, open https://jjricks.com/pairscooter/ in Chrome or Edge. This
+On a computer, open https://pairscooter.jjricks.com/ in Chrome or Edge. This
 is a testing preview, not a general release. A successful real browser capture
 with a nearby scooter is still awaiting validation. You can also use the local
 hosting instructions in setup/web/README.md or the desktop helper below.

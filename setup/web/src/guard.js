@@ -146,6 +146,22 @@ export function cleanupCommand(token) {
   // read from the phone. The detached watchdog executes only the script we wrote.
   return `${guardScript(token)}\n`;
 }
+// A preparing journal proves that this page has not requested logging or armed
+// a watchdog. A different, readable token therefore cannot need our recovery.
+// Missing/partial tokens remain ambiguous and must never be guessed or removed.
+export function preparationStateCommand(token) {
+  if (!tokenValid(token)) throw new Error('Invalid session token');
+  return `if [ ! -e ${d} ] && [ ! -L ${d} ]; then printf ABSENT
+elif [ ! -L ${d} ] && [ -d ${d} ] && [ ! -L ${d}/token ] && [ -f ${d}/token ] && [ "$(wc -c < ${d}/token)" -eq 64 ]; then
+  value=$(cat ${d}/token) || exit 50
+  [ "\${#value}" -eq 64 ] || { printf AMBIGUOUS; exit 0; }
+  case "$value" in *[!0-9a-f]*) printf AMBIGUOUS ;;
+    ${token}) printf OURS ;;
+    *) printf FOREIGN ;;
+  esac
+else printf AMBIGUOUS
+fi`;
+}
 export function inspectCommand(token) {
   return `${checkToken(token)} || exit 50
 [ ! -L ${d}/original ] && [ "$(wc -c < ${d}/original)" -le 91 ] || exit 51

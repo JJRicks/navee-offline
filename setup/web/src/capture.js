@@ -1,5 +1,5 @@
 import { MAX_CAPTURE_BYTES, PACKAGE, PROPERTY, SetupError, ownerDocument, parseCapture, quote, randomToken, tokenValid, parseAndroidUsers, hasNaveePackage, validLauncher } from './protocol.js';
-import { LOCK, armCommand, cleanupCommand, inspectCommand, prepareCommand, releaseCommand, startCommand, guardScript, reacquireRecoveryCommand } from './guard.js';
+import { LOCK, armCommand, cleanupCommand, inspectCommand, prepareCommand, releaseCommand, preparationStateCommand, startCommand, guardScript, reacquireRecoveryCommand } from './guard.js';
 
 export const JOURNAL_KEY = 'volt.owner-capture.recovery.v1';
 export function readJournal(storage) {
@@ -84,7 +84,14 @@ export class CaptureSession {
       }
       this.checkCancelled();
       if (!candidate) throw new SetupError('empty', 'No fresh owner setup arrived in 90 seconds. Check NAVEE is signed in, your scooter is nearby, and other scooter apps are closed.');
-    } catch (error) { failure = error; }
+    } catch (error) {
+      failure = error;
+      // Exit 23 is emitted only before prepare acquires the reservation. This
+      // page changed nothing; do not turn another helper's lock into our journal.
+      if (error instanceof SetupError && error.code === 'lock-busy' && this.journal?.stage === 'preparing') {
+        try { this.clearJournal(); } catch (journalError) { failure = journalError; }
+      }
+    }
     finally {
       this.update('cleaning', 'Closing NAVEE and restoring its log setting');
       try {
@@ -102,10 +109,12 @@ export class CaptureSession {
     const journal = this.journal;
     if (!journal || journal.serial !== this.serial) throw new SetupError('device', 'Choose the same phone to recover its capture.');
     if (journal.stage === 'preparing') {
-      // Logging was never requested. If preparation never created a lock, no
-      // mutation could have happened; otherwise preserve/read its original.
-      const state = await this.run(`[ ! -e ${quote(LOCK)} ] && printf ABSENT || printf PRESENT`);
-      if (state === 'ABSENT') { this.clearJournal(); return; }
+      // Logging was never requested. A failed/lost prepare reply can leave no
+      // reservation, our reservation, or one owned by another helper. Only our
+      // token authorizes inspection/restoration; never adopt a foreign lock.
+      const state = await this.run(preparationStateCommand(journal.token));
+      if (state === 'ABSENT' || state === 'FOREIGN') { this.clearJournal(); return; }
+      if (state !== 'OURS') throw new SetupError('cleanup', 'Capture preparation is incomplete. Keep the recovery record and use the recovery guide.');
       const inspected = await this.run(inspectCommand(journal.token));
       const original = atob(inspected.split('\n')[0]);
       if (!/^[\x20-\x7e]{0,91}$/.test(original)) throw new SetupError('property', 'Cleanup needs manual verification of the original log setting.');

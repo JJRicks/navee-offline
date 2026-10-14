@@ -132,7 +132,7 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before using instrumentation: some parke
 
 ## First setup and everyday use
 
-Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the guided [Chrome/USB helper](https://jjricks.com/pairscooter/) or the existing computer ADB/Python helper; daily use needs neither. No owner credentials are embedded in this repository or APK. The [browser helper documentation](setup/web/README.md) explains its explicit consent stages, local processing, recovery, and self-hosting.
+Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the guided [Chrome/USB helper](https://pairscooter.jjricks.com/) or the existing computer ADB/Python helper; daily use needs neither. No owner credentials are embedded in this repository or APK. The [browser helper documentation](setup/web/README.md) explains its explicit consent stages, local processing, recovery, and self-hosting.
 
 The Chrome/USB helper is a testing preview, not a general release. A successful real browser capture with a nearby scooter is still awaiting validation. A developer can also run the static helper locally using the linked instructions, or use the existing desktop helper. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
 

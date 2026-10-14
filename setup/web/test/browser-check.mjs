@@ -67,6 +67,44 @@ try {
   assert.match(await swPage.locator('#environment').innerText(), /service worker/);
   await swPage.locator('#usb-consent').check(); assert.equal(await swPage.locator('#connect').isDisabled(), true);
   await swContext.close();
+  // The legacy origin retains its own journal and recovery path; it must never
+  // silently redirect or start a new capture on the shared main-site origin.
+  for (const hostname of ['jjricks.com', 'pairscooter.jjricks.com']) {
+    const context = await browser.newContext();
+    const legacy = hostname === 'jjricks.com';
+    await context.addInitScript(({ legacy }) => {
+      navigator.usb.requestDevice = async () => { throw new DOMException('No device selected', 'NotFoundError'); };
+      if (legacy) localStorage.setItem('volt.owner-capture.recovery.v1', JSON.stringify({ version: 1,
+        token: 'a'.repeat(64), serial: 'fixture-phone', original: '', stage: 'preparing' }));
+    }, { legacy });
+    await context.route('**/*', async route => {
+      const path = new URL(route.request().url()).pathname;
+      const name = path.endsWith('/') ? 'index.html' : path.split('/').pop();
+      if (!['index.html', 'app.js', 'styles.css', 'recovery.html'].includes(name)) { await route.abort(); return; }
+      const type = { html: 'text/html', js: 'text/javascript', css: 'text/css' }[name.split('.').pop()];
+      await route.fulfill({ status: 200, headers: { ...headers, 'Content-Type': type }, body: await readFile(join(root, name)) });
+    });
+    const page = await context.newPage(); page.on('pageerror', error => pageErrors.push(error.message));
+    const target = `https://${hostname}/${legacy ? 'pairscooter/' : ''}`;
+    await page.goto(target);
+    assert.equal(page.url(), target);
+    assert.equal(await page.locator('#legacy-site').isVisible(), legacy);
+    if (legacy) {
+      assert.equal(await page.locator('#recovery').isVisible(), true);
+      assert.equal(await page.locator('#recover').isEnabled(), true);
+      assert.equal(await page.locator('#connect').isDisabled(), true);
+      await page.locator('#recover').click();
+      await page.waitForFunction(() => !document.querySelector('#error').hidden);
+      assert.match(await page.locator('#error').innerText(), /No phone selected/);
+      assert.equal(await page.evaluate(() => JSON.parse(localStorage.getItem('volt.owner-capture.recovery.v1')).serial), 'fixture-phone');
+      assert.equal(page.url(), target);
+    } else {
+      await page.locator('#usb-consent').check();
+      assert.equal(await page.locator('#connect').isEnabled(), true);
+      assert.equal(await page.evaluate(() => localStorage.getItem('volt.owner-capture.recovery.v1')), null);
+    }
+    await context.close();
+  }
   assert.deepEqual(pageErrors, []);
-  console.log(JSON.stringify({ widths: [1280, 768, 390, 320], allPanelsFit: true, usbConsentAndCancel: true, unreviewedScriptBlocked: true, uploadBlocked: true, serviceWorkerBlocked: true, pageErrors, screenshots: process.env.QA_DIR }, null, 2));
+  console.log(JSON.stringify({ widths: [1280, 768, 390, 320], allPanelsFit: true, usbConsentAndCancel: true, unreviewedScriptBlocked: true, uploadBlocked: true, serviceWorkerBlocked: true, legacyRecoveryPreserved: true, dedicatedOriginEnabled: true, pageErrors, screenshots: process.env.QA_DIR }, null, 2));
 } finally { await browser.close(); await new Promise(resolve => server.close(resolve)); }

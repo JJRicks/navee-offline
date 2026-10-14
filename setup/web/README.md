@@ -1,7 +1,7 @@
 # Volt USB setup helper
 
 A static, browser-local owner-capture wizard for the testing preview at
-`https://jjricks.com/pairscooter/`. This is a testing deployment, not a general
+`https://pairscooter.jjricks.com/`. This is a testing deployment, not a general
 release. A successful real browser capture with a nearby scooter is still awaiting
 validation. Publication and deployed security headers must be verified separately
 from a local build.
@@ -90,8 +90,16 @@ The official NAVEE process may itself emit broader verbose logs temporarily; thi
 helper reads only its filtered authentication messages, and does not clear the
 phone's global log buffer.
 
-Finish disconnects USB, attempts `USBDevice.forget()`, and clears the temporary key
-and captured result. Revoking Chrome's USB permission **does not revoke Android's
+After a verified phone save, a requested computer backup, or a safe terminal
+capture failure, the helper disconnects USB and attempts `USBDevice.forget()`
+without waiting for tab unload. Permission removal starts before awaiting transport
+shutdown. Failed connection attempts also release the selected grant. Unverified
+capture cleanup retains access for explicit recovery; successful recovery closes it.
+
+A verified captured result remains in memory after saving, so the user can still
+request a computer backup. Saving to the phone again opens the picker and requires
+the same phone. Finish clears this result too. Page unload is only a best-effort
+fallback, never the primary permission-removal mechanism. Revoking Chrome's USB permission **does not revoke Android's
 trusted debugging keys**. The UI separately explains turning off USB debugging
 and revoking Android authorizations if the user checked “Always allow.”
 
@@ -129,7 +137,19 @@ with an atomic rename and deleting only this session's known files. Interrupted
 deletion can leave a small retired metadata directory, but cannot leave the global
 reservation without the token/original needed for recovery. Unknown files block
 retirement and are preserved.
-A stale token cannot operate on another helper's lock. If the final release reply
+A stale token cannot operate on another helper's lock. A definite lock-busy reply
+clears only this page's pre-acquisition browser journal and reports that another
+setup owns the phone reservation. Recovery from an interrupted preparing stage
+also clears its journal when a different valid token is observed; it never touches
+that other lock. Missing, unreadable or partial tokens remain ambiguous and require
+recovery verification. Armed journals are never discarded merely for a token mismatch.
+
+Automatic takeover of orphaned completed locks is deliberately not implemented.
+The originating helper must finish recovery, or a trusted developer must verify
+its completion and ownership before retiring it. This shared cross-helper protocol
+needs a separate concurrency design before safe automated takeover is possible.
+
+If the final release reply
 was lost after lock removal, recovery reacquires the lock exclusively and repeats
 force-stop and restoration; absence alone is never proof of success.
 
@@ -142,8 +162,9 @@ lock or replace an unknown original setting with an assumed empty value.
 
 ## Hosting requirements
 
-Deploy **only `dist/`**, atomically, at `/pairscooter/`. All links/assets are relative
-and support this subpath. Do not expose node_modules, source maps, repository
+Deploy **only `dist/`**, atomically, at the root of the dedicated
+`https://pairscooter.jjricks.com/` origin. All links/assets are relative and also
+support the legacy `/pairscooter/` subpath. Do not expose node_modules, source maps, repository
 metadata, or runtime captures. There is no upload route to deploy.
 
 Apply every header in `dist/headers.json` to all responses in this location.
@@ -156,25 +177,54 @@ needs `Permissions-Policy: usb=(self)` in this location. No-store avoids stale H
 and hash mismatches across deployments. Do not add CSP reporting endpoints that
 could accidentally become a side channel.
 
-Disable HTML rewriting, email obfuscation, analytics insertion, Rocket Loader and
-challenge-script injection for this location at the reverse proxy/CDN. A restrictive
-CSP may correctly block those injected scripts; fix the hosting rule instead of
-loosening the policy. Verify origin and CDN responses after publication. HTTP CSP
-and the early HTML meta policy should agree; `frame-ancestors` must be HTTP-only.
+The dedicated subdomain uses a **DNS-only** record and HTTPS directly from the VPS,
+so Cloudflare does not rewrite its HTML. Disable HTML rewriting, email obfuscation,
+analytics insertion, Rocket Loader and challenge-script injection if a reverse proxy
+is introduced later. The legacy `jjricks.com/pairscooter/` recovery route has one
+documented exception: Cloudflare adds a JS-detection snippet, which the exact
+hash-only CSP blocks. This exception tolerates blocked markup only, never execution
+of an injected script. Do not loosen CSP to make that snippet run. Moving or
+changing hosting settings is a separate owner-approved deployment action.
 
-The chosen subpath shares `jjricks.com`'s origin. WebUSB permission is origin-wide,
-and CSP cannot protect against a malicious server replacing both the HTML policy
-and script. The page refuses to capture if controlled by an existing service worker
-and cancels if a controller appears. It does not unregister workers belonging to
-other apps. A dedicated origin would provide stronger isolation if desired later.
-Use a clean browser profile if a root-scoped service worker controls this page.
+After publication, compare **both HTML files** (`index.html` and `recovery.html`),
+the bundle, and styles against `dist/` at the origin and through the CDN. Record
+any HTML differences explicitly; a matching bundle hash alone does not show that
+the HTML was unchanged. The dedicated host requires byte-identical HTML. The legacy
+recovery route's exception is limited to the identified, CSP-blocked Cloudflare
+snippet. Unexpected markup, changed consent text, a relaxed
+policy, or another executed script fails validation. Verify the response headers
+and executed scripts in an isolated browser as well. HTTP CSP and the early HTML
+meta policy should agree; `frame-ancestors` must be HTTP-only.
+
+The legacy subpath shares `jjricks.com`'s origin. WebUSB permission and localStorage
+are origin-wide: another page on the origin may access the browser's retained USB
+grant or recovery journal. The temporary Android ADB key is still memory-only, and
+Android authorization is a separate boundary. CSP cannot protect against a server
+replacing both the HTML policy and script. The owner selected the dedicated
+`pairscooter.jjricks.com` origin to isolate new setup sessions' permissions and
+storage. Keep the old route available for explicit recovery of sessions started
+there, with new captures disabled and a link to the new site. Do not automatically
+redirect users with unfinished recovery or copy journals between origins. Once
+recovery finishes, remove the old origin's USB permission in browser site settings.
+Setting `Permissions-Policy: usb=()` on all other main-site routes could further
+restrict retained old grants, but does not isolate old localStorage; that broader
+main-site change is outside this deployment.
+
+The page refuses to capture if controlled by an existing service worker and cancels
+if a controller appears. It does not unregister workers belonging to other apps.
+Use a separate persistent browser profile if a root-scoped service worker controls
+this page. Avoid Incognito/Guest windows and clearing site data during setup: losing
+the recovery journal can leave a completed phone lock needing manual verification.
 
 ## Validation limits
 
 Automated parser/state-machine tests cover strict frames, stale/malformed/conflicting
 rows, output bounds, unsupported UID identity, consent-independent export gating,
 timeouts/cancellation, each failure stage, unverified cleanup, damaged recovery
-records and wrong phones. Real POSIX-shell tests with fake Android commands exercise
+records and wrong phones. Transport tests cover late timeout rejections and
+permission-removal ordering. UI event tests cover save, reconnect, safe/unsafe
+failures and legacy-origin recovery without exercising real USB hardware.
+Real POSIX-shell tests with fake Android commands exercise
 exact restoration, independent watchdog cleanup, concurrent-helper refusal,
 start/timeout races, a signal during a bounded child, stale tokens and failed cleanup.
 

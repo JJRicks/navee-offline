@@ -26,6 +26,7 @@ function fixture({ fail = '', original = '', logs = row(), clockStep = 0, after 
     else if (command === 'sh -s clean') op = 'cleanup';
     else if (command.startsWith('getprop')) op = 'readback';
     else if (command.includes('printf RELEASED')) op = 'release';
+    else if (command.includes('printf FOREIGN')) op = 'preparation-state';
     else if (command.includes('printf ABSENT')) op = 'exists';
     else if (command.includes('printf PENDING')) op = 'inspect';
     else throw new Error('Unexpected command');
@@ -48,6 +49,7 @@ function fixture({ fail = '', original = '', logs = row(), clockStep = 0, after 
       case 'readback': return original;
       case 'release': assert(restored); locked = false; return 'RELEASED';
       case 'inspect': if (!locked) throw new Error('Missing lock'); return `${btoa(original)}\nPENDING`;
+      case 'preparation-state': return locked ? 'OURS' : 'ABSENT';
       case 'exists': return locked ? 'PRESENT' : 'ABSENT';
     }
   };
@@ -155,4 +157,51 @@ test('lost final release reply reacquires exclusively and repeats verified resto
   assert.equal(f.calls.filter(x => x.op === 'cleanup').length, 2);
   assert.equal(f.storage.getItem(JOURNAL_KEY), null);
   assert.throws(() => f.session.document(), { code: 'unsafe-export' });
+});
+
+test('definite busy prepare clears only the browser journal and remains retryable', async () => {
+  const f = fixture(), normal = f.session.run;
+  let blocked = true;
+  f.session.run = async (command, ...args) => {
+    if (blocked && command.startsWith('umask')) throw new SetupError('lock-busy', 'Another setup owns the phone capture lock.');
+    return normal(command, ...args);
+  };
+  await assert.rejects(f.session.begin(), { code: 'lock-busy' });
+  assert.equal(f.storage.getItem(JOURNAL_KEY), null);
+  assert.equal(f.session.safe, true);
+  assert(!f.calls.some(x => ['inspect', 'cleanup', 'release', 'preparation-state'].includes(x.op)));
+  blocked = false;
+  await f.session.begin();
+  assert(f.session.document());
+});
+for (const state of ['FOREIGN', 'AMBIGUOUS']) test(`lost prepare reply with ${state} reservation respects its ownership`, async () => {
+  const f = fixture(), normal = f.session.run;
+  const seen = [];
+  f.session.run = async (command, ...args) => {
+    seen.push(command);
+    if (command.startsWith('umask')) throw new SetupError('timeout', 'Reply lost.');
+    if (command.includes('printf FOREIGN')) return state;
+    return normal(command, ...args);
+  };
+  await assert.rejects(f.session.begin(), { code: state === 'FOREIGN' ? 'timeout' : 'cleanup' });
+  assert.equal(!!f.storage.getItem(JOURNAL_KEY), state === 'AMBIGUOUS');
+  assert(!seen.some(command => command.includes('printf PENDING') || command === 'sh -s clean' || command.includes('printf RELEASED')));
+  if (state === 'AMBIGUOUS') await assert.rejects(f.session.recover());
+  else {
+    f.storage.setItem(JOURNAL_KEY, JSON.stringify({ version: 1, token, serial: 'test-phone', original: '', stage: 'preparing' }));
+    await f.session.recover();
+    assert.equal(f.storage.getItem(JOURNAL_KEY), null);
+  }
+});
+test('foreign armed reservation retains our recovery journal and receives no cleanup writes', async () => {
+  const f = fixture(), seen = [];
+  f.storage.setItem(JOURNAL_KEY, JSON.stringify({ version: 1, token, serial: 'test-phone', original: 'WARN', stage: 'armed' }));
+  f.session.run = async command => {
+    seen.push(command);
+    if (command.includes('printf ABSENT')) return 'PRESENT';
+    throw new SetupError('command', 'Token mismatch.');
+  };
+  await assert.rejects(f.session.recover());
+  assert(f.storage.getItem(JOURNAL_KEY));
+  assert(!seen.some(command => command === 'sh -s clean' || command.includes('printf RELEASED')));
 });

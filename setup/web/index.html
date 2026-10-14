@@ -31,6 +31,7 @@
     </aside>
     <div class="workspace">
       <noscript><div class="alert">JavaScript is required for USB setup. Use Volt’s existing desktop helper or import a saved owner file instead.</div></noscript>
+      <div id="legacy-site" class="notice" hidden role="status"><strong>Setup has moved to its own site.</strong><p>For a new capture, <a href="https://pairscooter.jjricks.com/" target="_blank" rel="noopener noreferrer">open pairscooter.jjricks.com</a>. If this browser has an unfinished capture, use Recover cleanup here first. Recovery records stay in this browser and are not copied to the new site.</p><p>Keep this site’s data until recovery finishes. The <a href="./recovery.html">recovery guide</a> remains available here.</p></div>
       <div id="environment" class="alert" hidden role="alert"></div>
       <div id="error" class="alert" hidden role="alert"></div>
       <div id="notice" class="notice" hidden role="status"></div>
@@ -45,6 +46,7 @@
       <section id="connect-panel" class="panel" aria-labelledby="connect-title">
         <span class="eyebrow">STEP 01 / CONNECT</span><h2 id="connect-title">Start with your phone.</h2><p>Use a computer with Chrome or Edge and a USB data cable. This page cannot connect to the phone it is running on.</p>
         <ul class="checklist"><li>NAVEE is signed in and already works with your scooter.</li><li>Your scooter is nearby, parked, and powered on.</li><li>Other scooter apps and computer ADB tools are closed.</li></ul>
+        <p class="fine">Use a regular browser profile, not Incognito or Guest. Keep its site data until cleanup is verified so interrupted sessions can recover.</p>
         <p class="fine">This first version supports the phone’s main personal Android user. Work profiles and secondary users are not supported.</p>
         <details><summary>How to enable USB debugging</summary><ol><li>On Android, open Settings → About phone. Tap Build number seven times (Samsung: About phone → Software information first).</li><li>Open Developer options and turn on USB debugging.</li><li>Connect a data-capable USB cable. Unlock the phone.</li></ol><p>Work-managed phones may block debugging. On Windows, your phone’s USB driver may be required.</p></details>
         <div class="permission"><strong>USB debugging is powerful.</strong><p>It grants this page broad developer access to the selected phone, beyond the one message we need. Continue only for a phone and scooter you own or have permission to set up.</p><p>We use a temporary browser key. On the phone prompt, leave <strong>“Always allow from this computer” unchecked.</strong></p></div>
@@ -69,6 +71,7 @@
         <span class="success-mark" aria-hidden="true">✓</span><span class="eyebrow">STEP 04 / SAVE + IMPORT</span><h2 id="save-title">Your setup is ready.</h2><p>NAVEE is closed and its original log setting is restored. The verified owner identity is still only in this tab’s memory.</p>
         <div class="permission"><strong>This file is a scooter key.</strong><p>Anyone with your owner setup may be able to control your scooter over Bluetooth. Keep it private. Downloads is shared phone storage; remove that copy after importing if you do not want it there.</p></div>
         <button id="send" class="primary">Save a new file to phone Downloads</button><button id="download" class="secondary full">Download a private backup to this computer</button>
+        <p class="fine">Saving closes USB access automatically. Saving to the phone again asks you to select the same phone. A computer backup stays available until you finish or close this tab.</p>
         <p id="saved-file" class="file-name" hidden></p><p class="fine">Then open Volt → Import a backup file, and choose the new JSON. Nothing is imported or replaced automatically. Computer downloads inherit your browser and operating system’s file permissions.</p>
         <button id="finish" class="text-button">Finish and disconnect</button>
       </section>

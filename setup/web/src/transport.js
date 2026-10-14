@@ -36,17 +36,24 @@ export async function connectPhone(onWaiting, onDisconnect) {
     return {
       serial: device.serial, name: device.name || 'Android phone',
       run: (command, options) => runCommand(adb, command, options),
-      async close(forgetUsb = false) {
-        await adb.close().catch(() => {}); credentials.clear();
-        if (forgetUsb && device.raw.forget) await device.raw.forget();
-      }
+      close: (forgetUsb = false) => closeConnection(adb, device.raw, credentials, forgetUsb)
     };
   } catch (error) {
-    credentials.clear();
-    await adb?.close().catch(() => {});
-    await device.raw.close().catch(() => {});
+    await closeConnection(adb, device.raw, credentials, true).catch(() => {});
     throw error instanceof SetupError ? error : new SetupError('usb', 'Could not connect. Unlock the phone, approve USB debugging, and close other ADB tools or browser tabs. On Windows, an Android USB driver may be needed.');
   }
+}
+// Begin permission removal synchronously, before awaiting transport shutdown.
+// In particular, pagehide cannot reliably resume after an awaited adb.close().
+export async function closeConnection(adb, raw, credentials, forgetUsb = false) {
+  const attempt = work => { try { return Promise.resolve(work()); } catch (error) { return Promise.reject(error); } };
+  const forgotten = forgetUsb && raw.forget ? attempt(() => raw.forget()) : Promise.resolve();
+  credentials.clear();
+  const closed = attempt(() => adb?.close()).catch(() => {});
+  const rawClosed = closed.then(() => attempt(() => raw.close()).catch(() => {}));
+  // Install a rejection handler immediately on both operations, including when
+  // forget fails while transport shutdown is still pending.
+  await Promise.all([forgotten, rawClosed]);
 }
 export async function runCommand(adb, command, { input, timeout = 12_000, maxBytes = 16_384 } = {}) {
   const abort = new AbortController();
@@ -78,7 +85,7 @@ export async function runCommand(adb, command, { input, timeout = 12_000, maxByt
       finally { writer.releaseLock(); }
     };
     const [stdout, , exit] = await Promise.all([read(process.stdout, true), read(process.stderr, false), process.exited, write()]);
-    if (exit !== 0) throw new SetupError('command', exit === 23 ? 'Another setup owns the phone capture lock. Finish its cleanup before trying again.' : exit === 22 ? 'Install and sign into the official NAVEE app on this phone first.' : exit === 26 ? 'Use the phone’s main personal Android user. Work profiles and secondary users are not supported.' : 'The phone could not complete this step. Check permission and try recovery if offered.');
+    if (exit !== 0) throw new SetupError(exit === 23 ? 'lock-busy' : 'command', exit === 23 ? 'Another setup owns the phone capture lock. Finish its cleanup before trying again.' : exit === 22 ? 'Install and sign into the official NAVEE app on this phone first.' : exit === 26 ? 'Use the phone’s main personal Android user. Work profiles and secondary users are not supported.' : 'The phone could not complete this step. Check permission and try recovery if offered.');
     return stdout.replace(/\r?\n$/, '');
   };
   try {

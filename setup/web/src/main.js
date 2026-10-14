@@ -4,6 +4,7 @@ import { connectPhone } from './transport.js';
 
 const $ = id => document.getElementById(id);
 let phone = null, session = null, busy = false, closing = false;
+const legacySite = ['jjricks.com', 'www.jjricks.com'].includes(location.hostname) && /^\/pairscooter(?:\/|$)/.test(location.pathname);
 const storage = {
   getItem: key => localStorage.getItem(key),
   setItem: (key, value) => localStorage.setItem(key, value),
@@ -28,20 +29,27 @@ function pendingRecovery() {
   try { return !!readJournal(storage); }
   catch (e) { error(e); return true; }
 }
-function validateEnvironment() {
+function validateEnvironment({ recovery = false } = {}) {
   const problem = navigator.serviceWorker?.controller
-    ? 'A service worker controls this page. For your privacy, capture is disabled. Use a clean browser profile for this helper or contact the site operator; this page will not remove another app’s service worker.'
+    ? 'A service worker controls this page. For your privacy, capture is disabled. Use a separate regular browser profile (not Incognito or Guest) for this helper or contact the site operator; this page will not remove another app’s service worker.'
     : !window.isSecureContext || !navigator.usb
       ? 'Open this page in desktop Chrome or Edge over HTTPS. USB setup is unavailable in this browser.' : '';
   message('environment', problem);
-  $('connect').disabled = !!problem || !$('usb-consent').checked || busy;
+  $('legacy-site').hidden = !legacySite;
+  $('connect').disabled = !!problem || legacySite || !$('usb-consent').checked || busy;
   $('recover').disabled = !!problem || busy;
-  return !problem;
+  return !problem && (!legacySite || recovery);
 }
-async function connect() {
+async function connect({ keepResult = false, recovery = false } = {}) {
   if (phone) return phone;
-  if (!validateEnvironment()) throw new SetupError('environment', 'This browser environment cannot safely run capture.');
-  phone = await connectPhone(name => message('notice', `Unlock ${name} and approve the USB debugging prompt. Leave “Always allow” unchecked.`), () => {
+  if (!validateEnvironment({ recovery })) throw new SetupError('environment', 'This browser environment cannot safely run capture.');
+  const previous = session;
+  if (keepResult) previous.document();
+  let connected;
+  connected = await connectPhone(name => message('notice', `Unlock ${name} and approve the USB debugging prompt. Leave “Always allow” unchecked.`), () => {
+    // A deliberate close detaches this phone first; a late disconnect from it
+    // must not discard a saved result or disturb a newly selected phone.
+    if (phone !== connected) return;
     phone = null;
     if (!closing) {
       session?.cancel();
@@ -51,6 +59,15 @@ async function connect() {
       if (!busy) panel(pendingRecovery() ? 'recovery' : 'connect-panel', 0);
     }
   });
+  phone = connected;
+  if (keepResult) {
+    if (phone.serial !== previous.serial) {
+      await releasePhone({ keepResult: true });
+      throw new SetupError('device', 'Choose the same phone that provided this owner setup.');
+    }
+    session = previous;
+    return phone;
+  }
   session = new CaptureSession({ run: phone.run, serial: phone.serial, storage, update: (state, text) => {
     $('progress').textContent = text;
     $('working-title').textContent = state === 'capturing' ? 'Open your scooter in NAVEE.' : state === 'cleaning' ? 'Restoring your phone’s settings.' : 'Getting the phone ready.';
@@ -66,11 +83,18 @@ async function action(work) {
   try { await work(); } catch (e) { error(e); }
   finally { busy = false; validateEnvironment(); }
 }
-async function closePhone() {
+async function releasePhone({ keepResult = false } = {}) {
   closing = true;
-  session?.forgetResult();
-  try { await phone?.close(true); } catch { message('notice', 'Disconnected. You can remove this site’s USB permission in Chrome’s site settings.'); }
-  finally { phone = null; session = null; closing = false; }
+  const connected = phone;
+  phone = null;
+  if (!keepResult) { session?.forgetResult(); session = null; }
+  try { await connected?.close(true); }
+  catch { message('notice', 'Disconnected. Remove this site’s USB permission in Chrome’s site settings.'); }
+  finally { closing = false; }
+  $('send').textContent = 'Choose phone and save a new file';
+}
+async function closePhone() {
+  await releasePhone();
   $('usb-consent').checked = false; $('capture-consent').checked = false; $('start').disabled = true;
   panel(pendingRecovery() ? 'recovery' : 'connect-panel', 0);
 }
@@ -78,7 +102,7 @@ $('usb-consent').addEventListener('change', validateEnvironment);
 $('capture-consent').addEventListener('change', () => { $('start').disabled = !$('capture-consent').checked || busy; });
 $('connect').addEventListener('click', () => action(async () => {
   if (!$('usb-consent').checked || pendingRecovery()) return;
-  await connect(); panel('capture-panel', 1);
+  await connect(); $('send').textContent = 'Save a new file to phone Downloads'; panel('capture-panel', 1);
 }));
 $('disconnect').addEventListener('click', () => action(closePhone));
 $('start').addEventListener('click', () => action(async () => {
@@ -86,16 +110,20 @@ $('start').addEventListener('click', () => action(async () => {
   $('capture-consent').checked = false; $('start').disabled = true; $('cancel').disabled = false;
   panel('working-panel', 2);
   try { await session.begin(); panel('save-panel', 3); }
-  catch (e) { panel(pendingRecovery() ? 'recovery' : phone ? 'capture-panel' : 'connect-panel', 1); throw e; }
+  catch (e) {
+    if (session?.safe && !pendingRecovery()) await closePhone();
+    else panel(pendingRecovery() ? 'recovery' : phone ? 'capture-panel' : 'connect-panel', 1);
+    throw e;
+  }
 }));
 $('cancel').addEventListener('click', () => {
   session?.cancel(); $('cancel').disabled = true; $('progress').textContent = 'Stopping after the current bounded phone step, then restoring settings…';
 });
 $('recover').addEventListener('click', () => action(async () => {
-  await connect();
+  await connect({ recovery: true });
   await session.recover();
-  panel('capture-panel', 1);
-  message('notice', 'Cleanup verified. NAVEE is closed and the original log setting is restored. Start a fresh capture when ready.');
+  await closePhone();
+  message('notice', 'Cleanup verified. NAVEE is closed and the original log setting is restored. USB access is closed; choose your phone again for a fresh capture.');
 }));
 function downloadText(data, name, type) {
   const url = URL.createObjectURL(new Blob([data], { type }));
@@ -128,10 +156,11 @@ function newFilename() { return `navee-owner-setup-${new Date().toISOString().re
 $('download').addEventListener('click', () => action(async () => {
   const data = session.document();
   downloadText(data, newFilename(), 'application/json');
-  message('notice', 'Backup download requested. Check your browser’s Downloads, then store the file privately.');
+  message('notice', 'Backup download requested; check your browser’s Downloads and store it privately. USB access is now closed.');
+  await releasePhone({ keepResult: true });
 }));
 $('send').addEventListener('click', () => action(async () => {
-  if (!phone) throw new SetupError('disconnect', 'Reconnect the phone before transferring your setup.');
+  if (!phone) await connect({ keepResult: true });
   const data = session.document(), name = newFilename(), path = `/sdcard/Download/${name}`;
   const length = new TextEncoder().encode(data).length;
   // The identity travels over shell stdin, never a command argument. noclobber
@@ -149,8 +178,10 @@ printf SAVED`;
   try {
     if (await phone.run(command, { input: data }) !== 'SAVED') throw new Error('Unverified transfer');
     $('saved-file').textContent = `Phone Downloads / ${name}`; $('saved-file').hidden = false;
-    message('notice', 'Saved to phone Downloads. In Volt, choose Import a backup file and select this new file.');
+    message('notice', 'Saved to phone Downloads. USB access is now closed. In Volt, choose Import a backup file and select this new file.');
+    await releasePhone({ keepResult: true });
   } catch {
+    await releasePhone({ keepResult: true });
     throw new SetupError('transfer', 'The file transfer could not be verified. Check phone Downloads before retrying; another attempt creates a different filename.');
   }
 }));

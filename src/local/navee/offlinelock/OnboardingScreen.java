@@ -87,7 +87,7 @@ public final class OnboardingScreen implements AppScreen {
     static final int WELCOME = 0, PATH = 1, PREPARE = 2, USB = 3, COMPUTER = 4, HELPER = 5,
             IMPORT = 6, IDENTITY = 7, NEARBY = 8, CONNECT = 9, DONE = 10;
     private static final String CAPTURE = "capture", WEBADB = "webadb", BACKUP = "backup", TYPED = "identity";
-    private static final String WEBADB_URL = "https://jjricks.com/pairscooter/";
+    private static final String WEBADB_URL = "https://pairscooter.jjricks.com/";
     private static final String[] STEP_NAMES = {"Prepare", "USB debugging", "Connect computer",
             "Run helper", "Import", "Nearby devices", "Connect scooter"};
     private static final String COMMAND = "python3 setup/capture-owner.py --push";
@@ -636,8 +636,8 @@ public final class OnboardingScreen implements AppScreen {
                 + "not your NAVEE password.", false);
         String selected = path();
         String[][] options = {
-                {WEBADB, "screen", "Use Chrome and a USB cable", "Guided website on a computer. No command-line tools."},
                 {CAPTURE, "screen", "Capture it from the NAVEE app", "First time. Uses a computer once, about 10 min."},
+                {WEBADB, "screen", "Use Chrome and a USB cable", "Testing preview. Guided website; full scooter capture still awaiting validation."},
                 {BACKUP, "download", "Import a backup file", "You saved navee-owner-setup.json before."},
                 {TYPED, "lock", "Enter a 12-character identity", "Someone gave you the code for your scooter."}};
         LinearLayout group = column();
@@ -681,7 +681,7 @@ public final class OnboardingScreen implements AppScreen {
         primary("Continue", () -> go(USB));
         if (WEBADB.equals(path())) {
             footerLink("How does browser setup work?", () -> info("Browser setup",
-                    "Open " + WEBADB_URL + " on your computer. The page asks before choosing your phone and again before temporarily enabling NAVEE logging and restarting NAVEE.\n\n"
+                    "Testing preview: a full browser capture with a nearby scooter is still awaiting validation.\n\nOpen " + WEBADB_URL + " on your computer. The page asks before choosing your phone and again before temporarily enabling NAVEE logging and restarting NAVEE.\n\n"
                             + "USB debugging grants broad developer access. Use a trusted computer and leave Always allow unchecked. The helper filters for your Bluetooth owner identity, processes it in the browser, and restores NAVEE's original log setting before offering a file.\n\n"
                             + "Your NAVEE account must already be signed in and able to connect to your scooter. A successful capture still requires your scooter nearby."));
             return;

@@ -4,7 +4,7 @@ import { mkdtemp, mkdir, writeFile, readFile, rm, access, readdir } from 'node:f
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { spawn } from 'node:child_process';
-import { LOCK, armCommand, cleanupCommand, guardScript, prepareCommand, releaseCommand, startCommand as makeStart } from '../src/guard.js';
+import { LOCK, armCommand, cleanupCommand, guardScript, prepareCommand, preparationStateCommand, releaseCommand, startCommand as makeStart } from '../src/guard.js';
 
 const token = 'a'.repeat(64), other = 'b'.repeat(64);
 const startCommand = value => makeStart(value, 'com.navee.ucaret/.FixtureActivity');
@@ -19,7 +19,7 @@ async function fixture(original = '') {
     date: 'printf "1800000000.125\\n"',
     getprop: '[ ! -f "$FIXTURE/fail-readback" ] || exit 1; cat "$FIXTURE/property"; printf "\\n"',
     setprop: 'printf "%s\\n" "setprop:$2" >> "$FIXTURE/events"; [ ! -f "$FIXTURE/fail-restore" ] || [ "$2" = VERBOSE ] || exit 1; printf %s "$2" > "$FIXTURE/property"',
-    am: 'if [ "$1" = get-current-user ]; then printf 0; exit; fi; if [ "$1" = start ]; then printf "launch\\n" >> "$FIXTURE/events"; else printf "am\\n" >> "$FIXTURE/events"; fi; [ ! -f "$FIXTURE/slow-am" ] || /bin/sleep 0.6; [ ! -f "$FIXTURE/fail-am" ]',
+    am: 'if [ "$1" = get-current-user ]; then printf 0; exit; fi; if [ "$1" = start ]; then printf "launch\\n" >> "$FIXTURE/events"; else printf "am\\n" >> "$FIXTURE/events"; fi; [ ! -f "$FIXTURE/slow-am" ] || { : > "$FIXTURE/am-entered"; /bin/sleep 0.6; }; [ ! -f "$FIXTURE/fail-am" ]',
     monkey: 'printf "monkey\\n" >> "$FIXTURE/events"',
     rm: 'if [ -f "$FIXTURE/fail-retired-delete" ]; then case "$*" in *retired-*) exit 1 ;; esac; fi; exec /bin/rm "$@"',
     timeout: 'shift; exec "$@"'
@@ -38,10 +38,10 @@ async function fixture(original = '') {
   const run = (command, input) => execute(command, input).done;
   async function prepare() { const result = await run(prepareCommand(token)); assert.equal(result.code, 0, result.stderr); }
   async function arm(quick = false) {
-    // Deterministically fire the watchdog as soon as start owns its gate;
-    // fixed millisecond sleeps otherwise make the race flaky on fast CI hosts.
+    // Fire only after start passed its stopping checks and entered a slow
+    // Android command. The gate itself exists before those checks.
     const script = quick ? guardScript(token).replace('while [ "$i" -lt 120 ]; do',
-      'while [ "$i" -lt 120 ] && [ ! -d "$d/cleaning" ]; do') : guardScript(token);
+      'while [ ! -f "$FIXTURE/am-entered" ]; do') : guardScript(token);
     const result = await run(armCommand(token), script); assert.equal(result.code, 0, result.stderr); assert.equal(result.stdout, 'READY');
   }
   return { root, lock, run, execute, prepare, arm,
@@ -164,5 +164,27 @@ test('interrupted retired-file deletion cannot leave an unidentifiable global lo
     const retired = (await readdir(f.root)).find(name => name.startsWith('retired-'));
     assert(retired);
     assert.equal(await readFile(join(f.root, retired, 'session', 'original'), 'utf8'), 'INFO');
+  } finally { await f.dispose(); }
+});
+
+test('preparing reservation distinguishes foreign valid tokens from partial or unknown state without writes', async () => {
+  const f = await fixture('INFO');
+  try {
+    assert.equal((await f.run(preparationStateCommand(token))).stdout, 'ABSENT');
+    await f.prepare();
+    assert.equal((await f.run(preparationStateCommand(token))).stdout, 'OURS');
+    assert.equal((await f.run(preparationStateCommand(other))).stdout, 'FOREIGN');
+    await writeFile(join(f.lock, 'owner'), 'shizuku');
+    assert.equal((await f.run(preparationStateCommand(other))).stdout, 'FOREIGN');
+    assert.equal((await f.run(prepareCommand(other))).code, 23);
+    assert.equal(await f.property(), 'INFO');
+    assert.equal(await readFile(join(f.lock, 'token'), 'utf8'), token);
+    for (const value of ['', 'a'.repeat(63), 'Z'.repeat(64), token + '\n', 'a'.repeat(63) + '\n']) {
+      await writeFile(join(f.lock, 'token'), value);
+      assert.equal((await f.run(preparationStateCommand(other))).stdout, 'AMBIGUOUS');
+    }
+    await rm(join(f.lock, 'token'));
+    assert.equal((await f.run(preparationStateCommand(other))).stdout, 'AMBIGUOUS');
+    assert.equal(await f.property(), 'INFO');
   } finally { await f.dispose(); }
 });
