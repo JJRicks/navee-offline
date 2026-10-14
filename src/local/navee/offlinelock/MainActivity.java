@@ -1196,7 +1196,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private final class ControlRow {
         final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action;
-        final String haystack;final boolean inline;
+        final String haystack;final boolean inline;SegmentedSelector patternSelector;
         final LinkedHashMap<Integer,View> options=new LinkedHashMap<>();
         ControlRow(ScooterCommands.Feature feature){
             this.feature=feature;inline=inlineChoice(feature);
@@ -1213,15 +1213,14 @@ public final class MainActivity extends Activity implements ScreenHost {
             }else if(inline){
                 toggle=null;value.setVisibility(View.GONE);
                 if(feature.key.endsWith("_pattern")){
-                    // Patterns are chips under the label (Lights page, ph/28).
+                    // Firmware readback owns the selected value, including while a write is pending.
                     row.line.setMinimumHeight(design.dp(40));row.line.setPadding(0,design.dp(10),0,0);
-                    FlowRow chips=new FlowRow();chips.setPadding(0,0,0,design.dp(4));
-                    for(int i=0;i<feature.optionValues.length;i++){
-                        final int choice=feature.optionValues[i];
-                        TextView chip=design.chip(feature.options[i],false,()->chooseInline(feature,choice));styleZoneChip(chip,false);chip.setContentDescription(feature.label+", "+feature.options[i]);
-                        options.put(choice,chip);chips.addView(chip,new ViewGroup.LayoutParams(-2,-2));
-                    }
-                    card.addView(chips,new LinearLayout.LayoutParams(-1,-2));
+                    patternSelector=new SegmentedSelector(design,feature.label,feature.options,index->{
+                        restorePatternSelection(false);
+                        chooseInline(feature,feature.optionValues[index]);
+                    });
+                    patternSelector.setTag("scooter-selector-"+feature.key);
+                    LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,-2);pp.topMargin=design.dp(6);pp.bottomMargin=design.dp(8);card.addView(patternSelector,pp);
                 }else{
                     // Colours are swatches on the right of the row.
                     LinearLayout swatches=row();swatches.setGravity(Gravity.CENTER_VERTICAL);
@@ -1248,9 +1247,10 @@ public final class MainActivity extends Activity implements ScreenHost {
                 // A long value moves under the label so the row never wraps beside the chevron.
                 boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
             }else if(inline)row.setSub(actual==null?"Not reported":null);
+            if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(available&&choices);patternSelector.setAlpha(available&&choices?1f:.5f);}
             for(Map.Entry<Integer,View> option:options.entrySet()){
                 boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();
-                if(view instanceof Swatch)((Swatch)view).set(on);else styleZoneChip((TextView)view,on);
+                ((Swatch)view).set(on);
                 view.setEnabled(available&&choices);view.setAlpha(available&&choices?1f:.5f);
                 if(Build.VERSION.SDK_INT>=30)view.setStateDescription(on?"Selected":"");
             }
@@ -1259,11 +1259,12 @@ public final class MainActivity extends Activity implements ScreenHost {
             // Last-seen state is explained once by the page banner; rows keep rejections and pending changes.
             String feedback=ble==null?null:ble.commandResults().get(feature.key);if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
         }
-    }
-    /** Lighting zone chips keep a 48dp touch target while drawing the 36dp Volt pill. */
-    private void styleZoneChip(TextView chip,boolean selected){
-        design.styleChip(chip,selected);chip.setMinHeight(design.dp(48));
-        chip.setBackground(new android.graphics.drawable.InsetDrawable(chip.getBackground(),0,design.dp(6),0,design.dp(6)));
+        private void restorePatternSelection(boolean animate){
+            Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);
+            if(actual==null&&scooterService!=null)actual=scooterService.displayFeatures().get(feature.key);
+            int selected=-1;for(int i=0;i<feature.optionValues.length;i++)if(actual!=null&&actual==feature.optionValues[i])selected=i;
+            patternSelector.select(selected,animate);
+        }
     }
     private void chooseInline(ScooterCommands.Feature feature,int target){
         if(scooterService==null)return;Integer actual=scooterService.ble.featureValue(feature.key);if(actual!=null&&actual==target)return;
@@ -1273,29 +1274,6 @@ public final class MainActivity extends Activity implements ScreenHost {
         controlDialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle(shortLabel(feature)))
                 .setMessage(feature.description+(feature.requiresParked?"\n\nChanges only while the scooter is stopped.":"")).setPositiveButton("Close",null).create();
         controlDialog.show();styleDialog(controlDialog,0);
-    }
-    /** A wrapping row of chips. */
-    private final class FlowRow extends ViewGroup {
-        FlowRow(){super(MainActivity.this);}
-        @Override protected void onMeasure(int widthSpec,int heightSpec){
-            int width=MeasureSpec.getSize(widthSpec),available=Math.max(1,width-getPaddingLeft()-getPaddingRight()),gap=design.dp(6),x=0,y=getPaddingTop(),rowHeight=0;
-            for(int i=0;i<getChildCount();i++){
-                View child=getChildAt(i);if(child.getVisibility()==View.GONE)continue;
-                child.measure(MeasureSpec.makeMeasureSpec(available,MeasureSpec.AT_MOST),MeasureSpec.makeMeasureSpec(0,MeasureSpec.UNSPECIFIED));
-                if(x>0&&x+child.getMeasuredWidth()>available){y+=rowHeight;x=0;rowHeight=0;}
-                x+=child.getMeasuredWidth()+gap;rowHeight=Math.max(rowHeight,child.getMeasuredHeight());
-            }
-            setMeasuredDimension(resolveSize(width,widthSpec),resolveSize(y+rowHeight+getPaddingBottom(),heightSpec));
-        }
-        @Override protected void onLayout(boolean changed,int l,int t,int r,int b){
-            int available=getWidth()-getPaddingLeft()-getPaddingRight(),gap=design.dp(6),x=0,y=getPaddingTop(),rowHeight=0;
-            for(int i=0;i<getChildCount();i++){
-                View child=getChildAt(i);if(child.getVisibility()==View.GONE)continue;int w=child.getMeasuredWidth(),h=child.getMeasuredHeight();
-                if(x>0&&x+w>available){y+=rowHeight;x=0;rowHeight=0;}
-                int left=getLayoutDirection()==View.LAYOUT_DIRECTION_RTL?getWidth()-getPaddingRight()-x-w:getPaddingLeft()+x;
-                child.layout(left,y,left+w,y+h);x+=w+gap;rowHeight=Math.max(rowHeight,h);
-            }
-        }
     }
     /** Lamp colour swatch; the selected colour gains a ring. */
     private final class Swatch extends View {
@@ -1510,12 +1488,18 @@ public final class MainActivity extends Activity implements ScreenHost {
     private final class ChoiceSheet {
         final ScooterCommands.Feature feature;final int[] choices;final AlertDialog dialog;
         final ArrayList<LinearLayout> options=new ArrayList<>();final ArrayList<RadioDot> dots=new ArrayList<>();final ArrayList<TextView> names=new ArrayList<>();
+        final SegmentedSelector selector;
         final LinearLayout wait;final TextView status;
         Integer target;boolean sent;String failure;
         ChoiceSheet(ScooterCommands.Feature feature,int[] choices){
             this.feature=feature;this.choices=choices;
             final AlertDialog[] self=new AlertDialog[1];
             LinearLayout content=sheetContent(shortLabel(feature),explanation(feature),()->{if(self[0]!=null)self[0].dismiss();});
+            String[] labels=new String[choices.length];boolean compact=choices.length>=2&&choices.length<=5&&!feature.key.equals("range_algorithm");
+            for(int i=0;i<choices.length;i++){labels[i]=featureLabel(feature,choices[i]);compact&=labels[i].length()<=18;}
+            selector=compact?new SegmentedSelector(design,shortLabel(feature),labels,this::choose):null;
+            if(selector!=null){selector.setTag("scooter-selector-"+feature.key);content.addView(selector,new LinearLayout.LayoutParams(-1,-2));}
+            else{
             LinearLayout list=design.groupCard();
             for(int i=0;i<choices.length;i++){
                 if(i>0)design.divider(list);
@@ -1529,6 +1513,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 list.addView(option);options.add(option);dots.add(dot);names.add(label);
             }
             content.addView(list);
+            }
             wait=row();wait.setGravity(Gravity.CENTER_VERTICAL);wait.setPadding(design.dp(4),design.dp(4),0,design.dp(4));
             wait.addView(new Spinner(),new LinearLayout.LayoutParams(design.dp(14),design.dp(14)));
             TextView waiting=design.caption("Waiting for scooter confirmation…");waiting.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
@@ -1539,6 +1524,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             refresh();
         }
         void choose(int index){
+            if(selector!=null)restoreSelection(false);
             if(scooterService==null||sent)return;BleController ble=scooterService.ble;
             if(feature.key.equals("range_algorithm")) {
                 if(choices[index]==-1) { scooterService.followRidingMode(true); dialog.dismiss(); return; }
@@ -1560,7 +1546,8 @@ public final class MainActivity extends Activity implements ScreenHost {
                 failure=feedback==null||feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")?"The scooter did not confirm this change.":feedback;target=null;
             }
             Integer shown=waiting?target:feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode() ? Integer.valueOf(-1) : actual;boolean enabled=ready&&pending==null&&!sent;
-            for(int i=0;i<choices.length;i++){
+            if(selector!=null){restoreSelection(true);boolean fresh=enabled&&actual!=null&&scooterService.featureFresh(feature.key);selector.setEnabled(fresh);selector.setAlpha(fresh?1f:.5f);}
+            else for(int i=0;i<choices.length;i++){
                 boolean on=shown!=null&&shown==choices[i];dots.get(i).set(on);dots.get(i).setEnabled(enabled);
                 names.get(i).setTypeface(on?design.bold():design.regular());names.get(i).setTextColor(enabled||on?design.text:design.muted);
                 options.get(i).setEnabled(enabled);if(Build.VERSION.SDK_INT>=30)options.get(i).setStateDescription(on?"Selected":"Not selected");
@@ -1568,6 +1555,11 @@ public final class MainActivity extends Activity implements ScreenHost {
             wait.setVisibility(waiting?View.VISIBLE:View.GONE);
             String message=failure!=null?failure:!ready&&!waiting?"Not connected · connect to change this setting":null;
             status.setText(message==null?"":message);status.setTextColor(failure!=null?design.danger:design.muted);status.setVisibility(message==null?View.GONE:View.VISIBLE);
+        }
+        private void restoreSelection(boolean animate){
+            Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);int selected=-1;
+            for(int i=0;i<choices.length;i++)if(actual!=null&&actual==choices[i])selected=i;
+            selector.select(selected,animate);
         }
     }
     private void showChargingTime(){

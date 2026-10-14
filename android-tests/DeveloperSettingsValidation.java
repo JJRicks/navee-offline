@@ -2,6 +2,7 @@ package local.navee.offlinelock.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
+import android.app.AlertDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
@@ -41,6 +42,8 @@ import local.navee.offlinelock.MainActivity;
 import local.navee.offlinelock.MoreScreen;
 import local.navee.offlinelock.ScooterProfiles;
 import local.navee.offlinelock.ScooterService;
+import local.navee.offlinelock.ScooterCommands;
+import local.navee.offlinelock.SegmentedSelector;
 import local.navee.offlinelock.Telemetry;
 import local.navee.offlinelock.TelemetryHistory;
 import local.navee.offlinelock.Ui;
@@ -228,6 +231,7 @@ public final class DeveloperSettingsValidation extends Instrumentation {
             require(activity.service().ble.ready() && activity.service().ble.connected(), "Local reconnect failed");
             assertTransportIdle();
         });
+        verifyScooterSelectors();
         final long sampleBefore = activity.service().ble.telemetry.metrics().get(0).updatedMs;
         SystemClock.sleep(6100);
         main(() -> {
@@ -275,6 +279,81 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         flushHistory();
         require(databaseBefore.equals(databaseSnapshot()) && profilesBefore.equals(prefs("profiles").getAll()) && evidenceBefore.equals(prefs("control_evidence").getAll())
                 && filesBefore.equals(fileSnapshot()), "Service recreation persisted simulated state");
+    }
+    /** Display-state injection stays inside the emulator's disconnected simulator; no GATT is made. */
+    @SuppressWarnings("unchecked") private void verifyScooterSelectors() throws Exception {
+        main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "lights")); settle();
+        main(() -> {
+            BleController ble=activity.service().ble;
+            Map<String,Integer> values=(Map<String,Integer>)field(field(ble,"simulation"),"features");
+            Map<String,String> results=(Map<String,String>)field(ble,"commandResults");
+            for(String key:new String[]{"line_pattern","star_pattern"}){
+                SegmentedSelector selector=(SegmentedSelector)root().findViewWithTag("scooter-selector-"+key);
+                require(selector!=null,"Missing lighting selector "+key);Object row=control(key);invoke(row,"refresh");
+                int before=values.get(key),next=(before+1)%3;
+                selectorChoices(selector).get(next).performClick();invoke(row,"refresh");
+                require(values.get(key)==next&&selected(selector)==next,"Confirmed simulated pattern not displayed: "+key+" actual="+values.get(key)+" selected="+selected(selector)+" enabled="+selector.isEnabled()+" fresh="+activity.service().featureFresh(key)+" message="+ble.message());
+                assertChoiceTargets(selector);
+                values.remove(key);invoke(row,"refresh");
+                require(selected(selector)==-1&&((RectF)field(field(selector,"track"),"indicator")).isEmpty(),"Unknown pattern still highlights a choice");
+                require(!selector.isEnabled()&&!selectorChoices(selector).get(0).isEnabled(),"Unknown pattern remains actionable");
+                values.put(key,before);invoke(row,"refresh");
+                setField(ble,"mutation",pending(key,next));invoke(row,"refresh");
+                require(selected(selector)==before&&!selector.isEnabled(),"Pending write replaced confirmed pattern");
+                selectorChoices(selector).get(next).performClick();require(values.get(key)==before,"Disabled pattern click wrote simulator data");
+                setField(ble,"mutation",null);results.put(key,"Rejected (3)");invoke(row,"refresh");
+                require(selected(selector)==before&&((TextView)field(row,"result")).getText().toString().contains("Rejected"),"Rejection lost previous selection or feedback");
+                // A click that races a disconnection must roll back before its failed command.
+                setField(ble,"state",BleController.State.DISCONNECTED);selectorChoices(selector).get(next).performClick();
+                require(selected(selector)==before&&!selector.isEnabled(),"Failed write left optimistic pattern selected");
+                setField(ble,"state",BleController.State.READY);invoke(row,"refresh");results.remove(key);
+                values.put(key,next);invoke(row,"refresh");require(selected(selector)==next,"New readback did not move the highlight");
+            }
+            assertTransportIdle();activity.redraw();
+            View pattern=root().findViewWithTag("scooter-selector-line_pattern");
+            pattern.requestRectangleOnScreen(new Rect(0,0,pattern.getWidth(),pattern.getHeight()),true);
+            android.view.ViewParent parent=pattern.getParent();while(parent!=null&&!(parent instanceof android.widget.ScrollView))parent=parent.getParent();
+            if(parent instanceof android.widget.ScrollView)((android.widget.ScrollView)parent).scrollBy(0,activity.ui().dp(180));
+        });settle();windowScreenshot("light-selectors",activity.getWindow().getDecorView());
+        for(String key:new String[]{"energy_recovery","display_units","charge_limit","lock_expiry","prompt_tone"}){
+            main(() -> {
+                invoke(activity,"showChoice",new Class<?>[]{ScooterCommands.Feature.class},ScooterCommands.find(key));
+                Object sheet=field(activity,"choiceSheet");SegmentedSelector selector=(SegmentedSelector)field(sheet,"selector");
+                require(selector!=null,"Short fixed choice did not use slider: "+key);
+                int[] values=(int[])field(sheet,"choices");Integer actual=activity.service().ble.featureValue(key);
+                int index=0;while(values[index]!=actual)index++;
+                require(selected(selector)==index,"Sheet did not select confirmed value");
+                int next=(index+1)%values.length;
+                setField(sheet,"target",values[next]);setField(sheet,"sent",true);
+                setField(activity.service().ble,"mutation",pending(key,values[next]));invoke(sheet,"refresh");
+                require(selected(selector)==index&&!selector.isEnabled(),"Pending sheet advertises unconfirmed target");
+                setField(activity.service().ble,"mutation",null);
+                ((Map<String,String>)field(activity.service().ble,"commandResults")).put(key,"Rejected (3)");invoke(sheet,"refresh");
+                require(((AlertDialog)field(sheet,"dialog")).isShowing()&&selected(selector)==index
+                        &&((TextView)field(sheet,"status")).getText().toString().contains("Rejected"),"Sheet rejection lost confirmed state or feedback");
+                setField(sheet,"target",values[next]);setField(sheet,"sent",true);
+                ((Map<String,Integer>)field(field(activity.service().ble,"simulation"),"features")).put(key,values[next]);invoke(sheet,"refresh");
+                require(!((AlertDialog)field(sheet,"dialog")).isShowing(),"Confirmed readback did not dismiss sheet");
+            });
+        }
+        main(() -> invoke(activity,"showChoice",new Class<?>[]{ScooterCommands.Feature.class},ScooterCommands.find("energy_recovery")));settle();
+        main(() -> assertChoiceTargets((SegmentedSelector)field(field(activity,"choiceSheet"),"selector")));windowScreenshot("setting-selector",((AlertDialog)field(field(activity,"choiceSheet"),"dialog")).getWindow().getDecorView());
+        main(() -> {((AlertDialog)field(field(activity,"choiceSheet"),"dialog")).dismiss();assertTransportIdle();});
+        checks.add("Lighting and short fixed scooter choices use readable tracks, retain confirmed state while pending/rejected, clear unknown values, and close only after confirmed readback");
+    }
+    private Object control(String key){for(Object row:(List<?>)field(field(activity,"screen"),"rows"))if(((ScooterCommands.Feature)field(row,"feature")).key.equals(key))return row;throw new IllegalStateException("Missing control "+key);}
+    @SuppressWarnings("unchecked") private List<TextView> selectorChoices(SegmentedSelector selector){return (List<TextView>)field(field(selector,"track"),"choices");}
+    private int selected(SegmentedSelector selector){return ((Number)field(field(selector,"track"),"selected")).intValue();}
+    private void assertChoiceTargets(SegmentedSelector selector){for(TextView choice:selectorChoices(selector)){require(choice.getWidth()>=activity.ui().dp(48)&&choice.getHeight()>=activity.ui().dp(48),"Choice target smaller than 48dp");require(choice.getPaint().measureText(choice.getText().toString())<=choice.getWidth()-choice.getCompoundPaddingLeft()-choice.getCompoundPaddingRight()+1,"Choice text clipped");AccessibilityNodeInfo node=choice.createAccessibilityNodeInfo();require(node.isCheckable()&&node.isChecked()==choice.isSelected(),"Incorrect choice accessibility state");node.recycle();}}
+    private Object pending(String key,int value){try{Class<?> type=Class.forName("local.navee.offlinelock.BleController$Mutation");java.lang.reflect.Constructor<?> constructor=type.getDeclaredConstructor(String.class,int.class,int.class,long.class);constructor.setAccessible(true);return constructor.newInstance(key,0,value,0L);}catch(Exception e){throw new IllegalStateException(e);}}
+    private void setField(Object target,String name,Object value){try{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);f.set(target,value);}catch(Exception e){throw new IllegalStateException(e);}}
+    /** Native window render avoids unrelated queued Android toast windows obscuring the control. */
+    private void windowScreenshot(String label,View window) throws Exception{
+        AtomicReference<android.graphics.Bitmap> captured=new AtomicReference<>();
+        main(()->{android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(window.getWidth(),window.getHeight(),android.graphics.Bitmap.Config.ARGB_8888);window.draw(new android.graphics.Canvas(bitmap));captured.set(bitmap);});
+        File dir=new File(getTargetContext().getExternalFilesDir(null),"developer-validation");require(dir.isDirectory()||dir.mkdirs(),"Screenshot directory unavailable");
+        File file=new File(dir,arguments.getString("variant","developer").replaceAll("[^a-zA-Z0-9_-]","")+"-"+label+".png");
+        try(FileOutputStream out=new FileOutputStream(file)){captured.get().compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}finally{captured.get().recycle();}screenshots.add(file.getAbsolutePath());
     }
     private void assertRealCache() {
         Map<String, TelemetryHistory.Reading> shown = activity.service().displayReadings();
