@@ -67,22 +67,40 @@ final class DefaultDashboard {
                     {5, 0, 7, 5, 1},
                     {6, 0, 9, 3, 4}
                 });
+        // These four cards were captured only at five columns. Give smaller grids
+        // explicit gaps or later rows so absent positions cannot displace the lock card.
         DashboardConfig.Widget shortcuts = add(result, "quick", "Quick access",
                 "power_w", 86400000L, new int[][] {
+                    {1, 0, 27, 1, 3},
+                    {2, 1, 4, 1, 4},
+                    {3, 0, 19, 3, 3},
+                    {4, 0, 18, 4, 3},
                     {5, 3, 0, 2, 3}
                 });
         shortcuts.quickActions.clear();
         shortcuts.quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
         add(result, "health", "Battery health",
                 "battery_health_percent", 2592000000L, new int[][] {
+                    {1, 0, 30, 1, 5},
+                    {2, 0, 30, 2, 5},
+                    {3, 0, 22, 3, 5},
+                    {4, 0, 21, 4, 5},
                     {5, 0, 8, 5, 5}
                 });
         add(result, "history", "History chart",
                 "battery_percent", 604800000L, new int[][] {
+                    {1, 0, 35, 1, 5},
+                    {2, 0, 35, 2, 5},
+                    {3, 0, 27, 3, 5},
+                    {4, 0, 26, 4, 5},
                     {5, 0, 17, 5, 5}
                 });
         add(result, "charging", "Charging",
                 "power_w", 86400000L, new int[][] {
+                    {1, 0, 40, 1, 4},
+                    {2, 1, 8, 1, 4},
+                    {3, 0, 32, 3, 4},
+                    {4, 0, 31, 4, 4},
                     {5, 0, 27, 5, 4}
                 });
         return result;

@@ -36,13 +36,25 @@ Release-specific checks:
   Scheduled charging. Five columns are the initial choice; narrower screens
   use the existing adaptive fallback. Fresh widget IDs are generated and no
   owner identity, name or setup data is bundled.
-- Native defaults/slots validation passes 1,092 assertions, matching every
+- Native defaults/slots validation passes 1,374 assertions, matching every
   captured option and rectangle, preserving existing dashboards and columns,
   legacy Adaptive choices, other profiles, saved slots and recorded history.
-- The signed 0.11.0 APK passes card checks at 344x882, 448x960 and 725x604 dp,
+- The final signed 0.11.0 APK passes card checks at 344x882, 411x840,
+  448x960 and 725x604 dp,
   plus 360x800 and 725x604 dp with 140% app text. Folded, unfolded and large-text
   screenshots were inspected. Connected/disconnected/connecting lock controls,
   scooter readings and battery readings fit without hidden inner overflow.
+- Independent review found that four newer widgets without 1–4-column saved
+  rectangles could settle above Lock on narrow first-run screens. Explicit
+  supplemental positions now keep the captured cards unchanged and fill the
+  two-column gaps beside Lock/Battery with Quick access/Charging. The new
+  first-screen Connect assertion reproduces the failure on the old APK and
+  passes on the fixed APK at 344 and 411 dp. All 40 captured rectangles and
+  widget options remain unchanged; fallback positions do not overlap.
+- The shared ride-map selector has 6 dp more top spacing. Focused native checks
+  pass 29 assertions each at 344 dp/default text and 725 dp/140% text, measuring
+  the actual 6 dp gap and retained 48 dp targets; screenshots were inspected.
+  The final combined APK includes this same one-file spacing change.
 - Fresh launches pass with Nearby permission denied and granted, including
   onboarding, all five tabs, dark/light/system themes and activity recreation.
 - Production APK and native runner build. APK signing/alignment pass and its

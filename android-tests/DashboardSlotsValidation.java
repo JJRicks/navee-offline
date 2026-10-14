@@ -128,6 +128,37 @@ public final class DashboardSlotsValidation extends Instrumentation {
                 "Restoring the backup failed to recover custom widgets and columns after default reset");
         fresh.reset();
         String five = geometry(fresh, 5, 5);
+        for (int columns = 1; columns <= 4; columns++) {
+            ArrayList<DashboardLayout.Cell> captured = new ArrayList<>();
+            int end = 0;
+            for (int i = 0; i < 6; i++) {
+                DashboardLayout.Cell cell = fresh.widgets.get(i).layouts.get(columns).copy();
+                captured.add(cell); end = Math.max(end, cell.y + cell.h);
+            }
+            for (int i = 6; i < 10; i++) {
+                DashboardLayout.Cell cell = fresh.widgets.get(i).layouts.get(columns);
+                DashboardConfig.Widget widget = fresh.widgets.get(i);
+                if (columns == 2 && (widget.type.equals("quick") || widget.type.equals("charging"))) {
+                    require(matchesTwoColumnGap(widget, cell), "Two-column supplemental card lost its safe gap");
+                    require(widget.minimumWidth(2, 312, 10, 1) == 1 && widget.minimumHeight(146) <= 4,
+                            "Two-column gap cannot contain the card at narrow default size");
+                } else {
+                    require(cell != null && cell.y >= end && cell.x == 0 && cell.w == columns,
+                            "Supplemental default must follow captured cards at " + columns + " columns");
+                    end = cell.y + cell.h;
+                }
+            }
+            java.util.List<DashboardLayout.Cell> settled = fresh.layout(columns, null);
+            for (int i = 0; i < 6; i++) {
+                DashboardLayout.Cell old = captured.get(i), cell = settled.get(i);
+                require(cell.x == old.x && cell.y == old.y && cell.w == old.w && cell.h == old.h,
+                        "Fallback cards displaced the captured " + fresh.widgets.get(i).type + " at " + columns + " columns");
+            }
+            for (int i = 0; i < settled.size(); i++)
+                for (int j = 0; j < i; j++)
+                    require(!DashboardLayout.overlaps(settled.get(i), settled.get(j)),
+                            "Fallback default cards overlap at " + columns + " columns");
+        }
         for (int columns = 1; columns <= 6; columns++) {
             java.util.List<DashboardLayout.Cell> cells = fresh.layout(columns, null, columns * 80, 10, 1.4f);
             require(cells.size() == 10, "Adaptive fallback lost a default widget");
@@ -143,7 +174,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                         && preferences.getInt("dashboard_columns", -1) == 5,
                 "Fallback sizing rewrote the captured five-column layout or preference");
         require(preferences.edit().clear().commit(), "Could not reset isolated default fixture");
-        checks.add("Captured ten-widget options/layouts and fresh IDs match; five-column defaults preserve upgrades, Adaptive choices, other profiles and slots");
+        checks.add("Captured ten-widget options/layouts and fresh IDs match; narrow fallbacks retain early lock access; five-column defaults preserve upgrades, Adaptive choices, other profiles and slots");
     }
 
     /** Golden sanitized release capture, independent of the production default factory. */
@@ -180,17 +211,34 @@ public final class DashboardSlotsValidation extends Instrumentation {
                                 && new JSONArray(widget.quickActions).toString().equals(wanted.getJSONArray("quickActions").toString()),
                         "Captured readings or shortcut order changed for " + widget.type);
                 JSONObject layouts = wanted.getJSONObject("layouts");
-                check.accept(widget.layouts.size() == layouts.length(), "Captured layout set changed for " + widget.type);
+                boolean supplemental = i >= 6; // Only these cards lacked captured smaller-grid positions.
+                check.accept(widget.layouts.size() == layouts.length() + (supplemental ? 4 : 0),
+                        "Captured/supplemental layout set changed for " + widget.type);
                 for (int columns = 1; columns <= 6; columns++) {
                     JSONArray rectangle = layouts.optJSONArray(Integer.toString(columns));
-                    if (rectangle == null) continue;
                     DashboardLayout.Cell cell = widget.layouts.get(columns);
+                    if (rectangle == null) {
+                        boolean gapCard = columns == 2 && (widget.type.equals("quick") || widget.type.equals("charging"));
+                        check.accept(supplemental && columns <= 4
+                                        ? cell != null && cell.id.equals(widget.id) && (gapCard
+                                                ? matchesTwoColumnGap(widget, cell)
+                                                : cell.x == 0 && cell.w == columns && cell.y > 0)
+                                        : cell == null,
+                                "Unexpected supplemental rectangle for " + widget.type + " at " + columns + " columns");
+                        continue;
+                    }
                     check.accept(cell != null && cell.id.equals(widget.id) && cell.x == rectangle.getInt(0)
                                     && cell.y == rectangle.getInt(1) && cell.w == rectangle.getInt(2) && cell.h == rectangle.getInt(3),
                             "Captured " + columns + "-column rectangle changed for " + widget.type);
                 }
             }
         } catch (Exception failure) { throw new AssertionError("Default capture mismatch", failure); }
+    }
+
+    private static boolean matchesTwoColumnGap(DashboardConfig.Widget widget, DashboardLayout.Cell cell) {
+        return cell != null && cell.x == 1 && cell.w == 1 && cell.h == 4
+                && (widget.type.equals("quick") && cell.y == 4
+                        || widget.type.equals("charging") && cell.y == 8);
     }
 
     private void fullRoundTrip() throws Exception {
