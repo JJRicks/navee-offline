@@ -1056,6 +1056,80 @@ public final class DashboardScreen implements AppScreen {
         return icon;
     }
 
+    private final class CapacityBar extends View {
+        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        Double percent;
+        CapacityBar() { super(host.activity()); setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); }
+        void set(Double value) { percent = value; invalidate(); }
+        @Override protected void onDraw(Canvas canvas) {
+            float radius = getHeight() / 2f;
+            paint.setColor(ui.raised);
+            canvas.drawRoundRect(0, 0, getWidth(), getHeight(), radius, radius, paint);
+            if (percent == null || !Double.isFinite(percent)) return;
+            paint.setColor(percent > 100 ? ui.orange : ui.accent);
+            float width = (float)(getWidth() * Math.max(0, Math.min(100, percent)) / 100);
+            canvas.drawRoundRect(0, 0, width, getHeight(), radius, radius, paint);
+        }
+    }
+
+    /** Compact, labeled metric cards shared by charging and the reading-list widget. */
+    private final class InfoCell extends LinearLayout {
+        final TextView label, value;
+        InfoCell(String icon, String title) {
+            super(host.activity());
+            setOrientation(VERTICAL);
+            setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10));
+            setBackground(ui.shape(ui.raised, 14, 0));
+            label = ui.text(title, 12, false);
+            label.setTextColor(ui.muted);
+            label.setCompoundDrawablesRelative(glyphDrawable(icon, ui.muted, 15), null, null, null);
+            label.setCompoundDrawablePadding(ui.dp(5));
+            addView(label, new LinearLayout.LayoutParams(-1, -2));
+            value = ui.text("—", 26, true);
+            value.setIncludeFontPadding(true);
+            value.setGravity(Gravity.CENTER_VERTICAL);
+            value.setMaxLines(2);
+            value.setAutoSizeTextTypeUniformWithConfiguration(
+                    Math.max(12, Math.round(12 * ui.textScale)), Math.max(13, Math.round(26 * ui.textScale)),
+                    1, android.util.TypedValue.COMPLEX_UNIT_SP);
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, ui.dp(48 * ui.textScale));
+            p.topMargin = ui.dp(2);
+            addView(value, p);
+        }
+    }
+
+    private final class InfoTiles extends LinearLayout {
+        final ArrayList<InfoCell> cells = new ArrayList<>();
+        int columns;
+        InfoTiles() { super(host.activity()); setOrientation(VERTICAL); }
+        InfoCell add(String icon, String title) {
+            InfoCell cell = new InfoCell(icon, title); cells.add(cell); columns = 0;
+            requestLayout(); return cell;
+        }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int next = MeasureSpec.getSize(widthSpec) >= ui.dp(280 * ui.textScale) ? 2 : 1;
+            next = Math.min(next, Math.max(1, cells.size()));
+            if (next != columns) {
+                columns = next;
+                for (InfoCell cell : cells) if (cell.getParent() instanceof ViewGroup)
+                    ((ViewGroup)cell.getParent()).removeView(cell);
+                removeAllViews();
+                for (int i = 0; i < cells.size(); i += columns) {
+                    LinearLayout line = row(); line.setBaselineAligned(false);
+                    for (int j = 0; j < columns && i + j < cells.size(); j++) {
+                        LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1);
+                        if (j > 0) p.setMarginStart(ui.dp(8));
+                        line.addView(cells.get(i + j), p);
+                    }
+                    LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
+                    if (i > 0) p.topMargin = ui.dp(8);
+                    addView(line, p);
+                }
+            }
+            super.onMeasure(widthSpec, heightSpec);
+        }
+    }
+
     /**
      * Charging takeover, kept as a hero above the grid: shown only while charging is freshly
      * reported, with the percentage, the scooter photo over a red glow and a floor line that
@@ -1066,6 +1140,9 @@ public final class DashboardScreen implements AppScreen {
         final ImageView photo;
         final Stage stage;
         double level = Double.NaN, limit = 100;
+        boolean shown;
+        android.animation.ValueAnimator reveal;
+        int revealGeneration;
 
         ChargingHero() {
             super(host.activity());
@@ -1098,40 +1175,66 @@ public final class DashboardScreen implements AppScreen {
             stage.addView(photo, photoSize);
             addView(stage, new LinearLayout.LayoutParams(-1, -2));
             LinearLayout rows = column();
-            etaLabel = ui.text("Time to full", 14, false);
-            etaLabel.setTextColor(ui.muted);
-            eta = ui.text("—", 15, true);
-            rows.addView(heroRow(etaLabel, eta));
-            View line = new View(host.activity());
-            line.setBackgroundColor(ui.raised);
-            rows.addView(line, new LinearLayout.LayoutParams(-1, ui.dp(1)));
-            TextView powerLabel = ui.text("Battery-side power", 14, false);
-            powerLabel.setTextColor(ui.muted);
-            power = ui.text("—", 15, true);
-            rows.addView(heroRow(powerLabel, power));
+            InfoTiles tiles = new InfoTiles();
+            InfoCell powerCell = tiles.add("bolt", "Charging power");
+            InfoCell timeCell = tiles.add("clock", "Time to full");
+            power = powerCell.value;
+            etaLabel = timeCell.label;
+            eta = timeCell.value;
+            rows.addView(tiles, new LinearLayout.LayoutParams(-1, -2));
             note = ui.caption("");
             note.setPadding(0, ui.dp(4), 0, 0);
             rows.addView(note);
             addView(rows, new LinearLayout.LayoutParams(-1, -2));
         }
 
-        private LinearLayout heroRow(TextView name, TextView value) {
-            LinearLayout line = row();
-            line.setGravity(Gravity.CENTER_VERTICAL);
-            line.setMinimumHeight(ui.dp(44));
-            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
-            value.setGravity(Gravity.END);
-            LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(-2, -2);
-            space.setMarginStart(ui.dp(12));
-            line.addView(value, space);
-            return line;
+        void stopReveal() {
+            revealGeneration++;
+            if (reveal != null) { reveal.cancel(); reveal = null; }
+            if (getLayoutParams() != null) { getLayoutParams().height = -2; requestLayout(); }
+            setAlpha(1); setTranslationY(0);
+            setVisibility(shown ? View.VISIBLE : View.GONE);
         }
+
+        private void showAnimated(boolean show) {
+            if (show == shown) return;
+            int current = getVisibility() == View.VISIBLE ? getHeight() : 0;
+            shown = show; stopReveal();
+            View parent = getParent() instanceof View ? (View)getParent() : null;
+            if (!Ui.motionEnabled() || closed || parent == null || parent.getWidth() == 0) return;
+            setVisibility(View.VISIBLE);
+            int width = parent.getWidth() - parent.getPaddingLeft() - parent.getPaddingRight();
+            measure(MeasureSpec.makeMeasureSpec(Math.max(1, width), MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+            int full = Math.max(1, getMeasuredHeight());
+            int start = Math.max(0, Math.min(full, current)), end = show ? full : 0;
+            final int generation = revealGeneration;
+            reveal = android.animation.ValueAnimator.ofInt(start, end);
+            reveal.setDuration(240);
+            reveal.setInterpolator(new android.view.animation.DecelerateInterpolator());
+            reveal.addUpdateListener(a -> {
+                if (generation != revealGeneration) return;
+                if (!Ui.motionEnabled() || closed) { stopReveal(); return; }
+                int h = (Integer)a.getAnimatedValue();
+                getLayoutParams().height = h; requestLayout();
+                float fraction = Math.max(0, Math.min(1, h / (float)full));
+                setAlpha(fraction); setTranslationY(-ui.dp(16) * (1 - fraction));
+            });
+            reveal.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(android.animation.Animator animation) {
+                    if (generation == revealGeneration) stopReveal();
+                }
+            });
+            getLayoutParams().height = start; requestLayout();
+            reveal.start();
+        }
+
+        @Override protected void onDetachedFromWindow() { stopReveal(); super.onDetachedFromWindow(); }
 
         void refresh(Map<String, TelemetryHistory.Reading> values) {
             ChargingEstimate.Result estimate = chargingEstimate(values);
             boolean show = estimate.charging && !editing;
-            setVisibility(show ? View.VISIBLE : View.GONE);
-            if (!show) return;
+            if (!show) { showAnimated(false); return; }
             TelemetryHistory.Reading charge = values.get("battery_percent");
             level = charge == null || charge.number == null ? Double.NaN
                     : Math.max(0, Math.min(100, charge.number));
@@ -1162,16 +1265,15 @@ public final class DashboardScreen implements AppScreen {
             eta.setText(duration(hasLimit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull));
             String watts = estimate.inputWatts == null ? null
                     : String.format(Locale.US, "%.0f W", estimate.inputWatts);
-            String amps = estimate.inputAmps == null ? null
-                    : String.format(Locale.US, "%.1f A", estimate.inputAmps);
-            power.setText(watts == null && amps == null ? "—"
-                    : watts == null ? amps : amps == null ? watts : watts + " · " + amps);
+            power.setText(watts == null ? "—" : watts);
+            power.setTextColor(watts == null ? ui.muted : ui.ok);
             note.setText(estimate.status == null ? "" : estimate.status);
             note.setVisibility(note.getText().length() == 0 ? View.GONE : View.VISIBLE);
             stage.setContentDescription(
                     (Double.isNaN(level) ? "Charge not reported" : "Charge " + Math.round(level) + " percent")
                             + (hasLimit ? ", charge limit " + Math.round(limit) + " percent" : ""));
             stage.invalidate();
+            showAnimated(true);
         }
 
         /** Glow and floor line under the photo. */
@@ -1237,11 +1339,10 @@ public final class DashboardScreen implements AppScreen {
         TextView big, subtitle, healthDetail, rideTitle, rideDetail;
         View rideButton, recordDisc;
         TextView capacityValue, capacitySummary, capacityCompare, capacityEvidence, capacityMethod, capacityNote;
+        CapacityBar capacityBar;
         TextView chargingWatts,
-                chargingAmps,
                 chargingEta,
                 chargingEtaLabel,
-                chargingFull,
                 chargingNote,
                 chargingTemperature;
         LinearLayout batteryData, chargingData;
@@ -1502,7 +1603,6 @@ public final class DashboardScreen implements AppScreen {
                     IconReadingStrip charging = new IconReadingStrip(IconReadingStrip.READINGS);
                     chargingData = charging;
                     chargingWatts = charging.addReading("bolt", "Charging power");
-                    chargingAmps = charging.addReading("battery", "Charging current");
                     chargingEta = charging.addReading("clock", "Time to full");
                     chargingTemperature = charging.addReading("temperature", "Battery temperature");
                     // Compact status is announced and available on long press, without
@@ -1537,6 +1637,8 @@ public final class DashboardScreen implements AppScreen {
                     break;
                 case "health":
                     final TextView health = new FittedValue("—", 14, 34, 1);
+                    health.setIncludeFontPadding(true);
+                    health.setPadding(0, ui.dp(3), 0, ui.dp(2));
                     healthDetail = ui.caption("");
                     final TextView detail = healthDetail;
                     LinearLayout top =
@@ -1571,40 +1673,50 @@ public final class DashboardScreen implements AppScreen {
                     body.addView(subtitle);
                     break;
                 case "capacity":
-                    LinearLayout words = column();
-                    TextView name = ui.text(widget.title, 15, false);
-                    name.setTypeface(ui.medium());
-                    words.addView(name);
-                    capacitySummary = ui.caption("Experimental estimate");
-                    capacitySummary.setPadding(0, ui.dp(2), 0, 0);
-                    words.addView(capacitySummary);
-                    capacityValue = ui.text("Not enough ride data", 15, true);
-                    capacityValue.setTextColor(ui.muted);
-                    body.addView(new CapacityRow(square("lab", ui.accent, 38), words, capacityValue));
+                    TextView name = ui.text(widget.title, 14, false);
+                    name.setTextColor(ui.muted);
+                    name.setCompoundDrawablesRelative(glyphDrawable("lab", ui.accent, 18), null, null, null);
+                    name.setCompoundDrawablePadding(ui.dp(6));
+                    body.addView(name);
+                    capacityMethod = ui.caption("Experimental estimate");
+                    capacityMethod.setPadding(0, ui.dp(4), 0, 0);
+                    body.addView(capacityMethod);
+                    capacityValue = new FittedValue("Not enough ride data", 16, 34, 2);
+                    capacityValue.setPadding(0, ui.dp(8), 0, ui.dp(4));
+                    body.addView(capacityValue, new LinearLayout.LayoutParams(-1, -2));
                     capacityCompare = ui.text("", 14, true);
+                    body.addView(capacityCompare);
+                    capacityBar = new CapacityBar();
+                    LinearLayout.LayoutParams barSpace = new LinearLayout.LayoutParams(-1, ui.dp(10));
+                    barSpace.topMargin = barSpace.bottomMargin = ui.dp(10);
+                    body.addView(capacityBar, barSpace);
+                    capacitySummary = ui.caption("Record rides to build an estimate");
+                    body.addView(capacitySummary);
+                    // Full evidence and caveats stay one tap away, rather than filling the card.
                     capacityEvidence = ui.caption("Checking recorded rides…");
-                    capacityMethod = ui.caption("Experimental energy / battery-percentage estimate");
-                    capacityNote =
-                            ui.caption(
-                                    "Cold, riding load and battery-gauge changes affect this"
-                                            + " estimate.");
-                    LinearLayout details = column();
-                    details.setPadding(0, ui.dp(12), 0, 0);
-                    for (TextView text :
-                            new TextView[] {capacityCompare, capacityMethod, capacityEvidence, capacityNote}) {
-                        text.setPadding(0, 0, 0, ui.dp(8));
-                        details.addView(text);
-                    }
-                    details.addView(
-                            ui.secondaryButton(
-                                    "How this is estimated", () -> showCapacityMethod(widget)));
-                    body.addView(details);
+                    capacityNote = ui.caption("Experimental; depends on battery gauge and riding conditions.");
+                    TextView evidence = ui.secondaryButton("Estimate details", () -> {
+                        LinearLayout details = column();
+                        details.addView(ui.text(capacityMethod.getText().toString(), 18, true));
+                        details.addView(ui.caption(capacityEvidence.getText().toString()));
+                        details.addView(ui.caption(capacityNote.getText().toString()));
+                        details.addView(ui.secondaryButton("How this is estimated", () -> showCapacityMethod(widget)));
+                        show("Capacity estimate", details);
+                    });
+                    LinearLayout.LayoutParams evidenceSpace = new LinearLayout.LayoutParams(-1, -2);
+                    evidenceSpace.topMargin = ui.dp(8);
+                    body.addView(evidence, evidenceSpace);
                     break;
                 case "charging":
                     buildCharging(body, true);
                     break;
                 case "readings":
-                    for (String key : widget.keys) addReading(key);
+                    InfoTiles readingTiles = new InfoTiles();
+                    for (String key : widget.keys) {
+                        InfoCell cell = readingTiles.add(readingIcon(key), ScooterReadingLabels.label(key, label(key)));
+                        amounts.put(key, cell.value);
+                    }
+                    body.addView(readingTiles, new LinearLayout.LayoutParams(-1, -2));
                     break;
                 case "trip":
                     IconReadingStrip stats = new IconReadingStrip(IconReadingStrip.STATS);
@@ -2164,10 +2276,12 @@ public final class DashboardScreen implements AppScreen {
         }
 
         private void buildCharging(LinearLayout container, boolean detailed) {
-            chargingWatts = chargingRow(container, "Charging power");
-            if (detailed) chargingAmps = chargingRow(container, "Charging current");
-            chargingEta = chargingRow(container, "Time to full");
-            if (detailed) chargingFull = chargingRow(container, "To 100% at this rate");
+            InfoTiles tiles = new InfoTiles();
+            chargingWatts = tiles.add("bolt", "Charging power").value;
+            InfoCell time = tiles.add("clock", "Time to full");
+            chargingEta = time.value;
+            chargingEtaLabel = time.label;
+            container.addView(tiles, new LinearLayout.LayoutParams(-1, -2));
             chargingNote = ui.caption("Connect for fresh charging readings.");
             chargingNote.setPadding(0, ui.dp(6), 0, 0);
             container.addView(chargingNote);
@@ -2184,14 +2298,7 @@ public final class DashboardScreen implements AppScreen {
                     estimate.inputWatts == null
                             ? "—"
                             : String.format(Locale.US, "%.0f W", estimate.inputWatts));
-            chargingWatts.setTextColor(estimate.inputWatts == null ? ui.muted : ui.text);
-            if (chargingAmps != null) {
-                chargingAmps.setText(
-                        estimate.inputAmps == null
-                                ? "—"
-                                : String.format(Locale.US, "%.2f A", estimate.inputAmps));
-                chargingAmps.setTextColor(estimate.inputAmps == null ? ui.muted : ui.text);
-            }
+            chargingWatts.setTextColor(estimate.inputWatts == null ? ui.muted : ui.ok);
             boolean limit = estimate.targetPercent != null && estimate.targetPercent < 100;
             chargingEtaLabel.setText(
                     limit
@@ -2201,18 +2308,10 @@ public final class DashboardScreen implements AppScreen {
                     limit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull;
             chargingEta.setText(duration(minutes));
             chargingEta.setTextColor(minutes == null ? ui.muted : ui.text);
-            if (chargingFull != null) {
-                chargingFull.setText(
-                        limit ? "Raise charge limit" : duration(estimate.remainingMinutesToFull));
-                chargingFull.setTextColor(ui.muted);
-                ((View) chargingFull.getParent()).setVisibility(limit ? View.VISIBLE : View.GONE);
-            }
             chargingNote.setText(
                     (estimate.inputWatts == null ? "" : "Battery-side readings. ")
                             + estimate.status);
             describeCharging(chargingWatts, "Charging power", "Battery-side power");
-            if (chargingAmps != null)
-                describeCharging(chargingAmps, "Charging current", "Battery-side current");
             describeCharging(chargingEta, chargingEtaLabel.getText().toString(), estimate.status);
             if (chargingTemperature != null) {
                 TelemetryHistory.Reading temperature = values.get("temperature_c");
@@ -2254,6 +2353,8 @@ public final class DashboardScreen implements AppScreen {
                     String text = format(r);
                     amount.setText(styled && !key.equals("driving_mode") ? withUnit(text, live) : text);
                     amount.setTextColor(live ? ui.text : ui.muted);
+                    if (widget.type.equals("battery") && key.equals("power_w") && live && r.number != null)
+                        amount.setTextColor(r.number < 0 ? ui.ok : r.number > 0 ? ui.danger : ui.text);
                     amount.setContentDescription(
                             label(key)
                                     + ", "
@@ -2416,6 +2517,7 @@ public final class DashboardScreen implements AppScreen {
                 capacityMethod.setText("Simulated estimate");
                 capacityCompare.setText(advertised == null ? "Sample capacity" : String.format(Locale.US, "95%% of %.0f Wh · sample", advertised));
                 capacityCompare.setTextColor(ui.muted);
+                capacityBar.set(advertised == null ? null : 95d);
                 capacityEvidence.setText("Sample data for layout preview");
                 capacityNote.setText("No recorded rides are used or changed.");
                 capacityNote.setTextColor(ui.muted);
@@ -2454,7 +2556,7 @@ public final class DashboardScreen implements AppScreen {
                                 value == null ? ui.muted : proxy ? ui.orange : ui.text);
                         capacitySummary.setText(
                                 value == null
-                                        ? "Experimental estimate"
+                                        ? result.status
                                         : String.format(
                                                 Locale.US,
                                                 "%d rides · %.0f points used",
@@ -2464,11 +2566,9 @@ public final class DashboardScreen implements AppScreen {
                                                         : result.proxyBatteryDropPoints));
                         capacityMethod.setText(
                                 estimated
-                                        ? "Ride-based energy estimate · experimental"
-                                        : proxy
-                                                ? "Throughput equivalent · experimental proxy"
-                                                : "Experimental energy / battery-percentage"
-                                                        + " estimate");
+                                        ? "Ride-based · experimental"
+                                        : proxy ? "Throughput proxy · not battery health"
+                                                : "Experimental estimate");
                         capacityCompare.setText(
                                 percent != null && result.advertisedWh != null
                                         ? String.format(
@@ -2484,6 +2584,7 @@ public final class DashboardScreen implements AppScreen {
                                                         result.advertisedWh)
                                                 : "Set advertised Wh in widget options to compare");
                         capacityCompare.setTextColor(ui.muted);
+                        capacityBar.set(percent);
                         String evidence =
                                 value == null
                                         ? result.status
@@ -2581,6 +2682,7 @@ public final class DashboardScreen implements AppScreen {
                     points.add(new Ui.Point(p.wallMs, chartNumber(key, p.value), p.gapBefore));
             for (Ui.Point p : livePoints)
                 points.add(new Ui.Point(p.millis, chartNumber(key, p.value), p.gapBefore));
+            chart.setAxis(key, widget.absoluteAxis);
             chart.set(points, chartUnit(key, values), color(widget), "No saved readings yet");
             if (!widget.type.equals("health")) {
                 String metricLabel = label(key);
@@ -3827,21 +3929,26 @@ public final class DashboardScreen implements AppScreen {
         }
         if (Arrays.asList("live", "history", "health", "capacity").contains(widget.type)) {
             list.addView(sheetLabel(widget.type.equals("capacity") ? "Ride data window" : "Time window"));
-            Flow windows = new Flow();
-            ArrayList<TextView> chips = new ArrayList<>();
-            for (long option : windowOptions(widget)) {
-                TextView chip = sheetChip(shortWindow(option), widget.windowMs == option);
-                chip.setOnClickListener(
-                        v -> {
-                            widget.windowMs = option;
-                            config.save();
-                            for (TextView other : chips) ui.styleChip(other, other == chip);
-                            render();
-                        });
-                chips.add(chip);
-                windows.addView(chip);
+            long[] options = windowOptions(widget);
+            String[] windowLabels = new String[options.length]; int selectedWindow = 0;
+            for (int i = 0; i < options.length; i++) {
+                windowLabels[i] = shortWindow(options[i]);
+                if (options[i] == widget.windowMs) selectedWindow = i;
             }
+            SegmentedSelector windows = new SegmentedSelector(ui, "Time window", windowLabels, choice -> {
+                widget.windowMs = options[choice]; config.save(); render();
+            });
+            windows.select(selectedWindow, false);
             list.addView(windows, new LinearLayout.LayoutParams(-1, -2));
+        }
+        if (Arrays.asList("live", "history", "health").contains(widget.type)) {
+            list.addView(sheetLabel("Y axis"));
+            SegmentedSelector axis = new SegmentedSelector(ui, "Y axis",
+                    new String[]{"Relative", "Absolute"}, choice -> {
+                        widget.absoluteAxis = choice == 1; config.save(); render();
+                    });
+            axis.select(widget.absoluteAxis ? 1 : 0, false);
+            list.addView(axis, new LinearLayout.LayoutParams(-1, -2));
         }
         list.addView(sheetLabel("Color"));
         Flow swatches = new Flow();
@@ -4061,6 +4168,7 @@ public final class DashboardScreen implements AppScreen {
         copy.maximum = widget.maximum;
         copy.advertisedWh = widget.advertisedWh;
         copy.showDisconnect = widget.showDisconnect;
+        copy.absoluteAxis = widget.absoluteAxis;
         for (Map.Entry<Integer, DashboardLayout.Cell> entry : widget.layouts.entrySet()) {
             DashboardLayout.Cell original = entry.getValue();
             copy.layouts.put(entry.getKey(), new DashboardLayout.Cell(copy.id, original.x,
@@ -5093,6 +5201,7 @@ public final class DashboardScreen implements AppScreen {
     @Override
     public void close() {
         closed = true;
+        chargingHero.stopReveal();
         cancelWidgetReveal();
         pendingAddedWidgetId = revealWidgetId = null;
         stopRemovalEffect();

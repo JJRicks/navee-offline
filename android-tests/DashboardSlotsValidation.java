@@ -181,8 +181,8 @@ public final class DashboardSlotsValidation extends Instrumentation {
             damaged.getJSONArray("widgets").getJSONObject(0).remove(field);
             invalid.add(damaged.toString());
         }
-        String[] fields = {"id", "type", "color", "window", "min", "max", "advertisedWh", "keys", "title", "showDisconnect"};
-        Object[] values = {"", "future-type", 4, 0, "0", -999, -1, new JSONArray().put(9), 5, "false"};
+        String[] fields = {"id", "type", "color", "window", "min", "max", "advertisedWh", "keys", "title", "showDisconnect", "absoluteAxis"};
+        Object[] values = {"", "future-type", 4, 0, "0", -999, -1, new JSONArray().put(9), 5, "false", "true"};
         for (int i = 0; i < fields.length; i++) {
             JSONObject damaged = new JSONObject(valid);
             damaged.getJSONArray("widgets").getJSONObject(0).put(fields[i], values[i]);
@@ -345,12 +345,14 @@ public final class DashboardSlotsValidation extends Instrumentation {
                 "Loading a legacy slot rewrote its serialized snapshot");
         config.layout(6, null);
         require(geometry(config, 1, 4).equals(geometry), "Deriving six columns rewrote existing 1–4 geometry");
+        int firstRow = Integer.MAX_VALUE;
+        for (DashboardConfig.Widget widget : config.widgets) firstRow = Math.min(firstRow, widget.layouts.get(4).y);
         for (DashboardConfig.Widget widget : config.widgets) {
             DashboardLayout.Cell source = widget.layouts.get(4), converted = widget.layouts.get(6);
             DashboardLayout.Cell expectedCell = DashboardLayout.rescale(source, 4, 6);
             require(converted.x == expectedCell.x && converted.w == expectedCell.w
-                            && converted.y == source.y && converted.h == source.h,
-                    "A noncolliding legacy layout did not derive six-column geometry proportionally");
+                            && converted.y == source.y - firstRow && converted.h == source.h,
+                    "A noncolliding legacy layout did not derive proportional six-column geometry aligned to the top");
         }
         config.layout(5, null);
         require(geometry(config, 1, 4).equals(geometry), "Deriving five columns rewrote legacy geometry");
@@ -578,6 +580,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             widget.windowMs = (i + 1) * 120000L; widget.minimum = -40.5 - i;
             widget.maximum = 500.25 + i; widget.advertisedWh = 780.5 + i;
             widget.showDisconnect = i % 2 != 0;
+            widget.absoluteAxis = i % 2 == 0;
             widget.keys.clear(); widget.keys.addAll(Arrays.asList("speed_kmh", "voltage_v", "power_w"));
             for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
                 int width = Math.min(columns, 1 + i % 2);
@@ -597,7 +600,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                     .append(w.metric).append('|').append(w.note).append('|').append(w.color).append('|')
                     .append(w.windowMs).append('|').append(w.minimum).append('|').append(w.maximum).append('|')
                     .append(w.advertisedWh).append('|').append(w.keys).append('|')
-                    .append(w.showDisconnect).append('|').append(w.quickActions).append('|');
+                    .append(w.showDisconnect).append('|').append(w.absoluteAxis).append('|').append(w.quickActions).append('|');
             for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
                 DashboardLayout.Cell c = w.layouts.get(columns);
                 if (c == null) result.append("absent;");

@@ -13,4 +13,5 @@
   <instrumentation android:name="local.navee.offlinelock.tests.DashboardSlotsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator dashboard layout slot validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ResponsiveDashboardValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated responsive dashboard validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.DeveloperSettingsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated developer preview and preferences validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.BatteryWidgetValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated battery widget presentation validation" />
 </manifest>

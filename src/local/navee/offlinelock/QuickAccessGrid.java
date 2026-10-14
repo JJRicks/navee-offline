@@ -106,6 +106,7 @@ final class QuickAccessGrid extends ViewGroup {
         }
         void measureContent(int width, boolean compact) {
             label.setVisibility(iconsOnly ? GONE : VISIBLE);
+            icon.setAlpha(editing && iconsOnly ? .22f : 1f);
             value.setVisibility(iconsOnly || "".equals(value.getTag()) ? GONE : VISIBLE);
             setPadding(ui.dp(4), ui.dp(compact ? 3 : 7), ui.dp(4), ui.dp(compact ? 3 : 7));
             int side = ui.dp(compact ? 18 : 20);
