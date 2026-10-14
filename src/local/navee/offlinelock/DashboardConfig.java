@@ -136,7 +136,8 @@ public final class DashboardConfig {
         public int minimumHeight() {
             if (type.equals("scooter")) return 3;
             if (type.equals("lock")) return showDisconnect ? 4 : 3;
-            if (type.equals("gauge") || type.equals("ride")) return 3;
+            if (type.equals("ride")) return 1;
+            if (type.equals("gauge")) return 3;
             return type.equals("live") || type.equals("history")
                     ? 4
                     : type.equals("health")
@@ -146,6 +147,13 @@ public final class DashboardConfig {
                                             || type.equals("charging")
                                     ? 4
                                     : 2;
+        }
+
+        public int minimumHeight(float widthDp) {
+            if (type.equals("quick") && widthDp < 144) return 4;
+            // A one-row recorder reserves an independent resize target beside its editor bar.
+            if (type.equals("ride") && widthDp < 192) return 3;
+            return minimumHeight();
         }
 
         public int defaultWidth(int columns) {
@@ -320,6 +328,7 @@ public final class DashboardConfig {
             cells.add(cell);
         }
         List<DashboardLayout.Cell> settled = DashboardLayout.settle(cells, columns, priority);
+        if (priority == null) settled = DashboardLayout.withoutLeadingRows(settled);
         for (DashboardLayout.Cell cell : settled)
             for (Widget w : widgets) if (w.id.equals(cell.id)) w.layouts.put(columns, cell);
         return settled;
@@ -340,9 +349,12 @@ public final class DashboardConfig {
             DashboardLayout.Cell cell = saved.get(i).copy();
             cell.w = Math.max(cell.w,
                     widgets.get(i).minimumWidth(columns, availableWidthDp, gapDp, textScale));
+            cell.h = Math.max(cell.h, widgets.get(i).minimumHeight(
+                    cell.w * availableWidthDp / columns - gapDp));
             visible.add(cell);
         }
-        return DashboardLayout.settle(visible, columns, priority);
+        List<DashboardLayout.Cell> result = DashboardLayout.settle(visible, columns, priority);
+        return priority == null ? DashboardLayout.withoutLeadingRows(result) : result;
     }
 
     public void save() {

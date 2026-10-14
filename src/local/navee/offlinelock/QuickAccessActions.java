@@ -29,7 +29,7 @@ public final class QuickAccessActions {
     static {
         add("lights", "Lights", "lights", "Menus", null);
         add("controls", "Settings", "settings", "Menus", null);
-        add("stats", "Stats", "stats", "Pages", null);
+        add("stats", "Live Stats", "stats", "Pages", null);
         add("rides", "Rides", "rides", "Pages", null);
         add("section:Ride", "Ride settings", "scooter", "Menus", null);
         add("section:Battery", "Battery settings", "battery", "Menus", null);
