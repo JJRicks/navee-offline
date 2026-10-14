@@ -825,8 +825,10 @@ public final class MoreScreen implements AppScreen {
         note(box,"Start recording while the app is open, then turn the screen off. Ride and charge recordings keep Bluetooth active even when Stay connected in background is off. The recording notification has a Stop action.");
         note(box,"Android 14 and later may let you swipe away the notification while unlocked; that does not stop recording. Force stop, revoked permissions, Bluetooth loss and device-specific battery restrictions can interrupt capture.");
         box.addView(ui.button("Recording notifications",()->openAndroidSettings(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)));
-        box.addView(ui.button("App battery settings",()->openAndroidSettings(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS)));
-        show(new AlertDialog.Builder(host.activity()).setView(box).setPositiveButton("Close",null).create());
+        TextView battery=ui.button("App battery settings",()->openAndroidSettings(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS));
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,-2);bp.topMargin=ui.dp(10);box.addView(battery,bp);
+        ScrollView scroller=new ScrollView(host.activity());scroller.addView(box);
+        show(new AlertDialog.Builder(host.activity()).setView(scroller).setPositiveButton("Close",null).create());
     }
     private void openAndroidSettings(String action){
         android.content.Intent intent=new android.content.Intent(action);

@@ -119,7 +119,13 @@ public final class ChargeCaptureValidation extends Instrumentation {
             require(document.getString("format").equals("navee-charge-recordings-v1"),"Export schema invalid");
             require(document.getString("charger_selection").equals("manual"),"Export implies automatic charger detection");
             org.json.JSONArray sessions=document.getJSONArray("sessions");require(sessions.length()>0,"Saved journals absent from export");
-            for(int index=0;index<sessions.length();index++)require(sessions.getJSONObject(index).getString("profile_id").equals(profile),"Unrelated scooter leaked into export");
+            for(int index=0;index<sessions.length();index++){
+                org.json.JSONObject session=sessions.getJSONObject(index);
+                require(session.getString("profile_id").equals(profile),"Unrelated scooter leaked into export");
+                org.json.JSONObject sample=session.getJSONArray("samples").getJSONObject(0);
+                require(sample.getDouble("current_a")==-2&&sample.getDouble("power_w")==-104&&sample.getDouble("voltage_v")==52,"Export changed recorded electrical values");
+                require(sample.isNull("temperature_c")&&sample.getBoolean("gap_before"),"Export changed unknown temperature or gap");
+            }
             require(!json.contains("owner_identity")&&!json.contains("000000000000"),"Owner identity leaked into export");
             AtomicReference<Boolean> cleared=new AtomicReference<>(false);
             main(()->require(service.clearChargeRecordings(()->cleared.set(true)),"Charge clear refused idle capture"));
@@ -135,7 +141,12 @@ public final class ChargeCaptureValidation extends Instrumentation {
         for(String permission:new String[]{Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT})require(getTargetContext().checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED,"Nearby permission missing");
         BluetoothManager manager=getTargetContext().getSystemService(BluetoothManager.class);require(manager==null||manager.getAdapter()==null||!manager.getAdapter().isEnabled(),"Disable emulator Bluetooth");
     }
-    private void seedActive(String id){try{store().start(id,ChargeSessionStore.Charger.HIGH_SPEED,System.currentTimeMillis(),SystemClock.elapsedRealtime());}catch(IOException e){throw new IllegalStateException(e);}}
+    private void seedActive(String id){try{
+        long wall=System.currentTimeMillis(),mono=SystemClock.elapsedRealtime();
+        store().start(id,ChargeSessionStore.Charger.HIGH_SPEED,wall,mono);
+        store().sample(new ChargeSessionStore.Frame(wall,mono,new ChargeSessionStore.Value(1d,mono,0x72),new ChargeSessionStore.Value(50d,mono,0x72),
+                new ChargeSessionStore.Value(52d,mono,0x72),new ChargeSessionStore.Value(-2d,mono,0x72),null));
+    }catch(IOException e){throw new IllegalStateException(e);}}
     private ChargeSessionStore store(){return store(service);}
     private ChargeSessionStore store(ScooterService source){return (ChargeSessionStore)field(source,"chargeStore");}
     private File[] files(){File[] entries=new File(getTargetContext().getFilesDir(),"charge-recordings").listFiles();return entries==null?new File[0]:entries;}
