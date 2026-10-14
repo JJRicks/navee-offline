@@ -1,3 +1,22 @@
+GAUGE SCALE PREFILL — REVIEW FOLLOW-UP
+October 13, 2026
+
+- Reproduced Claude's non-blocking finding: 23.5 C prefilled as
+  74.30000000000001 F, and 50 km/h as 31.068559611866696 mph.
+- Gauge scale fields now round display text to six decimals, strip trailing zeros,
+  and retain a decimal point independent of locale. Very small nonzero limits
+  remain nonzero. Saving the unchanged displayed number preserves the exact
+  original canonical bound; edited values follow existing inverse conversion
+  and min/max validation.
+- All fifteen pure suites pass 46,213 checks/assertions. Nineteen new focused
+  cases cover Fahrenheit and mph prefills, exact unchanged saves, intentional
+  edits, German locale, negative/small values and nonfinite rejection.
+- Signed production build passes signing/alignment checks. The hotfix changes
+  only gauge-edit text handling; previous native UI validation is recorded below.
+
+Hotfix preview APK SHA-256:
+09fb7732e9500c2f7e8c72a357bfbaec84e57bf66781a68a0e433ba7b0ae0077
+
 TEMPERATURE UNITS AND LARGER SCOOTER VALUES — PREVIEW FOLLOW-UP
 October 13, 2026
 

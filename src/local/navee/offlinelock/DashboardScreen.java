@@ -4446,9 +4446,9 @@ public final class DashboardScreen implements AppScreen {
                 InputType.TYPE_CLASS_NUMBER
                         | InputType.TYPE_NUMBER_FLAG_DECIMAL
                         | InputType.TYPE_NUMBER_FLAG_SIGNED);
-        input.setText(
-                Double.toString(
-                        chartNumber(widget.metric, maximum ? widget.maximum : widget.minimum)));
+        double original = maximum ? widget.maximum : widget.minimum;
+        GaugeScaleInput scaleInput = new GaugeScaleInput(original, chartNumber(widget.metric, original));
+        input.setText(scaleInput.text);
         dialog =
                 new AlertDialog.Builder(dialogContext)
                         .setTitle(
@@ -4464,12 +4464,13 @@ public final class DashboardScreen implements AppScreen {
                 .setOnClickListener(
                         v -> {
                             try {
-                                double n = Double.parseDouble(input.getText().toString());
-                                if (DisplayTemperature.isTemperature(widget.metric))
-                                    n = DisplayTemperature.toCelsius(n, temperatureUnit());
-                                else if (!units().equals("km")
-                                        && (widget.metric.endsWith("_km")
-                                                || widget.metric.endsWith("_kmh"))) n *= 1.609344;
+                                double n = scaleInput.resolve(input.getText().toString(), value -> {
+                                    if (DisplayTemperature.isTemperature(widget.metric))
+                                        return DisplayTemperature.toCelsius(value, temperatureUnit());
+                                    if (!units().equals("km") && (widget.metric.endsWith("_km")
+                                            || widget.metric.endsWith("_kmh"))) return value * 1.609344;
+                                    return value;
+                                });
                                 if (!Double.isFinite(n)
                                         || (maximum ? n <= widget.minimum : n >= widget.maximum))
                                     throw new IllegalArgumentException();
