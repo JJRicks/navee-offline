@@ -127,7 +127,10 @@ detached `nohup` watchdog, and requires its readiness acknowledgment. The phone
 timer attempts cleanup after 120 seconds even if the browser vanishes. Start and
 restoration share a gate, and a stopping marker blocks late starts. The signal
 handler waits for a bounded in-flight child and exits rather than resuming later
-mutations. A watchdog exiting after a restoration failure leaves an acknowledgment
+mutations. Cleanup uses the same signal/EXIT discipline: a dropped browser shell
+cannot strand its gate, and repeated signals cannot release that gate before an
+in-flight restore finishes. SIGKILL or a reboot can still prevent traps from
+running and require manual verification. A watchdog exiting after a restoration failure leaves an acknowledgment
 so an explicit later recovery can restore and release the ended timer.
 
 Cleanup always force-stops NAVEE before restoring the exact previous property
@@ -181,8 +184,9 @@ The dedicated subdomain uses a **DNS-only** record and HTTPS directly from the V
 so Cloudflare does not rewrite its HTML. Disable HTML rewriting, email obfuscation,
 analytics insertion, Rocket Loader and challenge-script injection if a reverse proxy
 is introduced later. The legacy `jjricks.com/pairscooter/` recovery route has one
-documented exception: Cloudflare adds a JS-detection snippet, which the exact
-hash-only CSP blocks. This exception tolerates blocked markup only, never execution
+documented exception: Cloudflare adds its identified JS-detection snippet and
+Cloudflare Insights beacon, both of which the exact hash-only CSP blocks. This
+exception tolerates blocked markup only, never execution
 of an injected script. Do not loosen CSP to make that snippet run. Moving or
 changing hosting settings is a separate owner-approved deployment action.
 
@@ -191,7 +195,7 @@ the bundle, and styles against `dist/` at the origin and through the CDN. Record
 any HTML differences explicitly; a matching bundle hash alone does not show that
 the HTML was unchanged. The dedicated host requires byte-identical HTML. The legacy
 recovery route's exception is limited to the identified, CSP-blocked Cloudflare
-snippet. Unexpected markup, changed consent text, a relaxed
+challenge and beacon templates. Unexpected markup, changed consent text, a relaxed
 policy, or another executed script fails validation. Verify the response headers
 and executed scripts in an isolated browser as well. HTTP CSP and the early HTML
 meta policy should agree; `frame-ancestors` must be HTTP-only.

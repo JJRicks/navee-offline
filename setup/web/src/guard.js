@@ -14,33 +14,61 @@ export function guardScript(token) {
 umask 077
 d=${d}
 ours() { ${checkToken(token)}; }
+child=
+gate_held=0
+guard_mode=0
+guard_outcome=stopped
+release_gate() {
+  [ "$gate_held" = 1 ] || return 0
+  rmdir "$d/cleaning" 2>/dev/null
+  gate_held=0
+}
+interrupted() {
+  # A second signal must not cut short the wait and expose a late child write.
+  trap '' HUP INT TERM
+  if [ -n "$child" ]; then wait "$child" 2>/dev/null; fi
+  exit 1
+}
+finish() {
+  release_gate
+  # Sole watchdog acknowledgment, after its last possible cleanup side effect.
+  if [ "$guard_mode" = 1 ] && ours; then printf %s "$guard_outcome" > "$d/guard_done"; fi
+}
+trap finish EXIT
+trap interrupted HUP INT TERM
+run() {
+  timeout "$@" &
+  child=$!
+  wait "$child"
+  result=$?
+  child=
+  return "$result"
+}
 cleanup() {
   ours || return 1
   mkdir "$d/cleaning" 2>/dev/null || return 2
+  gate_held=1
   ok=1
   # The original is a bounded property value, never shell source.
   [ -f "$d/original" ] && [ ! -L "$d/original" ] || ok=0
   [ "$(wc -c < "$d/original")" -le 91 ] || ok=0
   if [ "$ok" = 1 ]; then
     old=$(cat "$d/original") || ok=0
-    timeout 6 am force-stop --user 0 ${PACKAGE} >/dev/null 2>&1 || ok=0
-    timeout 3 setprop ${PROPERTY} "$old" >/dev/null 2>&1 || ok=0
+    run 6 am force-stop --user 0 ${PACKAGE} >/dev/null 2>&1 || ok=0
+    run 3 setprop ${PROPERTY} "$old" >/dev/null 2>&1 || ok=0
     current=$(timeout 3 getprop ${PROPERTY}) || ok=0
     [ "$current" = "$old" ] || ok=0
   fi
   if [ "$ok" = 1 ]; then printf done > "$d/status"; fi
-  rmdir "$d/cleaning" 2>/dev/null
+  release_gate
   [ "$ok" = 1 ]
 }
 case "$1" in
   watch)
     ours || exit 1
-    # Record termination even when restoration fails, so an explicit later
-    # recovery can restore successfully and release an already-ended timer.
-    guard_outcome=stopped
-    # This is the timer's sole terminal write. An earlier acknowledgment plus
-    # another EXIT write could race a browser releasing/reusing the lock.
-    trap 'if ours; then printf %s "$guard_outcome" > "$d/guard_done"; fi' EXIT
+    # Record termination even if restoration is interrupted or fails, so a
+    # later explicit recovery can restore and release an already-ended timer.
+    guard_mode=1
     printf ready > "$d/ready"
     i=0
     while [ "$i" -lt 120 ]; do
@@ -125,7 +153,7 @@ export function startCommand(token, launcher) {
 mkdir ${d}/cleaning 2>/dev/null || exit 40
 child=
 trap 'rmdir ${d}/cleaning 2>/dev/null' EXIT
-trap 'if [ -n "$child" ]; then wait "$child" 2>/dev/null; fi; exit 1' HUP INT TERM
+trap 'trap "" HUP INT TERM; if [ -n "$child" ]; then wait "$child" 2>/dev/null; fi; exit 1' HUP INT TERM
 run() {
   timeout "$@" &
   child=$!

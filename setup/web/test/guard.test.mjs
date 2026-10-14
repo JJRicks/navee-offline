@@ -18,7 +18,7 @@ async function fixture(original = '') {
     pm: 'printf "package:/fake/navee.apk\\n"',
     date: 'printf "1800000000.125\\n"',
     getprop: '[ ! -f "$FIXTURE/fail-readback" ] || exit 1; cat "$FIXTURE/property"; printf "\\n"',
-    setprop: 'printf "%s\\n" "setprop:$2" >> "$FIXTURE/events"; [ ! -f "$FIXTURE/fail-restore" ] || [ "$2" = VERBOSE ] || exit 1; printf %s "$2" > "$FIXTURE/property"',
+    setprop: 'printf "%s\\n" "setprop:$2" >> "$FIXTURE/events"; [ ! -f "$FIXTURE/fail-restore" ] || [ "$2" = VERBOSE ] || exit 1; [ ! -f "$FIXTURE/slow-setprop" ] || { : > "$FIXTURE/setprop-entered"; /bin/sleep 0.6; }; printf %s "$2" > "$FIXTURE/property"',
     am: 'if [ "$1" = get-current-user ]; then printf 0; exit; fi; if [ "$1" = start ]; then printf "launch\\n" >> "$FIXTURE/events"; else printf "am\\n" >> "$FIXTURE/events"; fi; [ ! -f "$FIXTURE/slow-am" ] || { : > "$FIXTURE/am-entered"; /bin/sleep 0.6; }; [ ! -f "$FIXTURE/fail-am" ]',
     monkey: 'printf "monkey\\n" >> "$FIXTURE/events"',
     rm: 'if [ -f "$FIXTURE/fail-retired-delete" ]; then case "$*" in *retired-*) exit 1 ;; esac; fi; exec /bin/rm "$@"',
@@ -186,5 +186,52 @@ test('preparing reservation distinguishes foreign valid tokens from partial or u
     await rm(join(f.lock, 'token'));
     assert.equal((await f.run(preparationStateCommand(other))).stdout, 'AMBIGUOUS');
     assert.equal(await f.property(), 'INFO');
+  } finally { await f.dispose(); }
+});
+
+test('SIGHUP during cleanup releases its gate without claiming success, then recovery can retry', async () => {
+  // Tango abort/kill closes the shell-protocol socket; adbd sends SIGHUP to
+  // that shell. Reproduce its effect while force-stop is still in flight.
+  const f = await fixture('WARN');
+  try {
+    await f.prepare();
+    await writeFile(join(f.root, 'property'), 'VERBOSE');
+    await writeFile(join(f.root, 'slow-am'), '1');
+    const { child, done } = f.execute('sh -s clean', cleanupCommand(token));
+    for (let i = 0; i < 100; i++) {
+      try { await access(join(f.root, 'am-entered')); break; } catch { await delay(5); }
+    }
+    await access(join(f.root, 'am-entered'));
+    child.kill('SIGHUP');
+    assert.notEqual((await done).code, 0);
+    await assert.rejects(access(join(f.lock, 'cleaning')));
+    await assert.rejects(access(join(f.lock, 'status')));
+    await rm(join(f.root, 'slow-am'));
+    assert.equal((await f.run('sh -s clean', cleanupCommand(token))).code, 0);
+    assert.equal(await f.property(), 'WARN');
+    assert.equal((await f.run(releaseCommand(token))).code, 0);
+  } finally { await f.dispose(); }
+});
+
+test('repeated signals during cleanup keep the gate until its last bounded property write finishes', async () => {
+  const f = await fixture('ERROR');
+  try {
+    await f.prepare();
+    await writeFile(join(f.root, 'property'), 'VERBOSE');
+    await writeFile(join(f.root, 'slow-setprop'), '1');
+    const { child, done } = f.execute('sh -s clean', cleanupCommand(token));
+    for (let i = 0; i < 100; i++) {
+      try { await access(join(f.root, 'setprop-entered')); break; } catch { await delay(5); }
+    }
+    await access(join(f.root, 'setprop-entered'));
+    child.kill('SIGHUP'); await delay(20); child.kill('SIGTERM'); await delay(20);
+    await access(join(f.lock, 'cleaning'));
+    assert.notEqual((await done).code, 0);
+    await assert.rejects(access(join(f.lock, 'cleaning')));
+    await assert.rejects(access(join(f.lock, 'status')));
+    assert.equal(await f.property(), 'ERROR');
+    await rm(join(f.root, 'slow-setprop'));
+    assert.equal((await f.run('sh -s clean', cleanupCommand(token))).code, 0);
+    assert.equal((await f.run(releaseCommand(token))).code, 0);
   } finally { await f.dispose(); }
 });
