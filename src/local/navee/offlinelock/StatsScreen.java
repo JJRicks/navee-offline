@@ -51,8 +51,13 @@ public final class StatsScreen implements AppScreen {
     private final LinkedHashMap<String, Group> groups = new LinkedHashMap<String, Group>();
     private final LinkedHashMap<String, ValueRow> favouriteRows = new LinkedHashMap<String, ValueRow>();
     private final LinkedHashMap<String, ValueRow> deviceRows = new LinkedHashMap<String, ValueRow>();
-    private final LinkedHashMap<String, Ui.ChartView> charts = new LinkedHashMap<>();
-    private final LinkedHashMap<String, TextView> chartValues = new LinkedHashMap<>();
+    private final StatsCharts chartBrowser;
+    private final Set<String> chartFavourites;
+    private final LinkedHashMap<String, StatsCharts.Card> favouriteCharts = new LinkedHashMap<>();
+    private boolean chartBrowserReady;
+    private final android.view.ViewTreeObserver.OnScrollChangedListener chartScroll = () -> { if (chartBrowserReady) chartBrowserRefresh(); };
+    private final TextView reorderFavourites;
+    private AlertDialog orderDialog;
     private final SegmentedSelector sectionTabs;
     private final Set<String> favourites;
     private final boolean dense;
@@ -61,9 +66,8 @@ public final class StatsScreen implements AppScreen {
     private final EditText search;
     private static final String[] SECTIONS = {"Overview", "Readings", "Charts", "Diagnostics"};
     private static final String[] WIDE_SECTIONS = {"Overview", "Charts", "Diagnostics"};
-    private boolean favouritesOnly;
     private AlertDialog metricDialog;
-    private final TextView status, batteryHeadline, batteryDetails, batteryCaveat, filterButton,
+    private final TextView status, batteryHeadline, batteryDetails, batteryCaveat,
             resultCount, rawValues, favouritesHint;
     private final TextView refreshButton;
     private final LinearLayout favouritesCard, deviceCard, eventsCard;
@@ -100,7 +104,7 @@ public final class StatsScreen implements AppScreen {
         this.host = host; ui = host.ui(); service = host.service(); preferences = service.settings;
         dense = "dense".equals(preferences.getString("stats_density", "comfortable"));
         favourites = new LinkedHashSet<String>(preferences.getStringSet("stats_favourites", new LinkedHashSet<String>()));
-        favouritesOnly = preferences.getBoolean("stats_favourites_only", false);
+        chartFavourites = new LinkedHashSet<String>(preferences.getStringSet("stats_chart_favourites", new LinkedHashSet<String>()));
         query = preferences.getString("stats_query", "");
         int widthDp = host.activity().getResources().getConfiguration().screenWidthDp;
         // Same trigger as MainActivity's side rail: the content area beside the rail is wide enough for two panes.
@@ -170,9 +174,14 @@ public final class StatsScreen implements AppScreen {
         TextView favouritesTitle = ui.text("Favourites", 19, true);
         favouritesTitle.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), ui.dp(10));
         if (Build.VERSION.SDK_INT >= 28) favouritesTitle.setAccessibilityHeading(true);
-        overviewSection.addView(favouritesTitle);
+        LinearLayout favouriteHeader = new LinearLayout(host.activity()); favouriteHeader.setGravity(Gravity.CENTER_VERTICAL);
+        favouriteHeader.addView(favouritesTitle, new LinearLayout.LayoutParams(0, -2, 1));
+        reorderFavourites = ui.secondaryButton("Reorder", this::showFavouriteOrder);
+        reorderFavourites.setContentDescription("Reorder favourite readings and charts");
+        favouriteHeader.addView(reorderFavourites, new LinearLayout.LayoutParams(-2, -2));
+        overviewSection.addView(favouriteHeader);
         favouritesCard = ui.groupCard(); overviewSection.addView(favouritesCard);
-        favouritesHint = ui.text("Choose your favourite readings\nTap a star in Readings to add it here", 14, false);
+        favouritesHint = ui.text("Choose your favourites\nStar a reading or chart to add it here", 14, false);
         favouritesHint.setTextColor(ui.muted); favouritesHint.setGravity(Gravity.CENTER);
         favouritesHint.setMinHeight(ui.dp(120)); favouritesHint.setPadding(ui.dp(20), ui.dp(22), ui.dp(20), ui.dp(22));
         GradientDrawable empty = new GradientDrawable(); empty.setColor(Ui.withAlpha(ui.surface, 140));
@@ -184,27 +193,20 @@ public final class StatsScreen implements AppScreen {
         });
         overviewSection.addView(favouritesHint, new LinearLayout.LayoutParams(-1, -2));
 
-        // Each measured series keeps its own chart and unit. Values update in place without
-        // changing the user's scroll position or replacing another series.
-        addChart("power_w", "Battery power");
-        addChart("voltage_v", "Battery voltage");
-        addChart("speed_kmh", "Scooter speed");
+        chartBrowser = new StatsCharts(host, chartFavourites, this::toggleChartFavourite);
+        chartsSection.addView(chartBrowser.view); chartBrowserReady = true;
+        sectionScroll.getViewTreeObserver().addOnScrollChangedListener(chartScroll);
 
-        // Readings: search, the Favourites filter chip with a count, then collapsible groups.
+        // Readings: keep the count row geometry when removing the redundant Favourites filter.
         search = new EditText(host.activity()); search.setSingleLine(true); search.setHint("Search");
         ui.styleSearch(search); search.setContentDescription("Search scooter measurements"); search.setText(query);
         readingsSection.addView(search, ui.searchLayout());
         SearchFocus.bind(search, host.activity().getWindow());
-        LinearLayout filters = new StackingRow(); filters.setGravity(Gravity.CENTER_VERTICAL);
-        filterButton = ui.text("Favourites", 12.5f, false); filterButton.setTypeface(ui.semibold());
-        filterButton.setGravity(Gravity.CENTER); filterButton.setMinHeight(ui.dp(48)); filterButton.setMinWidth(ui.dp(48));
-        filterButton.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12)); filterButton.setFocusable(true); filterButton.setClickable(true);
-        filterButton.setContentDescription("Filter readings: favourites only");
-        filterButton.setOnClickListener(v -> {
-            favouritesOnly = !favouritesOnly; preferences.edit().putBoolean("stats_favourites_only", favouritesOnly).apply(); applyFilter();
-        });
-        LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(0, -2, 1); filterParams.rightMargin = ui.dp(4);
-        filters.addView(filterButton, filterParams);
+        LinearLayout filters = new LinearLayout(host.activity()); filters.setGravity(Gravity.CENTER_VERTICAL);
+        filters.setMinimumHeight(ui.dp(48));
+        View formerFilterSpace = new View(host.activity());
+        LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(0, ui.dp(48), 1); filterParams.rightMargin = ui.dp(4);
+        filters.addView(formerFilterSpace, filterParams);
         resultCount = ui.caption(""); resultCount.setGravity(Gravity.END); resultCount.setPadding(ui.dp(12), 0, ui.dp(4), 0);
         filters.addView(resultCount, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams filterSpacing = new LinearLayout.LayoutParams(-1, -2); filterSpacing.bottomMargin = ui.dp(4);
@@ -280,10 +282,12 @@ public final class StatsScreen implements AppScreen {
     private void selectSection(String section) {
         selectedSection = validSection(section); showSection();
         sectionTabs.select(java.util.Arrays.asList(wide ? WIDE_SECTIONS : SECTIONS).indexOf(selectedSection), true);
-        if (!readingsShown()) {
+        boolean hideChartSearch = !selectedSection.equals("Charts") && chartBrowser.search.hasFocus();
+        if (!readingsShown() || hideChartSearch) {
             InputMethodManager keyboard = host.activity().getSystemService(InputMethodManager.class);
             if (keyboard != null) keyboard.hideSoftInputFromWindow(search.getWindowToken(), 0);
-            search.clearFocus();
+            if (!readingsShown()) search.clearFocus();
+            if (hideChartSearch) chartBrowser.search.clearFocus();
         }
         preferences.edit().putString("stats_section", selectedSection).apply();
         // When wide only the left pane changes, so only it returns to the top.
@@ -311,18 +315,6 @@ public final class StatsScreen implements AppScreen {
             }
             super.onMeasure(widthSpec, heightSpec);
         }
-    }
-    private void addChart(String key, String title) {
-        LinearLayout card = ui.card(); card.setTag("stats-chart-card:" + key);
-        TextView heading = ui.text(title, 17, true);
-        if (Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
-        card.addView(heading);
-        TextView value = ui.caption(""); value.setPadding(0, ui.dp(6), 0, ui.dp(4));
-        card.addView(value); chartValues.put(key, value);
-        Ui.ChartView graph = ui.new ChartView(); graph.setTag("stats-chart:" + key);
-        card.addView(graph); charts.put(key, graph);
-        TextView window = ui.caption("2-minute window"); window.setGravity(Gravity.CENTER_HORIZONTAL);
-        window.setPadding(0, ui.dp(4), 0, 0); card.addView(window); chartsSection.addView(card);
     }
     /** Balance labels and values, stacking before a narrow pane splits a value mid-word. */
     private final class ReadingRow extends LinearLayout {
@@ -421,24 +413,15 @@ public final class StatsScreen implements AppScreen {
     private void toggleFavourite(String key) {
         if (!favourites.remove(key)) favourites.add(key);
         preferences.edit().putStringSet("stats_favourites", new LinkedHashSet<String>(favourites)).apply();
+        saveFavouriteOrder(favouriteOrder());
         Row row = rows.get(key); if (row != null) styleStar(row);
         applyFilter(); refresh();
-    }
-    private void styleFavouritesFilter() {
-        boolean on = favouritesOnly;
-        filterButton.setText("Favourites"); filterButton.setTextColor(on ? ui.orange : ui.text); filterButton.setSelected(on);
-        Drawable glyph = new StatsGlyph(true, false, on ? ui.orange : ui.muted);
-        glyph.setBounds(0, 0, ui.dp(20), ui.dp(20));
-        filterButton.setCompoundDrawablesRelative(glyph, null, null, null); filterButton.setCompoundDrawablePadding(ui.dp(8));
-        Drawable pill = ui.shape(ui.surface, 14, on ? Ui.withAlpha(ui.orange, 160) : ui.outline);
-        filterButton.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.orange, 40)), pill, null));
-        if (Build.VERSION.SDK_INT >= 30) filterButton.setStateDescription(on ? "On" : "Off");
     }
     private void applyFilter() {
         String needle = query.trim().toLowerCase(Locale.ROOT); int count = 0;
         LinkedHashMap<String, Integer> counts = new LinkedHashMap<String, Integer>();
         for (Row row : rows.values()) {
-            boolean show = (!favouritesOnly || favourites.contains(row.key)) && (needle.isEmpty()
+            boolean show = (needle.isEmpty()
                     || (row.label + " " + row.key + " " + row.group).toLowerCase(Locale.ROOT).contains(needle));
             row.layout.setVisibility(show ? View.VISIBLE : View.GONE);
             if (show) { count++; counts.put(row.group, counts.containsKey(row.group) ? counts.get(row.group) + 1 : 1); }
@@ -446,7 +429,7 @@ public final class StatsScreen implements AppScreen {
         for (Group group : groups.values()) {
             int matches = counts.containsKey(group.name) ? counts.get(group.name) : 0;
             group.card.setVisibility(matches == 0 ? View.GONE : View.VISIBLE);
-            boolean open = group.expanded || !needle.isEmpty() || favouritesOnly;
+            boolean open = group.expanded || !needle.isEmpty();
             group.body.setVisibility(open ? View.VISIBLE : View.GONE);
             boolean shownAbove = false;
             for (int i = 0; i < group.body.getChildCount(); i++) {
@@ -465,8 +448,7 @@ public final class StatsScreen implements AppScreen {
             if (Build.VERSION.SDK_INT >= 30) group.title.setStateDescription(open ? "Expanded" : "Collapsed");
             else group.title.setContentDescription(group.name + " readings, " + (open ? "expanded" : "collapsed"));
         }
-        styleFavouritesFilter();
-        resultCount.setText(count == 0 ? favouritesOnly && needle.isEmpty() ? "No favourites yet" : "No matching readings"
+        resultCount.setText(count == 0 ? "No matching readings"
                 : count + (count == 1 ? " reading" : " readings"));
     }
     @Override public View view() { return scroll; }
@@ -494,7 +476,7 @@ public final class StatsScreen implements AppScreen {
         status.setVisibility(saved == 0 || live < saved ? View.VISIBLE : View.GONE);
         status.setTextColor(ui.muted); refreshButton.setEnabled(service.ble.connected());
         if (selectedSection.equals("Overview")) refreshOverview(readings);
-        if (selectedSection.equals("Charts")) refreshChart();
+        chartBrowser.refresh();
         if (!selectedSection.equals("Diagnostics")) return;
         StringBuilder raw = new StringBuilder(); Map<Integer, Integer> statuses = service.ble.telemetry.statuses();
         for (Map.Entry<Integer, byte[]> e : service.ble.telemetry.frames().entrySet()) {
@@ -538,25 +520,79 @@ public final class StatsScreen implements AppScreen {
         String amount = "km".equals(units) ? km + " km" : "dual".equals(units) ? miles + " mi / " + km + " km" : miles + " mi";
         return "About " + amount + " left";
     }
+    private List<String> favouriteOrder() {
+        return StatsFavouriteOrder.resolve(preferences.getString("stats_favourite_order", ""), favourites,
+                chartFavourites, service.displayReadings().keySet());
+    }
+    private void saveFavouriteOrder(List<String> order) {
+        preferences.edit().putString("stats_favourite_order", StatsFavouriteOrder.encode(order)).apply();
+    }
+    private void toggleChartFavourite(String key) {
+        if (!chartFavourites.remove(key)) chartFavourites.add(key);
+        preferences.edit().putStringSet("stats_chart_favourites", new LinkedHashSet<>(chartFavourites)).apply();
+        saveFavouriteOrder(favouriteOrder()); chartBrowser.starsChanged(); refreshFavourites(service.displayReadings());
+    }
+    private void chartBrowserRefresh() { chartBrowser.refreshVisible(); }
     private void refreshFavourites(Map<String, TelemetryHistory.Reading> readings) {
-        // Rebuild only when the chosen readings or their live state change; values update in place.
-        StringBuilder signature = new StringBuilder(); List<TelemetryHistory.Reading> chosen = new ArrayList<TelemetryHistory.Reading>();
-        for (TelemetryHistory.Reading reading : readings.values()) {
-            if (!favourites.contains(reading.key)) continue;
-            chosen.add(reading); signature.append(reading.key).append(reading.live && reading.value != null ? "+" : "-").append(',');
+        List<String> order = favouriteOrder(); String signature = StatsFavouriteOrder.encode(order);
+        for (String id : order) if (id.startsWith("reading:")) {
+            TelemetryHistory.Reading r = readings.get(id.substring(8));
+            signature += r != null && r.live && r.value != null ? "+" : "-";
         }
-        if (!signature.toString().equals(favouritesShown)) {
-            favouritesShown = signature.toString(); favouritesCard.removeAllViews(); favouriteRows.clear();
-            for (TelemetryHistory.Reading reading : chosen) {
-                if (!favouriteRows.isEmpty()) ui.divider(favouritesCard);
-                ValueRow row = valueRow(reading.key, isKnownDriveMode(reading.key) ? "Drive mode" : reading.label,
-                        readingIcon(reading.key), reading.live && reading.value != null);
-                favouritesCard.addView(row.layout); favouriteRows.put(reading.key, row);
+        if (!signature.equals(favouritesShown)) {
+            favouritesShown = signature; favouritesCard.removeAllViews(); favouriteRows.clear();
+            for (StatsCharts.Card card : favouriteCharts.values()) chartBrowser.release(card); favouriteCharts.clear();
+            for (String id : order) {
+                boolean chart = id.startsWith("chart:"); String key = id.substring(id.indexOf(':') + 1);
+                TelemetryHistory.Reading reading = readings.get(key); if (reading == null) continue;
+                if (favouritesCard.getChildCount() > 0) ui.divider(favouritesCard);
+                if (chart) {
+                    StatsCharts.Card card = chartBrowser.favourite(key); favouriteCharts.put(key, card); favouritesCard.addView(card.view);
+                } else {
+                    ValueRow row = valueRow(key, isKnownDriveMode(key) ? "Drive mode" : reading.label,
+                            readingIcon(key), reading.live && reading.value != null);
+                    favouritesCard.addView(row.layout); favouriteRows.put(key, row);
+                }
             }
-            favouritesCard.setVisibility(chosen.isEmpty() ? View.GONE : View.VISIBLE);
-            favouritesHint.setVisibility(chosen.isEmpty() ? View.VISIBLE : View.GONE);
+            favouritesCard.setVisibility(order.isEmpty() ? View.GONE : View.VISIBLE);
+            favouritesHint.setVisibility(order.isEmpty() ? View.VISIBLE : View.GONE);
+            reorderFavourites.setVisibility(order.size() < 2 ? View.GONE : View.VISIBLE);
+            favouritesCard.post(() -> { if (chartBrowserReady) chartBrowser.refreshVisible(); });
         }
         for (Map.Entry<String, ValueRow> e : favouriteRows.entrySet()) updateValueRow(e.getValue(), e.getKey(), readings.get(e.getKey()));
+    }
+    private void showFavouriteOrder() {
+        if (orderDialog != null) orderDialog.dismiss();
+        LinearLayout content = vertical(); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(8));
+        ScrollView scroller = new ScrollView(host.activity()); scroller.addView(content);
+        rebuildFavouriteOrder(content);
+        orderDialog = new AlertDialog.Builder(host.activity()).setTitle("Reorder favourites").setView(scroller)
+                .setPositiveButton("Done", null).create(); orderDialog.show();
+    }
+    private void rebuildFavouriteOrder(LinearLayout content) {
+        content.removeAllViews(); List<String> order = favouriteOrder();
+        Map<String, TelemetryHistory.Reading> readings = service.displayReadings();
+        for (int i = 0; i < order.size(); i++) {
+            String id = order.get(i), key = id.substring(id.indexOf(':') + 1);
+            boolean chart = id.startsWith("chart:");
+            LinearLayout row = new LinearLayout(host.activity()); row.setGravity(Gravity.CENTER_VERTICAL);
+            TextView label = ui.text(readings.get(key).label + (chart ? " · Chart" : ""), 14, false);
+            row.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+            for (int direction : new int[]{-1, 1}) {
+                TextView button = ui.text(direction < 0 ? "↑" : "↓", 23, true); button.setGravity(Gravity.CENTER);
+                boolean enabled = direction < 0 ? i > 0 : i < order.size() - 1;
+                button.setEnabled(enabled); button.setTextColor(enabled ? ui.text : ui.dim); button.setFocusable(true);
+                button.setContentDescription("Move " + readings.get(key).label + (chart ? " chart" : " reading") + (direction < 0 ? " up" : " down"));
+                button.setOnClickListener(v -> {
+                    List<String> current = favouriteOrder();
+                    if (StatsFavouriteOrder.move(current, id, direction)) {
+                        saveFavouriteOrder(current); refreshFavourites(service.displayReadings()); rebuildFavouriteOrder(content);
+                    }
+                });
+                row.addView(button, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+            }
+            content.addView(row, new LinearLayout.LayoutParams(-1, -2));
+        }
     }
     private void refreshDevices(Map<String, TelemetryHistory.Reading> readings) {
         StringBuilder signature = new StringBuilder(); List<TelemetryHistory.Reading> device = new ArrayList<TelemetryHistory.Reading>();
@@ -634,28 +670,8 @@ public final class StatsScreen implements AppScreen {
             ui.styleDriveMode(row.amount, shown, reading.live);
         }
     }
-    private void refreshChart() {
-        boolean imperial = !"km".equals(preferences.getString("units", "mi"));
-        long offset = System.currentTimeMillis() - SystemClock.elapsedRealtime();
-        Map<String, TelemetryHistory.Reading> readings = service.displayReadings();
-        for (Map.Entry<String, Ui.ChartView> entry : charts.entrySet()) {
-            String key = entry.getKey();
-            String unit = key.equals("voltage_v") ? "V" : key.equals("speed_kmh") ? imperial ? "mph" : "km/h" : "W";
-            int color = key.equals("voltage_v") ? ui.blue : key.equals("speed_kmh") ? ui.orange : ui.accent;
-            List<Ui.Point> values = new ArrayList<>();
-            for (Ui.Point point : service.trend(key)) values.add(new Ui.Point(point.millis + offset,
-                    key.equals("speed_kmh") && imperial ? point.value / RideStore.KM_PER_MILE : point.value, point.gapBefore));
-            boolean fresh = service.readingFresh(key);
-            entry.getValue().set(values, unit, fresh ? color : ui.muted, "Connect for measured " + unit + " readings");
-            TelemetryHistory.Reading reading = readings.get(key);
-            TextView value = chartValues.get(key);
-            value.setText(reading == null || reading.value == null ? "No reading yet" : display(reading)
-                    + (reading.live ? "" : " · Last seen"));
-            value.setTextColor(fresh ? color : ui.muted);
-        }
-    }
     /** Bounded vector glyphs keep the filter and disclosure clear at any text size. */
-    private static final class StatsGlyph extends Drawable {
+    static final class StatsGlyph extends Drawable {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final boolean filter, open;
         StatsGlyph(boolean filter, boolean open, int color) { this.filter = filter; this.open = open; paint.setColor(color); }
@@ -689,6 +705,9 @@ public final class StatsScreen implements AppScreen {
     @Override public void close() {
         sectionTabs.finishMotion();
         if (metricDialog != null) metricDialog.dismiss();
+        if (orderDialog != null) orderDialog.dismiss();
+        if (sectionScroll.getViewTreeObserver().isAlive()) sectionScroll.getViewTreeObserver().removeOnScrollChangedListener(chartScroll);
+        chartBrowser.close();
         savedSectionScroll = wide ? sectionScroll.getScrollY() : 0;
         savedReadingsScroll = wide ? readingsScroll.getScrollY() : 0;
     }

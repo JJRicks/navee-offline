@@ -22,7 +22,7 @@ final class LiveStatsTitle extends LinearLayout {
         title = ui.text("Live Stats", 24, true);
         if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
         addView(title, new LayoutParams(-2, -2));
-        signal = new Signal(); LayoutParams dot = new LayoutParams(ui.dp(34), ui.dp(34)); dot.leftMargin = ui.dp(6);
+        signal = new Signal(); LayoutParams dot = new LayoutParams(ui.dp(28), ui.dp(34)); dot.leftMargin = 0;
         addView(signal, dot); setLive(false);
     }
     void setLive(boolean value) {
@@ -43,12 +43,12 @@ final class LiveStatsTitle extends LinearLayout {
                 for (int n = 0; n < 2; n++) {
                     float progress = (phase + n * .5f) % 1;
                     paint.setColor(Ui.withAlpha(color, Math.round(80 * (1 - progress))));
-                    canvas.drawCircle(x, y, ui.dp(4) + ui.dp(11) * progress, paint);
+                    canvas.drawCircle(x, y, ui.dp(5) + ui.dp(8) * progress, paint);
                 }
             }
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(Ui.withAlpha(color, moving ? (int)Math.round(210 + 45 * Math.cos(phase * 2 * Math.PI)) : 255));
-            canvas.drawCircle(x, y, ui.dp(3.5f), paint);
+            canvas.drawCircle(x, y, ui.dp(4.5f), paint);
             if (moving) postInvalidateDelayed(40);
         }
         @Override public void onWindowFocusChanged(boolean focused) { super.onWindowFocusChanged(focused); invalidate(); }
