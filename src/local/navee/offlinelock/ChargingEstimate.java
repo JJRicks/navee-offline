@@ -116,6 +116,15 @@ public final class ChargingEstimate {
     public static Result withObservedCurve(Result baseline,Value soc,ChargeSessionStore.Curve curve) {
         if(baseline==null||!baseline.charging||baseline.inputWatts==null||baseline.remainingMinutesToFull==null
                 ||!valid(soc)||!Double.isFinite(soc.number)||soc.number<0||soc.number>100||curve==null)return baseline;
+        ChargeSessionStore.Curve.PowerMatch power=curve.powerMatch(soc.number,baseline.inputWatts);
+        if(power!=ChargeSessionStore.Curve.PowerMatch.MATCH){
+            String reason=power==ChargeSessionStore.Curve.PowerMatch.DIFFERENT
+                    ?"Live power differs from the selected charger's saved charges at this battery level. "
+                    :"Saved charges lack consistent power at this battery level. ";
+            return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
+                    baseline.remainingMinutesToLimit,baseline.remainingMinutesToFull,baseline.targetPercent,
+                    reason+"Charger selection is manual. "+baseline.status);
+        }
         ChargeSessionStore.Duration full=curve.estimate(soc.number,100);
         ChargeSessionStore.Duration limit=baseline.targetPercent==null?null:curve.estimate(soc.number,baseline.targetPercent);
         if(full==null&&limit==null)return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
@@ -124,7 +133,7 @@ public final class ChargingEstimate {
                         +(baseline.targetPercent==null?"Cutoff unknown; 100% assumes charging continues.":baseline.targetPercent<100?"100% assumes a higher cutoff.":""));
         int sessions=full==null?limit.sessions:limit==null?full.sessions:Math.min(full.sessions,limit.sessions);
         String charger=curve.charger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
-        String status="Observed average from "+sessions+" "+charger+" charges; charger selection is manual.";
+        String status="Observed average from "+sessions+" "+charger+" charges; live power is compatible at this battery level. Charger selection is manual.";
         if(full==null)status+=" Full-charge taper is not covered; 100% uses the current-rate estimate.";
         if(limit==null&&baseline.targetPercent!=null)status+=" Time to the limit uses the current-rate estimate.";
         if(baseline.targetPercent==null)status+=" Cutoff unknown; 100% assumes charging continues.";

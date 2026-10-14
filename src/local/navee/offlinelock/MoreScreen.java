@@ -1360,7 +1360,7 @@ public final class MoreScreen implements AppScreen {
         });chargeCaptureRow.view.setTag("charge-capture-action");
         chargeCaptureStatus=footnote("");chargeCaptureStatus.setTag("charge-capture-status");
         chargeLearningStatus=footnote("");chargeLearningStatus.setTag("charge-learning-status");
-        footnote("Choose the charger currently attached. Estimates average matching scooter and charger sessions only after two usable recordings cover the remaining percentage range. Each needs at least 10 complete percentage intervals. Unobserved taper keeps the current-rate estimate.");
+        footnote("Choose the charger currently attached. Estimates need two usable recordings covering the remaining percentage range and compatible live power at the current battery level. Each needs at least 10 complete percentage intervals. Missing or incompatible data keeps the current-rate estimate; the app does not identify chargers.");
         LinearLayout chargeData=group();
         clearChargeRow=row(chargeData,"trash","Clear this scooter's charge recordings",null,()->{
             ScooterService s=service();if(s==null||s.isChargeRecording())return;

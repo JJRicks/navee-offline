@@ -38,20 +38,39 @@ public final class ChargeSessionStore {
         Duration(double minutes,int sessions){this.minutes=minutes;this.sessions=sessions;}
     }
     public static final class Curve {
+        public enum PowerMatch { MATCH, DIFFERENT, UNKNOWN }
         public final String profile; public final Charger charger; public final int qualifiedSessions;
-        private final double[] minutes; private final int[] counts;
-        Curve(String profile, Charger charger, List<double[]> sessions) {
-            this.profile=profile;this.charger=charger;qualifiedSessions=sessions.size();minutes=new double[100];counts=new int[100];
-            Arrays.fill(minutes,Double.NaN);
+        private final double[] minutes, watts; private final int[] counts;
+        Curve(String profile, Charger charger, List<Evidence> sessions) {
+            this.profile=profile;this.charger=charger;qualifiedSessions=sessions.size();minutes=new double[100];watts=new double[100];counts=new int[100];
+            Arrays.fill(minutes,Double.NaN);Arrays.fill(watts,Double.NaN);
             for(int bin=0;bin<100;bin++) {
-                List<Double> values=new ArrayList<>();for(double[] session:sessions)if(Double.isFinite(session[bin]))values.add(session[bin]);
+                List<Double> values=new ArrayList<>();for(Evidence session:sessions)if(Double.isFinite(session.minutes[bin]))values.add(session.minutes[bin]);
                 Collections.sort(values);if(values.size()<2)continue;
-                double median=values.size()%2==1?values.get(values.size()/2):(values.get(values.size()/2-1)+values.get(values.size()/2))/2;
+                double median=median(values);
                 // With just two strongly disagreeing sessions there is no reliable majority.
                 if(values.size()==2&&values.get(1)>values.get(0)*2.5)continue;
-                double sum=0;for(double value:values)if(value>=median*.4&&value<=median*2.5){sum+=value;counts[bin]++;}
+                double sum=0;List<Double> powers=new ArrayList<>();
+                for(Evidence session:sessions)if(session.minutes[bin]>=median*.4&&session.minutes[bin]<=median*2.5){
+                    sum+=session.minutes[bin];counts[bin]++;
+                    if(Double.isFinite(session.watts[bin])&&session.watts[bin]>=1)powers.add(session.watts[bin]);
+                }
                 if(counts[bin]>=2)minutes[bin]=sum/counts[bin];
+                // Use the same duration-qualified sessions, at this SOC, not a bulk-power guess
+                // during taper. Two disagreeing records cannot identify compatible live power.
+                if(powers.size()>=2){
+                    double center=median(powers);List<Double> compatible=new ArrayList<>();
+                    for(double power:powers)if(power>=center*.75&&power<=center*1.25)compatible.add(power);
+                    if(compatible.size()>=2)watts[bin]=median(compatible);
+                }
             }
+        }
+        /** A plausibility check, not charger identification; missing local power fails closed. */
+        public PowerMatch powerMatch(double soc,Double liveWatts) {
+            if(!between(soc,0,100)||liveWatts==null||!Double.isFinite(liveWatts)||liveWatts<1)return PowerMatch.UNKNOWN;
+            int bin=Math.min(99,(int)Math.floor(soc));double expected=watts[bin];
+            if(!Double.isFinite(expected))return PowerMatch.UNKNOWN;
+            return liveWatts>=expected*.65&&liveWatts<=expected*1.35?PowerMatch.MATCH:PowerMatch.DIFFERENT;
         }
         /** Every remaining interval, including the final taper bin, needs two independent sessions. */
         public Duration estimate(double soc,double target) {
@@ -71,6 +90,9 @@ public final class ChargeSessionStore {
         Snapshot(Map<String,Curve> curves,int sessions,long bytes){this.curves=Collections.unmodifiableMap(curves);this.sessions=sessions;this.bytes=bytes;}
     }
     private final File directory;
+    // snapshot() normally primes this on the analysis worker before capture is admitted,
+    // avoiding reparsing the full retained history in start()'s bounded pruning step.
+    private final Map<String,Retention> retentionCache=new HashMap<>();
     private File active;
     private String profile;
     private Charger charger;
@@ -147,21 +169,24 @@ public final class ChargeSessionStore {
         for(File file:files()) {
             if(file.equals(active))continue;
             Session session=read(file);
-            if(targetProfile==null||session!=null&&targetProfile.equals(session.profile))if(!file.delete())throw new IOException("Charge history could not be cleared");
+            if(targetProfile==null||session!=null&&targetProfile.equals(session.profile)){
+                if(!file.delete())throw new IOException("Charge history could not be cleared");retentionCache.remove(file.getName());
+            }
         }
     }
     /** Run outside the UI thread. Only closed, complete files are considered for learning. */
     public Snapshot snapshot() throws IOException {
         final List<File> source;final File current;
         synchronized(this){source=files();current=active;}
-        Map<String,List<double[]>> eligible=new LinkedHashMap<>();Map<String,Session> subjects=new LinkedHashMap<>();int sessions=0;long bytes=0;
+        Map<String,List<Evidence>> eligible=new LinkedHashMap<>();Map<String,Session> subjects=new LinkedHashMap<>();int sessions=0;long bytes=0;
         for(File file:source) {
             bytes+=file.length();if(file.equals(current)||!file.getName().endsWith(".csv"))continue;
-            Session session=read(file);if(session==null)continue;sessions++;
-            double[] bins=session.bins();if(bins==null)continue;
+            Session session=read(file);Evidence bins=session==null?null:session.evidence();rememberRetention(file,session,bins);
+            if(session==null)continue;sessions++;
+            if(bins==null)continue;
             String key=key(session.profile,session.charger);eligible.computeIfAbsent(key,ignored->new ArrayList<>()).add(bins);subjects.put(key,session);
         }
-        Map<String,Curve> curves=new LinkedHashMap<>();for(Map.Entry<String,List<double[]>> item:eligible.entrySet()){
+        Map<String,Curve> curves=new LinkedHashMap<>();for(Map.Entry<String,List<Evidence>> item:eligible.entrySet()){
             Session session=subjects.get(item.getKey());curves.put(item.getKey(),new Curve(session.profile,session.charger,item.getValue()));
         }
         return new Snapshot(curves,sessions,bytes);
@@ -179,34 +204,79 @@ public final class ChargeSessionStore {
     }
     private void prune()throws IOException{pruneTo(MAX_SESSIONS);}
     private void pruneTo(int limit)throws IOException{
-        List<File> entries=files();int remove=entries.size()-limit;
-        for(File file:entries)if(remove>0&&!file.equals(active)){if(!file.delete())throw new IOException("Old charge recordings could not be removed");remove--;}
+        List<File> entries=files();int remove=entries.size()-limit;if(remove<=0)return;
+        Map<String,List<File>> qualified=new LinkedHashMap<>();List<File> rejected=new ArrayList<>();
+        for(File file:entries){
+            if(file.equals(active))continue;
+            String bucket=retention(file).bucket;
+            if(bucket==null)rejected.add(file);
+            else qualified.computeIfAbsent(bucket,ignored->new ArrayList<>()).add(file);
+        }
+        // Failed/short captures must not evict the only usable curve for another charger.
+        for(File file:rejected)if(remove>0){remove(file);remove--;}
+        // Keep buckets balanced, preferring the oldest file in the most populated bucket.
+        // Two per bucket are therefore protected while the global budget can accommodate them.
+        while(remove>0){
+            List<File> largest=null;
+            for(List<File> bucket:qualified.values())if(!bucket.isEmpty()&&(largest==null||bucket.size()>largest.size()
+                    ||bucket.size()==largest.size()&&bucket.get(0).lastModified()<largest.get(0).lastModified()))largest=bucket;
+            if(largest==null)break;
+            remove(largest.remove(0));remove--;
+        }
+    }
+    private void remove(File file)throws IOException{
+        if(!file.delete())throw new IOException("Old charge recordings could not be removed");retentionCache.remove(file.getName());
+    }
+    private static final class Retention {
+        final long length,modified;final String bucket;
+        Retention(File file,String bucket){length=file.length();modified=file.lastModified();this.bucket=bucket;}
+    }
+    private synchronized Retention rememberRetention(File file,Session session,Evidence evidence){
+        Retention info=new Retention(file,evidence==null?null:key(session.profile,session.charger));
+        retentionCache.put(file.getName(),info);return info;
+    }
+    private synchronized Retention retention(File file)throws IOException{
+        Retention cached=retentionCache.get(file.getName());
+        if(cached!=null&&cached.length==file.length()&&cached.modified==file.lastModified())return cached;
+        Session session=file.getName().endsWith(".csv")?read(file):null;
+        return rememberRetention(file,session,session==null?null:session.evidence());
+    }
+    private static double median(List<Double> values){
+        Collections.sort(values);int middle=values.size()/2;
+        return values.size()%2==1?values.get(middle):(values.get(middle-1)+values.get(middle))/2;
     }
     private static final class Point {
-        final long wall,mono;final double soc;final boolean gap;
-        Point(long wall,long mono,double soc,boolean gap){this.wall=wall;this.mono=mono;this.soc=soc;this.gap=gap;}
+        final long wall,mono;final double soc,power;final boolean gap;
+        Point(long wall,long mono,double soc,double power,boolean gap){this.wall=wall;this.mono=mono;this.soc=soc;this.power=Math.abs(power);this.gap=gap;}
+    }
+    private static final class Evidence {
+        final double[] minutes=new double[100],watts=new double[100];
+        Evidence(){Arrays.fill(minutes,Double.NaN);Arrays.fill(watts,Double.NaN);}
     }
     private static final class Session {
         String profile;Charger charger;Stop stop;List<Point> points=new ArrayList<>();
-        double[] bins(){
+        Evidence evidence(){
             if(stop==null||stop==Stop.INTERRUPTED||stop==Stop.PROCESS_ENDED||stop==Stop.ERROR||points.size()<61)return null;
-            double[] result=new double[100];Arrays.fill(result,Double.NaN);boolean[] repeated=new boolean[100];
+            Evidence result=new Evidence();boolean[] repeated=new boolean[100];List<Double> powerSamples=new ArrayList<>();
             Point previous=null;double anchorSoc=Double.NaN;long anchorTime=0,covered=0;int bins=0;
             for(Point point:points){
                 boolean continuous=previous!=null&&!point.gap&&point.mono>previous.mono&&point.mono-previous.mono<=MAX_GAP_MS
                         &&Math.abs((point.wall-previous.wall)-(point.mono-previous.mono))<=2000;
-                if(!continuous||previous!=null&&(point.soc<previous.soc||point.soc-previous.soc>1)){anchorSoc=Double.NaN;anchorTime=0;}
+                if(!continuous||previous!=null&&(point.soc<previous.soc||point.soc-previous.soc>1)){anchorSoc=Double.NaN;anchorTime=0;powerSamples.clear();}
                 else covered+=point.mono-previous.mono;
                 if(continuous&&point.soc>previous.soc){
                     if(Double.isFinite(anchorSoc)&&point.soc-anchorSoc==1&&anchorSoc==Math.floor(anchorSoc)){
                         int bin=(int)anchorSoc;double minutes=(point.mono-anchorTime)/60000d;
                         if(bin>=0&&bin<100&&minutes>=.5&&minutes<=90&&!repeated[bin]){
-                            if(Double.isFinite(result[bin])){result[bin]=Double.NaN;repeated[bin]=true;bins--;}
-                            else{result[bin]=minutes;bins++;}
+                            if(Double.isFinite(result.minutes[bin])){result.minutes[bin]=Double.NaN;result.watts[bin]=Double.NaN;repeated[bin]=true;bins--;}
+                            else{result.minutes[bin]=minutes;if(powerSamples.size()>=3)result.watts[bin]=median(powerSamples);bins++;}
                         }
                     }
-                    anchorSoc=point.soc;anchorTime=point.mono;
+                    anchorSoc=point.soc;anchorTime=point.mono;powerSamples.clear();
                 }
+                // The next SOC's first sample (including a zero-current cutoff packet) belongs
+                // to the next interval, so it cannot dilute power from the completed interval.
+                if(point.soc==anchorSoc)powerSamples.add(point.power);
                 previous=point;
             }
             long elapsed=points.get(points.size()-1).mono-points.get(0).mono;
@@ -229,7 +299,7 @@ public final class ChargeSessionStore {
                         if(wall<=0||mono<=0||!between(soc,0,100)||!between(volts,1,100)||!between(amps,-30,30)||!between(power,-3000,3000)
                                 ||Math.abs(volts*amps-power)>.001||!(parts[8].equals("0")||parts[8].equals("1")))return null;
                         if(!parts[7].isEmpty()&&!between(Double.parseDouble(parts[7]),-40,100))return null;
-                        session.points.add(new Point(wall,mono,soc,parts[8].equals("1")));
+                        session.points.add(new Point(wall,mono,soc,power,parts[8].equals("1")));
                     }else return null;
                 }catch(IllegalArgumentException bad){return null;}
             }

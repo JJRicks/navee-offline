@@ -12,14 +12,26 @@ public final class ChargeSessionStoreTest {
     static void near(double expected,Double actual,String message){check(actual!=null&&Math.abs(actual-expected)<.0001,message+": "+actual);}
     static ChargeSessionStore.Value value(Double v,long mono){return new ChargeSessionStore.Value(v,mono,0x72);}
     static ChargeSessionStore.Frame frame(long mono,double soc){return new ChargeSessionStore.Frame(WALL+mono-MONO,mono,value(1d,mono),value(soc,mono),value(52d,mono),value(-2d,mono),value(23d,mono));}
+    static ChargingEstimate.Result estimate(double soc,Double amps){
+        return ChargingEstimate.calculate(new ChargingEstimate.Value(1d,true,100),new ChargingEstimate.Value(52d,true,100),
+                new ChargingEstimate.Value(amps,true,100),new ChargingEstimate.Value(soc,true,100),
+                new ChargingEstimate.Value(14.5,true,100),new ChargingEstimate.Value(100d,true,100));
+    }
+    static ChargingEstimate.Result observed(ChargeSessionStore.Curve curve,double soc,Double amps){
+        return ChargingEstimate.withObservedCurve(estimate(soc,amps),new ChargingEstimate.Value(soc,true,100),curve);
+    }
     static ChargeSessionStore store()throws Exception{return new ChargeSessionStore(Files.createTempDirectory("charge-test-").toFile());}
     static void session(ChargeSessionStore store,String profile,ChargeSessionStore.Charger charger,int start,int end,long perPercent,boolean gap,boolean rollback)throws Exception{
+        session(store,profile,charger,start,end,perPercent,gap,rollback,soc->2);
+    }
+    static void session(ChargeSessionStore store,String profile,ChargeSessionStore.Charger charger,int start,int end,long perPercent,boolean gap,boolean rollback,java.util.function.DoubleUnaryOperator amps)throws Exception{
         store.start(profile,charger,WALL,MONO);
         long finish=MONO+(end-start)*perPercent;
         for(long t=MONO;t<=finish;t+=10000){double soc=start+(t-MONO)/perPercent;
             if(gap&&t==MONO+5*perPercent)store.markGap();
             if(rollback&&t>=MONO+7*perPercent&&t<MONO+8*perPercent)soc-=3;
-            store.sample(frame(t,soc));
+            ChargeSessionStore.Frame f=frame(t,soc);
+            store.sample(new ChargeSessionStore.Frame(f.wall,f.mono,f.state,f.soc,f.voltage,value(-amps.applyAsDouble(soc),t),f.temperature));
         }
         store.stop(ChargeSessionStore.Stop.STOPPED);
     }
@@ -110,6 +122,58 @@ public final class ChargeSessionStoreTest {
         check(!completed.sampleCompletion(frame(MONO+10000,100)),"Completion samples cannot start or resume capture");
         ChargeSessionStore.Frame notComplete=new ChargeSessionStore.Frame(WALL,MONO,value(0d,MONO),value(99d,MONO),value(52d,MONO),value(0d,MONO),null);
         check(!notComplete.usableCompletion(),"Charging ended below 100 is not a completion sample");
+
+        ChargeSessionStore stock=store();
+        for(int n=0;n<2;n++)session(stock,"one",ChargeSessionStore.Charger.STOCK,40,100,180000,false,false,soc->2.75);
+        ChargeSessionStore.Curve stockCurve=curve(stock,"one",ChargeSessionStore.Charger.STOCK);
+        ChargingEstimate.Result faster=observed(stockCurve,60,5.5);
+        near(14.5*.4/5.5*60,faster.remainingMinutesToFull,"Twice the training current keeps the review's approximately 63-minute live estimate");
+        check(!faster.learnedToFull&&!faster.learnedToLimit&&faster.learnedSessions==0,"Mismatched power cannot claim a learned ETA");
+        check(faster.status.contains("Live power differs")&&faster.status.contains("manual")&&!faster.status.contains("Observed average"),"Power mismatch is explicit without claiming charger identification");
+        ChargingEstimate.Result same=observed(stockCurve,60,2.75);
+        near(120,same.remainingMinutesToFull,"Compatible stock power keeps the learned 120-minute curve");
+        check(same.learnedToFull&&same.learnedSessions==2,"Two compatible stock sessions are reported");
+        check(stockCurve.powerMatch(60,143*.65)==ChargeSessionStore.Curve.PowerMatch.MATCH&&stockCurve.powerMatch(60,143*1.35)==ChargeSessionStore.Curve.PowerMatch.MATCH,"Power tolerance includes the conservative 35 percent boundaries");
+        check(stockCurve.powerMatch(60,143*.649)==ChargeSessionStore.Curve.PowerMatch.DIFFERENT&&stockCurve.powerMatch(60,143*1.351)==ChargeSessionStore.Curve.PowerMatch.DIFFERENT,"Power outside tolerance is rejected on either side");
+        for(Double amps:new Double[]{null,Double.NaN,Double.POSITIVE_INFINITY,0d}){
+            ChargingEstimate.Result missing=observed(stockCurve,60,amps);
+            check(!missing.learnedToFull&&missing.remainingMinutesToFull==null,"Missing or insufficient live power cannot use a learned curve");
+        }
+        ChargeSessionStore tapered=store();
+        for(int n=0;n<2;n++)session(tapered,"one",ChargeSessionStore.Charger.STOCK,40,100,180000,false,false,soc->Math.max(.5,2.75-.1125*Math.max(0,soc-80)));
+        ChargeSessionStore.Curve taperCurve=curve(tapered,"one",ChargeSessionStore.Charger.STOCK);
+        ChargingEstimate.Result taper=observed(taperCurve,90,1.625);
+        near(30,taper.remainingMinutesToFull,"Taper compares with power observed at the same SOC, not bulk charging power");
+        check(taper.learnedToFull,"Compatible taper remains a learned estimate");
+        check(!observed(taperCurve,90,2.75).learnedToFull,"Bulk power at a recorded taper SOC falls back instead of misusing taper");
+        ChargeSessionStore noPower=store();
+        for(int n=0;n<2;n++)session(noPower,"one",ChargeSessionStore.Charger.STOCK,40,100,60000,false,false,soc->0);
+        ChargingEstimate.Result unknown=observed(curve(noPower,"one",ChargeSessionStore.Charger.STOCK),60,2.75);
+        check(!unknown.learnedToFull&&unknown.status.contains("lack consistent power"),"Time intervals without usable training power fail closed");
+        near(estimate(60,2.75).remainingMinutesToFull,unknown.remainingMinutesToFull,"Missing training power preserves current-rate estimate");
+        ChargeSessionStore mixedPower=store();
+        session(mixedPower,"one",ChargeSessionStore.Charger.STOCK,40,100,180000,false,false,soc->2.75);
+        session(mixedPower,"one",ChargeSessionStore.Charger.STOCK,40,100,180000,false,false,soc->5.5);
+        check(!observed(curve(mixedPower,"one",ChargeSessionStore.Charger.STOCK),60,4.125).learnedToFull,"Disagreeing training power cannot establish an invented middle charger");
+        check(observed(curve(completed,"one",ChargeSessionStore.Charger.STOCK),99,2d).learnedToFull,"Zero-current final packet does not dilute the 99 percent interval's charging power");
+
+        ChargeSessionStore retained=store();
+        for(int n=0;n<2;n++){
+            session(retained,"one",ChargeSessionStore.Charger.HIGH_SPEED,40,60,60000,false,false);
+            session(retained,"two",ChargeSessionStore.Charger.STOCK,40,60,60000,false,false);
+        }
+        for(int n=0;n<25;n++)session(retained,"one",ChargeSessionStore.Charger.STOCK,40,60,60000,false,false);
+        check(curve(retained,"one",ChargeSessionStore.Charger.HIGH_SPEED).qualifiedSessions==2,"Frequent stock captures preserve a minority high-speed curve");
+        check(curve(retained,"two",ChargeSessionStore.Charger.STOCK).qualifiedSessions==2,"Retention is fair across scooter profiles too");
+        check(retained.snapshot().sessions==20,"Qualified capture retention stays globally bounded");
+        for(int n=0;n<30;n++){
+            retained.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+            retained.sample(frame(MONO,40));retained.stop(n%2==0?ChargeSessionStore.Stop.ERROR:ChargeSessionStore.Stop.STOPPED);
+        }
+        check(curve(retained,"one",ChargeSessionStore.Charger.HIGH_SPEED).estimate(50,60)!=null,"Failed and short capture floods preserve usable minority charger evidence");
+        check(curve(retained,"two",ChargeSessionStore.Charger.STOCK).estimate(50,60)!=null,"Failed captures preserve minority profile evidence");
+        check(curve(retained,"one",ChargeSessionStore.Charger.STOCK).qualifiedSessions==15,"Only the active capture's reserved slot reduces qualified data under a failed-capture flood");
+        check(retained.snapshot().sessions==20&&retained.snapshot().bytes<=ChargeSessionStore.MAX_SESSIONS*(ChargeSessionStore.MAX_FILE_BYTES+1024),"Retention retains both global file and byte bounds");
         System.out.println("ChargeSessionStore: "+checks+" checks passed");
     }
 }
