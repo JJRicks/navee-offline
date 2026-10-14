@@ -17,6 +17,7 @@ public final class DashboardLayoutTest {
         invalidInputs();
         overlapEdges();
         deterministicLayouts();
+        leadingRows();
         previewFillsVacatedRows();
         previewKeepsFullTargetAndSnapshot();
         previewBoundsAndOrder();
@@ -162,6 +163,17 @@ public final class DashboardLayoutTest {
                     check(first.get(i).id.equals(input.get(i).id), "Returned order matches input IDs");
             }
         }
+    }
+
+    private static void leadingRows() {
+        List<DashboardLayout.Cell> input = Arrays.asList(cell("a", 0, 8, 1, 2), cell("b", 1, 12, 1, 3));
+        List<DashboardLayout.Cell> result = DashboardLayout.withoutLeadingRows(input);
+        check(result.get(0).y == 0 && result.get(1).y == 4, "Leading rows removed while intentional inner gaps remain");
+        check(input.get(0).y == 8, "Top normalization does not alter its input");
+        same(result, DashboardLayout.withoutLeadingRows(result), "Top normalization is stable");
+        check(DashboardLayout.withoutLeadingRows(Collections.<DashboardLayout.Cell>emptyList()).isEmpty(), "Empty grid has no leading rows");
+        check(DashboardLayout.minimumSpan("quick", 5, 400, 10, 1) == 1, "Icon-only shortcut rail fits one of five columns");
+        check(DashboardLayout.minimumSpan("quick", 5, 400, 10, 2) == 1, "Icon-only shortcut rail is independent of text scale");
     }
 
     private static void previewFillsVacatedRows() {
@@ -322,7 +334,7 @@ public final class DashboardLayoutTest {
         for (String type : types) {
             check(DashboardLayout.minimumSpan(type, 2, 344, 10, 1) == 1,
                     "Existing reasonable half-width " + type + " cards still fit");
-            check(DashboardLayout.minimumWidgetWidthDp(type, 1) >= 144,
+            check(DashboardLayout.minimumWidgetWidthDp(type, 1) >= (type.equals("quick") ? 58 : 144),
                     "Every widget has room for three independent editor touch targets");
             for (int columns = 1; columns <= DashboardLayout.MAX_COLUMNS; columns++) {
                 for (int width : new int[] {1, 280, 320, 600, 852, 1440}) {
