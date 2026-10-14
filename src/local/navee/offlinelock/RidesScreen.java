@@ -636,6 +636,7 @@ public final class RidesScreen implements AppScreen {
         final boolean full; List<RideChartData.Series> data;
         final TextView loadStatus; AlertDialog expandedDialog; java.util.concurrent.Future<?> fullLoad;
         int loadGeneration; boolean fullDataLoaded;
+        int overlayLimit = ui.dp(112); ScrollView overlayScroll;
         ChartPanel(String rideId, List<RideStore.Point> measured, PhoneRideStore.Track phone, boolean full) {
             super(host.activity()); this.rideId = rideId; this.measured = measured; this.phone = phone; this.full = full;
             setOrientation(VERTICAL); setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12)); setBackground(ui.shape(ui.surface, 20, 0));
@@ -644,13 +645,17 @@ public final class RidesScreen implements AppScreen {
             if (full) head.addView(loadStatus);
             if (!full) { TextView expand = ui.secondaryButton("Expand", this::expand); iconize(expand, "fit"); head.addView(expand, new LinearLayout.LayoutParams(-2, -2)); }
             addView(head); choices = new Flow(); choices.setPadding(0, ui.dp(8), 0, ui.dp(10));
+            TextView hint = ui.caption("Slide to inspect · pinch to zoom · drag time labels to pan · energy/distance needs 3 km/h (1.9 mph)");
+            hint.setContentDescription("Ride chart controls and limits"); hint.setPadding(0, ui.dp(6), 0, 0);
             if (full) {
-                // Keep the expanded plot useful on short windows and enlarged text. All
-                // overlay choices remain in their own scrollable, visibly fading list.
+                // The helper text shares this bounded region so enlarged text never
+                // takes another unbounded block out of the fullscreen plot.
                 ScrollView overlays = new ScrollView(host.activity()) {
-                    @Override protected void onMeasure(int width, int height) { super.onMeasure(width, MeasureSpec.makeMeasureSpec(ui.dp(112), MeasureSpec.AT_MOST)); }
+                    @Override protected void onMeasure(int width, int height) { super.onMeasure(width, MeasureSpec.makeMeasureSpec(overlayLimit, MeasureSpec.AT_MOST)); }
                 };
-                overlays.setVerticalFadingEdgeEnabled(true); overlays.setFadingEdgeLength(ui.dp(16)); overlays.addView(choices); addView(overlays);
+                overlayScroll = overlays;
+                LinearLayout controls = vertical(); controls.addView(choices); controls.addView(hint);
+                overlays.setVerticalFadingEdgeEnabled(true); overlays.setFadingEdgeLength(ui.dp(16)); overlays.addView(controls); addView(overlays, new LinearLayout.LayoutParams(-1, overlayLimit));
             } else addView(choices);
             chosen = new LinkedHashSet<>(preferences.getStringSet("ride_chart_series", RideChartData.defaults()));
             chart = new RideChartView(ui);
@@ -667,7 +672,23 @@ public final class RidesScreen implements AppScreen {
             TextView[] buttons = {ui.secondaryButton("−", () -> chart.zoomBy(.5)), ui.secondaryButton("Fit", chart::reset), ui.secondaryButton("+", () -> chart.zoomBy(2))};
             buttons[0].setContentDescription("Zoom out ride chart"); buttons[1].setContentDescription("Fit the whole ride in the chart"); buttons[2].setContentDescription("Zoom in ride chart");
             for (TextView button : buttons) { LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, -2, 1); p.setMargins(ui.dp(3), 0, ui.dp(3), 0); zoom.addView(button, p); } addView(zoom);
-            TextView hint = ui.caption("Slide to inspect · pinch to zoom · drag time labels to pan · energy/distance needs 3 km/h (1.9 mph)"); hint.setPadding(0, ui.dp(6), 0, 0); addView(hint); update();
+            if (!full) addView(hint); update();
+        }
+        @Override protected void onMeasure(int width, int height) {
+            overlayLimit = ui.dp(112);
+            if (overlayScroll != null) {
+                overlayScroll.getLayoutParams().height = overlayLimit;
+                overlayScroll.forceLayout();
+            }
+            super.onMeasure(width, height);
+            if (full && chart != null && chart.getMeasuredHeight() < ui.dp(200)) {
+                // Reserve graph room using actual available height, not a device-width
+                // breakpoint. Overlay choices and the helper remain reachable by scrolling.
+                overlayLimit = Math.max(ui.dp(48), overlayLimit - (ui.dp(200) - chart.getMeasuredHeight()));
+                overlayScroll.getLayoutParams().height = overlayLimit;
+                overlayScroll.forceLayout();
+                super.onMeasure(width, height);
+            }
         }
         void inspect(double time, List<RideChartData.Series> selected) {
             StringBuilder signature = new StringBuilder(Double.isFinite(time) ? "selected" : "idle");
@@ -740,8 +761,11 @@ public final class RidesScreen implements AppScreen {
                     });
                 } catch (java.io.InterruptedIOException | java.util.concurrent.CancellationException canceled) {
                     // Closing, replacing the ride, or leaving Rides cancels without a late UI update.
-                } catch (IOException | RideStore.DetailMemoryException failure) {
-                    String message = failure instanceof RideStore.DetailMemoryException
+                } catch (IOException | RuntimeException | OutOfMemoryError failure) {
+                    // Executor Futures otherwise swallow these failures and leave Loading
+                    // disabled forever. Memory exhaustion gets best-effort recovery;
+                    // other fatal Error types are not blanket-caught.
+                    String message = failure instanceof RideStore.DetailMemoryException || failure instanceof OutOfMemoryError
                             ? "Not enough memory for all samples. Showing preview; the full journal is available through Export."
                             : "Could not load all samples. Showing preview; tap Retry to try again.";
                     host.activity().runOnUiThread(() -> { if (currentLoad(generation, expanded, dialog)) { fullLoad = null; fullLoadFailed(expanded, message); } });

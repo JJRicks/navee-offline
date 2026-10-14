@@ -61,7 +61,17 @@ public final class RideChartView extends View {
         for (int j = 0; j < 5; j++) { float y = plot.top + plot.height() * j / 4; canvas.drawLine(plot.left, y, plot.right, y, paint); }
         paint.setStyle(Paint.Style.FILL); paint.setTextAlign(Paint.Align.CENTER); paint.setColor(ui.muted);
         int ticks = Math.max(2, Math.min(7, (int)(plot.width() / ui.dp(60))));
-        for (int i = 0; i <= ticks; i++) { paint.setTextAlign(i == 0 ? Paint.Align.LEFT : i == ticks ? Paint.Align.RIGHT : Paint.Align.CENTER); double t = from + (to - from) * i / ticks; canvas.drawText(time(t), plot.left + plot.width() * i / ticks, plot.bottom + ui.dp(24), paint); }
+        String previousTick = ""; float previousRight = Float.NEGATIVE_INFINITY;
+        for (int i = 0; i <= ticks; i++) {
+            String label = tickTime(from + (to - from) * i / ticks, (to - from) / ticks);
+            if (label.equals(previousTick)) continue;
+            float x = plot.left + plot.width() * i / ticks, width = paint.measureText(label);
+            float left = i == 0 ? x : i == ticks ? x - width : x - width / 2;
+            if (left < previousRight + ui.dp(4)) continue;
+            previousTick = label; previousRight = left + width;
+            paint.setTextAlign(i == 0 ? Paint.Align.LEFT : i == ticks ? Paint.Align.RIGHT : Paint.Align.CENTER);
+            canvas.drawText(label, x, plot.bottom + ui.dp(24), paint);
+        }
         paint.setTextAlign(Paint.Align.CENTER);
         if (series.isEmpty()) { canvas.drawText("Choose readings above", plot.centerX(), plot.centerY(), paint); return; }
         if (axis * series.size() > axesWidth + 1) {
@@ -113,6 +123,11 @@ public final class RideChartView extends View {
     private static String axisNumber(RideChartData.Series series, double value) { return series.unit.equals("mph") || series.unit.equals("km/h") ? String.format(Locale.US, "%.1f", Math.abs(value) < .05 ? 0 : value) : number(value); }
     private static String number(double value) { if (Math.abs(value) < .005) value = 0; return String.format(Locale.US, Math.abs(value) >= 100 ? "%.0f" : Math.abs(value) >= 10 ? "%.1f" : "%.2f", value); }
     private static String time(double ms) { long seconds = Math.max(0, (long)(ms / 1000)); return String.format(Locale.US, "%d:%02d", seconds / 60, seconds % 60); }
+    public static String tickTime(double ms, double spacingMs) {
+        if (spacingMs >= 1000) return time(ms);
+        long tenths = Math.max(0, Math.round(ms / 100));
+        return String.format(Locale.US, "%d:%02d.%d", tenths / 600, tenths / 10 % 60, tenths % 10);
+    }
     public static String sampleTime(long ms) { return time(ms) + String.format(Locale.US, ".%03d", Math.max(0, ms) % 1000); }
     public static String sampleValue(RideChartData.Series s, RideChartData.Value value) {
         if (value == null || value.value == null || !Double.isFinite(value.value)) return "—";

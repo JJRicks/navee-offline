@@ -53,12 +53,17 @@ public final class RidesAnalysisValidation extends Instrumentation {
             awaitFull(ancestor(chart, "ChartPanel"));
             check(chart != null && chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph has usable height");
             main(() -> { ViewGroup choices = (ViewGroup)field(ancestor(chart,"ChartPanel"),"choices");
-                ScrollView overlays = (ScrollView)choices.getParent(); overlays.scrollTo(0, choices.getHeight());
-                check(choices.getChildAt(choices.getChildCount()-1).getGlobalVisibleRect(new android.graphics.Rect()), "Last fullscreen overlay remains reachable in the scrolling controls"); overlays.scrollTo(0,0);
+                ScrollView overlays = (ScrollView)choices.getParent().getParent(); View last = choices.getChildAt(choices.getChildCount()-1);
+                overlays.scrollTo(0, Math.max(0,last.getBottom()-overlays.getHeight()));
+                check(last.getGlobalVisibleRect(new android.graphics.Rect()), "Last fullscreen overlay remains reachable in the scrolling controls");
+                overlays.scrollTo(0,((View)choices.getParent()).getHeight());
+                check(byDescription(full,"Ride chart controls and limits").getGlobalVisibleRect(new android.graphics.Rect()),"Fullscreen helper remains reachable in the bounded controls"); overlays.scrollTo(0,0);
             });
             main(() -> verifyZoomButtons(full));
             check(context.getSharedPreferences("app_settings", 0).getStringSet("ride_chart_series", Collections.emptySet()).size() == 5, "Series selection persists immediately");
-            main(() -> verifyInspection(chart)); settle(); screenshot("expanded-inspection");
+            main(() -> verifyInspection(chart)); settle();
+            check(chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph retains usable height after inspection labels appear: actual="+chart.getHeight()+", measured="+chart.getMeasuredHeight()+", controls="+((ScrollView)field(ancestor(chart,"ChartPanel"),"overlayScroll")).getHeight()+", limit="+field(ancestor(chart,"ChartPanel"),"overlayLimit"));
+            screenshot("expanded-inspection");
             double before = (double)field(chart, "to") - (double)field(chart, "from"); main(() -> chart.zoomBy(2)); settle();
             check((double)field(chart, "to") - (double)field(chart, "from") < before, "Fullscreen zoom changes time viewport");
             main(() -> verifyGestures(chart)); settle(); screenshot("expanded");
@@ -129,7 +134,14 @@ public final class RidesAnalysisValidation extends Instrumentation {
         Object retriedPanel=ancestor(find(root(),RideChartView.class),"ChartPanel");main(()->invoke(retriedPanel,"expand",new Class[0]));settle();
         Object expanded=ancestor(find(root(),RideChartView.class),"ChartPanel");TextView status=(TextView)field(expanded,"loadStatus");
         check("Preview · Retry".contentEquals(status.getText())&&status.isEnabled(),"Unavailable full source is visibly identified as preview with Retry");
+        check(((RideChartView)field(expanded,"chart")).getHeight()>=activity.ui().dp(160),"Preview/Retry header preserves usable graph height");
+        // A null captured store simulates an unexpected worker RuntimeException without
+        // exhausting emulator memory or adding a production-only test hook.
+        main(()->{setField(service,"phoneSavingCount",0);RideStore saved=service.rides;try{service.rides=null;status.performClick();}finally{service.rides=saved;}});
+        long failureDeadline=SystemClock.uptimeMillis()+5000;while(!status.isEnabled()&&SystemClock.uptimeMillis()<failureDeadline)settle();
+        check("Preview · Retry".contentEquals(status.getText())&&status.isEnabled()&&!(boolean)field(expanded,"fullDataLoaded"),"Unexpected worker failure recovers to Preview/Retry instead of Loading forever");
         main(()->{setField(service,"phoneSavingCount",0);status.performClick();});awaitFull(expanded);settle();
+        check(((RideChartView)field(expanded,"chart")).getHeight()>=activity.ui().dp(160),"All-samples load preserves usable graph height");
         List<RideChartData.Series> full=(List<RideChartData.Series>)field(expanded,"data");
         check(full.get(0).values.size()==4096&&full.get(2).values.size()==4096,"Expanded graph includes all scooter samples and accepted GPS fixes beyond both preview caps");
         check(full.get(0).values.get(2047).segment!=full.get(0).values.get(2048).segment,"Full source retains the journal gap boundary");
@@ -139,7 +151,16 @@ public final class RidesAnalysisValidation extends Instrumentation {
         main(()->{setField(chart,"from",1234000d);setField(chart,"to",1236000d);chart.invalidate();});settle();
         main(()->{android.graphics.RectF plot=(android.graphics.RectF)field(chart,"plot");long start=SystemClock.uptimeMillis();touch(chart,start,0,MotionEvent.ACTION_DOWN,new float[]{plot.centerX(),plot.centerY()});touch(chart,start,40,MotionEvent.ACTION_UP,new float[]{plot.centerX(),plot.centerY()});View readout=(View)field(expanded,"inspection");check(text(readout,"3456.00 W")!=null&&text(readout,"At 20:35.000")!=null,"Native tap reaches a full-source spike omitted by inline preview");
             touch(chart,start+600,0,MotionEvent.ACTION_DOWN,new float[]{plot.centerX(),plot.centerY()});touch(chart,start+600,40,MotionEvent.ACTION_MOVE,new float[]{plot.right-1,plot.centerY()});touch(chart,start+600,70,MotionEvent.ACTION_UP,new float[]{plot.right-1,plot.centerY()});check(text(readout,"100.00 W")!=null,"Sliding reads the adjacent original value after the brief spike");});
-        settle(); screenshot("full-detail-spike");
+        settle(); check(chart.getHeight()>=activity.ui().dp(160),"Full-detail scrubbing keeps plot room with large text");
+        Set<String> ticks=new HashSet<>();for(int i=0;i<=7;i++)ticks.add(RideChartView.tickTime(1234000+2000d*i/7,2000d/7));
+        check(ticks.size()==8&&ticks.contains("20:34.0"),"Subsecond chart ticks use distinct tenths");
+        check("1:00.0".equals(RideChartView.tickTime(59999,200)),"Subsecond labels roll cleanly into the next minute");
+        check("1:00".equals(RideChartView.tickTime(60000,1000)),"Ordinary tick labels keep whole seconds");
+        main(()->{ViewGroup row=(ViewGroup)field(expanded,"inspection");int edge=0;for(int i=0;i<row.getChildCount();i++){ViewGroup cell=(ViewGroup)row.getChildAt(i);check(cell.getLeft()>=edge,"Full-source readout cells do not overlap after scrubbing");edge=cell.getRight();for(int j=0;j<cell.getChildCount();j++){View label=cell.getChildAt(j);check(label.getLeft()>=0&&label.getRight()<=cell.getWidth(),"Full-source readout text remains within its cell");}}});
+        // The synthetic events above run back-to-back; allow their final rendered frame
+        // to settle before visual evidence.
+        SystemClock.sleep(1200);settle();
+        screenshot("full-detail-spike");
         main(()->{for(Object dialog:new ArrayList<>((List<?>)field(screen,"dialogs")))((AlertDialog)dialog).dismiss();invoke(screen,"showDetails",new Class[]{String.class},id);});settle();
         Object other=ancestor(find(root(),RideChartView.class),"ChartPanel");main(()->invoke(other,"expand",new Class[0]));settle();Object otherExpanded=ancestor(find(root(),RideChartView.class),"ChartPanel");awaitFull(otherExpanded);
         check(((List<RideChartData.Series>)field(otherExpanded,"data")).get(0).values.size()==240,"Changing rides loads only the selected ride, never a stale full result");
