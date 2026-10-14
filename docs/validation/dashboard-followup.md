@@ -15,7 +15,9 @@ walkthrough notes 2–6, 23, 26, 37 and 38.
   release before the next layout frame.
 - Quick access can occupy one of five columns. Narrow cards show icons with full
   accessible labels and state. A 58 dp width floor protects 48 dp shortcut targets;
-  a narrow editor stacks its controls and reserves four grid rows.
+  a narrow editor stacks its controls. Rails at least 96 dp wide use two editor
+  columns and can shrink to three grid rows; thinner rails retain four rows to
+  keep all four 48 dp actions and the independent resize target separated.
 - The recorder can be one row high at 192 dp or wider. Its secondary description
   is hidden in this compact presentation, and its resize target stays separate
   from the other edit controls. Narrower recorders retain their taller minimum.
@@ -63,3 +65,9 @@ Local reproducibility evidence is under `work/next-dashboard-validation/`, with
 the final cases in `native-verified/` and `native-reduced/`. The runner refuses
 physical devices and existing owner app data. No real scooter actions, owner
 phone installation, release publication or merge was performed for this change.
+
+## Follow-up: three-row Quick Access rail
+
+The narrow Quick Access height floor is now three grid rows at 96–143 dp card widths. At less than 96 dp, the four editor actions must stack vertically; those extreme rails keep the four-row floor so the resize corner cannot overlap Remove. Wider cards retain their existing two-row floor. This changes the allowed minimum only and does not rewrite the owner's saved widget dimensions.
+
+Signed production and native-runner APKs build and verify. The updated `ResponsiveDashboardValidation` follow-up fixture passes at unfolded 725×604 dp and Fold cover 344×882 dp with 140% app text. It requests a real five-column 4+1 layout with a three-row shortcut rail, checks measured editor bounds/48 dp target sizes/non-overlap at 96, 113, and 143 dp, and retains the 70 dp safety case. Existing draft/cancel/Undo, shortcut reordering, one-row recorder, selected readings, and scheduled-clock checks also pass. Native card screenshots inspected. All checks use disposable emulator 5592 with Bluetooth disabled; no owner phone or scooter touched.
