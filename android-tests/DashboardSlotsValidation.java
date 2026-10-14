@@ -125,6 +125,14 @@ public final class DashboardSlotsValidation extends Instrumentation {
                         .putString("unrelated_setting", "untouched").commit(), "Could not seed upgrade preferences");
         String active = signature(config);
         Map<String, ?> before = new LinkedHashMap<>(preferences.getAll());
+        final int[] failedBuilds = {0};
+        DashboardConfig failedExample = withExampleFactory(profile, () -> {
+            failedBuilds[0]++;
+            throw new IllegalStateException("Injected optional example failure");
+        });
+        require(failedBuilds[0] == 1 && before.equals(preferences.getAll())
+                        && active.equals(signature(failedExample)) && !failedExample.slotExists(2),
+                "Optional builder failure reset a valid dashboard, changed saved data, or retried during construction");
         config = new DashboardConfig(preferences, profile);
         Map<String, ?> after = new LinkedHashMap<>(preferences.getAll()); after.remove(exampleKey);
         require(before.equals(after) && active.equals(signature(config)),
@@ -144,6 +152,21 @@ public final class DashboardSlotsValidation extends Instrumentation {
         for (int i = 0; i < secondWidgets.length(); i++)
             require(!exampleIds.contains(secondWidgets.getJSONObject(i).getString("id")),
                     "Profiles share generated example IDs");
+
+        before = new LinkedHashMap<>(preferences.getAll());
+        failedBuilds[0] = 0;
+        DashboardConfig freshWithoutExample = withExampleFactory("example-builder-unavailable", () -> {
+            failedBuilds[0]++;
+            throw new IllegalStateException("Injected fresh-profile example failure");
+        });
+        assertCapturedDefaults(freshWithoutExample, this::require);
+        after = new LinkedHashMap<>(preferences.getAll()); after.remove("dashboard_v1_example-builder-unavailable");
+        require(failedBuilds[0] == 1 && !freshWithoutExample.slotExists(2) && before.equals(after),
+                "Optional builder failure blocked a new profile or changed existing preferences");
+        String freshDashboard = signature(freshWithoutExample);
+        DashboardConfig retry = new DashboardConfig(preferences, "example-builder-unavailable");
+        require(retry.slot(2) != null && freshDashboard.equals(signature(retry)),
+                "Retrying optional example changed the new profile's active dashboard");
 
         require(config.restoreSlot(2) && preferences.getInt("dashboard_columns", -1) == 6,
                 "Example did not restore its paired layouts and column choice");
@@ -218,7 +241,16 @@ public final class DashboardSlotsValidation extends Instrumentation {
                 "Seeding a legacy profile changed its empty dashboard or Adaptive choice");
         require(preferences.edit().clear().commit(), "Could not reset isolated example fixture");
         checks.add("All widgets seeds only an absent third slot per profile; generated IDs, current dashboards, column choices, occupied/empty/damaged slots and other saved data survive reloads and upgrades");
+        checks.add("Injected example-builder failures leave valid/custom and fresh dashboards usable, preserve saved state, and allow a later retry without regenerating active widget IDs");
         checks.add("Every example type has sensible options and explicit nonoverlapping, gap-free 1–6-column layouts; measured sizing remains safe without rewriting the saved example");
+    }
+
+    private DashboardConfig withExampleFactory(String profile,
+            java.util.function.Supplier<ArrayList<DashboardConfig.Widget>> factory) throws Exception {
+        java.lang.reflect.Constructor<DashboardConfig> constructor = DashboardConfig.class.getDeclaredConstructor(
+                SharedPreferences.class, String.class, java.util.function.Supplier.class);
+        constructor.setAccessible(true);
+        return constructor.newInstance(preferences, profile, factory);
     }
 
     static void assertAllWidgetsExample(DashboardConfig config,
