@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <!-- Build replaces this with the exact bundled-script hash. No same-origin script blanket. -->
+  <meta http-equiv="Content-Security-Policy" content="__CSP__">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="referrer" content="no-referrer">
+  <meta name="color-scheme" content="dark light">
+  <title>Pair your scooter · Volt</title>
+  <meta name="description" content="A local USB setup helper for your own NAVEE scooter. Review each step, connect in NAVEE, and import privately into Volt.">
+  <link rel="stylesheet" href="./styles.css">
+  <script src="./app.js" integrity="__INTEGRITY__" defer></script>
+</head>
+<body>
+  <a class="skip" href="#main">Skip to setup</a>
+  <header class="masthead"><a class="brand" href="./" aria-label="Volt setup home"><svg viewBox="0 0 28 32" aria-hidden="true"><path d="M17 1 3 18h10l-2 13 14-18H15z"/></svg><span>VOLT<span class="brand-sub">OWNER SETUP</span></span></a><span class="private-note"><span class="dot"></span> Browser → USB → your phone</span></header>
+  <main id="main">
+    <aside class="intro">
+      <p class="eyebrow">TESTING PREVIEW · ONE-TIME SETUP</p>
+      <h1>Your scooter.<br>Your connection.</h1>
+      <p class="lede">Bring your NAVEE scooter into Volt. No terminal, no account password to enter here.</p>
+      <p class="fine">Testing preview: a successful browser capture with a nearby scooter is still awaiting validation.</p>
+      <ol class="steps" aria-label="Setup progress">
+        <li data-step="0" aria-current="step"><span class="step-number">1</span><span>Connect your phone<small>USB cable + Chrome or Edge</small></span></li>
+        <li data-step="1"><span class="step-number">2</span><span>Approve a short capture<small>You stay in control</small></span></li>
+        <li data-step="2"><span class="step-number">3</span><span>Connect in NAVEE<small>Up to 90 seconds</small></span></li>
+        <li data-step="3"><span class="step-number">4</span><span>Save and import<small>Ready for local Bluetooth</small></span></li>
+      </ol>
+      <div class="privacy-card"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m12 3 8 3v5c0 5-8 10-8 10S4 16 4 11V6z"/><path d="m8 12 3 3 5-6"/></svg><p><strong>Your setup stays local.</strong><br>The phone’s capture is processed in this tab. It is not sent to the website’s server.</p></div>
+    </aside>
+    <div class="workspace">
+      <noscript><div class="alert">JavaScript is required for USB setup. Use Volt’s existing desktop helper or import a saved owner file instead.</div></noscript>
+      <div id="legacy-site" class="notice" hidden role="status"><strong>Setup has moved to its own site.</strong><p>For a new capture, <a href="https://pairscooter.jjricks.com/" target="_blank" rel="noopener noreferrer">open pairscooter.jjricks.com</a>. If this browser has an unfinished capture, use Recover cleanup here first. Recovery records stay in this browser and are not copied to the new site.</p><p>Keep this site’s data until recovery finishes. The <a href="./recovery.html">recovery guide</a> remains available here.</p></div>
+      <div id="environment" class="alert" hidden role="alert"></div>
+      <div id="error" class="alert" hidden role="alert"></div>
+      <div id="notice" class="notice" hidden role="status"></div>
+      <section id="recovery" class="panel" hidden aria-labelledby="recovery-title">
+        <span class="eyebrow">FINISH AN INTERRUPTED SESSION</span><h2 id="recovery-title">Let’s verify cleanup first.</h2>
+        <p>This browser has an unfinished capture record. Reconnect the same phone and approve USB debugging if asked. Your owner identity was not saved in that record.</p>
+        <p>The phone’s cleanup timer attempts to close NAVEE and restore its log setting after two minutes. Reconnecting lets us verify that it happened.</p>
+        <button id="recover" class="primary">Connect phone and recover</button>
+        <button id="recovery-details" class="secondary full">Download recovery instructions</button>
+        <details><summary>If recovery still fails</summary><p>Keep this browser profile’s site data. Wait two minutes, reconnect, and try again. Do not start another capture helper. If the timer or phone was interrupted, the recovery record and original setting are needed to restore safely. Our <a href="./recovery.html" target="_blank" rel="noopener noreferrer">recovery guide</a> is available without an account.</p></details>
+      </section>
+      <section id="connect-panel" class="panel" aria-labelledby="connect-title">
+        <span class="eyebrow">STEP 01 / CONNECT</span><h2 id="connect-title">Start with your phone.</h2><p>Use a computer with Chrome or Edge and a USB data cable. This page cannot connect to the phone it is running on.</p>
+        <ul class="checklist"><li>NAVEE is signed in and already works with your scooter.</li><li>Your scooter is nearby, parked, and powered on.</li><li>Other scooter apps and computer ADB tools are closed.</li></ul>
+        <p class="fine">Use a regular browser profile, not Incognito or Guest. Keep its site data until cleanup is verified so interrupted sessions can recover.</p>
+        <p class="fine">This first version supports the phone’s main personal Android user. Work profiles and secondary users are not supported.</p>
+        <details><summary>How to enable USB debugging</summary><ol><li>On Android, open Settings → About phone. Tap Build number seven times (Samsung: About phone → Software information first).</li><li>Open Developer options and turn on USB debugging.</li><li>Connect a data-capable USB cable. Unlock the phone.</li></ol><p>Work-managed phones may block debugging. On Windows, your phone’s USB driver may be required.</p></details>
+        <div class="permission"><strong>USB debugging is powerful.</strong><p>It grants this page broad developer access to the selected phone, beyond the one message we need. Continue only for a phone and scooter you own or have permission to set up.</p><p>We use a temporary browser key. On the phone prompt, leave <strong>“Always allow from this computer” unchecked.</strong></p></div>
+        <label class="consent"><input id="usb-consent" type="checkbox"><span>I understand the access and want to choose my phone.</span></label>
+        <button id="connect" class="primary" disabled>Choose my phone <span aria-hidden="true">↗</span></button>
+        <p class="fine">Chrome asks you to select a device. Android then asks you to approve USB debugging. You can cancel either prompt.</p>
+      </section>
+      <section id="capture-panel" class="panel" hidden aria-labelledby="capture-title">
+        <span class="eyebrow">STEP 02 / YOUR APPROVAL</span><h2 id="capture-title">A small capture, clearly explained.</h2>
+        <div class="device-chip"><span class="dot"></span><span id="device-name">Android phone connected</span></div>
+        <p>When you approve, this helper will:</p><ol class="actions-list"><li>Save NAVEE’s existing log setting and start a cleanup timer.</li><li>Temporarily enable NAVEE logging and restart the NAVEE app.</li><li>Read only fresh NAVEE Bluetooth authentication messages while you connect to your scooter.</li><li>Close NAVEE and restore its original log setting before offering any export.</li></ol>
+        <p class="fine">NAVEE itself may log more while verbose logging is enabled; this helper reads only the filtered authentication messages. It never reads your NAVEE password or uploads the capture.</p>
+        <label class="consent"><input id="capture-consent" type="checkbox"><span>I approve temporary logging, restarting NAVEE, and automatic cleanup on finish or cancellation.</span></label>
+        <div class="button-row"><button id="start" class="primary" disabled>Start 90-second capture</button><button id="disconnect" class="secondary">Disconnect</button></div>
+      </section>
+      <section id="working-panel" class="panel working" hidden aria-labelledby="working-title">
+        <div class="orbit" aria-hidden="true"><svg viewBox="0 0 48 48"><path d="M29 4 11 27h13l-3 17 17-25H25z"/></svg></div>
+        <span class="eyebrow">STEP 03 / ON YOUR PHONE</span><h2 id="working-title">Open your scooter in NAVEE.</h2><p id="progress" role="status" aria-live="polite">Preparing the capture…</p>
+        <p>Keep this tab open and the USB cable connected. We will close NAVEE once the capture finishes.</p><button id="cancel" class="secondary">Stop and clean up</button>
+      </section>
+      <section id="save-panel" class="panel" hidden aria-labelledby="save-title">
+        <span class="success-mark" aria-hidden="true">✓</span><span class="eyebrow">STEP 04 / SAVE + IMPORT</span><h2 id="save-title">Your setup is ready.</h2><p>NAVEE is closed and its original log setting is restored. The verified owner identity is still only in this tab’s memory.</p>
+        <div class="permission"><strong>This file is a scooter key.</strong><p>Anyone with your owner setup may be able to control your scooter over Bluetooth. Keep it private. Downloads is shared phone storage; remove that copy after importing if you do not want it there.</p></div>
+        <button id="send" class="primary">Save a new file to phone Downloads</button><button id="download" class="secondary full">Download a private backup to this computer</button>
+        <p class="fine">Saving closes USB access automatically. Saving to the phone again asks you to select the same phone. A computer backup stays available until you finish or close this tab.</p>
+        <p id="saved-file" class="file-name" hidden></p><p class="fine">Then open Volt → Import a backup file, and choose the new JSON. Nothing is imported or replaced automatically. Computer downloads inherit your browser and operating system’s file permissions.</p>
+        <button id="finish" class="text-button">Finish and disconnect</button>
+      </section>
+      <p class="support">Existing owner file? Import it directly in Volt. You can also use the desktop helper included with Volt’s source bundle.</p>
+    </div>
+  </main>
+  <footer><span>Volt · Independent NAVEE companion</span><span>No cloud login · No capture uploads · No analytics</span></footer>
+</body>
+</html>

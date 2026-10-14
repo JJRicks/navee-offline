@@ -86,7 +86,8 @@ public final class OnboardingScreen implements AppScreen {
 
     static final int WELCOME = 0, PATH = 1, PREPARE = 2, USB = 3, COMPUTER = 4, HELPER = 5,
             IMPORT = 6, IDENTITY = 7, NEARBY = 8, CONNECT = 9, DONE = 10;
-    private static final String CAPTURE = "capture", BACKUP = "backup", TYPED = "identity", SHIZUKU = "shizuku";
+    private static final String CAPTURE = "capture", WEBADB = "webadb", BACKUP = "backup", TYPED = "identity", SHIZUKU = "shizuku";
+    private static final String WEBADB_URL = "https://pairscooter.jjricks.com/";
     private static final String[] STEP_NAMES = {"Prepare", "USB debugging", "Connect computer",
             "Run helper", "Import", "Nearby devices", "Connect scooter"};
     private static final String COMMAND = "python3 setup/capture-owner.py --push";
@@ -189,7 +190,7 @@ public final class OnboardingScreen implements AppScreen {
                 return false;
             case PATH: go(WELCOME); return true;
             case PREPARE: go(PATH); return true;
-            case IMPORT: go(CAPTURE.equals(path()) ? HELPER : PATH); return true;
+            case IMPORT: go(isComputerCapture() ? HELPER : PATH); return true;
             case IDENTITY: go(PATH); return true;
             case NEARBY: go(importStep()); return true;
             case CONNECT:
@@ -251,6 +252,7 @@ public final class OnboardingScreen implements AppScreen {
     }
 
     private String path() { return prefs.getString(KEY_PATH, CAPTURE); }
+    private boolean isComputerCapture() { return CAPTURE.equals(path()) || WEBADB.equals(path()); }
     private int importStep() { return TYPED.equals(path()) ? IDENTITY : IMPORT; }
 
     private boolean hasPermission() {
@@ -478,7 +480,7 @@ public final class OnboardingScreen implements AppScreen {
         if (Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2); hp.topMargin = ui.dp(14);
         side.addView(heading, hp);
-        boolean capture = CAPTURE.equals(path());
+        boolean capture = isComputerCapture();
         TextView note = ui.text(capture ? "About 10 minutes, once. You only need the computer for steps 2–4."
                 : "A few minutes. This way needs no computer.", 13.5f, false);
         note.setTextColor(ui.muted); note.setLineSpacing(ui.dp(2), 1);
@@ -641,6 +643,7 @@ public final class OnboardingScreen implements AppScreen {
         String[][] options = {
                 {CAPTURE, "screen", "Capture it from the NAVEE app", "First time. Uses a computer once, about 10 min."},
                 {SHIZUKU, "screen", "Use Shizuku on this phone", "Android 11+. Guided debugging access; no computer."},
+                {WEBADB, "screen", "Use Chrome and a USB cable", "Testing preview. Guided website; full scooter capture still awaiting validation."},
                 {BACKUP, "download", "Import a backup file", "You saved navee-owner-setup.json before."},
                 {TYPED, "lock", "Enter a 12-character identity", "Someone gave you the code for your scooter."}};
         LinearLayout group = column();
@@ -658,7 +661,7 @@ public final class OnboardingScreen implements AppScreen {
                 if (pendingOwnerFile().exists()) { host.toast("Finish importing your selected owner file first."); go(IMPORT); return; }
                 if (!prepareProfileChange()) return;
                 host.activity().startActivityForResult(new Intent(host.activity(), ShizukuSetupActivity.class), ShizukuSetupActivity.REQUEST);
-            } else go(CAPTURE.equals(chosen) ? PREPARE : BACKUP.equals(chosen) ? IMPORT : IDENTITY);
+            } else go(CAPTURE.equals(chosen) || WEBADB.equals(chosen) ? PREPARE : BACKUP.equals(chosen) ? IMPORT : IDENTITY);
         });
     }
 
@@ -677,7 +680,8 @@ public final class OnboardingScreen implements AppScreen {
         paragraph("Tick these off. You only need the computer this once.", false);
         String[][] items = {
                 {"NAVEE app works", "Signed into your account and connects to your scooter"},
-                {"A computer with ADB and Python 3", "Android Platform-Tools; the helper script comes with this app's source"},
+                {WEBADB.equals(path()) ? "A computer with Chrome or Edge" : "A computer with ADB and Python 3",
+                        WEBADB.equals(path()) ? "A current desktop browser; no Python or platform-tools needed" : "Android Platform-Tools; the helper script comes with this app's source"},
                 {"A USB data cable", "Charging-only cables won't work"},
                 {"Scooter parked and powered on", "Close any other scooter apps"}};
         LinearLayout group = column();
@@ -685,6 +689,13 @@ public final class OnboardingScreen implements AppScreen {
         content.addView(group, gp);
         for (int i = 0; i < items.length; i++) group.addView(tick("prep" + i, items[i][0], items[i][1]));
         primary("Continue", () -> go(USB));
+        if (WEBADB.equals(path())) {
+            footerLink("How does browser setup work?", () -> info("Browser setup",
+                    "Testing preview: a full browser capture with a nearby scooter is still awaiting validation.\n\nOpen " + WEBADB_URL + " on your computer. The page asks before choosing your phone and again before temporarily enabling NAVEE logging and restarting NAVEE.\n\n"
+                            + "USB debugging grants broad developer access. Use a trusted computer and leave Always allow unchecked. The helper filters for your Bluetooth owner identity, processes it in the browser, and restores NAVEE's original log setting before offering a file.\n\n"
+                            + "Your NAVEE account must already be signed in and able to connect to your scooter. A successful capture still requires your scooter nearby."));
+            return;
+        }
         footerLink("Where do I get ADB?", () -> info("Getting ADB",
                 "ADB is part of Android SDK Platform-Tools, a free download from Google's Android developer site "
                         + "(search for \"SDK Platform-Tools\"). Unzip it on your computer and run adb from that folder.\n\n"
@@ -716,6 +727,7 @@ public final class OnboardingScreen implements AppScreen {
     }
 
     private void connectComputer() {
+        if (WEBADB.equals(path())) { connectBrowser(); return; }
         scaffold(true);
         heading("Plug into your computer", false, false);
         Ui system = new Ui(host.activity(), !ui.dark, ui.textScale);
@@ -755,6 +767,7 @@ public final class OnboardingScreen implements AppScreen {
     }
 
     private void runHelper() {
+        if (WEBADB.equals(path())) { runBrowserHelper(); return; }
         scaffold(true);
         heading("Run the capture helper", false, false);
         paragraph("From the app's source folder on your computer, run:", false);
@@ -791,6 +804,37 @@ public final class OnboardingScreen implements AppScreen {
         footerLink("Capture didn't work", this::troubleshooting);
     }
 
+    private void connectBrowser() {
+        scaffold(true);
+        heading("Connect through your browser", false, false);
+        paragraph("On your computer, open:", false);
+        TextView address = ui.text(WEBADB_URL, 18, true);
+        address.setTextIsSelectable(true);
+        address.setPadding(0, ui.dp(12), 0, ui.dp(18));
+        content.addView(address);
+        content.addView(numbered(1, "Connect your phone with a USB data cable", "Use **Chrome or Edge** on the computer"));
+        content.addView(numbered(2, "Read the website's access explanation", "Choose your phone in the browser's USB picker"));
+        content.addView(numbered(3, "Approve USB debugging on this phone", "Leave **Always allow from this computer** unchecked"));
+        primary("The website connected", () -> go(HELPER));
+        footerLink("Phone isn't listed", () -> info("Connecting in Chrome",
+                "Unlock the phone, check USB debugging is on, and try a data-capable cable. Close Android Studio, other ADB tools and other browser setup tabs. Windows may need your phone's USB driver.\n\n"
+                        + "Safari and Firefox do not support this USB setup. You can return to Choose a path to use the existing desktop helper instead."));
+    }
+
+    private void runBrowserHelper() {
+        scaffold(true);
+        heading("Approve the capture on the website", false, false);
+        paragraph("The website asks before temporarily changing NAVEE's logging or restarting it. Keep the USB cable connected until cleanup is verified.", false);
+        content.addView(numbered(1, "Read the capture explanation and choose **Start**", "NAVEE opens on this phone"));
+        content.addView(numbered(2, "Select your scooter in NAVEE and connect", "The helper waits up to **90 seconds**"));
+        content.addView(numbered(3, "After cleanup, choose **Save to phone Downloads**", "A new owner-setup file is created; no profile is replaced"));
+        paragraph("If the website reports unfinished cleanup, use its Recover cleanup button before continuing. This file is a scooter key; keep it private.", false);
+        primary("The file is in Downloads", () -> go(IMPORT));
+        footerLink("Capture didn't work", () -> info("Browser capture",
+                "Make sure NAVEE is signed in, your scooter is nearby and other scooter apps are closed. If you stopped or disconnected, return to the same browser to finish cleanup first.\n\n"
+                        + "A future NAVEE update may change its logging. The website must find a fresh, valid authentication message before it creates a setup file."));
+    }
+
     private void copyCommand() {
         try {
             ClipboardManager clipboard = host.activity().getSystemService(ClipboardManager.class);
@@ -806,7 +850,9 @@ public final class OnboardingScreen implements AppScreen {
         heading(SHIZUKU.equals(path()) ? "Your owner setup" : "Import your owner file", false, false);
         String mode = importMode();
         if (mode.equals("choose") || mode.equals("loading")) {
-            paragraph(CAPTURE.equals(path())
+            paragraph(WEBADB.equals(path())
+                    ? "Choose the new navee-owner-setup file saved by the website in your Downloads."
+                    : CAPTURE.equals(path())
                     ? "The helper copied navee-owner-setup.json to your Downloads. Choose it here."
                     : "Choose navee-owner-setup.json or a private owner backup you saved before.", false);
             LinearLayout card = fileCard(mode.equals("loading") ? "Loading your owner profile…" : "No file chosen yet",

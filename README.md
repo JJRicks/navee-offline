@@ -135,11 +135,13 @@ Read [CONTRIBUTING.md](CONTRIBUTING.md) before using instrumentation: some parke
 
 ## First setup and everyday use
 
-Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the existing computer/ADB helper or the optional **Use Shizuku on this phone** route on Android 11+. Daily use needs neither. No owner credentials are embedded in this repository or APK.
+Each owner needs their own Bluetooth owner identity from their already-bound NAVEE account. First capture can use the guided [Chrome/USB helper](https://pairscooter.jjricks.com/), the optional **Use Shizuku on this phone** route on Android 11+, or the existing computer ADB/Python helper. Daily use needs none of these helpers. No owner credentials are embedded in this repository or APK. The [browser helper documentation](setup/web/README.md) explains its explicit consent stages, local processing, recovery, and self-hosting.
 
 The Shizuku route guides installation/start, explicit permission for broad debugging access, capture consent, and a separate import confirmation. It accepts shell-backed Shizuku 13+ only, reads fresh authentication frames from NAVEE's verified Android UID, restores the previous logging setting and stops NAVEE before making the identity available. The identity remains in memory until an explicit import; it is not uploaded or copied to Downloads. A detached safety guard and non-secret cleanup journal handle interruption. See [setup/SHIZUKU.md](setup/SHIZUKU.md) for its permissions, lifecycle and limitations. Never run the legacy computer capture helper simultaneously with another capture method.
 
-On first launch the app opens a step-by-step setup: choose to capture an identity, import a backup file or enter a 12-character identity, then follow one short step per screen through USB debugging, the capture helper, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
+The Chrome/USB helper is a testing preview, not a general release. A successful real browser capture with a nearby scooter is still awaiting validation. A developer can also run the static helper locally using the linked instructions, or use the existing desktop helper. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
+
+On first launch the app opens a step-by-step setup: choose Chrome/USB capture, Shizuku, the desktop helper, import a backup file or enter a 12-character identity, then follow the selected route through capture, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
 
 See [SETUP.txt](SETUP.txt) for the capture helper and private backup/import instructions, and [README.txt](README.txt) for detailed app behavior and recording interpretation.
 
@@ -173,6 +175,7 @@ Old recordings have no phone route to reconstruct. Exported route/phone files co
 | `tests/` | Core Java suites and runner |
 | `android-tests/` | Separate device/emulator instrumentation |
 | `setup/capture-owner.py` | Initial owner capture/import helper |
+| `setup/web/` | Static Chrome/USB owner wizard, pinned browser ADB bundle, recovery and security tests |
 
 ## License and attribution
 
