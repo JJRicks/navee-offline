@@ -179,33 +179,45 @@ public final class DashboardConfig {
     public final ArrayList<Widget> widgets = new ArrayList<>();
 
     public DashboardConfig(SharedPreferences preferences, String profileId) {
+        this(preferences, profileId, AllWidgetsDashboard::create);
+    }
+
+    DashboardConfig(SharedPreferences preferences, String profileId,
+            java.util.function.Supplier<ArrayList<Widget>> exampleFactory) {
         this.preferences = preferences;
         storageKey = "dashboard_v1_" + profileId;
         slotKeyPrefix = "dashboard_slot_v1_" + profileId + "_";
         String saved = preferences.getString(storageKey, null);
+        boolean loaded = false;
         if (saved != null)
             try {
                 widgets.addAll(readWidgets(new JSONArray(saved)));
-                seedExampleSlot();
-                return;
+                loaded = true;
             } catch (Exception ignored) {
                 widgets.clear();
             }
-        // A new profile must not change another profile's global column choice.
-        // Missing columns on an older installation mean Adaptive, so only a genuinely
-        // first dashboard gets the release's five-column preference automatically.
-        boolean firstDashboard = !preferences.contains(COLUMN_KEY);
-        if (firstDashboard)
-            for (String key : preferences.getAll().keySet())
-                if (key.startsWith("dashboard_v1_")) { firstDashboard = false; break; }
-        loadDefaults(firstDashboard);
-        seedExampleSlot();
+        if (!loaded) {
+            // A new profile must not change another profile's global column choice.
+            // Missing columns on an older installation mean Adaptive, so only a genuinely
+            // first dashboard gets the release's five-column preference automatically.
+            boolean firstDashboard = !preferences.contains(COLUMN_KEY);
+            if (firstDashboard)
+                for (String key : preferences.getAll().keySet())
+                    if (key.startsWith("dashboard_v1_")) { firstDashboard = false; break; }
+            loadDefaults(firstDashboard);
+        }
+        seedExampleSlot(exampleFactory);
     }
 
     /** A missing example is safe to add; an occupied slot belongs to its owner, even if unreadable. */
-    private void seedExampleSlot() {
-        if (!slotExists(2))
-            saveSlot(2, "All widgets", AllWidgetsDashboard.COLUMNS, AllWidgetsDashboard.create());
+    private void seedExampleSlot(java.util.function.Supplier<ArrayList<Widget>> exampleFactory) {
+        try {
+            if (!slotExists(2))
+                saveSlot(2, "All widgets", AllWidgetsDashboard.COLUMNS, exampleFactory.get());
+        } catch (RuntimeException unavailable) {
+            // Optional content must never invalidate a loaded dashboard or prevent a
+            // fresh one from opening. A missing example can be retried next time.
+        }
     }
 
     private static ArrayList<Widget> readWidgets(JSONArray a) throws JSONException {

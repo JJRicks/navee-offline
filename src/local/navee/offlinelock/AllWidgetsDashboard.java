@@ -49,16 +49,19 @@ final class AllWidgetsDashboard {
         }
         row(2, 0, 3, new int[] {2}, scooter);
         row(2, 3, 4, new int[] {1, 1}, lock, battery);
-        row(2, 7, 4, new int[] {1, 1}, quick, gauge);
-        row(2, 11, 3, new int[] {1, 1}, metric, ride);
-        row(2, 14, 4, new int[] {2}, trip);
-        row(2, 18, 5, new int[] {2}, readings);
-        row(2, 23, 4, new int[] {2}, live);
-        row(2, 27, 4, new int[] {2}, history);
-        row(2, 31, 5, new int[] {2}, health);
-        row(2, 36, 5, new int[] {2}, capacity);
-        row(2, 41, 4, new int[] {2}, charging);
-        row(2, 45, 3, new int[] {2}, note);
+        // Give shortcuts their own row. At large text the gauge and reading both
+        // widen together; a one-column shortcut beside either would be stranded.
+        row(2, 7, 4, new int[] {2}, quick);
+        row(2, 11, 3, new int[] {1, 1}, gauge, metric);
+        row(2, 14, 2, new int[] {2}, ride);
+        row(2, 16, 4, new int[] {2}, trip);
+        row(2, 20, 5, new int[] {2}, readings);
+        row(2, 25, 4, new int[] {2}, live);
+        row(2, 29, 4, new int[] {2}, history);
+        row(2, 33, 5, new int[] {2}, health);
+        row(2, 38, 5, new int[] {2}, capacity);
+        row(2, 43, 4, new int[] {2}, charging);
+        row(2, 47, 3, new int[] {2}, note);
 
         row(3, 0, 4, new int[] {2, 1}, scooter, lock);
         row(3, 4, 4, new int[] {1, 2}, battery, quick);

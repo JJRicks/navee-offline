@@ -166,6 +166,13 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     "Example live chart lost its two-minute power view");
             require(((DashboardConfig.Widget)field(tile("lock"), "widget")).showDisconnect,
                     "Example lock card lost its Disconnect option");
+            if ((Integer)field(grid(), "columns") == 2) {
+                DashboardConfig.Widget quick = (DashboardConfig.Widget)field(tile("quick"), "widget");
+                DashboardLayout.Cell quickCell = (DashboardLayout.Cell)invoke(grid(), "currentCell",
+                        new Class<?>[] {DashboardConfig.Widget.class}, quick);
+                require(quickCell != null && quickCell.x == 0 && quickCell.w == 2,
+                        "Narrow example leaves Quick access stranded in a half-empty row");
+            }
             assertNoEditorControls();
             for (Object item : tiles()) {
                 View card = (View)item, body = (View)field(item, "body");

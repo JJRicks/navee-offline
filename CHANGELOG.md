@@ -6,6 +6,7 @@
 - Prevent scrollbar flashes and scroll-position jumps when restoring pages or changing settings; bring in map content and tiles smoothly.
 - Drag Stats favourites by their grab handles from an icon-only Reorder control. Save on drop, restore the starting order on cancellation, and retain screen-reader Move up/Move down actions.
 - Add an **All widgets** example to saved-layout slot 3 only when absent for that scooter. Include all 15 widget types with useful options and one- through six-column arrangements. Preserve the active dashboard, current column choice, existing slot 3 and other saved layouts; restoring the example remains optional.
+- Keep the active dashboard safe if optional example creation fails. Give Quick access a full-width row in the narrow example so enlarged text does not strand it beside an empty space.
 
 Install over the previous official APK to keep setup and recordings. Existing battery-estimate and physical sensor/recording limitations remain; see VERIFICATION.txt for current validation evidence.
 

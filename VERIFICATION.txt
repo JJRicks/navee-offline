@@ -22,7 +22,7 @@ Executed release-specific checks:
 - The combined release APK and native runner build, sign and align successfully.
   APK version is 0.12.0/code 24; production remains non-debuggable and uses the
   same signing certificate as the previous official release.
-- Native saved-layout persistence passes 4,224 assertions. It covers fresh and
+- Native saved-layout persistence passes 4,330 assertions. It covers fresh and
   existing profiles; absent-only seeding; stable generated IDs; all 15 types and
   useful options; non-overlapping 1–6-column layouts; safe temporary resizing;
   and preservation of current/occupied/empty/damaged slots and unrelated data.
@@ -33,6 +33,13 @@ Executed release-specific checks:
   Every type renders once; saved data is unchanged; cards remain within the
   grid without overlap, and compact Connect is initially reachable. Dense cards
   keep their supported internal scrolling at narrow widths/large text.
+- Follow-up protection isolates optional example creation from active-layout
+  parsing. Injected builder failures preserve both customized and fresh active
+  dashboards and allow a normal retry later. Narrow example shortcuts occupy a
+  full-width row; the new native assertion reproduces the half-empty-row problem
+  on the previous APK and passes on the updated APK. All six responsive cases
+  pass again. Focused compact screenshots were recaptured after dismissing an
+  unrelated emulator Digital Wellbeing error dialog.
 - Tests use an explicitly selected disposable emulator with synthetic readings
   and Bluetooth disabled. No owner setup, identity or telemetry is bundled in
   the example. The active dashboard is unchanged until explicit restoration.
