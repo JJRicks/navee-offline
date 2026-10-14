@@ -54,6 +54,23 @@ public final class RideChartDataTest {
         RideChartData.Series unordered=new RideChartData.Series(0,"W",Arrays.asList(new RideChartData.Value(2000,1d,0),new RideChartData.Value(1000,2d,1)));
         check(Arrays.equals(unordered.visibleRange(1000,1500),new int[]{0,2}),"Nonmonotonic source timeline preserves safe full traversal");
         check(Arrays.equals(new RideChartData.Series(0,"W",Collections.emptyList()).visibleRange(0,1),new int[]{0,0}),"Empty series range is safe");
+        check(series.sampleAt(4500400) == longRide.get(4500), "Inspection returns the original nearest sample, not interpolation");
+        check(series.sampleAt(4500600) == longRide.get(4501), "Sliding picks the next original sample");
+        check(series.sampleAt(4999500) == null, "Inspection never bridges a segment boundary");
+        check(series.sampleAt(4999000) == longRide.get(4999) && series.sampleAt(5000000) == longRide.get(5000), "Real samples on both gap edges remain inspectable");
+        check(series.sampleAt(-1) == null && series.sampleAt(9999001) == null, "Inspection does not carry endpoints beyond recorded data");
+        check(series.sampleAt(Double.NaN) == null, "Unset cursor is safe");
+        List<RideChartData.Value> sparse = Arrays.asList(new RideChartData.Value(0, 12.3456, 0), new RideChartData.Value(1000, null, 0),
+                new RideChartData.Value(2000, 23.4567, 0), new RideChartData.Value(3000, 34.5678, 0), new RideChartData.Value(90000, 45.6789, 0));
+        RideChartData.Series gaps = new RideChartData.Series(0, "W", sparse);
+        check(gaps.sampleAt(500) == null && gaps.sampleAt(1500) == null, "Missing-value spans stay unavailable, not nearest valid values");
+        check(gaps.sampleAt(1000) == sparse.get(1) && gaps.sampleAt(1000).value == null, "Exact missing sample preserves its identity");
+        check(gaps.sampleAt(30000) == null, "Long unobserved interval stays unavailable");
+        near(23.4567, gaps.sampleAt(2400).value, "Raw numeric precision is retained before display formatting");
+        near(20 / 1.609344, imperial.get(1).sampleAt(1000).value, "Inspected wheel speed follows displayed units");
+        check(together.get(2).sampleAt(1000).time == 1000, "Phone readout uses the aligned scooter elapsed timestamp");
+        check(unordered.sampleAt(2000).value == 1 && unordered.sampleAt(1500) == null, "Unordered timeline permits exact points but not reversed segments");
+        check(new RideChartData.Series(0, "W", Collections.emptyList()).sampleAt(0) == null, "Empty series inspection is safe");
         System.out.println("RideChartDataTest: " + checks + " assertions passed");
     }
 }
