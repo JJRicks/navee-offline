@@ -527,13 +527,15 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 settings().edit().putInt("dashboard_columns", 5).commit();
                 DashboardConfig.Widget photo = new DashboardConfig.Widget("scooter");
                 photo.layouts.put(5, new DashboardLayout.Cell(photo.id, 0, 0, 4, 4));
-                quick.layouts.put(5, new DashboardLayout.Cell(quick.id, 4, 0, 1, 4));
+                quick.layouts.put(5, new DashboardLayout.Cell(quick.id, 4, 0, 1, 3));
                 dashboardConfig().widgets.add(photo); invoke(dashboard(), "render");
             }); settleMotion();
             main(() -> {
                 DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid(), "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, quick);
                 require(((Number)field(grid(), "columns")).intValue() == 5 && cell.w == 1 && cell.x == 4 && cell.y == 0,
                         "Five-column photo/shortcut split was expanded or displaced");
+                float railDp = ((View)tileById(quick.id)).getWidth() / activity.getResources().getDisplayMetrics().density;
+                require(cell.h == (railDp < 96 ? 4 : 3), "Narrow shortcut height does not match its editor target budget");
             }); screenshot("five-column-shortcut-rail");
         }
         main(() -> {
@@ -557,6 +559,21 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 occupied.add(box);
             }
             saveCardBitmap(card, "narrow-shortcut-editor");
+            require(quick.minimumHeight(70) == 4, "Sub-96dp rail lost safe editor height");
+            for (int width : new int[]{96, 113, 143}) {
+                require(quick.minimumHeight(width) == 3, "Two-column editor rail cannot shrink to three rows");
+                measureCard(card, activity.ui().dp(width), activity.ui().dp(182));
+                ArrayList<Rect> boxes = new ArrayList<>();
+                for (View control : editorControls(card)) {
+                    Rect box = relativeBounds(control, card);
+                    require(control.getWidth() >= activity.ui().dp(48) && control.getHeight() >= activity.ui().dp(48), "Three-row rail shrank an editor target");
+                    require(box.left >= 0 && box.right <= card.getWidth() && box.top >= 0 && box.bottom <= card.getHeight(), "Three-row rail editor target escaped card");
+                    for (Rect other : boxes) require(!Rect.intersects(box, other), "Three-row rail editor targets overlap");
+                    boxes.add(box);
+                }
+                require(card.findViewWithTag("quick-access-grid") != null, "Three-row rail lost shortcuts");
+                saveCardBitmap(card, "three-row-shortcut-editor-" + width);
+            }
         });
         main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
         DashboardConfig.Widget recorder = new DashboardConfig.Widget("ride");
