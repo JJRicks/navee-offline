@@ -23,7 +23,7 @@ This pass follows the owner's 0.11.0 Pixel feedback. Several interactions flashe
   - **No-phone-file rides:** rides without phone files no longer reserve map space that then collapses.
   - **Small additions:** late Compare lines, Stats and chart group expand/collapse, and the recording card all glide.
 - **Favourites.**
-  - Reorder opens a bottom sheet with a grab handle on each row. The held row lifts and follows the finger, neighbours glide aside with a light tick as the slot changes, and the row settles on release. The order saves immediately.
+  - Reorder opens a bottom sheet with a grab handle on each row. The held row lifts and follows the finger, neighbours glide aside with a light tick as the slot changes, and the row settles on release. The order saves immediately. A gesture Android cancels (rather than a release) glides everything back to where it started and saves nothing.
   - Screen readers get one element per row with Move up / Move down actions and a position announcement.
   - The Reorder control is a 48 dp icon button with a tooltip and a spoken label.
 
@@ -38,16 +38,17 @@ Emulator fixtures ran on a read-only `Medium_Phone_API_36.1` AVD with Bluetooth 
 | --- | --- | --- |
 | `run-responsive.py` | 20 layout cases, 320–852 dp, app text 1.0–1.4×, system font 1.0–1.3× | All pass |
 | `run-rides.py` | 344 × 882 dark, 725 × 604 dark, 360 × 800 light at 1.4× | All pass, 123 checks each |
-| `run-live-stats.py` | 344 dark, 725 dark, 360 light 1.4×, 650 light 1.3×, 344 dark with animations off | All pass, 788 assertions each |
+| `run-live-stats.py` | 344 dark, 725 dark, 360 light 1.4×, 650 light 1.3×, 344 dark with animations off | All pass, 793 assertions each |
 | `run-battery-widgets.py` | 4 cases (including animations off) plus saved slots | All pass |
 | `run-charge-capture.py` | 344 dark, 725 light 1.4× | Both pass |
 | `LaunchValidation` | Permissions denied; granted | Both pass |
 | `DeveloperSettingsValidation` | Default; `preferences` with animations off | Both pass |
 | `PhoneRideValidation` | `granted` | Pass |
 
-One 725 dp `run-live-stats.py` run in the long sweep hit the script's 180 s instrumentation timeout. Rerun alone it passed five times (37–76 s; the unmodified 0.11.0 build takes 73 s), and the final five-case run passed. The new large-text drag check also found a real bug: a taller, wrapped row could not pass a shorter one. Neighbours now give way when the held row's leading edge passes their middle.
+Two `run-live-stats.py` runs hit the script's 180 s instrumentation timeout, once at 725 dp and once at 360 dp. At least one coincided with a parallel build on the host. Rerun on its own, the 725 dp case passed five times (37–76 s; the unmodified 0.11.0 build takes 73 s). Three further full runs with a stack-dump watchdog passed all 15 cases without stalling. The new large-text drag check also found a real bug: a taller, wrapped row could not pass a shorter one. Neighbours now give way when the held row's leading edge passes their middle.
 
 `LiveStatsValidation` now exercises the new sheet:
+- a drag that Android cancels after the chart has crossed the reading changes nothing: no save and no leftover transforms. This check fails on the first PR head and passes now;
 - dragging the chart handle above the reading saves the mixed order;
 - the dropped row settles with no leftover translation, scale or elevation;
 - the row is named for screen readers;

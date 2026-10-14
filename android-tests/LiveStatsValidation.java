@@ -170,13 +170,17 @@ public final class LiveStatsValidation extends Instrumentation {
                 chartHandle[0] = findDescription(sheet, "Drag to reorder Battery power (signed) chart");
                 require(chartHandle[0] != null && chartHandle[0].getWidth() >= activity.ui().dp(48) && chartHandle[0].getHeight() >= activity.ui().dp(48),
                         "Mixed reorder handle missing or under 48 dp");
+                // A gesture Android cancels after the chart has crossed the reading must not count as a drop.
+                dragHandle(chartHandle[0], android.view.MotionEvent.ACTION_CANCEL);
+            }); settle(); settle();
+            main(() -> {
+                View row = (View)chartHandle[0].getParent(); ViewGroup list = (ViewGroup)row.getParent();
+                require(list.indexOfChild(row) == 1 && "reading:voltage_v".equals(((List<?>)invoke(stats(), "favouriteOrder", new Class<?>[]{})).get(0))
+                        && !settings().getString("stats_favourite_order", "").startsWith("chart:power_w"), "Cancelled drag changed the saved order");
+                for (int i = 0; i < list.getChildCount(); i++) require(list.getChildAt(i).getTranslationY() == 0, "Cancelled drag left a row displaced");
+                require(row.getScaleX() == 1 && row.getTranslationZ() == 0, "Cancelled drag left the row lifted");
                 // Drag the chart's handle above the reading; it settles in the first slot on release.
-                View row = (View)chartHandle[0].getParent();
-                long time = SystemClock.uptimeMillis(); float lift = -1.2f * row.getHeight();
-                chartHandle[0].dispatchTouchEvent(android.view.MotionEvent.obtain(time, time, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0));
-                for (int step = 1; step <= 6; step++) chartHandle[0].dispatchTouchEvent(android.view.MotionEvent.obtain(
-                        time, time + step * 16, android.view.MotionEvent.ACTION_MOVE, 10, 10 + lift * step / 6, 0));
-                chartHandle[0].dispatchTouchEvent(android.view.MotionEvent.obtain(time, time + 120, android.view.MotionEvent.ACTION_UP, 10, 10 + lift, 0));
+                dragHandle(chartHandle[0], android.view.MotionEvent.ACTION_UP);
             });
             awaitOrder("chart:power_w", "Dragged chart reorder not saved");
             main(() -> {
@@ -294,6 +298,15 @@ public final class LiveStatsValidation extends Instrumentation {
             View found = findText(((ViewGroup)root).getChildAt(i), text); if (found != null) return found;
         }
         return null;
+    }
+    /** Lifts a reorder handle past the row above it, then ends the gesture with {@code end} (release or cancel). */
+    private void dragHandle(View handle, int end) {
+        View row = (View)handle.getParent();
+        long time = SystemClock.uptimeMillis(); float lift = -1.2f * row.getHeight();
+        handle.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time, android.view.MotionEvent.ACTION_DOWN, 10, 10, 0));
+        for (int step = 1; step <= 6; step++) handle.dispatchTouchEvent(android.view.MotionEvent.obtain(
+                time, time + step * 16, android.view.MotionEvent.ACTION_MOVE, 10, 10 + lift * step / 6, 0));
+        handle.dispatchTouchEvent(android.view.MotionEvent.obtain(time, time + 120, end, 10, 10 + lift, 0));
     }
     /** The id of a labelled custom accessibility action the view offers right now, or 0. */
     private int reorderAction(View view, String label) {

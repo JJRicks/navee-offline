@@ -140,7 +140,8 @@ final class ReorderList extends LinearLayout {
                 if (held != row || pointer < 0) return held == row;
                 pointer = -1;
                 if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
-                settle(row);
+                // Only a real release drops the row; a cancelled gesture puts everything back.
+                settle(row, event.getActionMasked() != MotionEvent.ACTION_CANCEL);
                 return true;
             default:
                 return held == row;
@@ -162,7 +163,9 @@ final class ReorderList extends LinearLayout {
         return tops;
     }
 
-    private void settle(View row) {
+    /** Lands the held row in its new slot ({@code drop}) or back where it started, saving only a drop. */
+    private void settle(View row, boolean drop) {
+        if (!drop) to = from;
         int[] slots = slots(from, to);
         float landing = slots[from] - restingTops[from];
         Runnable commit = () -> {
@@ -177,6 +180,10 @@ final class ReorderList extends LinearLayout {
             }
         };
         if (!Motion.enabled()) { commit.run(); return; }
+        if (!drop) for (int i = 0; i < getChildCount(); i++) {
+            if (i != from) getChildAt(i).animate().translationY(0).setDuration(Motion.CHANGE_MS)
+                    .setInterpolator(Motion.STANDARD).setListener(null).start();
+        }
         row.animate().translationY(landing).scaleX(1).scaleY(1).translationZ(0).setDuration(Motion.CHANGE_MS)
                 .setInterpolator(Motion.STANDARD).setListener(new AnimatorListenerAdapter() {
                     boolean done;
