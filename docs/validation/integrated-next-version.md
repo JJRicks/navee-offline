@@ -4,9 +4,9 @@ This is compatibility validation, not an independent review or merge approval. T
 
 ## Latest checkpoint
 
-Final tested integrated product head: `0664473d530a4e73d38816193812140bd287f46c`. All requested feature and review-fix heads are present through PR #20 `acb30fda633c54f60f73b0f1903071fc16050c5f`. The final combined app and native runner build, all 19 core suites (53,785 checks), and integrated charge-capture lifecycle (49 assertions) passed. Earlier UI matrices below cover unchanged screens and the later targeted map/battery/dashboard changes. There are no unresolved source merge conflicts. The legacy full keyboard fixture limitation below remains explicit.
+Final tested integrated product head: `db84c644a231f095958be176a193620a96520ce8`. All requested feature and review-fix heads are present through PR #21 `4d72a52513eee795938cea7282ab433168520676`. The final combined app/native runner build, narrow 140% preference/light selectors (852 assertions), and compact Live Stats matrix passed. The last core run at `0664473d530a4e73d38816193812140bd287f46c` passed all 19 suites (53,785 checks) and charge lifecycle (49 assertions); the later selector-only change touches none of those pure core classes or charge behavior. Earlier UI matrices below cover unchanged screens and the targeted map/battery/dashboard changes. There are no unresolved source merge conflicts. The legacy full keyboard fixture limitation below remains explicit.
 
-Final APK: `../next-integration-evidence/charge-followup.apk`, SHA-256 `822028b137110a4dae0386c75bc425b5cd6327e4aa7d2d9a3c4336d29ff82991`. `../next-integration-evidence/final-identity.json` records that product head and build identity.
+Final APK: `../next-integration-evidence/selector-followup.apk`, SHA-256 `0cf07e79893e0b1bbb5d7c826c250f109f963278a4c53c1b79a11596571356a3`. `../next-integration-evidence/final-identity.json` records that product head and build identity.
 
 ## Source and build (initial combined checkpoint)
 
@@ -88,3 +88,13 @@ PR #20 `acb30fda633c54f60f73b0f1903071fc16050c5f` merged cleanly, including the 
 The final app and runner rebuilt at `0664473d530a4e73d38816193812140bd287f46c`. All 19 core suites passed (53,785 checks), including the additional charger mismatch/retention cases. The integrated `ChargeCaptureValidation` passed 49 assertions, with `real_bluetooth_capture_tested=false` as intended. No real scooter charging claim is made.
 
 Evidence: `../next-integration-evidence/charge-followup/`, `../next-integration-charge-followup-core.log`, `../next-integration-charge-followup-build.log`, and `../next-integration-charge-followup-runner.log`. No broad UI matrix was repeated for this isolated calculation/retention change. Independent PR reviews remain separate from these local results.
+
+## Final light-pattern selector follow-up
+
+PR #21 `4d72a52513eee795938cea7282ab433168520676` merged cleanly into product head `db84c644a231f095958be176a193620a96520ce8`. The opt-in wrapping API is used only for the two light-pattern tracks. The original constructor, ordinary horizontal tracks, compact padding, and existing fading-edge settings remain intact.
+
+After rebuilding the combined app and native runner, full DeveloperSettingsValidation passed at 344×882 and 140% text (852 assertions). The compact Live Stats matrix at 344×882/default text passed, including the shared default selector and its section label fit. The enlarged pattern screenshot was inspected: choices and their full labels fit across the wrapped rows.
+
+This last run used explicitly borrowed disposable emulator `emulator-5590` after the owning agent released it. Emulator 5586 had already been stopped. Both were stopped after their respective final checks; unrelated emulator 5554 and owner phones were untouched.
+
+Evidence: `../next-integration-evidence/selector-followup/`, `../next-integration-evidence/selector-followup-stats/`, `../next-integration-selector-followup-build.log`, and `../next-integration-selector-followup-runner.log`. Integration remains local and does not substitute for independent review, remote merging, or release authorization.
