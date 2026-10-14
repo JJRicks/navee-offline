@@ -153,3 +153,51 @@ still ends an explicit capture immediately, and charge capture does not enable
 automatic reconnection. This preserves the bounded, already-tested lifecycle
 until full screen-off hardware captures can establish appropriate reconnect
 behavior. Existing gap handling remains for data interruptions within a connection.
+
+
+## Pixel feedback follow-up: background capture and JSON export
+
+The recorder now acquires its partial CPU wake lock synchronously when recording
+work is admitted, renews its bounded ten-minute lease every five minutes, and
+releases it when capture/finalization ends. This closes the initial timer gap
+and the former twelve-hour timeout gap. Ordinary idle Bluetooth still expires
+after ten seconds when background connection is off. Ride start reissues the
+service start so Android records its active-ride START_STICKY policy rather than
+the idle start's START_NOT_STICKY result. Charge process recovery remains explicit:
+an interrupted charge is preserved and closed; it is not silently restarted.
+
+The connected-device/location foreground-service types remain scoped to the work
+being done. Removing the task does not request service shutdown. Recording
+notifications request immediate display, use the ongoing service category and
+retain their immutable Stop action. Android 14+ can allow individual dismissal
+while unlocked; this is platform behavior, not a reason to spoof a different
+notification category or repeatedly reopen a dismissed notification. App
+preferences now exposes a scrollable Background recording explanation and
+shortcuts to Android notification/app battery settings. Nothing changes those
+system settings without user action. Force stop, permission revocation, OEM
+battery controls and Bluetooth loss can still interrupt work.
+
+Developer options → Export charge recordings streams all saved valid journals
+for the selected scooter into a versioned JSON file using Android's save picker.
+It includes manually selected charger type, start clocks, stop reason, learning
+qualification and original signed current/power, voltage, SOC, nullable
+Celsius temperature and gap markers. Short/interrupted recordings are exportable
+without being promoted into learned curves. Active capture must stop first;
+export work runs off the UI thread and new capture waits until its snapshot is
+finished. The profile is captured at request time. Other scooters, owner setup,
+PINs, MACs, locations and account information are excluded. Private staging files
+use unique names and old staging files expire on the next export after 24 hours.
+Existing charger buckets and same-SOC live-power gates are unchanged.
+
+Validation: all 16 core suites pass (including 87 ChargeSessionStore checks).
+Native charge lifecycle/export checks pass at compact/default and unfolded/140%
+text. Screen-off cases cross the idle timeout, verify the held/renewed wake lock,
+ongoing notification, Stop action, disconnect/profile-change/process cleanup,
+and valid profile-scoped JSON. PhoneRideValidation passes with GPS permission
+both denied and granted, with the display off beyond the idle deadline, sensor
+cleanup, journal gaps and exports. These are guarded synthetic fixtures on a
+disposable emulator with Bluetooth disabled; they do not claim actual overnight
+Bluetooth reception, force-stop recovery, or full stock/high-speed charging.
+Evidence is in local `work/round2-charge-evidence` (not shipped in the APK).
+
+Platform reference: https://developer.android.com/about/versions/14/behavior-changes-all#non-dismissable-notifications

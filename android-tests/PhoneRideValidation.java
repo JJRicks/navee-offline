@@ -133,13 +133,22 @@ public final class PhoneRideValidation extends Instrumentation {
 
         main(() -> activity.moveTaskToBack(true));
         await(() -> !service.isVisible(), 4000, "Activity did not enter background");
-        SystemClock.sleep(11000);
+        try{
+            getUiAutomation().executeShellCommand("input keyevent 223").close();
+            SystemClock.sleep(11000);
+            require(!getTargetContext().getSystemService(android.os.PowerManager.class).isInteractive(),"Ride screen-off fixture remained interactive");
+            require(((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"Ride lost its wake lock with the screen off");
+        }finally{
+            getUiAutomation().executeShellCommand("input keyevent 224").close();
+            getUiAutomation().executeShellCommand("wm dismiss-keyguard").close();
+        }
         main(() -> {
             require(service.isRecording() && recorder.active() && service.workAllowed(), "Explicit recording stopped at the idle background cutoff");
+            require(service.onStartCommand(new Intent(getTargetContext(),ScooterService.class).setAction("RECORDING_STARTED"),0,50)==android.app.Service.START_STICKY,"Active ride does not request recovery after process loss");
             require(service.backgroundDeadlineMs() == 0, "Active recording unexpectedly retained an idle-stop deadline");
             assertNoScooterWork();
         });
-        check("Active recording survives the ten-second idle cutoff with Bluetooth disconnected");
+        check("Active recording holds CPU and survives screen-off beyond the ten-second idle cutoff");
         main(service::stopRide);
         await(() -> !recorder.active() && !recorder.locationActive() && !captureThread.isAlive(), 5000,
                 "Phone sensors or their callback thread remained active after Stop recording");

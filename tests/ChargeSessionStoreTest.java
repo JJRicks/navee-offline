@@ -174,6 +174,25 @@ public final class ChargeSessionStoreTest {
         check(curve(retained,"two",ChargeSessionStore.Charger.STOCK).estimate(50,60)!=null,"Failed captures preserve minority profile evidence");
         check(curve(retained,"one",ChargeSessionStore.Charger.STOCK).qualifiedSessions==15,"Only the active capture's reserved slot reduces qualified data under a failed-capture flood");
         check(retained.snapshot().sessions==20&&retained.snapshot().bytes<=ChargeSessionStore.MAX_SESSIONS*(ChargeSessionStore.MAX_FILE_BYTES+1024),"Retention retains both global file and byte bounds");
+        ChargeSessionStore exports=store();
+        exports.start("export_one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        exports.sample(frame(MONO,50));
+        StringWriter blocked=new StringWriter();boolean refused=false;
+        try{exports.exportJson("export_one",blocked);}catch(IllegalStateException expected){refused=true;}
+        check(refused&&blocked.toString().isEmpty(),"Active export is refused before writing a partial JSON");
+        exports.sample(new ChargeSessionStore.Frame(WALL+10000,MONO+10000,value(1d,MONO+10000),value(50d,MONO+10000),value(52d,MONO+10000),value(-2d,MONO+10000),null));
+        exports.stop(ChargeSessionStore.Stop.DISCONNECTED);
+        exports.start("other_profile",ChargeSessionStore.Charger.HIGH_SPEED,WALL,MONO);exports.sample(frame(MONO,80));exports.stop(ChargeSessionStore.Stop.STOPPED);
+        StringWriter json=new StringWriter();check(exports.exportJson("export_one",json)==1,"Only the selected scooter is exported");
+        String output=json.toString();
+        check(output.contains("\"format\":\"navee-charge-recordings-v1\"")&&output.contains("\"charger_selection\":\"manual\""),"Export schema and manual charger label explicit");
+        check(output.contains("\"current_a\":-2.0")&&output.contains("\"power_w\":-104.0")&&output.contains("\"voltage_v\":52.0"),"Export keeps signed raw electrical data");
+        check(output.contains("\"temperature_c\":null")&&output.contains("\"temperature_c\":23.0"),"Missing temperature stays null");
+        check(output.contains("\"gap_before\":true")&&output.contains("\"gap_before\":false"),"Export preserves discontinuities");
+        check(output.contains("\"stop_reason\":\"DISCONNECTED\"")&&output.contains("\"qualified_for_learning\":false"),"Incomplete capture remains exportable with status");
+        check(!output.contains("other_profile")&&!output.contains("owner_identity"),"Export excludes unrelated profile and credentials");
+        check(output.contains("\"started_wall_ms\":"+WALL)&&output.contains("\"elapsed_ms\":"+MONO),"Original clocks preserved");
+        StringWriter empty=new StringWriter();check(exports.exportJson("missing",empty)==0&&empty.toString().endsWith("\"sessions\":[]}"),"No recordings is a valid empty document");
         System.out.println("ChargeSessionStore: "+checks+" checks passed");
     }
 }

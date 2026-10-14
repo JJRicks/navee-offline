@@ -89,7 +89,7 @@ public final class MoreScreen implements AppScreen {
     private Row nearbyRow, locationRow, notificationRow;
     private Row developerIndexRow, simulationRow;
     private TextView simulationStatus, chargeCaptureStatus, chargeLearningStatus;
-    private Row chargeCaptureRow, clearChargeRow;
+    private Row chargeCaptureRow, clearChargeRow, exportChargeRow;
     private SegmentedSelector chargeChargerSelector;
     private ChargeSessionStore.Charger chosenCharger=ChargeSessionStore.Charger.STOCK;
     private android.widget.Toast developerCountdown;
@@ -815,6 +815,27 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(connection, "bluetooth", "Connect automatically", "When the app opens", "auto_connect", true);
         preferenceToggle(connection, "bluetooth", "Stay connected in background", "When off, idle connections close after 10 seconds. Recordings keep running.", "background_connection", false);
         preferenceToggle(connection, "screen", "Keep screen awake", "While a recording is on screen", "keep_screen_awake", true);
+        row(connection,"battery","Background recording",null,this::backgroundRecording);
+    }
+    private void backgroundRecording(){
+        LinearLayout box=dialogBox("Background recording",null);
+        android.os.PowerManager power=host.activity().getSystemService(android.os.PowerManager.class);
+        note(box,power.isIgnoringBatteryOptimizations(host.activity().getPackageName())
+                ?"Battery optimization is disabled for this app."
+                :"For long recordings, set this app's battery use to Unrestricted in Android settings.");
+        note(box,"Start recording while the app is open, then turn the screen off. Ride and charge recordings keep Bluetooth active even when Stay connected in background is off. The recording notification has a Stop action.");
+        note(box,"Android 14 and later may let you swipe away the notification while unlocked; that does not stop recording. Force stop, revoked permissions, Bluetooth loss and device-specific battery restrictions can interrupt capture.");
+        box.addView(ui.button("Recording notifications",()->openAndroidSettings(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)));
+        TextView battery=ui.button("App battery settings",()->openAndroidSettings(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS));
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,-2);bp.topMargin=ui.dp(10);box.addView(battery,bp);
+        ScrollView scroller=new ScrollView(host.activity());scroller.addView(box);
+        show(new AlertDialog.Builder(host.activity()).setView(scroller).setPositiveButton("Close",null).create());
+    }
+    private void openAndroidSettings(String action){
+        android.content.Intent intent=new android.content.Intent(action);
+        if(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS.equals(action))intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,host.activity().getPackageName());
+        else intent.setData(android.net.Uri.parse("package:"+host.activity().getPackageName()));
+        try{host.activity().startActivity(intent);}catch(android.content.ActivityNotFoundException missing){host.toast("Open this app's settings in Android");}
     }
     private void units() {
         segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
@@ -1302,7 +1323,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout permissions = group();
         nearbyRow = row(permissions, "bluetooth", "Nearby devices", "Connects to your scooter", host::requestBluetooth);
         locationRow = row(permissions, "route", "Location", "Optional, for ride routes", null);
-        notificationRow = row(permissions, "sound", "Notifications", "Recording notification with Stop", null);
+        notificationRow = row(permissions, "sound", "Notifications", "Recording notification with Stop", ()->openAndroidSettings(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS));
         if (Build.VERSION.SDK_INT < 31) footnote("Older Android versions require location permission for Bluetooth discovery.");
         label("Your data");
         LinearLayout data = ui.card(); cardDestination.addView(data);
@@ -1382,6 +1403,14 @@ public final class MoreScreen implements AppScreen {
         chargeLearningStatus=footnote("");chargeLearningStatus.setTag("charge-learning-status");
         footnote("Choose the charger currently attached. Estimates need two usable recordings covering the remaining percentage range and compatible live power at the current battery level. Each needs at least 10 complete percentage intervals. Missing or incompatible data keeps the current-rate estimate; the app does not identify chargers.");
         LinearLayout chargeData=group();
+        exportChargeRow=row(chargeData,"download","Export charge recordings", "JSON · this scooter",()->{
+            ScooterService s=service();if(s==null)return;
+            if(!s.exportChargeRecordings(file->{
+                if(closed||host.activity().isDestroyed())return;
+                if(file==null){host.toast(s.chargeCaptureStatus());return;}
+                host.saveFile("charge-recordings.json","application/json",file);
+            }))host.toast("Stop charge recording before exporting, or wait for the current export");
+        });exportChargeRow.view.setTag("charge-export-action");
         clearChargeRow=row(chargeData,"trash","Clear this scooter's charge recordings",null,()->{
             ScooterService s=service();if(s==null||s.isChargeRecording())return;
             AlertDialog dialog=new AlertDialog.Builder(host.activity()).setTitle("Clear charge recordings?")
@@ -1421,7 +1450,8 @@ public final class MoreScreen implements AppScreen {
             chargeCaptureRow.enabled(enabled&&s!=null&&(capturing||unavailable==null));
             chargeCaptureStatus.setText(capturing||unavailable==null?s.chargeCaptureStatus():unavailable);
             chargeLearningStatus.setText(s==null?"":s.chargeLearningSummary());
-            clearChargeRow.enabled(enabled&&s!=null&&!capturing);
+            clearChargeRow.enabled(enabled&&s!=null&&!capturing&&!s.chargeExporting());
+            exportChargeRow.enabled(enabled&&s!=null&&!capturing&&!s.chargeExporting());
             chargeChargerSelector.setAlpha(capturing?.5f:1f);
             setChildrenEnabled(chargeChargerSelector,!capturing);
         }

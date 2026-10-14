@@ -64,6 +64,25 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 // Postpone the unrelated disconnected-frame handler so the notification action,
                 // rather than automatic disconnect cleanup, must close this synthetic journal.
                 setField(service,"chargeUpdating",true);
+                service.visible(false);
+                require(((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"Capture did not acquire its wake lock immediately");
+                require((notice.flags&Notification.FLAG_ONGOING_EVENT)!=0,"Capture notification is not ongoing");
+                require(service.getForegroundServiceType()==android.content.pm.ServiceInfo.FOREGROUND_SERVICE_TYPE_CONNECTED_DEVICE,"Charge foreground type changed");
+            });
+            try{
+                getUiAutomation().executeShellCommand("input keyevent 223").close();
+                SystemClock.sleep(11000);
+                main(()->{
+                    require(!getTargetContext().getSystemService(android.os.PowerManager.class).isInteractive(),"Screen-off fixture remained interactive");
+                    require(service.isChargeRecording()&&service.workAllowed()&&service.backgroundDeadlineMs()==0,"Screen-off capture hit idle timeout");
+                    require(((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"Wake lock lost with screen off");
+                    setField(service,"wakeLockRenewedMs",SystemClock.elapsedRealtime()-6*60*1000L);
+                    invoke(service,"updateRecordingWakeLock",new Class<?>[]{});
+                    require(SystemClock.elapsedRealtime()-(Long)field(service,"wakeLockRenewedMs")<1000,"Long-running capture did not renew before expiry");
+                });
+            }finally{getUiAutomation().executeShellCommand("input keyevent 224").close();getUiAutomation().executeShellCommand("wm dismiss-keyguard").close();}
+            main(()->{
+                Notification notice=(Notification)invoke(service,"notification",new Class<?>[]{});
                 try{notice.actions[0].actionIntent.send();}catch(Exception e){throw new IllegalStateException(e);}
             });await(()->!service.isChargeRecording(),"Stop notification did not end capture");
             main(()->{
@@ -90,6 +109,24 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(field(service.ble,"gatt")==null&&field(service.ble,"scanner")==null,"Fixture touched real Bluetooth transport");
                 require(!service.isRecording()&&!service.phoneSaving()&&field(service,"phoneRecorder")==null,"Charge fixture started sensors or rides");
             });
+            AtomicReference<Boolean> exported=new AtomicReference<>(false);AtomicReference<File> exportFile=new AtomicReference<>();
+            main(()->require(service.exportChargeRecordings(file->{exportFile.set(file);exported.set(true);}),"Export action refused saved journals"));
+            await(exported::get,"Export callback missing");
+            require(exportFile.get()!=null&&exportFile.get().isFile(),"JSON export file missing");
+            String json;
+            try(BufferedReader reader=new BufferedReader(new FileReader(exportFile.get()))){StringBuilder data=new StringBuilder();String line;while((line=reader.readLine())!=null)data.append(line);json=data.toString();}
+            org.json.JSONObject document=new org.json.JSONObject(json);
+            require(document.getString("format").equals("navee-charge-recordings-v1"),"Export schema invalid");
+            require(document.getString("charger_selection").equals("manual"),"Export implies automatic charger detection");
+            org.json.JSONArray sessions=document.getJSONArray("sessions");require(sessions.length()>0,"Saved journals absent from export");
+            for(int index=0;index<sessions.length();index++){
+                org.json.JSONObject session=sessions.getJSONObject(index);
+                require(session.getString("profile_id").equals(profile),"Unrelated scooter leaked into export");
+                org.json.JSONObject sample=session.getJSONArray("samples").getJSONObject(0);
+                require(sample.getDouble("current_a")==-2&&sample.getDouble("power_w")==-104&&sample.getDouble("voltage_v")==52,"Export changed recorded electrical values");
+                require(sample.isNull("temperature_c")&&sample.getBoolean("gap_before"),"Export changed unknown temperature or gap");
+            }
+            require(!json.contains("owner_identity")&&!json.contains("000000000000"),"Owner identity leaked into export");
             AtomicReference<Boolean> cleared=new AtomicReference<>(false);
             main(()->require(service.clearChargeRecordings(()->cleared.set(true)),"Charge clear refused idle capture"));
             await(cleared::get,"Charge clear callback missing");require(files().length==0,"Per-profile clear left charge files");
@@ -104,7 +141,12 @@ public final class ChargeCaptureValidation extends Instrumentation {
         for(String permission:new String[]{Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT})require(getTargetContext().checkSelfPermission(permission)==PackageManager.PERMISSION_GRANTED,"Nearby permission missing");
         BluetoothManager manager=getTargetContext().getSystemService(BluetoothManager.class);require(manager==null||manager.getAdapter()==null||!manager.getAdapter().isEnabled(),"Disable emulator Bluetooth");
     }
-    private void seedActive(String id){try{store().start(id,ChargeSessionStore.Charger.HIGH_SPEED,System.currentTimeMillis(),SystemClock.elapsedRealtime());}catch(IOException e){throw new IllegalStateException(e);}}
+    private void seedActive(String id){try{
+        long wall=System.currentTimeMillis(),mono=SystemClock.elapsedRealtime();
+        store().start(id,ChargeSessionStore.Charger.HIGH_SPEED,wall,mono);
+        store().sample(new ChargeSessionStore.Frame(wall,mono,new ChargeSessionStore.Value(1d,mono,0x72),new ChargeSessionStore.Value(50d,mono,0x72),
+                new ChargeSessionStore.Value(52d,mono,0x72),new ChargeSessionStore.Value(-2d,mono,0x72),null));
+    }catch(IOException e){throw new IllegalStateException(e);}}
     private ChargeSessionStore store(){return store(service);}
     private ChargeSessionStore store(ScooterService source){return (ChargeSessionStore)field(source,"chargeStore");}
     private File[] files(){File[] entries=new File(getTargetContext().getFilesDir(),"charge-recordings").listFiles();return entries==null?new File[0]:entries;}
