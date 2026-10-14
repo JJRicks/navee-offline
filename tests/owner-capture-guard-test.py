@@ -4,6 +4,7 @@ import json
 import os
 import pathlib
 import signal
+import shutil
 import subprocess
 import tempfile
 import time
@@ -25,10 +26,43 @@ if name == 'getprop':
     if os.environ.get('GUARD_FAIL_READ') == '1': sys.exit(1)
     print(state.joinpath('property').read_text())
 with state.joinpath('events').open('a') as out: out.write(json.dumps([name] + sys.argv[1:]) + '\n')
-if name == 'am' and os.environ.get('GUARD_FAIL_STOP') == '1': sys.exit(1)
+if name == 'am':
+    if sys.argv[1] == 'start':
+        state.joinpath('start_entered').touch()
+        time.sleep(float(os.environ.get('GUARD_START_DELAY', '0')))
+    if sys.argv[1] == 'force-stop':
+        state.joinpath('stop_entered').touch()
+        time.sleep(float(os.environ.get('GUARD_STOP_DELAY', '0')))
+        if os.environ.get('GUARD_FAIL_STOP') == '1': sys.exit(1)
 '''
 
 class GuardTest(unittest.TestCase):
+    @classmethod
+    def setUpClass(cls):
+        # Exercise the shipping Java timeout wrapper against the shipping shell guard.
+        cls.java_temp = tempfile.TemporaryDirectory(prefix='volt-guard-java-')
+        classes = pathlib.Path(cls.java_temp.name)
+        candidates = [pathlib.Path(os.environ.get('JAVA_HOME', '/nonexistent')) / 'bin',
+                      pathlib.Path('/Applications/Android Studio.app/Contents/jbr/Contents/Home/bin')]
+        javac = next((str(p / 'javac') for p in candidates if (p / 'javac').is_file()), shutil.which('javac'))
+        if not javac: raise RuntimeError('A JDK is required for the actual process-timeout regression')
+        cls.java = str(pathlib.Path(javac).with_name('java'))
+        fixture = classes / 'OwnerCaptureProcessFixture.java'
+        fixture.write_text('''package local.navee.offlinelock;
+public class OwnerCaptureProcessFixture {
+    public static void main(String[] args) {
+        try { OwnerCaptureProcess.runBounded(1, args); }
+        catch (Exception expected) { System.exit(2); }
+    }
+}''')
+        source_dir = SOURCE.parents[1] / 'src/local/navee/offlinelock'
+        sources = [str(source_dir / (name + '.java')) for name in
+                   ('OwnerCaptureProcess', 'OwnerCaptureEngine', 'OwnerIdentityParser', 'Protocol', 'ScooterCommands')]
+        subprocess.run([javac, '--release', '8', '-d', str(classes), *sources, str(fixture)], check=True,
+                       stdout=subprocess.PIPE)
+        cls.classes = classes
+    @classmethod
+    def tearDownClass(cls): cls.java_temp.cleanup()
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix='volt-guard-test-')
         self.root = pathlib.Path(self.temp.name)
@@ -44,7 +78,7 @@ class GuardTest(unittest.TestCase):
         self.script = self.root / 'guard.sh'
         # Only the sandbox path and watchdog duration differ from the shipping script.
         source = SOURCE.read_text().replace('/data/local/tmp/volt-owner-capture.lock', str(self.lock))
-        source = source.replace('while [ "$i" -lt 120 ]; do', 'while [ "$i" -lt 2 ]; do', 1)
+        source = source.replace('while [ "$i" -lt 150 ]; do', 'while [ "$i" -lt 2 ]; do', 1)
         self.script.write_text(source)
         self.env = dict(os.environ, PATH=str(self.bin) + os.pathsep + os.environ['PATH'], GUARD_STATE=str(self.root))
         self.children = []
@@ -67,6 +101,18 @@ class GuardTest(unittest.TestCase):
             if self.lock.joinpath(name).exists(): return
             time.sleep(.025)
         self.fail('Missing ' + name)
+    def spawn_bounded(self, action, **env):
+        child = subprocess.Popen([self.java, '-cp', str(self.classes),
+                                  'local.navee.offlinelock.OwnerCaptureProcessFixture', '/bin/sh',
+                                  str(self.script), action, TOKEN, 'com.navee.ucaret/.MainActivity'],
+                                 env=dict(self.env, **env), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+        self.children.append(child); return child
+    def wait_command(self, name):
+        deadline = time.monotonic() + 3
+        while time.monotonic() < deadline:
+            if self.root.joinpath(name).exists(): return
+            time.sleep(.025)
+        self.fail('Command did not start: ' + name)
     def events(self): return [json.loads(line) for line in self.root.joinpath('events').read_text().splitlines()]
     def test_start_needs_armed_guard(self):
         self.assertNotEqual(0, self.call('start').returncode)
@@ -101,6 +147,26 @@ class GuardTest(unittest.TestCase):
         self.assertFalse(any(event[:2] == ['am', 'start'] for event in self.events()))
         self.assertEqual(['setprop', 'log.tag.com.navee.ucaret', '  INFO  '],
                          [event for event in self.events() if event[0] == 'setprop'][-1])
+    def test_java_timeout_during_start_releases_gate_for_restore(self):
+        self.lock.joinpath('ready').write_text('ready')
+        start = self.spawn_bounded('start', GUARD_START_DELAY='2.5')
+        self.wait_command('start_entered')
+        self.assertEqual('VERBOSE', self.root.joinpath('property').read_text())
+        self.assertEqual(2, start.wait(timeout=8))
+        self.assertFalse(self.lock.joinpath('cleaning').exists())
+        self.assertEqual(0, self.call('clean').returncode)
+        self.assertEqual('done', self.lock.joinpath('status').read_text())
+        self.assertEqual('  INFO  ', self.root.joinpath('property').read_text())
+    def test_java_timeout_during_cleanup_can_be_retried(self):
+        self.root.joinpath('property').write_text('VERBOSE')
+        clean = self.spawn_bounded('clean', GUARD_STOP_DELAY='2.5')
+        self.wait_command('stop_entered')
+        self.assertEqual(2, clean.wait(timeout=8))
+        self.assertFalse(self.lock.joinpath('cleaning').exists())
+        self.assertFalse(self.lock.joinpath('status').exists())
+        self.assertEqual(0, self.call('clean').returncode)
+        self.assertEqual('done', self.lock.joinpath('status').read_text())
+        self.assertEqual('  INFO  ', self.root.joinpath('property').read_text())
     def test_force_stop_failure_is_not_cleanup_success(self):
         self.lock.joinpath('ready').write_text('ready')
         before = time.monotonic()

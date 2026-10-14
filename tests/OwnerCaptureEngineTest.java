@@ -70,6 +70,22 @@ public final class OwnerCaptureEngineTest {
         Fake timeout = new Fake(); timeout.noPacket = true;
         result = OwnerCaptureEngine.capture(timeout, TOKEN);
         equal(OwnerCaptureEngine.TIMED_OUT, result.outcome); check(result.clean); check(result.owner == null);
+        // Preparation and startup do not consume the advertised connect window.
+        Fake slowStart = new Fake(); slowStart.noPacket = true; slowStart.preparationMillis = 70000;
+        result = OwnerCaptureEngine.capture(slowStart, TOKEN);
+        equal(OwnerCaptureEngine.TIMED_OUT, result.outcome);
+        equal(160000L, slowStart.millis); equal(9, slowStart.logCount);
+        // A candidate arriving on the last regular poll gets one confirmation.
+        Fake last = new Fake(); last.packetAt = 9;
+        result = OwnerCaptureEngine.capture(last, TOKEN);
+        equal(OwnerCaptureEngine.OK, result.outcome); check(result.clean); check(result.owner != null);
+        equal(10, last.logCount);
+        Fake finalConflict = new Fake(); finalConflict.packetAt = 9; finalConflict.conflictAt = 10;
+        result = OwnerCaptureEngine.capture(finalConflict, TOKEN);
+        equal(OwnerCaptureEngine.CONFLICT, result.outcome); check(result.clean); check(result.owner == null);
+        Fake noConfirmation = new Fake(); noConfirmation.packetAt = 9; noConfirmation.packetUntil = 9;
+        result = OwnerCaptureEngine.capture(noConfirmation, TOKEN);
+        equal(OwnerCaptureEngine.TIMED_OUT, result.outcome); equal(10, noConfirmation.logCount); check(result.owner == null);
         Fake cancel = new Fake(); cancel.cancelAfterLog = true;
         result = OwnerCaptureEngine.capture(cancel, TOKEN);
         equal(OwnerCaptureEngine.CANCELLED, result.outcome); check(result.clean); check(result.owner == null);
@@ -93,11 +109,17 @@ public final class OwnerCaptureEngineTest {
         check((System.nanoTime() - before) / 1000000 < 3000);
         rejectChecked(() -> OwnerCaptureProcess.run("/bin/sh", "-c", "yes x | head -c 1048577"));
         rejectChecked(() -> OwnerCaptureProcess.run("/bin/sh", "-c", "yes x | head -c 1048577 >&2"));
+        // A process ignoring TERM must still stop after the bounded grace period.
+        before = System.nanoTime();
+        rejectChecked(() -> OwnerCaptureProcess.runBounded(1, "/bin/sh", "-c", "trap '' TERM; while :; do sleep .1; done"));
+        long elapsedMs = (System.nanoTime() - before) / 1000000;
+        check(elapsedMs >= OwnerCaptureProcess.TERMINATION_GRACE_SECONDS * 1000);
+        check(elapsedMs < (OwnerCaptureProcess.TERMINATION_GRACE_SECONDS + 4) * 1000);
     }
     private static final class Fake implements OwnerCaptureEngine.Host {
         final List<String> events = new ArrayList<>();
         String property = "  INFO  ", original, failure = ""; boolean lock, noPacket, cancel, cancelAfterLog, conflict, ownershipLost, uidPinned;
-        int logCount; long millis;
+        int logCount, packetAt = 1, packetUntil = Integer.MAX_VALUE, conflictAt = Integer.MAX_VALUE; long millis, preparationMillis;
         void event(String name) throws Exception { events.add(name); if (failure.equals(name)) { failure = ""; throw new Exception(); } }
         @Override public String command(String... args) throws Exception {
             if (args[0].endsWith("am")) { event("user"); return "0\n"; }
@@ -112,14 +134,14 @@ public final class OwnerCaptureEngineTest {
                 event("log"); logCount++;
                 for (String a : args) uidPinned |= a.equals("--uid=10123");
                 if (cancelAfterLog) cancel = true;
-                return noPacket ? "" : line(NOW, packet(conflict && logCount > 1 ? "A1A2A3A4A5A6" : "010203040506", 0));
+                return noPacket || logCount < packetAt || logCount > packetUntil ? "" : line(NOW, packet((conflict && logCount > 1) || logCount >= conflictAt ? "A1A2A3A4A5A6" : "010203040506", 0));
             }
             throw new AssertionError("Unexpected command");
         }
         @Override public void acquire(String token) throws Exception { if (lock) throw new OwnerCaptureEngine.CaptureBusy(); event("acquire"); lock = true; }
         @Override public void initialize(String previous, String started) throws Exception { original = previous; event("initialize"); }
         @Override public void arm(String token) throws Exception { event("arm"); }
-        @Override public void startLogging(String token, String component) throws Exception { property = "VERBOSE"; event("start"); }
+        @Override public void startLogging(String token, String component) throws Exception { property = "VERBOSE"; event("start"); millis += preparationMillis; }
         @Override public void restoreLogging(String token) throws Exception { event("restore"); property = original; }
         @Override public boolean owns(String token, String previous) { return lock && !ownershipLost; }
         @Override public void release(String token, String previous) throws Exception { event("release"); lock = false; }

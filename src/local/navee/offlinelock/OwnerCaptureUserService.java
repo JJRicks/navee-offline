@@ -92,7 +92,7 @@ public final class OwnerCaptureUserService extends IOwnerCaptureService.Stub {
         final Thread pending;
         synchronized (this) { if (current != null) current.cancelled = true; pending = worker; }
         new Thread(() -> {
-            try { if (pending != null) pending.join(60000); } catch (InterruptedException ignored) { }
+            try { if (pending != null) pending.join(150000); } catch (InterruptedException ignored) { }
             System.exit(0);
         }, "Owner-capture-shutdown").start();
     }
@@ -144,7 +144,7 @@ public final class OwnerCaptureUserService extends IOwnerCaptureService.Stub {
                 if (new File(LOCK, "ready").exists() && "ready".equals(read("ready"))) return;
                 if (!guard.isAlive()) {
                     // The freshly spawned guard exited before its ready handshake, well before
-                    // its 120s timer. There is no late restoration process to wait for.
+                    // its 150s timer. There is no late restoration process to wait for.
                     write("guard_done", "done"); throw new Exception("Guard unavailable");
                 }
                 Thread.sleep(100);
@@ -152,10 +152,10 @@ public final class OwnerCaptureUserService extends IOwnerCaptureService.Stub {
             throw new Exception("Guard unavailable");
         }
         @Override public void startLogging(String token, String component) throws Exception {
-            OwnerCaptureProcess.runBounded(20, "/system/bin/sh", "-c", OwnerCaptureGuardScript.TEXT, "volt-guard", "start", token, component);
+            OwnerCaptureProcess.runBounded(40, "/system/bin/sh", "-c", OwnerCaptureGuardScript.TEXT, "volt-guard", "start", token, component);
         }
         @Override public void restoreLogging(String token) throws Exception {
-            OwnerCaptureProcess.runBounded(45, "/system/bin/sh", "-c", OwnerCaptureGuardScript.TEXT, "volt-guard", "clean", token);
+            OwnerCaptureProcess.runBounded(60, "/system/bin/sh", "-c", OwnerCaptureGuardScript.TEXT, "volt-guard", "clean", token);
         }
         @Override public boolean owns(String token, String original) throws Exception {
             StructStat info = Os.lstat(LOCK);

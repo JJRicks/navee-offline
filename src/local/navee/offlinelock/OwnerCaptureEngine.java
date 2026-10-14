@@ -114,7 +114,6 @@ final class OwnerCaptureEngine {
         if (!validToken(token)) return new Result(FAILED, true, null);
         String original = null; boolean acquired = false, mutation = false, clean = true;
         int outcome = FAILED; OwnerIdentityParser.Result owner = null;
-        long start = host.elapsed();
         try {
             host.progress(PREPARING);
             if (!"0".equals(host.command("/system/bin/am", "get-current-user").trim())) throw new Exception("Unsupported Android user");
@@ -134,7 +133,12 @@ final class OwnerCaptureEngine {
             host.arm(token);
             host.startLogging(token, component);
             host.progress(CONNECT_NAVEE);
-            while (host.elapsed() - start < CAPTURE_MS) {
+            long start = host.elapsed();
+            boolean finalConfirmation = false;
+            while (host.elapsed() - start < CAPTURE_MS || (owner != null && !finalConfirmation)) {
+                // A frame first seen on the last regular poll still gets one bounded
+                // confirmation. Never extend an empty capture or retry indefinitely.
+                if (host.elapsed() - start >= CAPTURE_MS) finalConfirmation = true;
                 if (host.cancelled()) { outcome = CANCELLED; break; }
                 OwnerIdentityParser.Result next = freshOwner(host.command("/system/bin/logcat", "-d", "-v", "epoch",
                         "-t", since, "--uid=" + uid, "-e", "Send authData:", "-s", PACKAGE + ":D", "*:S"), since);

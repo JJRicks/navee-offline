@@ -15,6 +15,8 @@ import rikka.shizuku.Shizuku;
 /** Process-local coordinator: survives the NAVEE foreground switch, never persists a captured identity. */
 final class ShizukuCaptureClient {
     static final int REQUEST_PERMISSION = 7041;
+    // Bump with every UserService/guard behavior change, including same-version previews.
+    private static final int USER_SERVICE_VERSION = 2;
     private static ShizukuCaptureClient singleton;
     static synchronized ShizukuCaptureClient get(Context context) {
         if (singleton == null) singleton = new ShizukuCaptureClient(context.getApplicationContext());
@@ -27,7 +29,8 @@ final class ShizukuCaptureClient {
     private ServiceConnection binding;
     private Runnable listener;
     private volatile String token = "";
-    private boolean sessionCancelled;
+    private boolean sessionCancelled, recoveryAttempt;
+    private volatile boolean remoteDispatched;
     volatile boolean busy;
     int phase;
     String message = "";
@@ -36,7 +39,7 @@ final class ShizukuCaptureClient {
     private ShizukuCaptureClient(Context context) {
         journal = context.getSharedPreferences("owner_capture_cleanup", Context.MODE_PRIVATE);
         args = new Shizuku.UserServiceArgs(new ComponentName(context, OwnerCaptureUserService.class))
-                .daemon(true).tag("volt-owner-capture-v1").version(1).debuggable(false).processNameSuffix("owner_setup");
+                .daemon(true).tag("volt-owner-capture-v1").version(USER_SERVICE_VERSION).debuggable(false).processNameSuffix("owner_setup");
         Shizuku.addBinderReceivedListenerSticky(this::changed);
         Shizuku.addBinderDeadListener(() -> lost());
         Shizuku.addRequestPermissionResultListener((request, grant) -> {
@@ -77,7 +80,7 @@ final class ShizukuCaptureClient {
         if (!OwnerCaptureEngine.validToken(session) || (recovery && original != null && !OwnerCaptureEngine.validProperty(original))) {
             busy = false; message = "Cleanup record is invalid. Use the computer helper's recovery instructions before capturing again."; changed(); return;
         }
-        token = session;
+        token = session; recoveryAttempt = recovery; remoteDispatched = false;
         // Reserve a non-secret recovery token before the shell process can acquire its lock.
         // Even a process kill between mkdir and the original-property callback stays recoverable.
         if (!recovery && !journal.edit().putBoolean("pending", true).putString("token", session).remove("original").commit()) {
@@ -89,6 +92,9 @@ final class ShizukuCaptureClient {
                 remote = IOwnerCaptureService.Stub.asInterface(binder);
                 try {
                     binder.linkToDeath(() -> handler.post(() -> { if (binding == this) lost(); }), 0);
+                    // Mark before IPC: an exception can mean the remote started but
+                    // its reply was lost. Only definitely-unsent calls may drop a receipt.
+                    remoteDispatched = true;
                     if (recovery) remote.recover(session, original, callback); else remote.start(session, callback);
                 } catch (Exception ignored) { lost(); }
             }
@@ -99,7 +105,11 @@ final class ShizukuCaptureClient {
         catch (RuntimeException ignored) { lost(); }
         handler.postDelayed(() -> {
             if (binding == connection && busy && remote == null) {
-                busy = false; message = "Shizuku could not start the helper. Restart Shizuku and retry."; unbind(); changed();
+                discardUnsentJournal();
+                busy = false; phase = 0;
+                message = pendingCleanup() ? "Shizuku could not start the helper. Restart it and restore the saved logging setting."
+                        : "Shizuku could not start the helper. No capture was started. Restart Shizuku and retry.";
+                unbind(); changed();
             }
         }, 15000);
         changed();
@@ -146,11 +156,23 @@ final class ShizukuCaptureClient {
             phase = OwnerCaptureEngine.CLEANING; message = "Stopping capture and restoring NAVEE logging…";
             if (remote != null) {
                 try { remote.cancel(token); } catch (Exception ignored) { lost(); }
-            } else { busy = false; unbind(); }
+            } else {
+                discardUnsentJournal(); busy = false; phase = 0;
+                message = pendingCleanup() ? "Setup stopped. The previous session still needs logging restored."
+                        : "Setup stopped. No capture was started.";
+                unbind();
+            }
         }
         changed();
     }
+    private void discardUnsentJournal() {
+        // A bind failure cannot have changed the phone. Recovery, however, refers
+        // to an older possibly-mutating session and must retain its receipt.
+        if (busy && binding != null && !recoveryAttempt && !remoteDispatched
+                && token.equals(journal.getString("token", ""))) journal.edit().clear().commit();
+    }
     private void lost() {
+        discardUnsentJournal();
         remote = null; busy = false; owner = null;
         message = pendingCleanup() ? "Shizuku disconnected before cleanup was confirmed. Restart it and restore logging."
                 : "Shizuku disconnected. Start it again and retry.";

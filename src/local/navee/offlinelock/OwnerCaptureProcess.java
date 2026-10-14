@@ -7,6 +7,9 @@ import java.util.concurrent.atomic.AtomicBoolean;
 
 /** Bounded stdout + concurrently drained, discarded stderr. Never exposes subprocess errors/logs. */
 final class OwnerCaptureProcess {
+    // The guard may be waiting for a child with a six-second timeout. Let its
+    // signal/EXIT traps finish before using a forced kill as a last resort.
+    static final int TERMINATION_GRACE_SECONDS = 10;
     static String run(String... argv) throws Exception {
         return runBounded(8, argv);
     }
@@ -23,20 +26,39 @@ final class OwnerCaptureProcess {
                 throw new Exception("Command failed");
             return new String(output.toByteArray(), java.nio.charset.StandardCharsets.UTF_8);
         } finally {
-            process.destroyForcibly();
+            terminate(process);
             try { process.getInputStream().close(); } catch (Exception ignored) { }
             try { process.getErrorStream().close(); } catch (Exception ignored) { }
             try { process.getOutputStream().close(); } catch (Exception ignored) { }
         }
     }
+    private static void terminate(Process process) {
+        boolean interrupted = Thread.interrupted();
+        try {
+            if (!process.isAlive()) return;
+            process.destroy();
+            long deadline = System.nanoTime() + TimeUnit.SECONDS.toNanos(TERMINATION_GRACE_SECONDS);
+            while (process.isAlive()) {
+                long remaining = deadline - System.nanoTime();
+                if (remaining <= 0) break;
+                try { process.waitFor(remaining, TimeUnit.NANOSECONDS); }
+                catch (InterruptedException ignored) { interrupted = true; }
+            }
+            if (process.isAlive()) process.destroyForcibly();
+        } finally {
+            if (interrupted) Thread.currentThread().interrupt();
+        }
+    }
     private static Thread drain(InputStream in, ByteArrayOutputStream out, AtomicBoolean failed, Process process) {
         Thread worker = new Thread(() -> {
             try (InputStream stream = in) {
-                byte[] bytes = new byte[4096]; int count, total = 0;
+                byte[] bytes = new byte[4096]; int count; long total = 0;
                 while ((count = stream.read(bytes)) != -1) {
                     total += count;
-                    if (total > OwnerCaptureEngine.MAX_OUTPUT) { failed.set(true); process.destroyForcibly(); break; }
-                    if (out != null) out.write(bytes, 0, count);
+                    if (total > OwnerCaptureEngine.MAX_OUTPUT) {
+                        if (failed.compareAndSet(false, true)) process.destroy();
+                        // Keep draining without retaining bytes while termination completes.
+                    } else if (out != null) out.write(bytes, 0, count);
                 }
             } catch (Exception ignored) { failed.set(true); }
         }, "Owner-capture-output");

@@ -39,13 +39,23 @@ The shell-owned files contain only the owner method, random session token,
 original `log.tag.com.navee.ucaret` property, phone timestamp and guard status.
 The app reserves the token privately before binding the helper and separately
 commits the original property before any modification. Neither journal contains an owner identity.
+A new binding that fails, times out or is cancelled before sending a start call
+clears its unused receipt. Once a call may have reached the service, or while
+recovering an earlier session, the receipt is retained until cleanup is confirmed.
 
 A detached, fixed-purpose shell guard must acknowledge readiness before logging
 is enabled. Start and cleanup share an exclusive gate. All potentially blocking
-Android commands have timeouts. Capture ends after 90 seconds; cleanup runs on
-success, cancellation, timeout and app-Binder death. The independent guard attempts
-restoration at 120 seconds if the client/helper stops. Bounded gate waiting and
-commands can add roughly 45 seconds in a failure case. Stopping/rebooting the
+Android commands have timeouts. The 90-second capture window starts after NAVEE
+has launched; a frame first seen on the final poll gets one bounded confirmation
+poll. Cleanup runs on success, cancellation, timeout and app-Binder death.
+The independent guard attempts restoration at 150 seconds if the client/helper
+stops, allowing startup and the full capture window to finish first. Bounded gate
+waiting and cleanup commands can add roughly 45 seconds in a failure case.
+The process wrapper gives startup 40 seconds and cleanup 60 seconds, beyond their
+inner command budgets (18 and approximately 42 seconds). On interruption/timeout
+it sends TERM and waits up to 10 seconds for signal/EXIT traps to release the gate
+before a forced kill. Both startup and cleanup keep the gate until their active
+bounded child command has finished. Stopping/rebooting the
 entire phone prevents code from running; the saved recovery screen remains the
 source of truth until restoration is verified. A reboot resets temporary Android
 properties, but recovery still verifies rather than assuming success.
@@ -57,7 +67,12 @@ watchdogs remain recoverable after a separately successful cleanup. The verified
 completed lock is atomically retired before deleting its non-secret files.
 No identity is offered unless cleanup
 succeeds. Unknown/other-session locks are never taken over or deleted. Recovery
-requires explicit user action with the original matching session. Do not run the
+requires explicit user action with the original matching session. If a browser
+journal or Volt's app data was erased, even a completed orphaned lock is left in
+place: recovery currently needs manual device-side inspection. Automatic takeover
+is intentionally deferred until both helpers can share a verified recovery
+protocol; deleting an unfamiliar lock could collide with active cleanup.
+Do not run the
 older Python capture helper concurrently: it predates the shared lock.
 
 The temporary service continues when NAVEE comes to the foreground; it does not
@@ -74,7 +89,10 @@ SHA-256-pinned official Shizuku API/provider/aidl/shared 13.1.5 AARs from Maven
 Central and AndroidX annotations 1.3.0 from Google's Maven repository into ignored
 `.local/shizuku-dependencies`. Normal `bash build.sh` verifies/extracts them offline,
 generates the narrow AIDL interfaces and immutable guard source, and packages their
-classes from an explicit allowlist after clearing old extraction output. No runtime JavaScript or downloaded executable code is involved.
+classes from an explicit allowlist after clearing old extraction output.
+`USER_SERVICE_VERSION` must be bumped whenever service or guard behavior changes,
+including preview APKs that keep the same app version, so Shizuku replaces a stale
+daemon. No runtime JavaScript or downloaded executable code is involved.
 
 The manifest uses the official provider's
 `android.permission.INTERACT_ACROSS_USERS_FULL` protection, Shizuku's API permission
@@ -92,12 +110,19 @@ all everyday BLE features work without it.
 `bash tests/run.sh` exercises the pure transaction and parser with simulated
 commands: strict freshness, source UID parsing/filtering, malformed/conflicting
 frames, exact original properties including spaces, lock ordering, cancellation,
-timeout and cleanup failures. It also verifies subprocess output/time bounds.
+timeout and cleanup failures, including slow startup and a final-poll candidate.
+It also verifies subprocess output/time bounds and forced termination after a
+bounded graceful wait. The real Shizuku client is compiled against test-only
+Android/binding doubles to exercise unused-receipt cleanup, uncertain dispatch,
+recovery preservation, cancellation and stale callbacks.
 
 `python3 tests/owner-capture-guard-test.py` executes the actual guard with local
 stub commands, a temporary path and a shortened timer. It checks the readiness
 gate, exact restore, expired/wrong-owner sessions, signal during startup, failed
-force-stop and detached watchdog restoration. It never contacts a device.
+force-stop and detached watchdog restoration. It also runs the real Java process
+wrapper against the real guard, forcing timeouts during startup and cleanup and
+checking that the gate is released and a later exact restore succeeds. A local
+JDK is required. It never contacts a device.
 
 Physical NAVEE capture still needs a parked-scooter check on supported phones.
 A passing synthetic emulator fixture cannot establish OEM logging availability,

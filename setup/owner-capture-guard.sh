@@ -9,32 +9,62 @@ case "$token" in *[!0-9a-f]*|'') exit 1 ;; esac
 ours() {
   [ ! -L "$d" ] && [ -d "$d" ] && [ "$(cat "$d/token")" = "$token" ] && [ "$(cat "$d/owner")" = shizuku ]
 }
+child=
+gate_held=0
+guard_mode=0
+guard_outcome=stopped
+release_gate() {
+  [ "$gate_held" = 1 ] || return 0
+  rmdir "$d/cleaning" 2>/dev/null
+  gate_held=0
+}
+# Keep the gate until an in-flight bounded command is finished. A repeated signal
+# cannot interrupt this wait and expose a late write after another helper restores.
+interrupted() {
+  trap '' HUP INT TERM
+  if [ -n "$child" ]; then wait "$child" 2>/dev/null; fi
+  exit 1
+}
+finish() {
+  release_gate
+  # Exactly one terminal acknowledgment, as the final side effect of this guard.
+  if [ "$guard_mode" = 1 ] && ours; then printf %s "$guard_outcome" > "$d/guard_done"; fi
+}
+trap finish EXIT
+trap interrupted HUP INT TERM
+run() {
+  timeout "$@" &
+  child=$!
+  wait "$child"
+  result=$?
+  child=
+  return "$result"
+}
 cleanup() {
   ours || return 1
   mkdir "$d/cleaning" 2>/dev/null || return 2
+  gate_held=1
   ok=1
   [ -f "$d/original" ] && [ ! -L "$d/original" ] || ok=0
   [ "$(wc -c < "$d/original")" -le 91 ] || ok=0
   if [ "$ok" = 1 ]; then
     old=$(cat "$d/original") || ok=0
-    timeout 6 am force-stop --user 0 com.navee.ucaret >/dev/null 2>&1 || ok=0
-    timeout 3 setprop log.tag.com.navee.ucaret "$old" >/dev/null 2>&1 || ok=0
+    run 6 am force-stop --user 0 com.navee.ucaret >/dev/null 2>&1 || ok=0
+    run 3 setprop log.tag.com.navee.ucaret "$old" >/dev/null 2>&1 || ok=0
     current=$(timeout 3 getprop log.tag.com.navee.ucaret) || ok=0
     [ "$current" = "$old" ] || ok=0
   fi
   if [ "$ok" = 1 ]; then printf done > "$d/status"; fi
-  rmdir "$d/cleaning" 2>/dev/null
+  release_gate
   [ "$ok" = 1 ]
 }
 case "$1" in
   watch)
     ours || exit 1
-    guard_outcome=stopped
-    # Exactly one terminal acknowledgment, as the final side effect of this guard.
-    trap 'if ours; then printf %s "$guard_outcome" > "$d/guard_done"; fi' EXIT
+    guard_mode=1
     printf ready > "$d/ready"
     i=0
-    while [ "$i" -lt 120 ]; do
+    while [ "$i" -lt 150 ]; do
       ours || exit 1
       [ "$(cat "$d/status" 2>/dev/null)" = done ] && break
       sleep 1
@@ -57,19 +87,7 @@ case "$1" in
   start)
     ours || exit 1
     mkdir "$d/cleaning" 2>/dev/null || exit 1
-    child=
-    trap 'rmdir "$d/cleaning" 2>/dev/null' EXIT
-    # A signal must stop the sequence, and an in-flight bounded child must finish
-    # before EXIT releases the gate for restoration.
-    trap 'if [ -n "$child" ]; then wait "$child" 2>/dev/null; fi; exit 1' HUP INT TERM
-    run() {
-      timeout "$@" &
-      child=$!
-      wait "$child"
-      result=$?
-      child=
-      return "$result"
-    }
+    gate_held=1
     ours && [ "$(cat "$d/ready")" = ready ] && [ ! -e "$d/status" ] && [ ! -e "$d/stopping" ] || exit 1
     run 3 setprop log.tag.com.navee.ucaret VERBOSE || exit 1
     [ "$(timeout 3 getprop log.tag.com.navee.ucaret)" = VERBOSE ] || exit 1
