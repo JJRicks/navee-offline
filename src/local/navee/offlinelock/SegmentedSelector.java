@@ -41,6 +41,13 @@ public final class SegmentedSelector extends HorizontalScrollView {
         addView(track, new HorizontalScrollView.LayoutParams(-2, -2));
     }
 
+    /** Dense section labels can use less horizontal padding while retaining full-height targets. */
+    public void useCompactPadding() {
+        for (TextView button : track.choices)
+            button.setPadding(ui.dp(4), button.getPaddingTop(), ui.dp(4), button.getPaddingBottom());
+        requestLayout();
+    }
+
     public void select(int selected, boolean animate) {
         int next = Math.max(0, Math.min(track.choices.size() - 1, selected));
         if (track.selected == next) {

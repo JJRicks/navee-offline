@@ -74,7 +74,7 @@ public final class UiOrganizationValidation extends Instrumentation {
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, 6000,
                     "Local workspace did not initialize");
-            for (String name : new String[]{"Home", "Scooter", "Stats", "Rides", "More"}) {
+            for (String name : new String[]{"Home", "Scooter", "Live Stats", "Rides", "More"}) {
                 clickDescription(name); waitForIdleSync(); assertNoScooterWork(); assertNavigationFits();
             }
             requireScreenText("App preferences");
@@ -137,7 +137,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             check("More opens preferences; Back returns to its settings index (phone) or leaves the tab beside its menu (wide)");
             verifyMoreReturn(settings);
 
-            clickDescription("Stats");
+            clickDescription("Live Stats");
             // Wide Stats keeps Readings in its own pane beside the sections, without a Readings tab.
             if (!Boolean.TRUE.equals(field(field(activity, "screen"), "wide"))) clickText(root(), "Readings");
             Object stats = field(activity, "screen");
@@ -493,7 +493,7 @@ public final class UiOrganizationValidation extends Instrumentation {
     }
     private void assertNavigationFits() {
         main(() -> {
-            for (String name : new String[]{"Home", "Scooter", "Stats", "Rides", "More"}) {
+            for (String name : new String[]{"Home", "Scooter", "Live Stats", "Rides", "More"}) {
                 View item = findDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
                 requireFullyVisibleNow(item, "Navigation " + name);
                 TextView label = first(item, TextView.class);
