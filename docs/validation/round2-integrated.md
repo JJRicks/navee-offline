@@ -33,3 +33,9 @@ Tested product commit: `dd34ca52f8a2530101121d0d4d1b22528fc4eaac`. This branch w
 Compact Stats and the actual five-column phone dashboard screenshots were inspected. Logs, screenshots and exact APK hashes are saved in local `work/round2-integration-evidence/`; `identity.json` pins the tested product commit. All native work explicitly targeted disposable emulator 5592, with Bluetooth disabled and no owner identity. Existing emulator 5554 and owner phones were untouched.
 
 Physical scooter/charger background behavior, OEM battery-manager policy, and long real rides/charges still require owner testing. Independent PR review status is tracked on GitHub; this document records compatibility tests, not a self-review or approval.
+
+## Stats picker review follow-up
+
+Integrated PR15 `c87af30132c14dc0d506fb3d6c50c3d832be6ad5` at tested product commit `36ecabccd0763357371685cb9fee942d14607775`. The merge is confined to Stats and its fixture: the compact Window picker exposes all eight choices, fullscreen content respects window insets, and reorder rows share the app typography. Shared segmented controls were not modified.
+
+The combined signed app and runner build and verify. Focused native Stats validation passes 780 assertions each at 344×882 dp dark/default font, 448×960 dp dark/140% system font, and 725×604 dp light/140% system font (2,340 total). The compact and large-text fullscreen window-choice screenshots were inspected: every option is visible and selectable. Earlier unchanged-domain evidence remains valid. Logs, screenshots, product identity and preserved APKs are in `work/round2-integration-evidence/stats-picker-final/`.
