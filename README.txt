@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.9.1
+NAVEE OFFLINE — VERSION 0.10.0
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,12 +11,13 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
-This source branch also contains an UNRELEASED dashboard editor update:
-compact editing icons with Undo/Redo, optional five/six-column layouts, a configurable
-Disconnect button, and short interface animations. The descriptions below cover
-that source update; it is not part of the published 0.9.1 APK. See VERIFICATION.txt
-for checks actually performed.
-
+0.10.0 adds dashboard Undo/Redo, up to six columns, compact editing controls
+and smoother animations. Quick access supports two to eight chosen settings.
+Gauges, battery contrast, reading selection and scooter value sizing are clearer.
+App preferences include Celsius/Fahrenheit, and a hidden developer menu offers
+isolated sample data for UI testing. Install over the previous official APK to
+keep profiles, dashboards, saved slots and recordings. See VERIFICATION.txt for
+executed checks and remaining physical test limits.
 
 0.9.1 fixes dashboard spacing across narrow and unfolded screens. Lock and
 battery cards adapt to their available space and larger text; a flat fold no
@@ -726,7 +727,7 @@ photo and map content have separate attribution and are not relicensed as MIT.
 Protocol research reference:
 https://github.com/pepperonas/navee-st3-pro
 
-UNRELEASED QUICK ACCESS UPDATE
+QUICK ACCESS
 Quick access supports 2–8 ordered actions, chosen with its gear → Quick settings.
 Ordinary toggles operate directly; choices, ranges and settings groups open
 panels over Home. Stats/Rides still navigate to those pages. Existing connection,

@@ -1,3 +1,31 @@
+RELEASE 0.10.0 (versionCode 22)
+October 13, 2026
+
+- Release packages the merged dashboard editor work (PR #12) and speed-gauge
+  tenths follow-up (PR #13). Claude's independent review of the feature head
+  reported no blocking findings; the gauge precision follow-ups have focused
+  regression coverage. The release commit changes version metadata and docs.
+- Pinned Shizuku dependencies explicitly verified. All fifteen pure suites pass
+  46,219 checks/assertions; all 11 owner-capture cleanup tests pass.
+- Production APK and separate emulator runner build successfully; v2/v3 signing
+  and alignment checks pass. Signing certificate matches the downloaded official
+  0.9.1 APK, preserving in-place upgrade compatibility.
+- Final release APK passes native card checks at 344x882 dp, 725x604 dp and
+  360x800 dp with 140% app text. Previous feature, editor, history, animation,
+  preference, simulation and temperature validation remains recorded below.
+- Fresh emulator launches pass with Nearby permission denied and granted,
+  including onboarding, all five tabs, dark/light/system themes, repeated theme
+  changes and activity recreation. These checks do not send scooter commands.
+- Build output retains existing Java 8 source/target obsolescence, deprecated-API
+  and SDK-tool native-access warnings; no new compilation or signing failures.
+- Physical Quick access commands and a real scooter connection were not retested
+  for this release. Larger multi-reading custom lists and individual temperature
+  chart/ride/gauge UI flows retain the scope limits in the feature notes below.
+  Experimental battery-capacity and phone-sensor estimates remain estimates.
+
+Release APK SHA-256:
+921c9ea6e621fce4856d63dfa3ef298b86e91c3a5c63a35905eeb0e7701bfc8b
+
 SPEED GAUGE TENTHS — OWNER FOLLOW-UP
 October 13, 2026
 

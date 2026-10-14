@@ -2,13 +2,19 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.9.1**. Independent project; not affiliated with NAVEE.
-
-This source branch also contains an **unreleased dashboard editor update** described below: compact editing icons with Undo/Redo, optional five/six-column layouts, a configurable Disconnect button, and short interface animations. These changes are not yet part of the published 0.9.1 APK; see [VERIFICATION.txt](VERIFICATION.txt) for checks actually performed.
+Current application version: **0.10.0**. Independent project; not affiliated with NAVEE.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
+
+Version 0.10.0 adds dashboard Undo/Redo, up to six columns, compact editing
+controls and smoother animations. Quick access supports two to eight chosen
+settings, and widgets gain clearer gauges, battery contrast and larger scooter
+readings. App preferences include Celsius/Fahrenheit, and a hidden developer
+menu supplies isolated sample data for UI testing. Existing layouts and app
+data stay intact. See [VERIFICATION.txt](VERIFICATION.txt) for executed checks
+and remaining physical test limits.
 
 Version 0.9.1 fixes dashboard spacing on narrow and unfolded screens, keeps
 lock and battery controls readable with larger text, and centers widget edit
@@ -30,7 +36,7 @@ The named controls target the US UT5 MAX, model/PID 2538. Other models, regions,
 
 ## App preferences and UI preview
 
-Appearance, distance/speed units and time format use rounded selectors with a sliding highlight. They keep readable labels and scroll sideways when needed.
+Appearance, distance/speed units, temperature units and time format use rounded selectors with a sliding highlight. They keep readable labels and scroll sideways when needed. Celsius/Fahrenheit changes displayed readings and chart/gauge scales; stored telemetry stays in Celsius.
 
 For UI testing, open **More → About & permissions** and tap the **Navee Offline version seven times**. **Developer options** then appears in More. Its **Simulate scooter as connected** switch supplies sample readings, local control responses and generated chart previews. A persistent sample-data banner includes **Exit**. Simulation closes the real Bluetooth connection, cannot start a ride or phone sensors, and never saves fake telemetry into your history, last-seen cache or battery analysis. Finish any active recording before enabling it. It is temporary and turns off when the service/app process restarts; normal profile and dashboard settings remain yours. Use **Hide developer options** to hide the menu again.
 

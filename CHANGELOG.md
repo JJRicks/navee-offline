@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.10.0 — 2026-10-13
 
 - Limit speed-gauge scale summaries and editor prefills to tenths while preserving exact stored bounds on unchanged saves.
 
@@ -27,6 +27,8 @@
 - Give each widget a minimum usable width based on its contents and text size. Saved slots support all one- through six-column arrangements, and a six-column grid allows a four/two split between the scooter and lock cards.
 - Show Disconnect in the connected lock widget by default, with a widget option to hide it. Connect and Cancel remain available when needed.
 - Add short size/position transitions during dashboard editing, a 200 ms soft-puff removal effect, confirmed-state lock movement, page transitions and button feedback, respecting Android's disabled-animation setting. Lock commands and confirmation requirements are unchanged.
+
+Install over the preceding official APK to retain profiles, dashboards, saved slots and recordings. The new sample-data mode never adds fake recordings or battery history. Existing battery-capacity and phone-sensor estimates remain experimental; see VERIFICATION.txt for executed checks and physical validation limits.
 
 ## 0.9.1 — 2026-10-13
 

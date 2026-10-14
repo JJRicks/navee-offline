@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.9.1
+Current version: 0.10.0
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -7,10 +7,12 @@ The app talks directly to the scooter over Bluetooth. Optional map tiles use
 internet; authentication, controls and recording require no server. First-time
 owner setup is covered in SETUP.txt.
 
-UNRELEASED SOURCE UPDATE: the current branch adds compact widget editing icons and Undo/Redo,
-optional five/six-column grids, a per-widget Disconnect option, and short UI
-animations. The feature descriptions below include this source update. It is
-not part of the published 0.9.1 APK; see VERIFICATION.txt for executed checks.
+0.10.0 adds compact editing icons, Undo/Redo, up to six dashboard columns,
+configurable Quick access actions and smoother UI animations. Gauges, battery
+contrast, reading selection and scooter value sizing are improved. Preferences
+include Celsius/Fahrenheit; hidden Developer options supply isolated sample
+readings. Saved layouts and app data remain intact. No new scooter command or
+telemetry field is introduced; see VERIFICATION.txt for executed checks.
 
 0.9.1 adapts dashboard cards to available width, height and text scale, fixes
 flat-fold spacing, and centers edit controls. It preserves saved layouts and
@@ -397,7 +399,7 @@ zooms enlarge available level-16 tiles. HTTP errors and X-Blocked images show a
 status while local routes remain visible. Provider denial pauses further requests;
 legacy unverified cache entries require refresh. No bulk prefetch is performed.
 
-QUICK ACCESS — UNRELEASED FOLLOW-UP
+QUICK ACCESS
 
 Choose two to eight ordered shortcuts in the widget options. Direct toggles use
 the same live-value and parked checks as Scooter settings. Choices/sliders and
