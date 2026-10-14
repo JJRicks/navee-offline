@@ -18,7 +18,7 @@ public final class MapPreferences {
         LinearLayout body = new LinearLayout(host.activity()); body.setOrientation(1);
         body.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(20));
         body.addView(ui.text("Map settings", 22, true));
-        Switch basemap = new Switch(host.activity()); basemap.setText("Show basemap");
+        Switch basemap = new Haptics.FeedbackSwitch(host.activity()); basemap.setText("Show basemap");
         basemap.setTextColor(ui.text); basemap.setTextSize(16 * ui.textScale); basemap.setMinHeight(ui.dp(56));
         basemap.setChecked(enabled(settings)); ui.styleSwitch(basemap);
         basemap.setOnCheckedChangeListener((v, on) -> settings.edit().putBoolean("map_basemap_enabled", on).apply());

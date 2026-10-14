@@ -145,6 +145,7 @@ public final class SegmentedSelector extends HorizontalScrollView {
                 button.setOnClickListener(v -> {
                     if (!SegmentedSelector.this.isEnabled() || !button.isEnabled()) return;
                     if (selected == choice) return;
+                    Haptics.tick(button);
                     select(choice, true);
                     if (onSelected != null) onSelected.accept(choice);
                 });

@@ -604,9 +604,11 @@ ends on disconnect. Android 14+ may allow dismissing an ongoing notification
 while unlocked. Force stop, real signal loss and vendor battery policy remain
 limits; no service can collect scooter readings without a connection.
 
-The interface adapts to compact/expanded windows. It uses fold bounds when
-supplied, keeps controls away from the hinge and supports a horizontal half-fold
-arrangement. Bluetooth/recording belong to the service rather than the layout.
+The interface adapts to compact/expanded windows. Folding a foldable halfway
+(book or tabletop posture) leaves the screen exactly as it is: a crease never
+reloads or re-splits a page. Only a physical hinge that hides part of the screen
+keeps controls away from it. Bluetooth/recording belong to the service rather
+than the layout.
 
 Earlier releases received parked scooter checks, short recorded-ride analysis,
 and Samsung startup confirmation. Those observations do not validate every

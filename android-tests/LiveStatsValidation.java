@@ -339,7 +339,12 @@ public final class LiveStatsValidation extends Instrumentation {
     private View root() { return (View)field(activity, "root"); }
     private void navigate(String page) { main(() -> invoke(activity, "select", new Class<?>[]{String.class}, page)); settle(); }
     private void section(String section) { main(() -> invoke(stats(), "selectSection", new Class<?>[]{String.class}, section)); settle(); }
-    private void settle() { waitForIdleSync(); SystemClock.sleep(300); waitForIdleSync(); }
+    /**
+     * Live Stats' connected pulse redraws every 40 ms, so on a slow emulator the main queue is never
+     * fully idle and waitForIdleSync can starve. Wait for already-queued UI work and a short
+     * animation window instead; await(...) covers conditions that genuinely take longer.
+     */
+    private void settle() { runOnMainSync(() -> { }); SystemClock.sleep(300); runOnMainSync(() -> { }); }
     private void main(Runnable action) {
         java.util.concurrent.atomic.AtomicReference<Throwable> failure = new java.util.concurrent.atomic.AtomicReference<>();
         runOnMainSync(() -> { try { action.run(); } catch (Throwable error) { failure.set(error); } });

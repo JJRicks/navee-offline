@@ -1567,8 +1567,7 @@ public final class OnboardingScreen implements AppScreen {
             int gap = ui.dp(20), first = Math.round((size - gap) * .4f);
             android.graphics.Rect hinge = verticalHinge();
             if (hinge != null && isAttachedToWindow()) {
-                int[] position = new int[2]; getLocationInWindow(position);
-                int relative = hinge.left - position[0] - getPaddingLeft(), hingeGap = Math.max(ui.dp(20), hinge.width() + ui.dp(16));
+                int relative = hinge.left - Ui.layoutLeftInWindow(this) - getPaddingLeft(), hingeGap = Math.max(ui.dp(20), hinge.width() + ui.dp(16));
                 int proposed = relative - ui.dp(8);
                 if (proposed >= ui.dp(200) && size - proposed - hingeGap >= ui.dp(260)) { first = proposed; gap = hingeGap; }
             }

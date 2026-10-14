@@ -65,6 +65,17 @@ their saved scroll position, and scrollbars appear when you scroll rather than
 flashing on each settings rebuild. Transitions become immediate when Android
 animations are disabled.
 
+Subtle haptics confirm the moments that benefit from them:
+- switching tabs or segmented choices, or choosing a Top speed preset;
+- flipping a switch or star;
+- picking up and moving a dashboard widget or favourite;
+- the lock slider crossing its midpoint;
+- the scooter confirming a lock change, or a ride starting or being saved.
+
+Ordinary taps and scrolling stay quiet. **More → App preferences → Haptic feedback** turns them off (on by default), and Android's own Touch feedback setting still applies.
+
+Half-folding a foldable into book or tabletop posture leaves the screen exactly as it is, with no reload, re-split or replayed animation. Only a physical hinge that hides part of the screen moves content away from it.
+
 **Edit → Layout → Saved layouts** offers three named slots for each scooter.
 Save captures every widget and its options, the column choice, and all saved
 one- through six-column arrangements together, including folded and unfolded
