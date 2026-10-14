@@ -1,4 +1,30 @@
-DASHBOARD RESPONSIVENESS — UNRELEASED PATCH VALIDATION
+NAVEE OFFLINE 0.9.1 — RELEASE VALIDATION
+October 13, 2026
+
+Includes PR #11, independently cleared by Claude at bc76a25 and merged to
+main as 728eaea. Release preparation changes only version metadata (0.9.1,
+code 21) and documentation; production source matches the reviewed head.
+
+- All eleven core suites passed 24,971 checks; all eleven cleanup tests passed.
+  The release app build passed with only the existing Java 8/JDK warnings.
+- The APK passes v2/v3 signing and 16 KiB alignment checks. Its certificate
+  matches the official 0.9.0 APK, and it contains no validation runner classes.
+- The final APK and rebuilt instrumentation passed five focused native cases:
+  344x882 and 725x604 dp default/fold coverage, 360x800 dp at 140% app text
+  with minimum charging/lock sizing and LTR/RTL transitions, and edit controls
+  at 344x882 and 725x604 dp. These use disposable emulator fixtures only.
+- The exact release APK updated the Pixel 10 Pro Fold in place without an
+  uninstall. Installed version 0.9.1/code 21 and a successful cold launch were
+  verified. The existing named dashboard appeared and connected to the scooter;
+  no lock or settings changes were requested during this check.
+
+Physical Galaxy Fold 5 confirmation remains pending. Claude's independent
+18-case run found one intermittent charging-fixture failure at 650 dp that
+passed three isolated reruns; this is a known emulator-runner limitation.
+The CI diagnostics connector returned HTTP 404; local results are reported
+separately. Earlier setup and outdoor sensor validation limits still apply.
+
+DASHBOARD RESPONSIVENESS — PRE-RELEASE PATCH VALIDATION
 October 13, 2026
 
 Claude review follow-up: the move/options overlay backgrounds contributed

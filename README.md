@@ -2,11 +2,15 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.9.0**. Independent project; not affiliated with NAVEE.
+Current application version: **0.9.1**. Independent project; not affiliated with NAVEE.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
+
+Version 0.9.1 fixes dashboard spacing on narrow and unfolded screens, keeps
+lock and battery controls readable with larger text, and centers widget edit
+icons. Saved layouts stay intact.
 
 Version 0.9.0 adds three dashboard save slots, a step list beside setup on wide
 screens, and two optional owner-setup routes: Shizuku on the phone and a

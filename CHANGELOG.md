@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.9.1 — 2026-10-13
 
 - Dashboard lock controls adapt to the width of their card: narrow cards stack the lock heading and keep the action within reach. Short slider labels preserve the full-height touch target, and Connecting no longer repeats the scooter name already shown in Home's header.
 - The battery graphic yields height to wrapped readings using its readable text size. Single-column readings put icons beside values, avoiding unnecessary inner scrolling in narrow and large-text charging cards.
