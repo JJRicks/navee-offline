@@ -1,3 +1,61 @@
+PREFERENCES AND SIMULATED CONNECTION — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- All twelve pure suites passed 45,865 checks/assertions, including 2,817 new
+  simulator-model assertions. Production build passes signing/alignment checks;
+  source still identifies this unmerged preview as 0.9.1/code 21.
+- Native preference/developer cases passed at 344x882 dp, 725x604 dp and
+  360x800 dp with 140% app text. They check readable selector labels, >=48 dp
+  targets, radio semantics, saved preferences and the hidden seven-tap menu.
+- A fourth case passed with Android animations disabled, including synthetic
+  source=-1 readings with no raw frames/statuses, charging preview and Home's
+  sample banner. The four cases total 1,885 assertions. Compact preference and
+  simulated Home screenshots were inspected.
+- The full compact simulator case passed 604 assertions. Every catalog field
+  has fresh sample data; charts are bounded and temporary. Local lock/unlock,
+  disconnect/reconnect and scanner paths leave GATT, scanner, writer, queue and
+  mutation state idle. Recording and phone sensors remain stopped. Background
+  connection preferences cannot keep the simulator ticking or hold a wake lock.
+- After replacing queued developer-unlock countdown toasts with one short
+  updatable toast, the final production APK passed the compact native developer
+  case again (713 assertions). The exact validated APK updated the Pixel in place;
+  no uninstall or data reset was used. A cold launch returned Status: ok and
+  Android reported MainActivity resumed. The disposable emulator was stopped.
+- Tests compare actual logical SQLite rows, profile/control-evidence preferences
+  and private ride files before/after simulation and service recreation: all
+  are unchanged. Exit restores genuine stale readings; service recreation starts
+  with simulation off. Preference and simulation screenshots are inspected.
+
+ICON-ONLY EDITOR, GRID HISTORY AND EDIT MOTION — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- Production and native-runner builds pass. Three native editor cases passed
+  at 344x882, 725x604 and 360x800 dp (140% app text). All fifteen widget types
+  keep four matching icon-only controls in one row, with centered glyphs and
+  non-overlapping equal 36-48 dp targets; the resize corner remains 48 dp.
+- Grouped curved Undo/Redo arrows fit beside Done with equal 48 dp targets and
+  are hidden outside editing. Native tests cover duplicate/delete undo/redo,
+  current settings surviving removal/restoration, committed move/resize history,
+  cancelled gestures preserving both stacks, and unchanged Save operations.
+- A fourth editor case passed with Android animations disabled. Removal commits
+  immediately; normal completion and immediate Undo release the bounded poof
+  snapshot, while disabled animation creates none. No scooter writes occurred.
+- The updated slot/history suite passed 330 assertions in twelve groups. Its
+  new cases cover all-column geometry, widget identity and settings preservation,
+  no-op/redo behavior, the bounded history, explicit clearing, profile isolation
+  and absence of persistence writes from the history model itself.
+
+- Three additional native motion cases passed: compact and expanded screens,
+  plus compact with Android animations disabled. They verify synchronous edit
+  state changes, settled transition geometry, bounded canvas-only jiggle with
+  fixed hit targets, gesture pause, real focus loss/resume, detach, rapid toggles,
+  recycled exit snapshots and taps spanning the exit transition being consumed.
+
+The user explicitly requested and received the earlier PR #12 preview on the
+Pixel after the initial PR handoff. The install used an in-place update and a
+successful cold launch was verified. Version metadata remains 0.9.1 for this
+preview; it is not an official release or an independently approved merge.
+
 DASHBOARD EDITOR AND SIX-COLUMN LAYOUT — UNRELEASED VALIDATION
 October 13, 2026
 
@@ -34,8 +92,8 @@ Separately, the owner's authorized slot-2 setup saved all fifteen widget types
 with default heights and a two-column layout on the Pixel. A temporary same-
 signed helper changed only that slot, verified it in a fresh process, and was
 removed. The existing active dashboard, other slots and profile data were
-preserved. This does not install the unreleased editor: the Pixel remains on
-the official 0.9.1 build. No release or merge is part of this validation.
+preserved. At that point the unreleased editor was not installed; the Pixel
+was still on the official 0.9.1 build. No release or merge is part of this validation.
 
 NAVEE OFFLINE 0.9.1 — RELEASE VALIDATION
 October 13, 2026

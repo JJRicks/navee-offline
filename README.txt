@@ -12,7 +12,7 @@ regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
 This source branch also contains an UNRELEASED dashboard editor update:
-labeled Edit/Duplicate actions, optional five/six-column layouts, a configurable
+compact editing icons with Undo/Redo, optional five/six-column layouts, a configurable
 Disconnect button, and short interface animations. The descriptions below cover
 that source update; it is not part of the published 0.9.1 APK. See VERIFICATION.txt
 for checks actually performed.
@@ -247,9 +247,9 @@ release transitions. Disabled system animations are respected. Scooter/data
 actions inside widgets stay inactive; local scooter
 renaming remains available. Tap Done when finished.
 
-Use Edit with its gear beside the grip for widget options. Duplicate with a copy
-icon sits next to Edit, or wraps below it on a narrow card. The red trash icon
-at the top-right removes that widget. The options sheet retains its top-right X
+One row of matching square controls contains the move grip, gear for options,
+copy icon for Duplicate and red trash icon at the right for Remove. Icons remain
+centered as the row becomes more compact on narrow cards. The options sheet retains its top-right X
 and has only a fixed ✓ Save button below its scrolling settings.
 Tap the dots for a Move dialog or the corner for Size if dragging is inconvenient.
 Those dialogs are also available inside the options menu. Dialogs follow the
@@ -258,6 +258,14 @@ the scooter-name pencil appear only while global dashboard editing is on.
 They float over the card on translucent backgrounds: widgets and their contents
 keep exactly the same dimensions when edit mode is toggled. Editing does not
 expand the cards or rearrange their content.
+
+Curved Undo/Redo arrows share a rounded group immediately left of Done. On compact
+screens the action row sits below the scooter name. Up to 40 moves, resizes,
+additions, deletions and duplicates can be undone in the current editing session;
+widgets keep their latest settings. A new layout edit clears Redo, while cancelled
+gestures, unchanged actions and settings-only edits leave it intact. Done, leaving
+Home or screen recreation ends this in-memory history. Restoring defaults or a
+saved layout starts fresh. Saved-layout slots retain arrangements across sessions.
 
 There are 15 widget types: Lock & connection, Your scooter, Battery overview,
 Big reading, Gauge, Live trend, History chart, Reading list, Trip overview,
@@ -336,8 +344,25 @@ Each scooter retains separate arrangements for each column count. Moving or
 resizing one card moves colliding cards out of its way. Restore default widgets
 replaces only that scooter's dashboard configuration, keeping readings and rides.
 
+Entering/leaving edit mode briefly slides the dashboard and pops the controls.
+Visible editing cards wiggle very subtly; a dragged/resized card stays steady.
+The wiggle pauses when the app loses focus or is hidden.
+
+App preferences use rounded sliding selectors for Appearance, Distance & speed,
+and Time format, with readable labels and horizontal scrolling when needed.
+Tap the Navee Offline version seven times in More > About & permissions to reveal
+Developer options. Simulate scooter as connected supplies temporary sample
+readings, local control responses and generated chart previews. A persistent
+sample-data banner has an Exit action. The real Bluetooth connection is closed;
+recording and sensors cannot start, and samples never enter saved telemetry,
+last-seen values or battery analysis. Finish a recording before enabling it.
+Simulation ends on service/app process restart. Hide developer options hides
+its menu again. Normal profile and dashboard preferences remain yours.
+
 Short motion accompanies deliberate page changes, button presses, and confirmed
-lock-state updates as well as dashboard editing. These effects respect Android's
+lock-state updates as well as dashboard editing. Removing a widget briefly shrinks
+and fades its image with soft puffs while other cards can move immediately.
+These effects respect Android's
 disabled-animation setting; lock animation never replaces scooter confirmation.
 
 Choose a parameter for Big reading, Gauge, Live trend or History chart. The

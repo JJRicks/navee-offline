@@ -84,6 +84,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     private AppScreen screen;
     /** First-run setup; while it is showing there is no header or tab bar. */
     private OnboardingScreen onboarding;
+    private TextView simulationNotice;
+    private boolean displayedSimulation;
     private TextView connectionTitle,connectionDetail,connectionAction,lockTitle,lockHint,profileTitle,offlineTitle,offlineDetail;
     private View lockReady,lockOffline;
     private LockControl lockControl;
@@ -106,8 +108,12 @@ public final class MainActivity extends Activity implements ScreenHost {
         bodyRefreshScheduled=false;
         if(resumed&&!destroyed&&design!=null)refreshBodyNow();
     };
+    private final Runnable settingsRebuild = this::rebuild;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged=(p,key)->{
-        if(key.equals("theme")||key.equals("units")||key.equals("text_scale"))handler.post(this::rebuild);
+        if(key.equals("theme")||key.equals("units")) {
+            handler.removeCallbacks(settingsRebuild);
+            handler.postDelayed(settingsRebuild, Ui.motionEnabled() ? 210 : 0);
+        } else if(key.equals("text_scale")) { handler.removeCallbacks(settingsRebuild); handler.post(settingsRebuild); }
         else redraw();
     };
     private final ServiceConnection serviceConnection=new ServiceConnection(){
@@ -209,6 +215,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void automaticRefresh(){
         if(destroyed||design==null)return;
         if(Looper.myLooper()!=Looper.getMainLooper()){handler.post(this::automaticRefresh);return;}
+        if (displayedSimulation != (scooterService != null && scooterService.simulating())) {
+            handler.removeCallbacks(settingsRebuild); handler.post(settingsRebuild); return;
+        }
         updateHeader();if(!resumed)return;
         long delay=Math.max(0,BODY_REFRESH_MS-(SystemClock.elapsedRealtime()-lastBodyRefreshMs));
         if(delay==0){cancelDeferredBodyRefresh();refreshBodyNow();}
@@ -222,7 +231,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(awake)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
     }
     @Override public void rebuild(){
-        if(destroyed||rebuilding)return;rebuilding=true;if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}
+        if(destroyed||rebuilding)return;handler.removeCallbacks(settingsRebuild);rebuilding=true;
+        displayedSimulation = scooterService != null && scooterService.simulating();
+        if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}
         captureScroll();if(screen!=null)screen.close();
         design=new Ui(this,darkTheme(),preferences.getFloat("text_scale",1f));
         setTheme(design.dark?R.style.VoltDark:R.style.VoltLight);
@@ -247,6 +258,19 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         onboarding=null;
         LinearLayout shell=column();root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
+        simulationNotice = design.text("Simulated scooter · Sample data · Exit", 12, true);
+        simulationNotice.setTag("simulation-banner");
+        simulationNotice.setTextColor(design.onAccent);
+        simulationNotice.setBackgroundColor(design.accent);
+        simulationNotice.setGravity(Gravity.CENTER);
+        simulationNotice.setMinHeight(design.dp(48));
+        simulationNotice.setPadding(design.dp(12), design.dp(6), design.dp(12), design.dp(6));
+        simulationNotice.setContentDescription("Simulated scooter. Sample data, Bluetooth paused. Tap to exit simulation.");
+        simulationNotice.setOnClickListener(v -> {
+            if (scooterService != null) { scooterService.setSimulation(false); rebuild(); }
+        });
+        simulationNotice.setVisibility(displayedSimulation ? View.VISIBLE : View.GONE);
+        shell.addView(simulationNotice, new LinearLayout.LayoutParams(-1, -2));
         LinearLayout appBody=expanded?row():column();shell.addView(appBody,new LinearLayout.LayoutParams(-1,0,1));
         if(expanded)appBody.addView(navigation(true),new LinearLayout.LayoutParams(design.dp(92),-1));
         LinearLayout content=column();appBody.addView(content,new LinearLayout.LayoutParams(expanded?0:-1,expanded?-1:0,1));
@@ -631,6 +655,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
     }
     @Override public void connect(){
+        if (scooterService != null && scooterService.simulating()) {
+            scooterService.ble.connectLast(); redraw(); return;
+        }
         if(!resumed){pendingConnect=true;return;}
         if(!hasBluetoothPermission()){pendingConnect=true;requestBluetooth();return;}
         android.bluetooth.BluetoothManager manager=getSystemService(android.bluetooth.BluetoothManager.class);BluetoothAdapter adapter=manager==null?null:manager.getAdapter();
@@ -643,6 +670,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private boolean hasBluetoothPermission(){return Build.VERSION.SDK_INT>=31?checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED:checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
     @Override public void requestBluetooth(){if(!resumed)return;if(hasBluetoothPermission()){ensureService();if(scooterService!=null){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}return;}requestPermissions(Build.VERSION.SDK_INT>=31?new String[]{Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT}:new String[]{Manifest.permission.ACCESS_FINE_LOCATION},BLUETOOTH_PERMISSION);}
     @Override public void requestRideLocation(Runnable ready){
+        if (scooterService != null && scooterService.simulating()) { toast("Turn off simulation to record a real ride"); return; }
         if(destroyed||!resumed||ready==null)return;
         if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
                 ||checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED){ready.run();return;}
@@ -667,6 +695,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
 
     private void showScanner(boolean start){
+        if (scooterService != null && scooterService.simulating()) { toast("Exit simulation to find a real scooter"); return; }
         if(!resumed){pendingScan=true;return;}
         if(!hasBluetoothPermission()){pendingScan=true;requestBluetooth();return;}if(scooterService==null){pendingScan=true;ensureService();return;}
         if(scooterService.isRecording()){toast("Stop the ride recording before choosing another scooter.");return;}

@@ -12,6 +12,7 @@ import android.graphics.Bitmap;
 import android.graphics.Rect;
 import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.os.Bundle;
@@ -75,11 +76,14 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             if (mode.equals("gauge")) {
                 verifyGaugeContent();
                 check("270-degree gauges keep live/dual/unknown/stale/long readings and endpoint labels inside narrow/wide and short/tall cards");
+            } else if (mode.equals("motion")) {
+                verifyEditorMotion();
+                check("Editor transitions keep synchronous state and steady hit targets; gentle jiggle pauses during gestures, focus loss and detach, and disabled animations stay still");
             } else if (mode.equals("edit") || mode.equals("editor")) {
                 seedEveryWidget();
                 verifyEditOverlays();
-                check("Editing adds labeled Edit/Duplicate and centered Move/Remove controls with non-overlapping 48 dp targets, without resizing cards");
-                if (mode.equals("editor")) { verifyEditorActions(); check("Save/duplicate/remove preserve the intended widget; six-column sizing and cancelled resize keep safe layout constraints"); }
+                check("Editing adds one inline row of equal icon-only Move/Edit/Duplicate/Remove controls, without overlaps or resized cards");
+                if (mode.equals("editor")) { verifyEditorActions(); check("Save/duplicate/remove and Undo/Redo preserve the intended widgets and settings; six-column sizing and cancelled resize keep safe layout constraints"); }
             } else if (!mode.equals("fold")) {
                 assertGridAndHeader(); check("Default cards fit the available window and start immediately after the header");
                 if (!mode.equals("battery")) { assertLockStates(); check("Connected, disconnected and connecting lock controls fit without inner scrolling"); }
@@ -585,6 +589,10 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     }
     private void assertNoEditorControls() {
         for (Object item : tiles()) require(editorControls((View)item).isEmpty(), "Widget editor controls escaped dashboard edit mode");
+        for (String prefix : new String[] {"Undo", "Redo"}) {
+            View action = described(root(), prefix);
+            require(action == null || !action.isShown(), prefix + " escaped dashboard edit mode");
+        }
     }
     private void assertEditorControls() {
         for (Object item : tiles()) {
@@ -593,41 +601,52 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             List<View> controls = editorControls(card);
             require(controls.size() == 5, "Expected Move/Edit/Duplicate/Remove/Resize on " + widget.title + ", got " + controls.size());
             ArrayList<Rect> occupied = new ArrayList<>();
+            View grip = described(card, "Move "), options = described(card, "Options for "),
+                    duplicate = described(card, "Duplicate "), remove = described(card, "Remove ");
+            Rect gripBounds = relativeBounds(grip, card), optionBounds = relativeBounds(options, card),
+                    duplicateBounds = relativeBounds(duplicate, card), removeBounds = relativeBounds(remove, card);
+            int inlineTarget = Math.min(activity.ui().dp(48), card.getWidth() / 4);
+            require(inlineTarget >= activity.ui().dp(36) - 1, "Inline controls fell below the compact target floor");
+            require(gripBounds.left == 0 && optionBounds.left == gripBounds.right
+                            && duplicateBounds.left == optionBounds.right && removeBounds.right == card.getWidth(),
+                    "Move/Edit/Duplicate must sit together at the left, with Remove at the right");
+            require(gripBounds.top == 0 && optionBounds.top == 0 && duplicateBounds.top == 0 && removeBounds.top == 0,
+                    "Editor controls wrapped instead of staying on one row");
             if (widget.type.equals("scooter")) for (TextView text : texts(card)) if (text.getText().toString().equals("SPORT"))
                 require(text.getLayout() != null && text.getLayout().getLineCount() == 1, "Scooter drive mode wrapped onto a second line");
             for (View control : controls) {
                 String label = control.getContentDescription().toString();
-                require(control.getWidth() >= activity.ui().dp(48) && control.getHeight() >= activity.ui().dp(48)
-                        && control.isClickable() && control.isFocusable(), label + " lost its accessible 48 dp target");
+                boolean resize = label.startsWith("Resize ");
+                int expectedTarget = resize ? activity.ui().dp(48) : inlineTarget;
+                require(control.getWidth() == expectedTarget && control.getHeight() == expectedTarget
+                        && control.isClickable() && control.isFocusable(), label + " lost its equal square touch target");
                 Rect target = relativeBounds(control, card);
                 require(target.left >= 0 && target.top >= 0 && target.right <= card.getWidth() && target.bottom <= card.getHeight(), label + " target extends outside its card: " + target + " / " + card.getWidth() + "x" + card.getHeight());
                 for (Rect other : occupied) require(!Rect.intersects(target, other), label + " touch target overlaps another editor action");
                 occupied.add(target);
-                if (control instanceof TextView) {
-                    TextView button = (TextView)control;
-                    require(button.getText().toString().equals(label.startsWith("Options for ") ? "Edit" : "Duplicate"), label + " lost its visible label");
-                    assertText(button, card, "editor " + widget.type);
-                    require(button.getPaint().measureText(button.getText().toString()) <= button.getWidth() - button.getCompoundPaddingLeft() - button.getCompoundPaddingRight() + 1,
-                            label + " visible text is cropped beside its icon");
-                    if (label.startsWith("Duplicate ")) require(button.isEnabled() != widget.type.equals("lock"), "Duplicate lock restriction changed");
-                    overlayGeometry.add(label + ": text target=" + target);
-                    continue;
-                }
+                require(texts(control).isEmpty(), label + " still contains visible button text");
+                if (label.startsWith("Duplicate ")) require(control.isEnabled() != widget.type.equals("lock"), "Duplicate lock restriction changed");
                 require(control instanceof ViewGroup, label + " has no glyph container");
                 ViewGroup group = (ViewGroup)control;
                 require(group.getChildCount() == 1, label + " has unexpected glyph children");
                 View glyph = group.getChildAt(0); Rect glyphBox = relativeBounds(glyph, control);
                 require(glyphBox.left >= 0 && glyphBox.top >= 0 && glyphBox.right <= control.getWidth() && glyphBox.bottom <= control.getHeight(), label + " glyph is clipped");
-                if (label.startsWith("Resize ")) {
+                if (resize) {
                     require(glyphBox.equals(new Rect(0, 0, control.getWidth(), control.getHeight())), "Resize mark lost its full-size canvas"); continue;
                 }
-                InsetDrawable inset = findInset(control.getBackground());
-                require(inset != null, label + " has no visible inset square");
-                Rect square = new Rect(inset.getDrawable().getBounds());
+                String expectedIcon = label.startsWith("Move ") ? "grip" : label.startsWith("Options for ") ? "gear" : label.startsWith("Duplicate ") ? "copy" : "trash";
+                require(expectedIcon.contentEquals(glyph.getContentDescription()), label + " displays the wrong icon");
+                require(glyphBox.width() == activity.ui().dp(14) && glyphBox.height() == activity.ui().dp(14), label + " icon is not the shared size");
+                Drawable paintedSquare = findEditorSquare(control.getBackground());
+                require(paintedSquare != null, label + " has no visible centered square");
+                Rect square = new Rect(paintedSquare.getBounds());
                 require(square.width() == activity.ui().dp(26) && square.height() == activity.ui().dp(26), label + " visual square changed size");
                 float dx = glyphBox.exactCenterX() - square.exactCenterX(), dy = glyphBox.exactCenterY() - square.exactCenterY();
                 overlayGeometry.add(label + ": target=" + target + ", glyph_center_delta=" + dx + "," + dy);
                 require(Math.abs(dx) <= 1 && Math.abs(dy) <= 1, label + " glyph is off-center by " + dx + "," + dy);
+                require(Math.abs(square.exactCenterX() - control.getWidth() / 2f) <= 1
+                                && Math.abs(square.exactCenterY() - control.getHeight() / 2f) <= 1,
+                        label + " visual square is not centered in its touch target");
                 if (label.startsWith("Remove ")) require(((Number)field(glyph, "color")).intValue() == activity.ui().danger, "Remove icon lost its destructive color");
             }
         }
@@ -655,6 +674,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private void settleMotion() { waitForIdleSync(); SystemClock.sleep(260); waitForIdleSync(); }
     private void verifyEditorActions() throws Exception {
         main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
+        main(() -> assertHistoryControls(false, false));
         final DashboardConfig.Widget source = (DashboardConfig.Widget)field(tile("live"), "widget");
         final int count = dashboardConfig().widgets.size();
         main(() -> {
@@ -672,6 +692,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         }); settleMotion();
         main(() -> {
             require(source.title.equals("Power test") && editorDialog() == null, "Save did not persist title and close the sheet");
+            assertHistoryControls(false, false);
             described((View)tileById(source.id), "Duplicate ").performClick();
         }); settleMotion();
         final AtomicReference<DashboardConfig.Widget> duplicate = new AtomicReference<>();
@@ -683,8 +704,16 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     && copy.keys.equals(source.keys) && copy.keys != source.keys && copy.color == source.color && copy.windowMs == source.windowMs
                     && copy.minimum == source.minimum && copy.maximum == source.maximum && copy.advertisedWh == source.advertisedWh, "Duplicate dropped widget options");
             for (Integer columns : source.layouts.keySet()) require(copy.layouts.containsKey(columns) && copy.layouts.get(columns) != source.layouts.get(columns), "Duplicate shares or lost a saved rectangle");
-            described((View)tileById(copy.id), "Remove ").performClick();
+            assertHistoryControls(true, false);
+        });
+        historyAction("Undo");
+        main(() -> { require(dashboardConfig().widgets.size() == count && !containsWidget(duplicate.get().id), "Undo did not remove the duplicated widget"); assertHistoryControls(false, true); });
+        historyAction("Redo");
+        main(() -> {
+            require(dashboardConfig().widgets.size() == count + 1 && containsWidget(duplicate.get().id), "Redo did not restore the duplicated widget identity");
+            described((View)tileById(duplicate.get().id), "Remove ").performClick();
         }); settleMotion();
+        verifyDeletionHistory(duplicate.get(), count);
         main(() -> {
             require(dashboardConfig().widgets.size() == count && dashboardConfig().widgets.contains(source)
                     && !dashboardConfig().widgets.contains(duplicate.get()), "Remove deleted the wrong widget");
@@ -725,11 +754,228 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             }
         }); screenshot(sixAvailable ? "six-column-editor" : "compact-editor");
         verifyResizeCancellation(source);
+        verifyCommittedGestureHistory(source, false);
+        verifyCommittedGestureHistory(source, true);
+        verifyRemovalEffectCancellation();
         main(() -> invoke(dashboard(), "toggleEditing")); settleMotion(); main(this::assertNoEditorControls);
+    }
+    private void verifyEditorMotion() throws Exception {
+        await(() -> grid().hasWindowFocus(), "Motion fixture did not receive window focus");
+        final boolean animate = android.animation.ValueAnimator.areAnimatorsEnabled();
+        final Map<String, Rect> normalFrames = new LinkedHashMap<>();
+        main(() -> {
+            for (Object item : tiles()) { View card = (View)item;
+                normalFrames.put(((DashboardConfig.Widget)field(item, "widget")).id, new Rect(0, 0, card.getWidth(), card.getHeight())); }
+            invoke(dashboard(), "toggleEditing");
+            require(dashboard().isEditing(), "Entry animation delayed edit state");
+        }); settleMotion();
+        main(() -> {
+            assertHistoryControls(false, false); assertEditorControls(); assertEditorTransformsSettled();
+            for (Object item : tiles()) { View card = (View)item; Rect before = normalFrames.get(((DashboardConfig.Widget)field(item, "widget")).id);
+                require(before.width() == card.getWidth() && before.height() == card.getHeight(), "Entry motion changed a widget's final dimensions"); }
+        });
+        final boolean[] observedJiggle = new boolean[] {false};
+        for (int sample = 0; sample < 3; sample++) {
+            SystemClock.sleep(100); main(() -> {
+                for (Object item : tiles()) {
+                    float angle = ((Number)field(item, "jiggleAngle")).floatValue();
+                    require(Math.abs(angle) <= .201f, "Editing jiggle exceeded its gentle angle limit");
+                    require(((View)item).getRotation() == 0, "Jiggle changed widget hit geometry");
+                    if (Math.abs(angle) > .0001f) observedJiggle[0] = true;
+                    if (!animate) require(angle == 0, "Disabled animations still jiggled a widget");
+                }
+                require(animate || Boolean.FALSE.equals(field(grid(), "jigglePosted")), "Disabled animations retained a jiggle callback");
+            });
+        }
+        main(() -> require(!animate || observedJiggle[0], "Editing never showed its gentle jiggle"));
+        screenshot("editor-motion");
+        final Object moving = tiles().get(0);
+        main(() -> {
+            View card = (View)moving; int[] location = new int[2]; card.getLocationOnScreen(location);
+            invoke(grid(), "beginGesture", new Class<?>[] {card.getClass(), boolean.class, float.class, float.class}, card, false,
+                    location[0] + card.getWidth() / 2f, location[1] + card.getHeight() / 2f);
+        }); SystemClock.sleep(100);
+        main(() -> {
+            require(((Number)field(moving, "jiggleAngle")).floatValue() == 0, "Dragged widget kept jiggling");
+            invoke(grid(), "finishGesture", new Class<?>[] {boolean.class}, false);
+        });
+        final AtomicReference<android.app.AlertDialog> focusDialog = new AtomicReference<>();
+        main(() -> { focusDialog.set(new android.app.AlertDialog.Builder(activity).setTitle("UI validation").setMessage("Temporary focus fixture").create()); focusDialog.get().show(); });
+        await(() -> !grid().hasWindowFocus(), "Focus fixture did not take window focus");
+        SystemClock.sleep(120); main(this::assertJiggleStopped);
+        main(() -> focusDialog.get().dismiss());
+        await(() -> grid().hasWindowFocus(), "Dashboard did not regain window focus"); settleMotion();
+        final AtomicReference<Object> exit = new AtomicReference<>();
+        final ArrayList<Object> exitGhosts = new ArrayList<>();
+        final long touchStarted = SystemClock.uptimeMillis();
+        main(() -> {
+            if (animate) require(Boolean.TRUE.equals(field(grid(), "jigglePosted")), "Focus return did not resume editor motion");
+            invoke(dashboard(), "toggleEditing");
+            require(!dashboard().isEditing(), "Exit animation delayed ordinary dashboard state");
+            assertNoEditorControls();
+            exit.set(field(dashboard(), "editTransition"));
+            if (animate) {
+                require(exit.get() != null, "Exit omitted its visual transition");
+                exitGhosts.addAll((List<?>)field(exit.get(), "ghosts"));
+                require(!exitGhosts.isEmpty(), "Exit did not snapshot visible controls");
+                long pixels = 0;
+                for (Object ghost : exitGhosts) { Bitmap bitmap = (Bitmap)field(ghost, "bitmap");
+                    require(bitmap != null && !bitmap.isRecycled() && bitmap.getWidth() <= 1024 && bitmap.getHeight() <= 1024,
+                            "Exit control snapshot is unavailable or oversized");
+                    pixels += (long)bitmap.getWidth() * bitmap.getHeight(); }
+                require(pixels <= 1000000, "Exit snapshots exceed their shared budget");
+                android.view.MotionEvent down = android.view.MotionEvent.obtain(touchStarted, touchStarted, android.view.MotionEvent.ACTION_DOWN, 0, 0, 0);
+                try { require(grid().dispatchTouchEvent(down) && Boolean.TRUE.equals(field(grid(), "suppressTransitionTouch")),
+                        "Exit transition did not consume a touch on its decorative controls"); } finally { down.recycle(); }
+            } else require(exit.get() == null, "Disabled motion still created an exit transition");
+        }); settleMotion();
+        main(() -> {
+            assertJiggleStopped(); assertEditorTransformsSettled();
+            if (exit.get() != null) {
+                android.view.MotionEvent up = android.view.MotionEvent.obtain(touchStarted, SystemClock.uptimeMillis(), android.view.MotionEvent.ACTION_UP, 0, 0, 0);
+                try { require(grid().dispatchTouchEvent(up) && Boolean.FALSE.equals(field(grid(), "suppressTransitionTouch")),
+                        "Exit touch sequence leaked into the live dashboard"); } finally { up.recycle(); }
+                require(Boolean.TRUE.equals(field(exit.get(), "finished")) && field(exit.get(), "observer") == null
+                                && ((List<?>)field(exit.get(), "ghosts")).isEmpty(), "Finished exit retained callbacks or ghosts");
+                for (Object ghost : exitGhosts) require(field(ghost, "bitmap") == null, "Finished exit retained a control snapshot");
+            }
+            invoke(dashboard(), "toggleEditing"); Object first = field(dashboard(), "editTransition");
+            invoke(dashboard(), "toggleEditing"); Object second = field(dashboard(), "editTransition");
+            invoke(dashboard(), "toggleEditing");
+            require(dashboard().isEditing(), "Rapid toggles delayed the final editing state");
+            for (Object cancelled : new Object[] {first, second}) if (cancelled != null)
+                require(Boolean.TRUE.equals(field(cancelled, "finished")) && field(cancelled, "observer") == null,
+                        "Rapid toggle left an obsolete transition active");
+        }); settleMotion();
+        main(() -> {
+            View dashboardView = (View)field(dashboard(), "view");
+            require(dashboardView.getParent() instanceof ViewGroup, "Dashboard fixture has no attached parent");
+            ((ViewGroup)dashboardView.getParent()).removeView(dashboardView);
+            assertJiggleStopped();
+            invoke(dashboard(), "close");
+            assertJiggleStopped();
+        });
+    }
+    private void assertJiggleStopped() {
+        require(Boolean.FALSE.equals(field(grid(), "jigglePosted")), "Inactive dashboard retained its jiggle callback");
+        for (Object item : tiles()) require(((Number)field(item, "jiggleAngle")).floatValue() == 0 && ((View)item).getRotation() == 0,
+                "Inactive dashboard retained a tilted widget");
+    }
+    private void assertEditorTransformsSettled() {
+        require(field(dashboard(), "editTransition") == null, "Finished editor transition remains active");
+        require(Math.abs(grid().getTranslationY()) <= .01f && grid().getScaleX() == 1 && grid().getScaleY() == 1
+                        && Math.abs(((View)field(dashboard(), "headerActions")).getTranslationY()) <= .01f,
+                "Editor transition left the dashboard displaced");
+        for (Object item : tiles()) for (View control : editorControls((View)item)) {
+            require(Math.abs(control.getScaleX() - 1) <= .001f && Math.abs(control.getScaleY() - 1) <= .001f,
+                    "Finished editor transition left a control scaled");
+            float expectedAlpha = control.isEnabled() ? 1 : .42f;
+            require(Math.abs(control.getAlpha() - expectedAlpha) <= .01f, "Editor pop did not restore the control's normal alpha");
+        }
+    }
+    private boolean containsWidget(String id) {
+        for (DashboardConfig.Widget widget : dashboardConfig().widgets) if (widget.id.equals(id)) return true;
+        return false;
+    }
+    private void assertHistoryControls(boolean undoEnabled, boolean redoEnabled) {
+        View undo = described(root(), "Undo"), redo = described(root(), "Redo");
+        require(undo != null && redo != null && undo.isShown() && redo.isShown(), "Editing is missing Undo/Redo actions");
+        require(undo.isEnabled() == undoEnabled && redo.isEnabled() == redoEnabled, "Undo/Redo enabled states do not match history");
+        for (View action : new View[] {undo, redo}) require(action.isClickable() && action.isFocusable()
+                        && action.getWidth() >= activity.ui().dp(48) && action.getHeight() >= activity.ui().dp(48),
+                "Undo/Redo lost its accessible target");
+        Rect a = relativeBounds(undo, root()), b = relativeBounds(redo, root());
+        View done = described(root(), "Finish editing dashboard"); require(done != null, "Done action is missing beside history");
+        Rect doneBounds = relativeBounds(done, root());
+        require(!Rect.intersects(a, b) && a.left >= 0 && b.right <= root().getWidth(), "Undo/Redo overlap or escape the window");
+        require(a.width() == b.width() && a.height() == b.height() && a.top == b.top && b.left >= a.right
+                        && doneBounds.left >= b.right && Math.abs(doneBounds.exactCenterY() - b.exactCenterY()) <= 1,
+                "Undo/Redo must be equal adjacent controls in the same row before Done");
+    }
+    private void historyAction(String prefix) {
+        main(() -> { View action = described(root(), prefix); require(action != null && action.isEnabled(), prefix + " is unavailable"); action.performClick(); });
+        settleMotion();
+    }
+    private void verifyDeletionHistory(DashboardConfig.Widget removed, int count) {
+        main(() -> {
+            require(dashboardConfig().widgets.size() == count && !containsWidget(removed.id), "Remove did not remove exactly its selected widget");
+            Object effect = field(dashboard(), "removalEffect");
+            if (!android.animation.ValueAnimator.areAnimatorsEnabled()) require(effect == null, "Disabled animations still created a removal effect");
+            else if (effect != null) require(Boolean.TRUE.equals(field(effect, "finished")) && field(field(effect, "ghost"), "bitmap") == null,
+                    "Completed removal effect retained its snapshot");
+        });
+        historyAction("Undo");
+        main(() -> {
+            require(dashboardConfig().widgets.size() == count + 1 && containsWidget(removed.id), "Undo removal lost the widget identity");
+            assertHistoryControls(true, true);
+            described((View)tileById(removed.id), "Options for ").performClick();
+        }); settleMotion();
+        main(() -> { View sheet = dialogRoot(); ((android.widget.EditText)described(sheet, "Widget title")).setText("Settings survive history"); described(sheet, "Save widget options").performClick(); });
+        settleMotion();
+        main(() -> assertHistoryControls(true, true));
+        historyAction("Redo");
+        main(() -> require(dashboardConfig().widgets.size() == count && !containsWidget(removed.id), "Redo removal did not remove the same widget"));
+        historyAction("Undo");
+        main(() -> {
+            DashboardConfig.Widget restored = (DashboardConfig.Widget)field(tileById(removed.id), "widget");
+            require(restored.title.equals("Settings survive history") && restored.metric.equals(removed.metric)
+                            && restored.windowMs == removed.windowMs && restored.keys.equals(removed.keys),
+                    "Undo removal rolled back widget settings");
+        });
+        historyAction("Redo");
+    }
+    private Map<String, String> storedCells() {
+        LinkedHashMap<String, String> snapshot = new LinkedHashMap<>();
+        for (DashboardConfig.Widget widget : dashboardConfig().widgets)
+            for (Map.Entry<Integer, DashboardLayout.Cell> cell : widget.layouts.entrySet())
+                snapshot.put(widget.id + ":" + cell.getKey(), cellText(cell.getValue()));
+        return snapshot;
+    }
+    private void verifyCommittedGestureHistory(DashboardConfig.Widget widget, boolean resize) {
+        final AtomicReference<Map<String, String>> before = new AtomicReference<>(), after = new AtomicReference<>();
+        main(() -> {
+            before.set(storedCells()); View card = (View)tileById(widget.id); int[] location = new int[2]; card.getLocationOnScreen(location);
+            float x = location[0] + card.getWidth() / 2f, y = location[1] + card.getHeight() / 2f;
+            float step = ((Number)invoke(grid(), "rowHeight")).floatValue();
+            invoke(grid(), "beginGesture", new Class<?>[] {card.getClass(), boolean.class, float.class, float.class}, card, resize, x, y);
+            invoke(grid(), "updateGesture", new Class<?>[] {float.class, float.class}, x, y + step * 2);
+            invoke(grid(), "finishGesture", new Class<?>[] {boolean.class}, true);
+        }); settleMotion();
+        main(() -> {
+            after.set(storedCells()); require(!before.get().equals(after.get()), "Committed " + (resize ? "resize" : "move") + " did not change geometry");
+            assertHistoryControls(true, false);
+        });
+        historyAction("Undo"); main(() -> require(before.get().equals(storedCells()), "Undo did not restore every saved rectangle after gesture"));
+        historyAction("Redo"); main(() -> require(after.get().equals(storedCells()), "Redo did not restore the committed gesture rectangles"));
+        historyAction("Undo");
+    }
+    private void verifyRemovalEffectCancellation() {
+        main(() -> {
+            View card = (View)tiles().get(0); DashboardConfig.Widget widget = (DashboardConfig.Widget)field(card, "widget");
+            int count = dashboardConfig().widgets.size();
+            described(card, "Remove ").performClick();
+            require(dashboardConfig().widgets.size() == count - 1 && !containsWidget(widget.id), "Removal waited for animation before deleting");
+            Object effect = field(dashboard(), "removalEffect");
+            if (android.animation.ValueAnimator.areAnimatorsEnabled()) {
+                require(effect != null && Boolean.FALSE.equals(field(effect, "finished")), "Visible removal did not start its brief effect");
+                Bitmap snapshot = (Bitmap)field(field(effect, "ghost"), "bitmap");
+                require(snapshot != null && !snapshot.isRecycled() && (long)snapshot.getWidth() * snapshot.getHeight() <= 2000000
+                                && snapshot.getWidth() <= 2048 && snapshot.getHeight() <= 2048,
+                        "Removal snapshot is missing or exceeds its bounded size");
+            } else require(effect == null, "Disabled animations still created a removal snapshot");
+            described(root(), "Undo").performClick();
+            require(dashboardConfig().widgets.size() == count && containsWidget(widget.id), "Immediate Undo did not restore the widget");
+            require(field(dashboard(), "removalEffect") == null, "Immediate Undo left a removal effect attached");
+            if (effect != null) require(Boolean.TRUE.equals(field(effect, "finished")) && field(field(effect, "ghost"), "bitmap") == null,
+                    "Immediate Undo did not release the removal snapshot");
+        }); settleMotion();
     }
     private void verifyResizeCancellation(DashboardConfig.Widget widget) {
         final LinkedHashMap<String, String> before = new LinkedHashMap<>();
         main(() -> {
+            Object history = field(dashboard(), "editHistory");
+            int undoCount = ((java.util.Collection<?>)field(history, "undo")).size();
+            int redoCount = ((java.util.Collection<?>)field(history, "redo")).size();
             int columns = ((Number)field(grid(), "columns")).intValue();
             for (DashboardConfig.Widget other : dashboardConfig().widgets) before.put(other.id, cellText(other.layouts.get(columns)));
             View card = (View)tileById(widget.id); int[] location = new int[2]; card.getLocationOnScreen(location);
@@ -742,15 +988,21 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             invoke(grid(), "finishGesture", new Class<?>[] {boolean.class}, false);
             for (DashboardConfig.Widget other : dashboardConfig().widgets) require(before.get(other.id).equals(cellText(other.layouts.get(columns))), "Cancelled resize changed a saved rectangle");
             require(field(grid(), "gestureTile") == null && field(grid(), "previewBounds") == null, "Cancel left a live drag or preview");
+            require(undoCount == ((java.util.Collection<?>)field(history, "undo")).size()
+                            && redoCount == ((java.util.Collection<?>)field(history, "redo")).size(),
+                    "Cancelled resize consumed history or discarded redo");
         }); settleMotion();
     }
     private String cellText(DashboardLayout.Cell cell) { return cell.x + "," + cell.y + "," + cell.w + "," + cell.h; }
-    private InsetDrawable findInset(Drawable drawable) {
-        if (drawable instanceof InsetDrawable) return (InsetDrawable)drawable;
+    private Drawable findEditorSquare(Drawable drawable) {
+        if (drawable == null) return null;
+        if (drawable instanceof GradientDrawable && drawable.getBounds().width() == activity.ui().dp(26)
+                && drawable.getBounds().height() == activity.ui().dp(26)) return drawable;
+        if (drawable instanceof InsetDrawable) return findEditorSquare(((InsetDrawable)drawable).getDrawable());
         if (drawable instanceof LayerDrawable) {
             LayerDrawable layers = (LayerDrawable)drawable;
             for (int i = 0; i < layers.getNumberOfLayers(); i++) {
-                InsetDrawable found = findInset(layers.getDrawable(i));
+                Drawable found = findEditorSquare(layers.getDrawable(i));
                 if (found != null) return found;
             }
         }

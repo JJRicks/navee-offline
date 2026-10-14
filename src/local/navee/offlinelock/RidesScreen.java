@@ -198,6 +198,7 @@ public final class RidesScreen implements AppScreen {
     }
     public void beginRecording() { if (!service.isRecording()) toggleRecording(); }
     private void toggleRecording() {
+        if (service.simulating()) { host.toast("Turn off simulation to record a real ride"); return; }
         if (service.isRecording()) {
             service.stopRide(); host.toast(service.isRecording() ? "Recording could not be stopped; the journal is still active." : service.phoneSaving() ? "Saving the final sensor readings…" : "Ride saved locally."); refresh(); return;
         }

@@ -9,6 +9,7 @@ import android.os.Build;
 import android.os.Bundle;
 
 import local.navee.offlinelock.DashboardConfig;
+import local.navee.offlinelock.DashboardEditHistory;
 import local.navee.offlinelock.DashboardLayout;
 
 import org.json.JSONArray;
@@ -57,6 +58,8 @@ public final class DashboardSlotsValidation extends Instrumentation {
             sixColumnPersistence();
             legacyFourColumnSlots();
             temporaryWidthConstraints();
+            editHistoryRestoresStructureOnly();
+            editHistoryNoOpsAndBounds();
             require(historyCount() == 2, "Layout changes altered history rows");
             try (Cursor row = history.rawQuery("SELECT profile,wall,power FROM readings ORDER BY wall", null)) {
                 require(row.moveToFirst() && row.getString(0).equals("alpha")
@@ -401,6 +404,137 @@ public final class DashboardSlotsValidation extends Instrumentation {
             }
         }
         return result.toString();
+    }
+
+    private void editHistoryRestoresStructureOnly() throws Exception {
+        DashboardConfig config = new DashboardConfig(preferences, "edit-history");
+        DashboardEditHistory history = new DashboardEditHistory();
+        Map<String, ?> diskBefore = new LinkedHashMap<>(preferences.getAll());
+        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1);
+        String initialGeometry = geometry(config, 1, 6);
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
+        // One completed action may move neighbors and resize the active widget.
+        lock.layouts.get(6).x = 3; lock.layouts.get(6).w = 3;
+        lock.layouts.get(6).y = 4; lock.layouts.get(6).h = 5;
+        scooter.layouts.get(6).w = 3;
+        String editedGeometry = geometry(config, 1, 6);
+        require(history.record(before, config) && history.canUndo() && !history.canRedo(),
+                "Movement/resize was not recorded as one history step");
+        lock.title = "Keep this name"; lock.showDisconnect = false;
+        scooter.keys.clear(); scooter.keys.add("odometer_km");
+        require(history.undo(config) && geometry(config, 1, 6).equals(initialGeometry),
+                "Undo did not restore movement/resizing in every saved column layout");
+        require(config.widgets.get(0) == lock && config.widgets.get(1) == scooter
+                        && lock.title.equals("Keep this name") && !lock.showDisconnect
+                        && scooter.keys.equals(Arrays.asList("odometer_km")),
+                "Geometry undo replaced widget identities or rolled back their current settings");
+        require(history.redo(config) && geometry(config, 1, 6).equals(editedGeometry),
+                "Redo failed to restore edited geometry");
+        require(lock.title.equals("Keep this name") && !lock.showDisconnect,
+                "Redo rolled back widget settings");
+
+        DashboardConfig.Widget note = new DashboardConfig.Widget("note");
+        note.layouts.put(6, new DashboardLayout.Cell(note.id, 0, 40, 3, 3));
+        before = DashboardEditHistory.capture(config);
+        config.widgets.add(note);
+        require(history.record(before, config), "Adding a card was not recorded");
+        note.note = "Retain edits after adding";
+        require(history.undo(config) && !config.widgets.contains(note), "Undo add did not remove the added card");
+        require(history.redo(config) && config.widgets.get(config.widgets.size() - 1) == note
+                        && note.note.equals("Retain edits after adding"),
+                "Redo add lost the same card or its current options");
+
+        DashboardConfig.Widget copy = new DashboardConfig.Widget(note.type);
+        copy.title = note.title; copy.note = note.note;
+        copy.layouts.put(6, new DashboardLayout.Cell(copy.id, 3, 40, 3, 3));
+        before = DashboardEditHistory.capture(config);
+        config.widgets.add(copy);
+        require(history.record(before, config), "Duplicating a card was not recorded");
+        copy.note = "Independent copy options";
+        require(history.undo(config) && config.widgets.contains(note) && !config.widgets.contains(copy),
+                "Undo duplicate removed the original card");
+        require(history.redo(config) && config.widgets.get(config.widgets.size() - 1) == copy
+                        && copy.note.equals("Independent copy options")
+                        && note.note.equals("Retain edits after adding"),
+                "Redo duplicate lost identity or coupled original/copy options");
+
+        String beforeDelete = geometry(config, 1, 6);
+        before = DashboardEditHistory.capture(config);
+        config.widgets.remove(lock);
+        require(history.record(before, config), "Deleting a card was not recorded");
+        // The retained card must keep its current object rather than a stale option snapshot.
+        lock.title = "Latest retained settings";
+        require(history.undo(config) && config.widgets.get(0) == lock
+                        && geometry(config, 1, 6).equals(beforeDelete)
+                        && lock.title.equals("Latest retained settings") && !lock.showDisconnect,
+                "Undo delete failed to restore original order, all-column geometry or latest settings");
+        require(history.redo(config) && !config.widgets.contains(lock), "Redo delete left the card visible");
+        require(history.undo(config) && config.widgets.get(0) == lock,
+                "Repeated delete restoration failed");
+        require(preferences.getAll().equals(diskBefore), "In-memory editing history wrote preferences by itself");
+        checks.add("Undo/redo restores move/resize/add/duplicate/delete and all-column placement while retaining widget identity and latest settings, without disk writes");
+    }
+
+    private void editHistoryNoOpsAndBounds() throws Exception {
+        DashboardConfig config = new DashboardConfig(preferences, "edit-history-bounds");
+        DashboardEditHistory history = new DashboardEditHistory(2);
+        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1);
+        require(!history.canUndo() && !history.canRedo() && !history.undo(config) && !history.redo(config),
+                "Empty history performed an action");
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
+        // Fresh Cell instances with identical geometry are still a no-op.
+        lock.layouts.put(6, lock.layouts.get(6).copy());
+        require(!history.record(before, config) && !history.canUndo(), "Equal geometry consumed history");
+        before = DashboardEditHistory.capture(config);
+        config.widgets.set(0, scooter); config.widgets.set(1, lock);
+        require(history.record(before, config) && history.undo(config)
+                        && config.widgets.get(0) == lock && config.widgets.get(1) == scooter,
+                "Membership order changes were not reversible");
+        before = DashboardEditHistory.capture(config);
+        lock.title = "Settings only";
+        lock.metric = "power_w"; lock.windowMs = 120000; lock.color = 2;
+        lock.minimum = -10; lock.maximum = 2000; lock.showDisconnect = false;
+        require(!history.record(before, config) && history.canRedo(),
+                "Settings-only edit consumed history or incorrectly cleared redo");
+        require(history.redo(config) && config.widgets.get(0) == scooter
+                        && lock.title.equals("Settings only") && lock.minimum == -10
+                        && lock.maximum == 2000 && lock.color == 2 && !lock.showDisconnect,
+                "Redo after settings changes reverted options");
+        require(history.undo(config), "Could not prepare redo invalidation fixture");
+        before = DashboardEditHistory.capture(config);
+        lock.layouts.get(6).y = 9;
+        require(history.record(before, config) && !history.canRedo(), "A new layout action did not discard the old redo branch");
+        history.clear();
+        require(!history.canUndo() && !history.canRedo(), "Ending an editing session retained history");
+        for (int row = 1; row <= 4; row++) {
+            before = DashboardEditHistory.capture(config);
+            lock.layouts.get(6).y = row;
+            require(history.record(before, config), "Could not fill bounded history");
+        }
+        require(history.undo(config) && lock.layouts.get(6).y == 3
+                        && history.undo(config) && lock.layouts.get(6).y == 2
+                        && !history.undo(config),
+                "Bounded history did not retain exactly the newest completed actions");
+        require(history.redo(config) && lock.layouts.get(6).y == 3
+                        && history.redo(config) && lock.layouts.get(6).y == 4
+                        && !history.redo(config),
+                "Bounded history did not redo the retained actions in order");
+        DashboardConfig other = new DashboardConfig(preferences, "edit-history-other");
+        String otherBefore = signature(other);
+        boolean rejected = false;
+        try { history.undo(other); } catch (IllegalArgumentException expected) { rejected = true; }
+        require(rejected && signature(other).equals(otherBefore), "A history from another dashboard changed this profile");
+        rejected = false;
+        try { history.record(DashboardEditHistory.capture(other), config); }
+        catch (IllegalArgumentException expected) { rejected = true; }
+        require(rejected, "A foreign snapshot was accepted for this dashboard");
+        history.clear();
+        before = DashboardEditHistory.capture(other);
+        other.widgets.remove(0);
+        require(history.record(before, other) && history.undo(other)
+                        && signature(other).equals(otherBefore),
+                "Cleared history could not begin a fresh independent editing session");
+        checks.add("Layout no-ops and settings-only edits preserve redo; new edits branch correctly; bounded history, clear and dashboard isolation work");
     }
 
     private DashboardConfig fixture(String profile) {

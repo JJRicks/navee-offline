@@ -4,7 +4,7 @@ A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX
 
 Current application version: **0.9.1**. Independent project; not affiliated with NAVEE.
 
-This source branch also contains an **unreleased dashboard editor update** described below: labeled editing actions, optional five/six-column layouts, a configurable Disconnect button, and short interface animations. These changes are not yet part of the published 0.9.1 APK; see [VERIFICATION.txt](VERIFICATION.txt) for checks actually performed.
+This source branch also contains an **unreleased dashboard editor update** described below: compact editing icons with Undo/Redo, optional five/six-column layouts, a configurable Disconnect button, and short interface animations. These changes are not yet part of the published 0.9.1 APK; see [VERIFICATION.txt](VERIFICATION.txt) for checks actually performed.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
@@ -28,17 +28,27 @@ access with explicit consent; everyday scooter use needs no setup helper.
 
 The named controls target the US UT5 MAX, model/PID 2538. Other models, regions, and firmware may differ. [FEATURES.txt](FEATURES.txt) and [VERIFICATION.txt](VERIFICATION.txt) distinguish implemented behavior from hardware checks.
 
+## App preferences and UI preview
+
+Appearance, distance/speed units and time format use rounded selectors with a sliding highlight. They keep readable labels and scroll sideways when needed.
+
+For UI testing, open **More → About & permissions** and tap the **Navee Offline version seven times**. **Developer options** then appears in More. Its **Simulate scooter as connected** switch supplies sample readings, local control responses and generated chart previews. A persistent sample-data banner includes **Exit**. Simulation closes the real Bluetooth connection, cannot start a ride or phone sensors, and never saves fake telemetry into your history, last-seen cache or battery analysis. Finish any active recording before enabling it. It is temporary and turns off when the service/app process restarts; normal profile and dashboard settings remain yours. Use **Hide developer options** to hide the menu again.
+
 ## Make Home your own
 
 Tap the **pencil** to edit Home. Drag the top-left dots to move a widget, or drag its visible lower-right corner to resize it; a long press on the dots also starts a move. A dashed outline previews the full destination while neighboring cards slide aside and fill empty rows. Releasing saves the preview; cancelling restores the starting arrangement. Tap **Done** to use scooter controls again.
 
-Beside the move grip, **Edit** with a gear opens widget options, followed by **Duplicate** with a copy icon. Duplicate wraps to a second line on narrow cards. A red **trash icon** in the top-right corner removes the widget. The options sheet keeps its **X** at the top-right and has just **✓ Save** in its fixed footer. For a drag-free alternative, tap the dots for **Move** or the corner for **Size**; both dialogs also remain in the options menu. Widget menus, handles and the scooter-name pencil appear only while global dashboard editing is on. Dialogs follow the app's light/dark theme.
+Each card has one row of matching square controls: the **move grip**, **gear** for options, **copy** for Duplicate, and a red **trash icon** at the right for Remove. The icons stay centered and the row becomes more compact on narrow cards. The options sheet keeps its **X** at the top-right and has just **✓ Save** in its fixed footer. For a drag-free alternative, tap the dots for **Move** or the corner for **Size**; both dialogs also remain in the options menu. Widget menus, handles and the scooter-name pencil appear only while global dashboard editing is on. Dialogs follow the app's light/dark theme.
+
+Curved **Undo/Redo** arrows share a rounded control immediately left of **Done**. On compact screens, this action row sits below the scooter name. Undo keeps up to 40 moves, resizes, additions, deletions and duplicates during the current editing session, retaining the widgets' latest settings. A new layout change clears Redo; cancelled gestures, unchanged actions and settings-only edits do not. Finishing editing, leaving Home or recreating the screen ends this temporary history. Restoring defaults or a saved layout starts fresh; use the saved-layout slots to keep arrangements beyond an editing session.
 
 **Layout → Columns** offers **Adaptive** or one to six columns in a rounded selector with a sliding red highlight. Swipe the selector sideways if it does not fit. Adaptive retains the familiar one- through four-column choices; five and six columns are optional on screens wide enough to support them. Layouts remain separate for each column count. New five/six-column arrangements start from the saved four-column layout where available, without resetting it. In six columns, a four-column scooter card beside a two-column lock card gives a two-thirds/one-third split. Each widget has a minimum usable width that also accounts for text size, so six columns give finer sizing steps rather than forcing six tiny cards onto every row.
 
 Editing keeps each widget and its content at the same dimensions as normal viewing. Translucent controls float over the card, so entering or leaving edit mode does not expand cards or rearrange their contents.
 
-Cards animate their size and position together during layout changes. Short transitions also follow deliberate page changes, button presses, and confirmed lock-state updates. They respect Android's disabled-animation setting; movement never substitutes for the scooter's confirmed lock state.
+Entering and leaving edit mode briefly slides the dashboard and pops its controls into place. Visible widgets have a very subtle wiggle while editing; the card being dragged or resized stays steady. The motion stops when the app loses focus.
+
+Cards animate their size and position together during layout changes. Removal has a brief shrink-and-fade with soft puffs while the other cards can move immediately. Short transitions also follow deliberate page changes, button presses, and confirmed lock-state updates. They respect Android's disabled-animation setting; movement never substitutes for the scooter's confirmed lock state.
 
 **Edit → Layout → Saved layouts** offers three named slots for each scooter.
 Save captures every widget and its options, the column choice, and all saved

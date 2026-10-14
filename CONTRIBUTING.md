@@ -15,6 +15,15 @@ Use JDK 17 or newer for development. The core Java tests require only that JDK; 
 
 `android-tests/ParkedValidation.java` is a separate, explicitly invoked instrumentation runner. Its modes include real lock/settings writes and stationary recording sessions; choose a mode only when those actions are intended and the owner is present with a safely parked scooter. Navigation/background modes perform different checks and have documented guards. Read the chosen mode before running it.
 
+`android-tests/DeveloperSettingsValidation.java` validates rounded preferences and
+the hidden simulation menu on a disposable emulator with Bluetooth disabled.
+Its default mode tests simulation isolation; `-e mode preferences` limits it to
+the selectors and unlock gate. It refuses physical phones or existing profiles.
+Compare the real telemetry database, profile/control-evidence preferences and
+private ride files before/after the preview; require the real GATT, scanner,
+command queue and recorder to stay idle. Include normal/reduced motion and a
+compact large-text case when these controls change.
+
 `android-tests/LaunchValidation.java` checks fresh launch, permissions, themes, and recreation. It refuses physical phones or existing app data and requires a fresh emulator. Run denied and granted-permission modes separately; granted mode requires Bluetooth off.
 
 Preserve the app's confirmed-state lock behavior, permission/lifecycle guards, fixed ten-second idle background grace, and recording exception. Firmware settings use canonical raw units; mph/km display conversion must not change command values. Missing/stale samples must remain unavailable rather than becoming zeros or invented energy.
@@ -94,13 +103,51 @@ the number/unit block must remain inside the ring and range labels below its
 endpoints with padding. Keep its visible and spoken Last seen state.
 
 The editor uses dedicated top-left move grips and bottom-right resize corners,
-with tap-accessible Move/Size dialogs. Labeled Edit/gear and Duplicate/copy actions
-sit beside the grip, wrapping Duplicate beneath Edit when needed. Keep the red
-trash action at the top-right and all interactive targets at least 48 dp. Options
+with tap-accessible Move/Size dialogs. The grip, options gear, copy and red trash
+actions are icon-only, matching centered squares on one row. Their targets are
+48 dp where space permits, shrinking to 36 dp on the narrowest supported cards;
+the resize corner remains 48 dp. Keep their accessibility names and glyph centers
+correct at both sizes. Options
 have one fixed ✓ Save footer and retain the top-right X; edits are not a new
 transactional cancel/rollback flow. Preserve the one-lock-widget restriction and
 32-widget limit when duplicating. The connected lock's Disconnect action defaults
 on and may be hidden per widget; Connect/Cancel must remain available.
+
+Undo/Redo are curved arrows in one rounded group immediately left of Done, with
+the header action row below the scooter name on compact editing screens. History
+holds up to 40 committed structural grid changes in memory: membership/order and
+per-width geometry, retaining current widget settings. New real grid edits clear
+Redo; no-op, cancelled gestures and settings-only edits must not. Done/Back,
+leaving Home, screen recreation, default reset and slot restoration end the
+current history. Never use layout Undo to affect scooter controls or recorded data.
+
+Edit-mode transitions must change edit state synchronously, then animate only the
+presentation. The 210 ms grid/header slide and control pop use at most one million
+snapshot pixels for disappearing controls; recycle them on finish or interruption.
+Consume grid taps spanning the transition so disappearing editor icons cannot hit
+newly enabled scooter actions. Preserve disabled-control alpha. One shared clock
+wiggles only visible cards by at most 0.2 degrees, without changing hit targets;
+pause the gesture card and stop on focus/visibility loss, detach, close or disabled
+motion. Preference selectors use a 190 ms slide and coalesced 210 ms theme/unit
+rebuild so the animation can finish. Keep their labels readable and targets >=48 dp.
+
+Developer simulation is an explicit runtime-only UI preview, not a BLE test mode.
+Guard the service recording/history boundary AND the transport mutation boundary.
+Close/cancel the real connection before sampling; never synthesize a GATT, owner
+identity or raw BLE packets. Keep fake readings, settings and chart series in memory,
+mark the UI and diagnostics as simulated, and clear them when simulation ends.
+Do not persist them to profiles, control evidence, last-seen cache, telemetry/ride
+history or capacity analysis. Background connection preferences must not keep the
+simulation running. Preserve the real last-seen data and require an inactive ride
+before entry. Native validation should compare storage and transport state, not
+merely report a hard-coded mutation count.
+
+The removal effect is decorative and must not delay deletion or neighbor reflow.
+It uses a bounded snapshot (at most 2 megapixels and 2048 px per side) for a 200 ms
+shrink/fade and soft puffs. Cancel it on another action or dashboard close, remove
+the overlay on detach/completion and recycle the snapshot. Disabled animation or
+snapshot failure must leave immediate removal functional.
+
 Gesture previews must use an untouched start snapshot, pin the full requested
 rectangle, compact neighbors without overlap, save only on release and restore
 on cancellation or teardown. Preserve scrolling outside the handles. Animate

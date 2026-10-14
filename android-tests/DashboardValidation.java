@@ -1185,30 +1185,38 @@ public final class DashboardValidation extends Instrumentation {
         View options = findDescription(tile, "Options for " + title);
         View duplicate = findDescription(tile, "Duplicate " + title), remove = findDescription(tile, "Remove " + title);
         require(grip != null && corner != null, "Dedicated move and corner resize handles are missing");
-        require(options instanceof TextView && "Edit".contentEquals(((TextView)options).getText())
-                        && ((TextView)options).getCompoundDrawablesRelative()[0] != null,
-                "Widget options need the labeled Edit action with its gear drawable");
-        require(duplicate instanceof TextView && "Duplicate".contentEquals(((TextView)duplicate).getText())
-                        && ((TextView)duplicate).getCompoundDrawablesRelative()[0] != null,
-                "Widget duplication needs a labeled action with its copy drawable");
+        require(options != null && findDescription(options, "gear") != null && all(options, TextView.class).isEmpty(),
+                "Widget options need the icon-only gear action");
+        require(duplicate != null && findDescription(duplicate, "copy") != null && all(duplicate, TextView.class).isEmpty(),
+                "Widget duplication needs the icon-only copy action");
         require(remove != null && findDescription(remove, "trash") != null,
-                "Widget removal needs its separate trash action");
+                "Widget removal needs its trash action");
         main(() -> {
             Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile),
-                    optionsBounds = relativeBounds(options, tile), removeBounds = relativeBounds(remove, tile);
-            int touch = activity.ui().dp(48), tolerance = activity.ui().dp(24);
-            require(corner.getWidth() >= touch && corner.getHeight() >= touch, "Resize hit area is smaller than 48 dp");
+                    optionsBounds = relativeBounds(options, tile), duplicateBounds = relativeBounds(duplicate, tile),
+                    removeBounds = relativeBounds(remove, tile);
+            int resizeTouch = activity.ui().dp(48), inlineTouch = Math.min(resizeTouch, tile.getWidth() / 4),
+                    tolerance = activity.ui().dp(24);
+            require(inlineTouch >= activity.ui().dp(36) - 1, "Inline editor targets fell below the compact size floor");
+            require(corner.getWidth() >= resizeTouch && corner.getHeight() >= resizeTouch, "Resize hit area is smaller than 48 dp");
             require(cornerBounds.right >= tile.getWidth() - tolerance && cornerBounds.bottom >= tile.getHeight() - tolerance,
                     "Resize target is not in the widget's bottom-right corner");
-            require(gripBounds.left <= tolerance && gripBounds.top <= tolerance,
+            require(gripBounds.left == 0 && gripBounds.top == 0,
                     "Move grip is not in the widget's top-left corner");
-            require(optionsBounds.left >= gripBounds.right && optionsBounds.top == gripBounds.top,
-                    "Edit does not sit beside the move grip");
-            require(removeBounds.right >= tile.getWidth() - tolerance && removeBounds.top <= tolerance,
+            require(optionsBounds.left == gripBounds.right && duplicateBounds.left == optionsBounds.right
+                            && optionsBounds.top == gripBounds.top && duplicateBounds.top == gripBounds.top,
+                    "Gear and copy actions must share one inline row beside the move grip");
+            require(removeBounds.right == tile.getWidth() && removeBounds.top == gripBounds.top,
                     "Trash action is not in the widget's top-right corner");
-            for (View control : new View[] {grip, options, duplicate, remove, corner}) {
-                require(control.getWidth() >= touch && control.getHeight() >= touch,
-                        "An editor overlay has a touch target smaller than 48 dp");
+            List<Rect> occupied = new ArrayList<>();
+            for (View control : new View[] {grip, options, duplicate, remove}) {
+                require(control.getWidth() == inlineTouch && control.getHeight() == inlineTouch,
+                        "Inline editor controls must have equal square targets");
+                require(control.isClickable() && control.isFocusable() && control.getContentDescription() != null,
+                        "Icon-only controls lost their accessible action");
+                Rect bounds = relativeBounds(control, tile);
+                for (Rect other : occupied) require(!Rect.intersects(bounds, other), "Inline editor targets overlap");
+                occupied.add(bounds);
                 require(translucentBackground(control), "An editor overlay background is fully opaque");
             }
         });

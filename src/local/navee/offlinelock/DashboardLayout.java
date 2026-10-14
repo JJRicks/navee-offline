@@ -117,7 +117,7 @@ public final class DashboardLayout {
      * Text scaling increases the content allowance while fixed padding stays fixed.
      */
     public static float minimumWidgetWidthDp(String type, float textScale) {
-        // Even a simple reading needs room for three separate 48 dp editor targets.
+        // Even a simple reading needs room for four separate 36 dp compact editor targets.
         int width = "capacity".equals(type) ? 152 : 144;
         float scale = Float.isFinite(textScale) ? Math.max(1, textScale) : 1;
         return 32 + (width - 32) * scale;

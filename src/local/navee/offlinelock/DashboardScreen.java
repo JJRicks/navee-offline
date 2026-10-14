@@ -34,7 +34,11 @@ public final class DashboardScreen implements AppScreen {
     private final SharedPreferences preferences;
     private final DashboardConfig config;
     private final String profileId;
-    private final LinearLayout view, toolbar, tools;
+    private final LinearLayout view, toolbar, tools, headerActions, historyActions;
+    private final View undo, redo;
+    private final DashboardEditHistory editHistory = new DashboardEditHistory();
+    private WidgetRemovalEffect removalEffect;
+    private EditTransition editTransition;
     private final FrameLayout edit, renameControl;
     /** Home header: connection status line, scooter name, edit hint and the last-seen caption. */
     private final TextView status, profileName, hint, stale;
@@ -65,7 +69,19 @@ public final class DashboardScreen implements AppScreen {
         editing = preferences.getBoolean("dashboard_editing", false);
         view = column();
         // Home header: a muted status line, the scooter name and a round edit button.
-        toolbar = row();
+        toolbar = new LinearLayout(host.activity()) {
+            @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                boolean stacked = editing && MeasureSpec.getSize(widthSpec) < ui.dp(520 * ui.textScale);
+                setOrientation(stacked ? VERTICAL : HORIZONTAL);
+                for (int i = 0; i < getChildCount(); i++) {
+                    LinearLayout.LayoutParams p = (LinearLayout.LayoutParams)getChildAt(i).getLayoutParams();
+                    p.width = stacked ? -1 : i == 0 ? 0 : -2;
+                    p.weight = !stacked && i == 0 ? 1 : 0;
+                    p.topMargin = stacked && i == 1 ? ui.dp(6) : 0;
+                }
+                super.onMeasure(widthSpec, heightSpec);
+            }
+        };
         toolbar.setGravity(Gravity.CENTER_VERTICAL);
         toolbar.setPadding(0, ui.dp(8), 0, ui.dp(10));
         LinearLayout words = column();
@@ -112,9 +128,24 @@ public final class DashboardScreen implements AppScreen {
         edit.setMinimumWidth(ui.dp(48));
         edit.setMinimumHeight(ui.dp(48));
         edit.setOnClickListener(v -> toggleEditing());
+        headerActions = row();
+        headerActions.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+        historyActions = row();
+        historyActions.setGravity(Gravity.CENTER_VERTICAL);
+        historyActions.setTag("dashboard-history-controls");
+        historyActions.setBackground(ui.shape(ui.surface, 14, ui.outline));
+        historyActions.setClipToOutline(true);
+        undo = historyAction("undo", "Undo dashboard edit", () -> restoreEdit(false));
+        redo = historyAction("redo", "Redo dashboard edit", () -> restoreEdit(true));
+        historyActions.addView(undo, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+        View divider = new View(host.activity()); divider.setBackgroundColor(ui.outline);
+        historyActions.addView(divider, new LinearLayout.LayoutParams(ui.dp(1), ui.dp(20)));
+        historyActions.addView(redo, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+        headerActions.addView(historyActions, new LinearLayout.LayoutParams(-2, ui.dp(48)));
         LinearLayout.LayoutParams editSize = new LinearLayout.LayoutParams(-2, ui.dp(48));
         editSize.setMarginStart(ui.dp(8));
-        toolbar.addView(edit, editSize);
+        headerActions.addView(edit, editSize);
+        toolbar.addView(headerActions, new LinearLayout.LayoutParams(-2, -2));
         view.addView(toolbar);
         tools = row();
         tools.setPadding(0, ui.dp(2), 0, 0);
@@ -234,13 +265,275 @@ public final class DashboardScreen implements AppScreen {
 
     private void toggleEditing() {
         grid.finishGesture(false);
+        stopRemovalEffect();
+        stopEditTransition();
+        grid.stopJiggle();
+        EditTransition transition = Ui.motionEnabled() && grid.isAttachedToWindow()
+                && grid.hasWindowFocus() ? new EditTransition(editing) : null;
+        editHistory.clear();
         editing = !editing;
         preferences.edit().putBoolean("dashboard_editing", editing).apply();
         render();
+        if (transition != null) {
+            editTransition = transition;
+            transition.start();
+        }
+    }
+
+    private void stopEditTransition() {
+        if (editTransition != null) editTransition.cancel();
+    }
+
+    /** Visible editor controls only; offscreen cards do not need decorative work. */
+    private ArrayList<View> editorControls() {
+        ArrayList<View> result = new ArrayList<>();
+        Rect visible = new Rect();
+        for (View control : new View[] {edit, historyActions, renameControl, add, layoutButton})
+            if (control.getVisibility() == View.VISIBLE && control.getGlobalVisibleRect(visible))
+                result.add(control);
+        for (Tile tile : tiles) {
+            if (!tile.getGlobalVisibleRect(visible)) continue;
+            View bar = tile.findViewWithTag("widget-editor-bar");
+            if (bar instanceof ViewGroup) {
+                ViewGroup group = (ViewGroup) bar;
+                for (int i = 0; i < group.getChildCount(); i++)
+                    if (group.getChildAt(i).getGlobalVisibleRect(visible)) result.add(group.getChildAt(i));
+            }
+            if (tile.resizeControl != null && tile.resizeControl.getGlobalVisibleRect(visible))
+                result.add(tile.resizeControl);
+        }
+        return result;
+    }
+
+    /** One short visual transition; editing/permissions/history change synchronously. */
+    private final class EditTransition implements ViewTreeObserver.OnPreDrawListener {
+        private static final int PIXEL_BUDGET = 1_000_000;
+        final boolean leaving;
+        final View overlayOwner;
+        final int oldGridY, oldActionsY;
+        final ArrayList<ExitControlGhost> ghosts = new ArrayList<>();
+        final ArrayList<View> controls = new ArrayList<>();
+        final Map<View, Float> controlAlphas = new IdentityHashMap<>();
+        android.animation.ValueAnimator animator;
+        ViewTreeObserver observer;
+        boolean finished;
+        float gridOffset, actionsOffset;
+
+        EditTransition(boolean leaving) {
+            this.leaving = leaving;
+            overlayOwner = view.getRootView();
+            oldGridY = screenY(grid);
+            oldActionsY = screenY(headerActions);
+            if (leaving) captureExitControls();
+        }
+
+        private int screenY(View target) {
+            int[] at = new int[2]; target.getLocationOnScreen(at); return at[1];
+        }
+
+        private void captureExitControls() {
+            int[] ownerAt = new int[2]; overlayOwner.getLocationOnScreen(ownerAt);
+            int remaining = PIXEL_BUDGET;
+            for (View control : editorControls()) {
+                if (control.getWidth() <= 0 || control.getHeight() <= 0 || remaining < 64) continue;
+                Rect visible = new Rect();
+                if (!control.getGlobalVisibleRect(visible)) continue;
+                Bitmap bitmap = null;
+                try {
+                    double pixels = (double) control.getWidth() * control.getHeight();
+                    double scale = Math.min(1, Math.sqrt(Math.min(120_000, remaining) / pixels));
+                    scale = Math.min(scale, Math.min(1024d / control.getWidth(), 1024d / control.getHeight()));
+                    int w = Math.max(1, (int) (control.getWidth() * scale));
+                    int h = Math.max(1, (int) (control.getHeight() * scale));
+                    bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
+                    Canvas capture = new Canvas(bitmap);
+                    capture.scale(w / (float) control.getWidth(), h / (float) control.getHeight());
+                    control.draw(capture);
+                    int[] at = new int[2]; control.getLocationOnScreen(at);
+                    RectF bounds = new RectF(at[0] - ownerAt[0], at[1] - ownerAt[1],
+                            at[0] - ownerAt[0] + control.getWidth(), at[1] - ownerAt[1] + control.getHeight());
+                    RectF clip = new RectF(visible);
+                    clip.offset(-ownerAt[0], -ownerAt[1]);
+                    boolean inGrid = false;
+                    for (ViewParent parent = control.getParent(); parent instanceof View; parent = parent.getParent())
+                        if (parent == grid) { inGrid = true; break; }
+                    ExitControlGhost ghost = new ExitControlGhost(bitmap, bounds, clip, inGrid, control.getAlpha());
+                    ghost.setBounds(0, 0, overlayOwner.getWidth(), overlayOwner.getHeight());
+                    ghosts.add(ghost);
+                    remaining -= w * h;
+                } catch (RuntimeException | OutOfMemoryError ignored) {
+                    if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
+                    break;
+                }
+            }
+        }
+
+        void start() {
+            if (closed || !Ui.motionEnabled() || !grid.isAttachedToWindow()) { cancel(); return; }
+            observer = grid.getViewTreeObserver();
+            observer.addOnPreDrawListener(this);
+            grid.requestLayout();
+        }
+
+        @Override public boolean onPreDraw() {
+            removePreDraw();
+            if (finished || closed || !Ui.motionEnabled() || !grid.hasWindowFocus()
+                    || !grid.isAttachedToWindow()) { cancel(); return true; }
+            gridOffset = oldGridY - screenY(grid);
+            actionsOffset = oldActionsY - screenY(headerActions);
+            grid.setTranslationY(gridOffset);
+            headerActions.setTranslationY(actionsOffset);
+            if (!leaving) controls.addAll(editorControls());
+            else controls.add(edit);
+            for (View control : controls) {
+                controlAlphas.put(control, control.getAlpha());
+                control.setAlpha(0);
+                control.setScaleX(.86f); control.setScaleY(.86f);
+            }
+            try {
+                for (ExitControlGhost ghost : ghosts) overlayOwner.getOverlay().add(ghost);
+            } catch (RuntimeException | OutOfMemoryError ignored) {
+                cancel();
+                return true;
+            }
+            animator = android.animation.ValueAnimator.ofFloat(0, 1);
+            animator.setDuration(210);
+            animator.setInterpolator(new android.view.animation.PathInterpolator(.2f, 0, 0, 1));
+            animator.addUpdateListener(a -> {
+                if (!Ui.motionEnabled() || closed || !grid.hasWindowFocus()) { cancel(); return; }
+                float progress = (Float) a.getAnimatedValue();
+                grid.setTranslationY(gridOffset * (1 - progress));
+                headerActions.setTranslationY(actionsOffset * (1 - progress));
+                float pop = Math.min(1, progress / .82f);
+                for (View control : controls) {
+                    control.setAlpha(controlAlphas.get(control) * pop);
+                    control.setScaleX(.86f + .14f * pop); control.setScaleY(.86f + .14f * pop);
+                }
+                for (ExitControlGhost ghost : ghosts) {
+                    ghost.progress = Math.min(1, progress / .7f);
+                    ghost.offset = ghost.inGrid ? -gridOffset * progress : 0;
+                    ghost.invalidateSelf();
+                }
+            });
+            animator.addListener(new android.animation.AnimatorListenerAdapter() {
+                @Override public void onAnimationEnd(android.animation.Animator animation) { finish(); }
+                @Override public void onAnimationCancel(android.animation.Animator animation) { finish(); }
+            });
+            animator.start();
+            return true;
+        }
+
+        private void removePreDraw() {
+            if (observer != null && observer.isAlive()) observer.removeOnPreDrawListener(this);
+            observer = null;
+        }
+
+        void cancel() {
+            if (finished) return;
+            if (animator != null) animator.cancel();
+            finish();
+        }
+
+        private void finish() {
+            if (finished) return;
+            finished = true;
+            removePreDraw();
+            if (animator != null) { animator.removeAllUpdateListeners(); animator.removeAllListeners(); }
+            grid.setTranslationY(0); headerActions.setTranslationY(0);
+            for (View control : controls) {
+                control.setAlpha(controlAlphas.get(control)); control.setScaleX(1); control.setScaleY(1);
+            }
+            controls.clear();
+            controlAlphas.clear();
+            for (ExitControlGhost ghost : ghosts) {
+                try { overlayOwner.getOverlay().remove(ghost); }
+                catch (RuntimeException | OutOfMemoryError ignored) { }
+                finally { ghost.release(); }
+            }
+            ghosts.clear();
+            if (editTransition == this) editTransition = null;
+            grid.updateEditorMotion();
+        }
+    }
+
+    /** Exit controls are only a fading image; no stale action survives the state change. */
+    private static final class ExitControlGhost extends android.graphics.drawable.Drawable {
+        Bitmap bitmap;
+        final RectF bounds, clip;
+        final boolean inGrid;
+        final float alpha;
+        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        float progress, offset;
+
+        ExitControlGhost(Bitmap bitmap, RectF bounds, RectF clip, boolean inGrid, float alpha) {
+            this.bitmap = bitmap; this.bounds = bounds; this.clip = clip;
+            this.inGrid = inGrid; this.alpha = alpha;
+        }
+
+        @Override public void draw(Canvas canvas) {
+            if (bitmap == null || bitmap.isRecycled()) return;
+            paint.setAlpha(Math.round(255 * alpha * (1 - progress)));
+            int save = canvas.save();
+            canvas.translate(0, offset);
+            canvas.clipRect(clip);
+            canvas.scale(1 - .15f * progress, 1 - .15f * progress, bounds.centerX(), bounds.centerY());
+            canvas.drawBitmap(bitmap, null, bounds, paint);
+            canvas.restoreToCount(save);
+        }
+
+        void release() {
+            if (bitmap != null && !bitmap.isRecycled()) bitmap.recycle();
+            bitmap = null;
+        }
+        @Override public void setAlpha(int alpha) { }
+        @Override public void setColorFilter(ColorFilter filter) { }
+        @Override public int getOpacity() { return PixelFormat.TRANSLUCENT; }
+    }
+
+    private View historyAction(String icon, String label, Runnable action) {
+        FrameLayout control = new FrameLayout(host.activity());
+        control.addView(new GlyphView(icon, ui.text),
+                new FrameLayout.LayoutParams(ui.dp(21), ui.dp(21), Gravity.CENTER));
+        control.setBackground(ripple(Ui.withAlpha(ui.accent, 45), null, ui.shape(Color.WHITE, 10, 0)));
+        control.setContentDescription(label);
+        control.setTooltipText(icon.equals("undo") ? "Undo" : "Redo");
+        control.setFocusable(true); control.setClickable(true);
+        control.setOnClickListener(v -> action.run());
+        return control;
+    }
+
+    private void updateHistoryControls() {
+        historyActions.setVisibility(editing ? View.VISIBLE : View.GONE);
+        undo.setEnabled(editing && editHistory.canUndo());
+        redo.setEnabled(editing && editHistory.canRedo());
+        undo.setAlpha(undo.isEnabled() ? 1 : .3f);
+        redo.setAlpha(redo.isEnabled() ? 1 : .3f);
+    }
+
+    private void recordEdit(DashboardEditHistory.Snapshot before) {
+        editHistory.record(before, config);
+        updateHistoryControls();
+    }
+
+    private void restoreEdit(boolean forward) {
+        if (!editing || closed) return;
+        grid.finishGesture(false);
+        stopRemovalEffect();
+        dismiss();
+        if (forward ? editHistory.redo(config) : editHistory.undo(config)) {
+            config.save();
+            render();
+        }
+    }
+
+    private void stopRemovalEffect() {
+        if (removalEffect != null) { removalEffect.cancel(); removalEffect = null; }
     }
 
     private void render() {
         if (closed) return;
+        stopEditTransition();
+        grid.stopJiggle();
         grid.finishGesture(false);
         grid.rememberFrames();
         for (Tile tile : tiles) tile.active = false;
@@ -268,6 +561,7 @@ public final class DashboardScreen implements AppScreen {
             edit.setBackground(ripple(Ui.withAlpha(ui.accent, 35), null, roundDisc()));
         }
         edit.setContentDescription(editing ? "Finish editing dashboard" : "Edit dashboard");
+        updateHistoryControls();
         renameControl.setVisibility(
                 editing && service != null && service.profiles.active() != null ? View.VISIBLE : View.GONE);
         tools.setVisibility(editing ? View.VISIBLE : View.GONE);
@@ -309,6 +603,7 @@ public final class DashboardScreen implements AppScreen {
         stale.setVisibility(stale.getText().length() == 0 ? View.GONE : View.VISIBLE);
         chargingHero.refresh(readings);
         for (Tile tile : tiles) tile.refresh(readings);
+        grid.updateEditorMotion();
     }
 
     /** Home status line: Connected · drive mode, Connecting… or Disconnected · last seen. */
@@ -578,7 +873,7 @@ public final class DashboardScreen implements AppScreen {
 
     /** Line glyphs: the shared Ui set plus a few dashboard-only shapes. */
     private void drawGlyph(Canvas c, String key, int color, float cx, float cy, float size) {
-        if (!Arrays.asList("grid", "note", "record", "stop", "trend", "restore", "list").contains(key)) {
+        if (!Arrays.asList("grid", "note", "record", "stop", "trend", "restore", "list", "undo", "redo").contains(key)) {
             ui.drawIcon(c, key, color, cx, cy, size);
             return;
         }
@@ -593,6 +888,13 @@ public final class DashboardScreen implements AppScreen {
         c.scale(size / 24f, size / 24f);
         Path p = new Path();
         switch (key) {
+            case "undo":
+            case "redo":
+                if (key.equals("redo")) c.scale(-1, 1, 12, 12);
+                p.moveTo(9, 4); p.lineTo(4, 9); p.lineTo(9, 14);
+                p.moveTo(4, 9); p.lineTo(13, 9); p.cubicTo(22, 9, 22, 20, 13, 20);
+                c.drawPath(p, paint);
+                break;
             case "grid":
                 for (int x = 3; x <= 14; x += 11)
                     for (int y = 3; y <= 14; y += 11)
@@ -902,6 +1204,8 @@ public final class DashboardScreen implements AppScreen {
                 chargingTemperature;
         LinearLayout batteryData, chargingData;
         boolean capacityPending, dragging, showsRange;
+        View resizeControl;
+        float jiggleAngle;
         Boolean recordingShown;
         long capacityChecked;
         ImageView photo;
@@ -969,7 +1273,7 @@ public final class DashboardScreen implements AppScreen {
             build();
             if (editing) {
                 FrameLayout grip =
-                        overlay("grip", "Move " + widget.title, Gravity.TOP | Gravity.LEFT, () -> position(widget));
+                        overlay("grip", "Move " + widget.title, () -> position(widget));
                 EditorTouch touch = new EditorTouch(this, false);
                 grip.setTag(touch);
                 grip.setOnTouchListener(touch);
@@ -981,14 +1285,20 @@ public final class DashboardScreen implements AppScreen {
                 EditorBar editor = new EditorBar(grip);
                 editor.setTag("widget-editor-bar");
                 addView(editor, new FrameLayout.LayoutParams(-1, -2, Gravity.TOP));
-                addFloating(
-                        overlay("trash", "Remove " + widget.title, Gravity.TOP | Gravity.RIGHT,
-                                () -> removeWidget(widget)),
-                        Gravity.TOP | Gravity.RIGHT);
                 FrameLayout resize = cornerHandle("Resize " + widget.title, () -> size(widget));
+                resizeControl = resize;
                 resize.setOnTouchListener(new EditorTouch(this, true));
                 addFloating(resize, Gravity.BOTTOM | Gravity.RIGHT);
             }
+        }
+
+        @Override public void draw(Canvas canvas) {
+            if (jiggleAngle == 0) { super.draw(canvas); return; }
+            // A drawing cue only: card layout, native rotation and hit targets stay fixed.
+            int saved = canvas.save();
+            canvas.rotate(jiggleAngle, getWidth() / 2f, getHeight() / 2f);
+            super.draw(canvas);
+            canvas.restoreToCount(saved);
         }
 
         /** Volt card: surface, 20 dp corners; a faint edge while editing, red while dragged or recording. */
@@ -1006,101 +1316,57 @@ public final class DashboardScreen implements AppScreen {
             return card;
         }
 
-        /** A small translucent dark square over a card corner, inside a 48 dp target. */
-        private FrameLayout overlay(String icon, String label, int gravity, Runnable action) {
+        /** Equal centered icon squares; hit targets adapt together from 48 to 36 dp. */
+        private FrameLayout overlay(String icon, String label, Runnable action) {
             FrameLayout control = new FrameLayout(host.activity());
-            int target = ui.dp(48), square = ui.dp(26), offset = ui.dp(6);
-            boolean left = (gravity & Gravity.HORIZONTAL_GRAVITY_MASK) == Gravity.LEFT;
-            boolean top = (gravity & Gravity.VERTICAL_GRAVITY_MASK) == Gravity.TOP;
-            int near = offset, far = target - square - offset;
-            control.setBackground(
-                    ripple(
-                            Ui.withAlpha(ui.accent, 60),
-                            new android.graphics.drawable.InsetDrawable(
-                                    ui.shape(Color.argb(140, 0, 0, 0), 8, 0),
-                                    left ? near : far, top ? near : far, left ? far : near, top ? far : near),
-                            ui.shape(Color.WHITE, 14, 0)));
-            // The background insets position the square; glyph margins already do the same.
+            android.graphics.drawable.LayerDrawable square = new android.graphics.drawable.LayerDrawable(
+                    new android.graphics.drawable.Drawable[] {ui.shape(Color.argb(160, 0, 0, 0), 8, 0)});
+            square.setLayerSize(0, ui.dp(26), ui.dp(26));
+            square.setLayerGravity(0, Gravity.CENTER);
+            control.setBackground(ripple(Ui.withAlpha(ui.accent, 60), square, ui.shape(Color.WHITE, 14, 0)));
             control.setPadding(0, 0, 0, 0);
-            FrameLayout.LayoutParams glyph =
-                    new FrameLayout.LayoutParams(ui.dp(14), ui.dp(14), gravity);
-            int inset = offset + (square - ui.dp(14)) / 2;
-            glyph.leftMargin = glyph.rightMargin = glyph.topMargin = glyph.bottomMargin = inset;
-            control.addView(new GlyphView(icon, icon.equals("trash") ? ui.danger : Color.WHITE), glyph);
+            control.addView(new GlyphView(icon, icon.equals("trash") ? ui.danger : Color.WHITE),
+                    new FrameLayout.LayoutParams(ui.dp(14), ui.dp(14), Gravity.CENTER));
             control.setContentDescription(label);
+            if (!icon.equals("grip")) control.setTooltipText(label);
             control.setFocusable(true);
             control.setClickable(true);
             control.setOnClickListener(v -> action.run());
             return control;
         }
 
-        /** Controls float above unchanged card content; narrow cards wrap Duplicate below Edit. */
+        /** Four icon-only actions share one row without changing the card's content area. */
         private final class EditorBar extends ViewGroup {
-            final View grip;
-            final TextView editButton, duplicateButton;
-            boolean wrapped;
-            int editWidth, duplicateWidth;
+            final View grip, editButton, duplicateButton, removeButton;
+            int target;
 
             EditorBar(View grip) {
                 super(host.activity());
                 this.grip = grip;
-                addView(grip);
-                editButton = editorButton("Edit", "gear", "Options for " + widget.title,
-                        () -> options(widget));
-                duplicateButton = editorButton("Duplicate", "copy", "Duplicate " + widget.title,
-                        () -> duplicateWidget(widget));
+                editButton = overlay("gear", "Options for " + widget.title, () -> options(widget));
+                duplicateButton = overlay("copy", "Duplicate " + widget.title, () -> duplicateWidget(widget));
+                removeButton = overlay("trash", "Remove " + widget.title, () -> removeWidget(widget));
                 duplicateButton.setEnabled(!widget.type.equals("lock") && config.widgets.size() < 32);
                 duplicateButton.setAlpha(duplicateButton.isEnabled() ? 1f : .42f);
                 duplicateButton.setTooltipText(widget.type.equals("lock")
                         ? "One lock widget per dashboard" : "Duplicate widget");
-                addView(editButton);
-                addView(duplicateButton);
-            }
-
-            private TextView editorButton(String label, String glyph, String description, Runnable action) {
-                TextView button = ui.text(label, 12, true);
-                button.setTextColor(Color.WHITE);
-                button.setGravity(Gravity.CENTER);
-                button.setSingleLine(true);
-                button.setAutoSizeTextTypeUniformWithConfiguration(10, Math.max(12, Math.round(12 * ui.textScale)),
-                        1, android.util.TypedValue.COMPLEX_UNIT_SP);
-                button.setPadding(ui.dp(5), 0, ui.dp(5), 0);
-                button.setCompoundDrawablesRelative(glyphDrawable(glyph, Color.WHITE, 13), null, null, null);
-                button.setCompoundDrawablePadding(ui.dp(4));
-                button.setBackground(ripple(Ui.withAlpha(ui.accent, 65),
-                        new android.graphics.drawable.InsetDrawable(ui.shape(Color.argb(200, 0, 0, 0), 8, 0),
-                                0, ui.dp(6), ui.dp(4), ui.dp(6)), null));
-                // Keep background insets out of the text's layout, just like the corner glyphs.
-                button.setPadding(ui.dp(2), 0, ui.dp(6), 0);
-                button.setContentDescription(description);
-                button.setClickable(true);
-                button.setFocusable(true);
-                button.setOnClickListener(v -> action.run());
-                return button;
+                for (View control : new View[] {grip, editButton, duplicateButton, removeButton}) addView(control);
             }
 
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
-                int width = MeasureSpec.getSize(widthSpec), target = ui.dp(48);
-                float scale = Math.max(1, ui.textScale * getResources().getConfiguration().fontScale);
-                int idealEdit = ui.dp(32 + 36 * scale), idealDuplicate = ui.dp(32 + 67 * scale);
-                wrapped = width < target * 2 + idealEdit + idealDuplicate;
-                editWidth = wrapped ? Math.max(target, width - target * 2) : idealEdit;
-                duplicateWidth = wrapped ? Math.max(target, width - target - ui.dp(6)) : idealDuplicate;
-                grip.measure(MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
-                editButton.measure(MeasureSpec.makeMeasureSpec(editWidth, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
-                duplicateButton.measure(MeasureSpec.makeMeasureSpec(duplicateWidth, MeasureSpec.EXACTLY),
-                        MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
-                setMeasuredDimension(width, target * (wrapped ? 2 : 1));
+                int width = MeasureSpec.getSize(widthSpec);
+                target = Math.min(ui.dp(48), width / 4);
+                for (int i = 0; i < getChildCount(); i++)
+                    getChildAt(i).measure(MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
+                            MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
+                setMeasuredDimension(width, target);
             }
 
             @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
-                int target = ui.dp(48);
                 grip.layout(0, 0, target, target);
-                editButton.layout(target, 0, target + editWidth, target);
-                int x = wrapped ? target : target + editWidth, y = wrapped ? target : 0;
-                duplicateButton.layout(x, y, x + duplicateWidth, y + target);
+                editButton.layout(target, 0, target * 2, target);
+                duplicateButton.layout(target * 2, 0, target * 3, target);
+                removeButton.layout(getWidth() - target, 0, getWidth(), target);
             }
         }
 
@@ -2049,6 +2315,20 @@ public final class DashboardScreen implements AppScreen {
 
         private void refreshCapacity() {
             if (service == null || capacityPending) return;
+            if (service.simulating()) {
+                Double advertised = rating(widget);
+                double sample = advertised == null ? 610 : advertised * .95;
+                capacityValue.setText(String.format(Locale.US, "≈ %.0f Wh", sample));
+                capacityValue.setTextColor(ui.text);
+                capacitySummary.setText("Sample · 6 rides · 42 points used");
+                capacityMethod.setText("Simulated estimate");
+                capacityCompare.setText(advertised == null ? "Sample capacity" : String.format(Locale.US, "95%% of %.0f Wh · sample", advertised));
+                capacityCompare.setTextColor(ui.muted);
+                capacityEvidence.setText("Sample data for layout preview");
+                capacityNote.setText("No recorded rides are used or changed.");
+                capacityNote.setTextColor(ui.muted);
+                return;
+            }
             if (service.profiles.active() == null) {
                 capacityEvidence.setText(
                         "Set up a scooter profile, then record rides to build an estimate.");
@@ -2154,6 +2434,13 @@ public final class DashboardScreen implements AppScreen {
         private void refreshChart(Map<String, TelemetryHistory.Reading> values) {
             long now = System.currentTimeMillis();
             String key = widget.type.equals("health") ? "battery_health_percent" : widget.metric;
+            if (service != null && service.simulating()) {
+                history = service.simulationHistory(key, now - widget.windowMs, now);
+                livePoints.clear(); wasLive = service.ble.connected();
+                drawChart(values, key);
+                if (!widget.type.equals("health")) subtitle.setText("Sample · " + windowName(widget.windowMs));
+                return;
+            }
             if (widget.type.equals("live")) {
                 TelemetryHistory.Reading reading = values.get(key);
                 boolean live = reading != null && reading.live && reading.number != null;
@@ -2188,7 +2475,7 @@ public final class DashboardScreen implements AppScreen {
                         now - widget.windowMs,
                         now,
                         points -> {
-                            if (closed || !active) return;
+                            if (closed || !active || service.simulating()) return;
                             querying = false;
                             history = points;
                             drawChart(readings(), key);
@@ -2617,6 +2904,7 @@ public final class DashboardScreen implements AppScreen {
         Tile gestureTile;
         List<DashboardLayout.Cell> gestureSnapshot;
         private List<DashboardLayout.Cell> storedGestureSnapshot;
+        private DashboardEditHistory.Snapshot gestureHistory;
         private List<DashboardLayout.Cell> displayed = Collections.emptyList();
         private final Map<String, RectF> previousFrames = new HashMap<>();
         private DashboardLayout.Cell gestureOrigin, requestedCell;
@@ -2625,6 +2913,35 @@ public final class DashboardScreen implements AppScreen {
         private int gestureColumns, gestureMinimumHeight;
         private RectF previewBounds;
         private android.animation.ValueAnimator previewAnimation;
+        private boolean jigglePosted, suppressTransitionTouch;
+        private long jiggleStarted;
+        private final Rect jiggleVisible = new Rect();
+        private ViewTreeObserver jiggleObserver;
+        private final ViewTreeObserver.OnScrollChangedListener jiggleScroll = this::updateEditorMotion;
+        private final Runnable jiggleFrame = new Runnable() {
+            @Override public void run() {
+                jigglePosted = false;
+                if (!canJiggle()) { stopJiggle(); return; }
+                long elapsed = android.os.SystemClock.uptimeMillis() - jiggleStarted;
+                float ramp = Math.min(1, elapsed / 160f);
+                boolean visible = false;
+                for (Tile tile : tiles) {
+                    boolean shown = tile != gestureTile && tile.isShown()
+                            && tile.getGlobalVisibleRect(jiggleVisible);
+                    float angle = shown ? .2f * ramp * (float) Math.sin(elapsed * Math.PI / 620d
+                            + (tile.widget.id.hashCode() & 255) * Math.PI / 128d) : 0;
+                    if (Math.abs(tile.jiggleAngle - angle) > .001f) {
+                        tile.jiggleAngle = angle;
+                        tile.invalidate();
+                    }
+                    visible |= shown;
+                }
+                if (visible) {
+                    jigglePosted = true;
+                    postDelayed(this, 32);
+                }
+            }
+        };
         private final Runnable scrollFrame =
                 new Runnable() {
                     @Override
@@ -2658,7 +2975,74 @@ public final class DashboardScreen implements AppScreen {
         @Override
         public void onWindowFocusChanged(boolean focused) {
             super.onWindowFocusChanged(focused);
-            if (!focused) finishGesture(false);
+            if (!focused) {
+                finishGesture(false);
+                stopEditTransition();
+                stopJiggle();
+                suppressTransitionTouch = false;
+            } else updateEditorMotion();
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            jiggleObserver = getViewTreeObserver();
+            jiggleObserver.addOnScrollChangedListener(jiggleScroll);
+            updateEditorMotion();
+        }
+
+        @Override protected void onWindowVisibilityChanged(int visibility) {
+            super.onWindowVisibilityChanged(visibility);
+            if (visibility != View.VISIBLE) {
+                stopEditTransition(); stopJiggle(); suppressTransitionTouch = false;
+            }
+            else updateEditorMotion();
+        }
+
+        @Override protected void onVisibilityChanged(View changedView, int visibility) {
+            super.onVisibilityChanged(changedView, visibility);
+            if (visibility != View.VISIBLE) {
+                stopEditTransition(); stopJiggle(); suppressTransitionTouch = false;
+            }
+            else updateEditorMotion();
+        }
+
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            // Old decorative controls must never redirect a quick tap into live scooter controls.
+            if (editTransition != null || suppressTransitionTouch) {
+                int action = event.getActionMasked();
+                if (action == MotionEvent.ACTION_DOWN) suppressTransitionTouch = true;
+                if (action == MotionEvent.ACTION_UP || action == MotionEvent.ACTION_CANCEL)
+                    suppressTransitionTouch = false;
+                return true;
+            }
+            return super.dispatchTouchEvent(event);
+        }
+
+        private boolean canJiggle() {
+            return editing && !closed && editTransition == null && Ui.motionEnabled()
+                    && isAttachedToWindow() && hasWindowFocus()
+                    && getWindowVisibility() == View.VISIBLE && isShown();
+        }
+
+        void updateEditorMotion() {
+            if (!canJiggle()) { stopJiggle(); return; }
+            if (jigglePosted) return;
+            boolean visible = false;
+            for (Tile tile : tiles)
+                if (tile != gestureTile && tile.getGlobalVisibleRect(jiggleVisible)) { visible = true; break; }
+            if (!visible) return;
+            jiggleStarted = android.os.SystemClock.uptimeMillis();
+            jigglePosted = true;
+            postOnAnimation(jiggleFrame);
+        }
+
+        void stopJiggle() {
+            removeCallbacks(jiggleFrame);
+            jigglePosted = false;
+            for (Tile tile : tiles) if (tile.jiggleAngle != 0) {
+                tile.jiggleAngle = 0;
+                tile.invalidate();
+            }
         }
 
         float columnWidth() {
@@ -2718,6 +3102,7 @@ public final class DashboardScreen implements AppScreen {
 
         void stopMotion() {
             if (previewAnimation != null) previewAnimation.cancel();
+            stopJiggle();
             for (Tile tile : tiles) {
                 tile.animate().cancel();
                 tile.setTranslationX(0); tile.setTranslationY(0);
@@ -2728,7 +3113,12 @@ public final class DashboardScreen implements AppScreen {
 
         @Override protected void onDetachedFromWindow() {
             finishGesture(false);
+            stopEditTransition();
             stopMotion();
+            suppressTransitionTouch = false;
+            if (jiggleObserver != null && jiggleObserver.isAlive())
+                jiggleObserver.removeOnScrollChangedListener(jiggleScroll);
+            jiggleObserver = null;
             super.onDetachedFromWindow();
         }
 
@@ -2747,13 +3137,18 @@ public final class DashboardScreen implements AppScreen {
 
         void beginGesture(Tile tile, boolean resize, float x, float y) {
             finishGesture(false);
+            stopEditTransition();
+            stopRemovalEffect();
             config.layout(columns, null);
+            gestureHistory = DashboardEditHistory.capture(config);
             storedGestureSnapshot = new ArrayList<>();
             for (DashboardConfig.Widget widget : config.widgets)
                 storedGestureSnapshot.add(widget.layouts.get(columns).copy());
             gestureSnapshot = snapshot();
             gestureColumns = columns;
             gestureTile = tile;
+            tile.jiggleAngle = 0;
+            tile.invalidate();
             resizing = resize;
             gestureOrigin = currentCell(tile.widget).copy();
             gestureMinimumHeight =
@@ -2882,7 +3277,11 @@ public final class DashboardScreen implements AppScreen {
             if (gestureTile == null) return;
             removeCallbacks(scrollFrame);
             if (!commit) apply(storedGestureSnapshot, gestureColumns);
-            else config.save();
+            else {
+                config.save();
+                recordEdit(gestureHistory);
+            }
+            gestureHistory = null;
             Tile tile = gestureTile;
             gestureTile = null;
             gestureSnapshot = null;
@@ -2909,6 +3308,7 @@ public final class DashboardScreen implements AppScreen {
             }
             requestLayout();
             invalidate();
+            updateEditorMotion();
         }
 
         void settle(String priority) {
@@ -3013,6 +3413,7 @@ public final class DashboardScreen implements AppScreen {
                 }
             }
             previousFrames.clear();
+            updateEditorMotion();
         }
 
         @Override
@@ -3169,6 +3570,7 @@ public final class DashboardScreen implements AppScreen {
                                     host.toast("The lock widget is already on your dashboard.");
                                     return;
                                 }
+                        DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
                         DashboardConfig.Widget widget = new DashboardConfig.Widget(type);
                         int end = 0;
                         for (DashboardConfig.Widget item : config.widgets) {
@@ -3185,6 +3587,7 @@ public final class DashboardScreen implements AppScreen {
                                         widget.defaultHeight()));
                         config.widgets.add(widget);
                         config.save();
+                        recordEdit(before);
                         dismiss();
                         render();
                         options(widget);
@@ -3353,6 +3756,7 @@ public final class DashboardScreen implements AppScreen {
                 chip.setContentDescription(w == 1 ? "1 column wide" : w + " columns wide");
                 chip.setOnClickListener(
                         v -> {
+                            DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
                             grid.prepareEdit();
                             DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
                             if (latest == null) return;
@@ -3360,6 +3764,7 @@ public final class DashboardScreen implements AppScreen {
                             if (latest.x + latest.w > grid.columns) latest.x = Math.max(0, grid.columns - latest.w);
                             grid.settle(widget.id);
                             config.save();
+                            recordEdit(before);
                             for (TextView other : chips) ui.styleChip(other, other == chip);
                             render();
                         });
@@ -3396,6 +3801,7 @@ public final class DashboardScreen implements AppScreen {
             host.toast("Up to 32 widgets per scooter.");
             return;
         }
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
         DashboardConfig.Widget copy = new DashboardConfig.Widget(widget.type);
         copy.title = widget.title;
         copy.metric = widget.metric;
@@ -3415,14 +3821,23 @@ public final class DashboardScreen implements AppScreen {
         }
         config.widgets.add(copy);
         grid.settle(copy.id);
+        recordEdit(before);
         changedWidget(copy);
     }
 
     private void removeWidget(DashboardConfig.Widget widget) {
         if (!editing) return;
         grid.finishGesture(false);
+        if (!config.widgets.contains(widget)) return;
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
+        stopRemovalEffect();
+        for (Tile tile : tiles) if (tile.widget == widget) {
+            removalEffect = WidgetRemovalEffect.play(view, tile, ui);
+            break;
+        }
         config.widgets.remove(widget);
         config.save();
+        recordEdit(before);
         dismiss();
         render();
     }
@@ -3844,11 +4259,13 @@ public final class DashboardScreen implements AppScreen {
                         .setPositiveButton(
                                 "Apply",
                                 (d, n) -> {
+                                    DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
                                     grid.prepareEdit();
                                     DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
                                     latest.w = width.getValue();
                                     latest.h = height.getValue();
                                     grid.settle(widget.id);
+                                    recordEdit(before);
                                     changedWidget(widget);
                                 })
                         .show();
@@ -3883,11 +4300,13 @@ public final class DashboardScreen implements AppScreen {
                                         yy = Integer.parseInt(y.getText().toString()) - 1;
                                 if (xx < 0 || xx >= grid.columns || yy < 0 || yy > 300)
                                     throw new IllegalArgumentException();
+                                DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
                                 grid.prepareEdit();
                                 DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
                                 latest.x = xx;
                                 latest.y = yy;
                                 grid.settle(widget.id);
+                                recordEdit(before);
                                 changedWidget(widget);
                             } catch (Exception e) {
                                 host.toast("Use the column and row ranges shown.");
@@ -4058,6 +4477,8 @@ public final class DashboardScreen implements AppScreen {
                                     .setPositiveButton(
                                             "Restore",
                                             (d, n) -> {
+                                                stopRemovalEffect();
+                                                editHistory.clear();
                                                 config.reset();
                                                 render();
                                             })
@@ -4177,6 +4598,8 @@ public final class DashboardScreen implements AppScreen {
                 host.toast("Couldn’t restore the layout. Your current dashboard is kept.");
                 return;
             }
+            stopRemovalEffect();
+            editHistory.clear();
             dismiss();
             render();
             host.toast("Restored “" + saved.name + "”");
@@ -4226,9 +4649,7 @@ public final class DashboardScreen implements AppScreen {
 
     public boolean back() {
         if (editing) {
-            editing = false;
-            preferences.edit().putBoolean("dashboard_editing", false).apply();
-            render();
+            toggleEditing();
             return true;
         }
         return false;
@@ -4237,6 +4658,9 @@ public final class DashboardScreen implements AppScreen {
     @Override
     public void close() {
         closed = true;
+        stopRemovalEffect();
+        stopEditTransition();
+        editHistory.clear();
         for (Tile tile : tiles) tile.active = false;
         dismiss();
         if (grid != null) {

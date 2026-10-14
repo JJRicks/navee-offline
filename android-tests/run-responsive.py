@@ -58,7 +58,7 @@ if args.case:
         width, height = map(int, size.split('x'))
         if not 280 <= width <= 1400 or not 280 <= height <= 1600 or not 1 <= float(scale) <= 2 or not 1 <= system_scale <= 2:
             parser.error('Cases must stay within reasonable emulator dimensions/text sizes')
-        if mode not in ('all', 'cards', 'fold', 'battery', 'constraints', 'edit', 'editor', 'gauge'):
+        if mode not in ('all', 'cards', 'fold', 'battery', 'constraints', 'edit', 'editor', 'gauge', 'motion'):
             parser.error('Unknown validation mode')
         matrix.append((width, height, float(scale), mode, system_scale))
 args.out.mkdir(parents=True, exist_ok=True)
