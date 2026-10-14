@@ -65,6 +65,7 @@ public final class BatteryWidgetValidation extends Instrumentation {
             checkDischarging();
             checkCharging();
             checkHealth();
+            checkLongReading();
             checkDetails();
             checkAxisRoundTrip();
             main(() -> require(field(activity.service().ble, "gatt") == null, "Fixture opened Bluetooth"));
@@ -134,6 +135,21 @@ public final class BatteryWidgetValidation extends Instrumentation {
             bring((View)health);
         }); settle(); screenshot("health-readings");
         main(() -> { for (TextView text : texts((View)tile("readings"))) assertText(text); });
+    }
+
+    private void checkLongReading() throws Exception {
+        AtomicReference<TextView> value = new AtomicReference<>();
+        main(() -> {
+            value.set(((Map<String, TextView>)field(tile("readings"), "amounts")).get("voltage_v"));
+            value.get().setText("Unknown diagnostic condition with an extended controller status description");
+        });
+        waitForIdleSync();
+        main(() -> {
+            assertText(value.get());
+            require(value.get().getLayout().getHeight() <= value.get().getHeight() - value.get().getCompoundPaddingTop() - value.get().getCompoundPaddingBottom(),
+                    "Long controller value was clipped vertically");
+            screen().refresh();
+        });
     }
 
     private void checkDetails() throws Exception {
