@@ -1183,6 +1183,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                         restorePatternSelection(false);
                         chooseInline(feature,feature.optionValues[index]);
                     });
+                    patternSelector.setWrapChoices(true);
                     patternSelector.setTag("scooter-selector-"+feature.key);
                     LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,-2);pp.topMargin=design.dp(6);pp.bottomMargin=design.dp(8);card.addView(patternSelector,pp);
                 }else{
