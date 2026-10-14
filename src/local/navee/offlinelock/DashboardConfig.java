@@ -13,6 +13,8 @@ public final class DashboardConfig {
     public static final int SLOT_NAME_LIMIT = 40;
     private static final int SLOT_VERSION = 1;
     private static final String COLUMN_KEY = "dashboard_columns";
+    public static final int MAX_TRANSFER_BYTES = 1024 * 1024;
+    private static final String TRANSFER_FORMAT = "volt-dashboard-layouts";
 
     public static final String[] TYPES = {
         "lock",
@@ -176,6 +178,7 @@ public final class DashboardConfig {
     private final SharedPreferences preferences;
     private final String storageKey;
     private final String slotKeyPrefix;
+    private final String emptyExampleKey;
     public final ArrayList<Widget> widgets = new ArrayList<>();
 
     public DashboardConfig(SharedPreferences preferences, String profileId) {
@@ -187,6 +190,7 @@ public final class DashboardConfig {
         this.preferences = preferences;
         storageKey = "dashboard_v1_" + profileId;
         slotKeyPrefix = "dashboard_slot_v1_" + profileId + "_";
+        emptyExampleKey = "dashboard_empty_example_v1_" + profileId;
         String saved = preferences.getString(storageKey, null);
         boolean loaded = false;
         if (saved != null)
@@ -212,7 +216,7 @@ public final class DashboardConfig {
     /** A missing example is safe to add; an occupied slot belongs to its owner, even if unreadable. */
     private void seedExampleSlot(java.util.function.Supplier<ArrayList<Widget>> exampleFactory) {
         try {
-            if (!slotExists(2))
+            if (!slotExists(2) && !preferences.getBoolean(emptyExampleKey, false))
                 saveSlot(2, "All widgets", AllWidgetsDashboard.COLUMNS, exampleFactory.get());
         } catch (RuntimeException unavailable) {
             // Optional content must never invalidate a loaded dashboard or prevent a
@@ -450,6 +454,168 @@ public final class DashboardConfig {
     /** Captures every stored width together, without materializing missing width layouts. */
     public boolean saveSlot(int index, String name, int columns) {
         return saveSlot(index, name, columns, widgets);
+    }
+
+    /** Explicit developer action: replace only slot 3 with the shipped example. */
+    public boolean forceExampleSlot() {
+        return saveSlot(2, "All widgets", AllWidgetsDashboard.COLUMNS, AllWidgetsDashboard.create());
+    }
+
+    /** Consent preview. It contains no live readings, owner identity or scooter identifier. */
+    public static final class LayoutTransfer {
+        public final int columns, widgetCount, savedSlotCount;
+        private LayoutTransfer(JSONObject data) throws JSONException {
+            columns = data.getInt("columns");
+            widgetCount = data.getJSONArray("widgets").length();
+            int count = 0;
+            JSONArray slots = data.getJSONArray("slots");
+            for (int i = 0; i < SLOT_COUNT; i++) if (!slots.isNull(i)) count++;
+            savedSlotCount = count;
+        }
+    }
+
+    /** A portable, explicitly scoped export for the current scooter's dashboard and slots. */
+    public String exportLayouts() throws JSONException {
+        JSONObject data = new JSONObject();
+        data.put("format", TRANSFER_FORMAT);
+        data.put("version", 1);
+        data.put("columns", preferences.getInt(COLUMN_KEY, 0));
+        data.put("widgets", writeWidgets(widgets));
+        JSONArray slots = new JSONArray();
+        for (int i = 0; i < SLOT_COUNT; i++) {
+            JSONObject slot = readSlot(i);
+            slots.put(slot == null ? JSONObject.NULL : slot);
+        }
+        data.put("slots", slots);
+        String result = data.toString(2);
+        // Export and import share one schema. Never silently omit a damaged saved slot.
+        parseTransfer(result);
+        return result;
+    }
+
+    public static LayoutTransfer inspectLayouts(String json) throws JSONException {
+        return new LayoutTransfer(parseTransfer(json));
+    }
+
+    /** Replace all four dashboard definitions together, only after complete validation. */
+    public boolean importLayouts(String json) {
+        try {
+            JSONObject data = parseTransfer(json);
+            JSONArray definitions = data.getJSONArray("widgets");
+            ArrayList<Widget> restored = readWidgets(definitions);
+            JSONArray slots = data.getJSONArray("slots");
+            Map<String, ?> previous = preferences.getAll();
+            SharedPreferences.Editor edit = preferences.edit()
+                    .putString(storageKey, definitions.toString())
+                    .putInt(COLUMN_KEY, data.getInt("columns"))
+                    // An imported empty third slot is intentional, unlike an upgrade that
+                    // has never received its example. Keep it empty after reopening.
+                    .putBoolean(emptyExampleKey, slots.isNull(2));
+            String[] changedKeys = new String[SLOT_COUNT + 3];
+            changedKeys[0] = storageKey;
+            changedKeys[1] = COLUMN_KEY;
+            changedKeys[2] = emptyExampleKey;
+            for (int i = 0; i < SLOT_COUNT; i++) {
+                String key = slotKeyPrefix + i;
+                changedKeys[i + 3] = key;
+                if (slots.isNull(i)) edit.remove(key);
+                else edit.putString(key, slots.getJSONObject(i).toString());
+            }
+            if (!edit.commit()) {
+                restorePreferences(previous, changedKeys);
+                return false;
+            }
+            widgets.clear();
+            widgets.addAll(restored);
+            return true;
+        } catch (JSONException | RuntimeException invalid) {
+            return false;
+        }
+    }
+
+    private static JSONObject parseTransfer(String json) throws JSONException {
+        require(json != null && json.length() <= MAX_TRANSFER_BYTES, "Layout file is too large");
+        require(json.getBytes(java.nio.charset.StandardCharsets.UTF_8).length <= MAX_TRANSFER_BYTES,
+                "Layout file is too large");
+        // Bound parser recursion before Android's JSON parser sees untrusted nested input.
+        int depth = 0;
+        boolean quoted = false, escape = false;
+        for (int i = 0; i < json.length(); i++) {
+            char c = json.charAt(i);
+            if (quoted) {
+                require(c >= 0x20, "Invalid layout text");
+                if (escape) escape = false;
+                else if (c == '\\') escape = true;
+                else if (c == '"') quoted = false;
+            } else if (c == '"') quoted = true;
+            else if (c == '[' || c == '{') require(++depth <= 12, "Layout file is too deeply nested");
+            else if (c == ']' || c == '}') require(--depth >= 0, "Invalid layout JSON");
+            else require(" \t\r\n:,0123456789.-+eEtruefalsn".indexOf(c) >= 0, "Invalid layout JSON");
+        }
+        require(depth == 0 && !quoted, "Invalid layout JSON");
+        JSONTokener parser = new JSONTokener(json);
+        Object parsed = parser.nextValue();
+        require(parsed instanceof JSONObject && parser.nextClean() == 0, "Invalid layout JSON");
+        JSONObject data = (JSONObject) parsed;
+        exactKeys(data, "format", "version", "columns", "widgets", "slots");
+        require(TRANSFER_FORMAT.equals(string(data.get("format"))), "Not a dashboard layout file");
+        require(integer(data.get("version")) == 1, "Unknown layout file version");
+        long columns = integer(data.get("columns"));
+        require(columns >= 0 && columns <= MAX_COLUMNS, "Invalid column choice");
+        validateTransferWidgets(data.getJSONArray("widgets"));
+        JSONArray slots = data.getJSONArray("slots");
+        require(slots.length() == SLOT_COUNT, "Expected three saved slots");
+        for (int i = 0; i < SLOT_COUNT; i++) {
+            if (slots.isNull(i)) continue;
+            JSONObject slot = slots.getJSONObject(i);
+            exactKeys(slot, "version", "name", "savedAt", "columns", "widgets");
+            validateSlot(slot);
+            validateTransferWidgets(slot.getJSONArray("widgets"));
+        }
+        return data;
+    }
+
+    private static void validateTransferWidgets(JSONArray widgets) throws JSONException {
+        // Reuse local snapshot validation, then apply portable-file bounds and an allowlist.
+        JSONObject snapshot = new JSONObject();
+        snapshot.put("version", SLOT_VERSION);
+        snapshot.put("name", "Layout");
+        snapshot.put("savedAt", 1L);
+        snapshot.put("columns", 0);
+        snapshot.put("widgets", widgets);
+        validateSlot(snapshot);
+        HashSet<String> metricKeys = new HashSet<>();
+        for (Telemetry.Metric metric : new Telemetry().metrics()) metricKeys.add(metric.key);
+        for (int i = 0; i < widgets.length(); i++) {
+            JSONObject widget = widgets.getJSONObject(i);
+            allowedKeys(widget, "id", "type", "title", "metric", "note", "color", "window",
+                    "min", "max", "advertisedWh", "showDisconnect", "absoluteAxis", "quickActions",
+                    "keys", "layouts", "scooterStats", "glanceableScooterStats");
+            require(string(widget.get("title")).length() <= 80, "Widget title is too long");
+            require(string(widget.get("note")).length() <= 1200, "Widget note is too long");
+            require(metricKeys.contains(string(widget.get("metric"))), "Unknown reading key");
+            require(Double.isFinite(number(widget.get("max")) - number(widget.get("min"))),
+                    "Gauge span is too large");
+            JSONArray keys = widget.getJSONArray("keys");
+            HashSet<String> used = new HashSet<>();
+            for (int k = 0; k < keys.length(); k++) {
+                String key = string(keys.get(k));
+                require(metricKeys.contains(key) && used.add(key), "Invalid reading key");
+            }
+            for (String flag : new String[] {"scooterStats", "glanceableScooterStats"})
+                if (widget.has(flag)) require(widget.get(flag) instanceof Boolean, "Invalid widget flag");
+        }
+    }
+
+    private static void exactKeys(JSONObject object, String... names) throws JSONException {
+        require(object.length() == names.length, "Unexpected layout fields");
+        allowedKeys(object, names);
+    }
+
+    private static void allowedKeys(JSONObject object, String... names) throws JSONException {
+        Set<String> allowed = new HashSet<>(Arrays.asList(names));
+        Iterator<String> keys = object.keys();
+        while (keys.hasNext()) require(allowed.contains(keys.next()), "Unexpected layout fields");
     }
 
     private boolean saveSlot(int index, String name, int columns, List<Widget> definitions) {

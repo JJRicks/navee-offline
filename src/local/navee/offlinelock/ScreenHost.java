@@ -9,4 +9,7 @@ public interface ScreenHost {
     void requestRideLocation(Runnable ready);
     void saveText(String name,String mime,String content);
     void saveFile(String name,String mime,File content);
+    default void fullBackup(boolean restore) { }
+    default void exportDashboardLayouts() { }
+    default void importDashboardLayouts() { }
 }

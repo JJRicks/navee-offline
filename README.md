@@ -31,6 +31,18 @@ Open **More → App preferences → Units** for distance/speed, temperature and 
 
 For UI testing, open **More → About & permissions** and tap the **Navee Offline version seven times**. **Developer options** then appears in More. Its **Simulate scooter as connected** switch supplies sample readings, local control responses and generated chart previews. A persistent sample-data banner includes **Exit**. Simulation closes the real Bluetooth connection, cannot start a ride or phone sensors, and never saves fake telemetry into your history, last-seen cache or battery analysis. Finish any active recording before enabling it. It is temporary and turns off when the service/app process restarts; normal profile and dashboard settings remain yours. Use **Hide developer options** to hide the menu again.
 
+## Back up and restore
+
+**More → App preferences → Dashboard backups** (also **Home → Edit → Layout → Export/Import**) saves a shareable JSON file containing the selected scooter’s current dashboard, all three saved slots, widget parameters and every saved column-count arrangement. Import asks before replacing these layouts and the shared column preference. Other scooters and recorded data are kept. Files contain no scooter setup keys or readings; personal notes and custom titles are included.
+
+For a complete backup, enable Developer options by tapping the version seven times in **More → About & permissions**. Choose **Developer options → Export all app data**, create a password of at least eight characters, and save the encrypted `.voltbackup` file outside Volt. The password is not stored or recoverable. This includes all scooter profiles and their private setup identities, cached parameters, historical readings, rides and phone sensor/route data, charge recordings, preferences, current dashboards and saved slots. It does not change the scooter’s firmware settings.
+
+Finish recordings, pending exports and setup cleanup first. Volt disconnects and pauses while creating or restoring a full backup; close and reopen it afterwards. **Restore all app data** validates the file/password, shows its date and profile/file counts, and asks before replacing the whole saved data set. It replaces rather than merges. After Android **Clear storage**, use **Restore a full app backup** on the welcome screen—no setup or Bluetooth permission is needed to restore. Regrant Android permissions, Bluetooth pairing and Shizuku authorization as needed. Temporary captures, pending imports/exports, diagnostic logs and map caches are excluded. Restore uses a private recovery copy; if it is interrupted, keep app storage intact and reopen Volt to recover. The format supports up to 2 GiB of durable data and needs extra free space for staging and recovery.
+
+**Developer options → Load All widgets into slot 3** replaces that scooter’s slot 3 after confirmation. It leaves the active dashboard and other two slots unchanged. This lets existing users explicitly load the latest example without an update overwriting a saved layout.
+
+Technical format and recovery details: [Full app backup format](docs/app-data-backup.md).
+
 ## Make Home your own
 
 Tap the **pencil** to edit Home. Drag the top-left dots to move a widget, or drag its visible lower-right corner to resize it; a long press on the dots also starts a move. A dashed outline previews the full destination while neighboring cards slide aside and fill empty rows. Releasing saves the preview; cancelling restores the starting arrangement. Tap **Done** to use scooter controls again.

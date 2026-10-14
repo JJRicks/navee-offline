@@ -27,6 +27,7 @@
 *.csv
 *.log
 *.zip
+*.voltbackup
 bugreport-*
 /recordings/
 

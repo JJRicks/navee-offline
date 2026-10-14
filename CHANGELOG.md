@@ -2,6 +2,11 @@
 
 ## 0.12.0 — 2026-10-14
 
+- Add password-protected full app backup/restore in Developer options, including private scooter setup, history, rides/routes, charges, preferences, layouts and widget parameters. Offer restore on the welcome screen after clearing storage.
+- Pause the connection for a consistent backup, validate imports before confirmation, and recover the previous data if replacement is interrupted.
+- Synchronize restore recovery markers and directory changes to strengthen interruption recovery; reclaim temporary encrypted exports left by an interrupted save.
+- Export/import shareable dashboard JSON with the active arrangement, all three slots, column choice and widget options. Add an explicit Developer action to replace slot 3 with the latest All widgets example.
+
 - Add consistent, short motion across tabs, submenus, dialogs, settings rebuilds and ride maps. Respect disabled Android animations.
 - Prevent scrollbar flashes and scroll-position jumps when restoring pages or changing settings; bring in map content and tiles smoothly.
 - Drag Stats favourites by their grab handles from an icon-only Reorder control. Save on drop, restore the starting order on cancellation, and retain screen-reader Move up/Move down actions.

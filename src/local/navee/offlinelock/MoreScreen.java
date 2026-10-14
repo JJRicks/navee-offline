@@ -818,6 +818,7 @@ public final class MoreScreen implements AppScreen {
         Row text = row(display, "text", "Text size", null, this::textSize);
         valueRefreshers.add(() -> text.value(Math.round(settings().getFloat("text_scale", 1f) * 100) + "%"));
         row(display, "map", "Map settings", "Basemap and tile provider", () -> MapPreferences.show(host));
+        row(display, "grid", "Dashboard backups", "Export or import layouts & widget options", this::dashboardBackups);
         label("Connection & recording");
         LinearLayout connection = group();
         Row rate = row(connection, "clock", "Telemetry refresh", null, this::telemetryRate);
@@ -826,6 +827,13 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(connection, "bluetooth", "Stay connected in background", "When off, idle connections close after 10 seconds. Recordings keep running.", "background_connection", false);
         preferenceToggle(connection, "screen", "Keep screen awake", "While a recording is on screen", "keep_screen_awake", true);
         row(connection,"battery","Background recording",null,this::backgroundRecording);
+    }
+    private void dashboardBackups() {
+        LinearLayout box = dialogBox("Dashboard backups", "Save this scooter’s current dashboard and all three slots, including folded/unfolded arrangements and widget options. No scooter keys, readings or rides are included. Notes and custom widget titles are included.");
+        button(box, "Export dashboards", host::exportDashboardLayouts, true);
+        button(box, "Import dashboards", host::importDashboardLayouts, false);
+        ScrollView scroller = new ScrollView(host.activity()); scroller.addView(box);
+        show(new AlertDialog.Builder(host.activity()).setView(scroller).setNegativeButton("Close", null).create());
     }
     private void backgroundRecording(){
         LinearLayout box=dialogBox("Background recording",null);
@@ -1427,6 +1435,20 @@ public final class MoreScreen implements AppScreen {
                     .setMessage("Remove this scooter's local charge samples and learned charge curves. Ride recordings and other scooters are kept.")
                     .setNegativeButton("Cancel",null).setPositiveButton("Clear recordings",(d,which)->s.clearChargeRecordings(this::refreshDeveloper)).create();show(dialog);
         });clearChargeRow.view.setTag("charge-clear-action");
+        label("Backups & test layouts");
+        LinearLayout backups = group();
+        row(backups, "download", "Export all app data", "Encrypted backup · includes private setup keys", () -> host.fullBackup(false)).view.setTag("developer-full-export");
+        row(backups, "restore", "Restore all app data", "Replace this app’s saved data from a backup", () -> host.fullBackup(true)).view.setTag("developer-full-restore");
+        row(backups, "grid", "Load All widgets into slot 3", "Replace slot 3 with the current example", () -> {
+            ScooterProfiles.Profile profile = active();
+            if (profile == null) { host.toast("Choose a scooter first."); return; }
+            confirm("Replace slot 3?", "Save the current All widgets example in slot 3 for " + profile.name
+                    + ". Your active dashboard and the other slots stay as they are.", "Replace slot 3", () -> {
+                boolean saved = new DashboardConfig(settings(), profile.id).forceExampleSlot();
+                host.toast(saved ? "All widgets saved in slot 3." : "Slot 3 could not be saved.");
+            });
+        }).view.setTag("developer-example-slot");
+        footnote("To restore after clearing storage, use Restore a full app backup on the welcome screen. Android permissions and Shizuku authorization must be granted again.");
         LinearLayout visibility = group();
         Row hide = row(visibility, "close", "Hide developer options", null, () -> {
             if (closed) return;

@@ -11,12 +11,15 @@ import java.io.*;
 import java.util.*;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
+import java.util.concurrent.TimeUnit;
 import java.util.function.Consumer;
 
 /** Foreground connected-device service keeps recording alive through folds and screen-off. */
 public final class ScooterService extends Service {
     private static volatile boolean uiVisible;
     private static volatile ScooterService running;
+    /** Main may have lost its binder/permission while the foreground service still owns data. */
+    static ScooterService currentForMaintenance() { return running; }
     /** Main calls this before a binder exists, so late service starts see current visibility. */
     public static void setUiVisible(boolean value){
         uiVisible=value;ScooterService service=running;if(service==null)return;
@@ -56,6 +59,7 @@ public final class ScooterService extends Service {
     private final RangeFollowPolicy rangeFollowPolicy = new RangeFollowPolicy();
     private boolean selectingRange;
     private final ArrayDeque<Ui.Point> power=new ArrayDeque<>(),voltage=new ArrayDeque<>(),speed=new ArrayDeque<>();
+    private boolean dataMaintenance, guardedLifecycle;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged =
             (prefs, key) -> {
                 if (!key.equals("background_connection") && !key.equals("auto_connect")) return;
@@ -71,6 +75,12 @@ public final class ScooterService extends Service {
             };
 
     @Override public void onCreate(){super.onCreate();
+        // A notification or delayed Activity bind must not reopen stores during backup/restore.
+        // MainActivity recovers an interrupted restore off-main before starting this service.
+        // A sticky system restart cannot open a half-restored data tree in the meantime.
+        if (!DataMaintenance.readyForStartup(this)) {
+            guardedLifecycle = destroyed = true; stopSelf(); return;
+        }
         settings = getSharedPreferences("app_settings", MODE_PRIVATE);
         profiles=new ScooterProfiles(this);ble=new BleController(this,profiles);ble.setListener(this::changed);try{
             rides = new RideStore(new File(getFilesDir(), "rides"));
@@ -88,6 +98,7 @@ public final class ScooterService extends Service {
         visible=uiVisible;running=this;settings.registerOnSharedPreferenceChangeListener(settingsChanged);ble.visibility(visible,isRecording()||isChargeRecording(),backgroundDeadlineMs);
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
+        if (destroyed || DataMaintenance.active()) { stopSelf(); return START_NOT_STICKY; }
         if(!ble.permissions()){stopIdleWork();return START_NOT_STICKY;}
         // A queued startForegroundService still needs to fulfill Android's startup contract.
         // Current visibility is checked immediately afterwards, before any BLE work starts.
@@ -97,9 +108,87 @@ public final class ScooterService extends Service {
         else if("DISCONNECT".equals(action)){ble.disconnect();if(!isRecording()&&!isChargeRecording()&&!phoneSaving()&&!visible){stopIdleWork();return START_NOT_STICKY;}}
         applyWorkPolicy(!"DISCONNECT".equals(action)||isRecording());return isRecording()?START_STICKY:START_NOT_STICKY;
     }
-    @Override public IBinder onBind(Intent intent){return binder;}
+    @Override public IBinder onBind(Intent intent){return guardedLifecycle?null:binder;}
     public void listen(Runnable listener){listeners.add(listener);}public void unlisten(Runnable listener){listeners.remove(listener);}
     public boolean simulating() { return ble != null && ble.simulating(); }
+
+    /** A full portable backup is deliberately refused while another operation owns app data. */
+    public String dataMaintenanceUnavailable() {
+        if (destroyed || dataMaintenance || DataMaintenance.active()) return "App data maintenance is already in progress";
+        if (isRecording() || isChargeRecording()) return "Stop the current recording first";
+        if (phoneSaving() || phoneRecorder != null) return "Wait for the phone recording to finish saving";
+        if (chargeExporting) return "Finish the current charge export first";
+        if (!clearingHistory.isEmpty()) return "Wait for history cleanup to finish";
+        if (ble != null && ble.pending() != null) return "Wait for the current scooter change to finish";
+        ShizukuCaptureClient capture = ShizukuCaptureClient.get(this);
+        if (capture.busy || capture.pendingCleanup()) return "Finish owner setup and restore NAVEE logging first";
+        if (getSharedPreferences("pending_documents", MODE_PRIVATE).contains("path")) return "Finish the current export first";
+        if (new File(getFilesDir(), "pending-owner-import.json").exists()
+                || new File(getFilesDir(), "pending-owner-import.tmp").exists()) return "Finish importing owner setup first";
+        return null;
+    }
+
+    /**
+     * Terminal maintenance boundary. The caller closes its screens before invoking this on main,
+     * and restarts the process after maintenance even when it is cancelled or fails. A null result
+     * is delivered only after all accepted durable writes have finished and SQLite is closed.
+     */
+    public void prepareDataMaintenance(Consumer<String> completion) {
+        if (Looper.myLooper() != Looper.getMainLooper())
+            throw new IllegalStateException("Enter app data maintenance on the main thread");
+        Objects.requireNonNull(completion);
+        String unavailable = dataMaintenanceUnavailable();
+        if (unavailable != null) { completion.accept(unavailable); return; }
+        // Capture the last genuine values before suppressing listeners and Bluetooth callbacks.
+        observeTelemetry();
+        persistHistory(true);
+        DataMaintenance.enter();
+        dataMaintenance = true;
+        destroyed = true;
+        workActive = false;
+        uiVisible = false;
+        visible = false;
+        cancelBackgroundDeadline();
+        handler.removeCallbacksAndMessages(null);
+        listeners.clear();
+        ble.setListener(null);
+        ble.destroy();
+        if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        stopForeground(STOP_FOREGROUND_REMOVE);
+        foregroundStarted = false;
+        capacityPending.clear();
+        chargeWorker.shutdown();
+        capacityWorker.shutdown();
+        if (history != null) history.close();
+        new Thread(() -> {
+            String error = null;
+            long deadline = SystemClock.elapsedRealtime() + 30000;
+            try {
+                boolean drained = chargeWorker.awaitTermination(remaining(deadline), TimeUnit.MILLISECONDS);
+                drained &= capacityWorker.awaitTermination(remaining(deadline), TimeUnit.MILLISECONDS);
+                if (history != null) drained &= history.closeAndAwait(remaining(deadline));
+                if (!drained) error = "App data did not finish saving. Close Volt and try again.";
+                else {
+                    // commit waits for earlier apply writes for each preference file. The empty
+                    // transaction changes no user setting and leaves no maintenance marker behind.
+                    for (String name : new String[]{"app_settings", "profiles", "scooter", "control_evidence", OnboardingScreen.PREFS})
+                        if (!getSharedPreferences(name, MODE_PRIVATE).edit().commit())
+                            throw new IOException("Preferences did not finish saving");
+                }
+            } catch (InterruptedException interrupted) {
+                Thread.currentThread().interrupt();
+                error = "App data preparation was interrupted. Close Volt and try again.";
+            } catch (RuntimeException | IOException failure) {
+                error = "App data could not finish saving. Close Volt and try again.";
+            }
+            final String result = error;
+            handler.post(() -> completion.accept(result));
+        }, "app-data-maintenance").start();
+    }
+
+    private static long remaining(long deadline) {
+        return Math.max(0, deadline - SystemClock.elapsedRealtime());
+    }
 
     /** Runtime-only preview: actual caches and journals never receive sample readings. */
     public boolean setSimulation(boolean enabled) {
@@ -128,7 +217,7 @@ public final class ScooterService extends Service {
         try{return ChargeSessionStore.Charger.valueOf(settings.getString(chargerKey(),""));}catch(IllegalArgumentException invalid){return null;}
     }
     public boolean setChargeCharger(ChargeSessionStore.Charger charger){
-        if(charger==null||isChargeRecording()||activeProfileId().isEmpty())return false;
+        if(destroyed||charger==null||isChargeRecording()||activeProfileId().isEmpty())return false;
         settings.edit().putString(chargerKey(),charger.name()).apply();changed();return true;
     }
     public String chargeCaptureUnavailable(){
@@ -174,7 +263,7 @@ public final class ScooterService extends Service {
                 +" · "+(chargeSnapshot==null?0:chargeSnapshot.sessions)+" recordings stored";
     }
     public boolean clearChargeRecordings(Runnable completion){
-        if(chargeStore==null||isChargeRecording()||chargeModelLoading)return false;
+        if(destroyed||chargeStore==null||isChargeRecording()||chargeModelLoading)return false;
         final String profile=activeProfileId();if(profile.isEmpty())return false;chargeModelLoading=true;
         chargeWorker.execute(()->{String error=null;ChargeSessionStore.Snapshot snapshot=null;
             try{chargeStore.clear(profile);snapshot=chargeStore.snapshot();}catch(IOException failure){error="Charge recordings could not be cleared";}
@@ -292,6 +381,7 @@ public final class ScooterService extends Service {
     public boolean isVisible(){return visible;}
     public long backgroundDeadlineMs(){return backgroundDeadlineMs;}
     public boolean workAllowed(){
+        if (destroyed || DataMaintenance.active()) return false;
         if (simulating()) return visible;
         return visible
                 || isRecording()
@@ -370,7 +460,7 @@ public final class ScooterService extends Service {
         if(wakeLock!=null&&wakeLock.isHeld()&&!isRecording()&&!isChargeRecording()&&!phoneSaving())wakeLock.release();
         stopForeground(STOP_FOREGROUND_REMOVE);foregroundStarted=false;stopSelf();
     }
-    public void startRide(String label){if(isChargeRecording()){android.widget.Toast.makeText(this,"Stop charge recording before starting a ride",android.widget.Toast.LENGTH_SHORT).show();return;}if(simulating()) {
+    public void startRide(String label){if(destroyed)return;if(isChargeRecording()){android.widget.Toast.makeText(this,"Stop charge recording before starting a ride",android.widget.Toast.LENGTH_SHORT).show();return;}if(simulating()) {
             android.widget.Toast.makeText(this, "Turn off simulation to record a real ride", android.widget.Toast.LENGTH_SHORT).show();
             return;
         }if(phoneSaving()){
@@ -508,11 +598,12 @@ public final class ScooterService extends Service {
             };
 
     private void addTrend(ArrayDeque<Ui.Point> values,String key,long now){for(Telemetry.Metric m:ble.telemetry.metrics())if(m.key.equals(key)&&m.numericValue!=null&&m.updatedMs>=0&&now>=m.updatedMs&&now-m.updatedMs<2500){if(values.isEmpty()||values.peekLast().millis<m.updatedMs)values.add(new Ui.Point(m.updatedMs,m.numericValue));break;}while(!values.isEmpty()&&now-values.peek().millis>120000)values.remove();while(values.size()>240)values.remove();}
-    private void changed(){if(!destroyed)updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
+    private void changed(){if(destroyed)return;updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
     public boolean followsRidingMode() {
         return settings.getBoolean("range_follow_mode_" + activeProfileId(), true);
     }
     public void followRidingMode(boolean enabled) {
+        if (destroyed) return;
         settings.edit().putBoolean("range_follow_mode_" + activeProfileId(), enabled).apply();
         rangeFollowPolicy.reset();
         changed();
@@ -736,6 +827,7 @@ public final class ScooterService extends Service {
     }
 
     public void clearHistory(String profile, Runnable completion) {
+        if (destroyed) return;
         if (history == null) {
             completion.run();
             return;
@@ -1008,8 +1100,10 @@ public final class ScooterService extends Service {
             return o.toString(2);}catch(JSONException e){
             return "{}";
         }}
-    @Override public void onDestroy(){destroyed=true;finishChargeCapture(ChargeSessionStore.Stop.PROCESS_ENDED);chargeWorker.shutdown();workActive=false;if(running==this)running=null;settings.unregisterOnSharedPreferenceChangeListener(settingsChanged);handler.removeCallbacksAndMessages(null);capacityWorker.shutdown();capacityPending.clear();persistHistory(true);if(history!=null)history.close();stopPhoneRecording();if(isRecording())try{
+    @Override public void onDestroy(){
+        if (guardedLifecycle) { chargeWorker.shutdown(); capacityWorker.shutdown(); super.onDestroy(); return; }
+        destroyed=true;finishChargeCapture(ChargeSessionStore.Stop.PROCESS_ENDED);chargeWorker.shutdown();workActive=false;if(running==this)running=null;if(settings!=null)settings.unregisterOnSharedPreferenceChangeListener(settingsChanged);handler.removeCallbacksAndMessages(null);capacityWorker.shutdown();capacityPending.clear();persistHistory(true);if(history!=null)history.close();stopPhoneRecording();if(isRecording())try{
                 rides.markGap(
                         System.currentTimeMillis(), SystemClock.elapsedRealtime(), "Service ended");
-            }catch(IOException ignored){}if(wakeLock.isHeld())wakeLock.release();ble.destroy();stopForeground(STOP_FOREGROUND_REMOVE);foregroundStarted=false;listeners.clear();super.onDestroy();}
+            }catch(IOException ignored){}if(wakeLock!=null&&wakeLock.isHeld())wakeLock.release();if(ble!=null)ble.destroy();stopForeground(STOP_FOREGROUND_REMOVE);foregroundStarted=false;listeners.clear();super.onDestroy();}
 }
