@@ -60,7 +60,7 @@ public final class DashboardConfig {
         "Distance, speed and riding time",
         "Reported health, charge count and a long-term chart",
         "Estimate usable energy from ride energy and battery-percentage drop",
-        "Battery-side charging power, current and time at the present rate",
+        "Battery-side charging power and estimated time to the charge target",
         "Choose two to eight settings, toggles or page shortcuts",
         "Start or finish an explicit ride recording",
         "A personal reminder or maintenance note"
@@ -78,6 +78,7 @@ public final class DashboardConfig {
         /** Zero selects the model's documented rating, where known. */
         public double advertisedWh = 0;
         public boolean showDisconnect = true;
+        public boolean absoluteAxis;
 
         public Widget(String type) {
             this(UUID.randomUUID().toString(), type);
@@ -136,7 +137,8 @@ public final class DashboardConfig {
         public int minimumHeight() {
             if (type.equals("scooter")) return 3;
             if (type.equals("lock")) return showDisconnect ? 4 : 3;
-            if (type.equals("gauge") || type.equals("ride")) return 3;
+            if (type.equals("ride")) return 1;
+            if (type.equals("gauge")) return 3;
             return type.equals("live") || type.equals("history")
                     ? 4
                     : type.equals("health")
@@ -146,6 +148,14 @@ public final class DashboardConfig {
                                             || type.equals("charging")
                                     ? 4
                                     : 2;
+        }
+
+        public int minimumHeight(float widthDp) {
+            // Narrow rails keep a compact editor, with secondary actions in Options.
+            if (type.equals("quick") && widthDp < 144) return 3;
+            // A one-row recorder reserves an independent resize target beside its editor bar.
+            if (type.equals("ride") && widthDp < 192) return 3;
+            return minimumHeight();
         }
 
         public int defaultWidth(int columns) {
@@ -204,6 +214,7 @@ public final class DashboardConfig {
             w.maximum = o.optDouble("max", 100);
             w.advertisedWh = o.optDouble("advertisedWh", 0);
             w.showDisconnect = o.optBoolean("showDisconnect", true);
+            w.absoluteAxis = o.optBoolean("absoluteAxis", false);
             JSONArray shortcuts = o.optJSONArray("quickActions");
             if (shortcuts != null) {
                 ArrayList<String> actionIds = new ArrayList<>();
@@ -320,6 +331,7 @@ public final class DashboardConfig {
             cells.add(cell);
         }
         List<DashboardLayout.Cell> settled = DashboardLayout.settle(cells, columns, priority);
+        if (priority == null) settled = DashboardLayout.withoutLeadingRows(settled);
         for (DashboardLayout.Cell cell : settled)
             for (Widget w : widgets) if (w.id.equals(cell.id)) w.layouts.put(columns, cell);
         return settled;
@@ -340,9 +352,12 @@ public final class DashboardConfig {
             DashboardLayout.Cell cell = saved.get(i).copy();
             cell.w = Math.max(cell.w,
                     widgets.get(i).minimumWidth(columns, availableWidthDp, gapDp, textScale));
+            cell.h = Math.max(cell.h, widgets.get(i).minimumHeight(
+                    cell.w * availableWidthDp / columns - gapDp));
             visible.add(cell);
         }
-        return DashboardLayout.settle(visible, columns, priority);
+        List<DashboardLayout.Cell> result = DashboardLayout.settle(visible, columns, priority);
+        return priority == null ? DashboardLayout.withoutLeadingRows(result) : result;
     }
 
     public void save() {
@@ -372,6 +387,7 @@ public final class DashboardConfig {
             o.put("max", w.maximum);
             o.put("advertisedWh", w.advertisedWh);
             o.put("showDisconnect", w.showDisconnect);
+            o.put("absoluteAxis", w.absoluteAxis);
             o.put("quickActions", new JSONArray(QuickAccessActions.normalize(w.quickActions)));
             o.put("keys", new JSONArray(w.keys));
             JSONObject layouts = new JSONObject();
@@ -527,6 +543,8 @@ public final class DashboardConfig {
             // Optional in version-1 snapshots created before this preference existed.
             if (widget.has("showDisconnect"))
                 require(widget.get("showDisconnect") instanceof Boolean, "Invalid disconnect preference");
+            if (widget.has("absoluteAxis"))
+                require(widget.get("absoluteAxis") instanceof Boolean, "Invalid chart axis preference");
             if (widget.has("quickActions")) {
                 JSONArray actions = widget.getJSONArray("quickActions");
                 require(actions.length() >= QuickAccessActions.MIN_ITEMS

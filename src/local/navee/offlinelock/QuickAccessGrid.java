@@ -14,6 +14,7 @@ final class QuickAccessGrid extends ViewGroup {
     private final boolean editing;
     private final ArrayList<Cell> cells = new ArrayList<>();
     private int budget, columns = 1, rowHeight;
+    private boolean iconsOnly;
 
     QuickAccessGrid(ScreenHost host, List<String> ids, boolean editing, Consumer<String> action) {
         super(host.activity());
@@ -34,7 +35,10 @@ final class QuickAccessGrid extends ViewGroup {
         BleController ble = service == null ? null : service.ble;
         boolean live = ble != null && ble.ready();
         Map<String, Integer> values = service == null ? Collections.emptyMap() : service.displayFeatures();
-        String units = host.activity().getSharedPreferences("app_settings", 0).getString("units", "mi");
+        android.content.SharedPreferences preferences = host.activity().getSharedPreferences("app_settings", 0);
+        String units = preferences.getString("units", "mi");
+        TelemetryHistory.Reading schedule = service == null ? null
+                : service.displayReadings().get("scheduled_charge_time_raw");
         for (Cell cell : cells) {
             ScooterCommands.Feature feature = cell.entry.feature();
             boolean featureLive = feature != null && live && (feature.type == ScooterCommands.Type.TIME
@@ -48,8 +52,16 @@ final class QuickAccessGrid extends ViewGroup {
             String state = feature == null || feature.sensitive ? ""
                     : pending ? "Updating…" : value == null ? "—"
                     : DisplayUnits.featureValue(feature, value, units);
+            boolean showSchedule = feature != null && feature.key.equals("timed_charging")
+                    && schedule != null && schedule.number != null && schedule.number > 0;
+            if (showSchedule) {
+                long wall = (long)(schedule.number * 1000)
+                        - TimeZone.getDefault().getOffset(System.currentTimeMillis());
+                state += " • " + DisplayTime.clock(host.activity(), preferences, wall);
+            }
             if (!state.contentEquals(cell.value.getText())) cell.value.setText(state);
-            cell.value.setVisibility(state.isEmpty() ? GONE : VISIBLE);
+            cell.value.setVisibility(iconsOnly || state.isEmpty() ? GONE : VISIBLE);
+            cell.value.setTag(state);
             cell.value.setTextColor(featureLive ? ui.text : ui.muted);
             boolean selected = cell.entry.directToggle() && value != null && value == 1 && featureLive;
             if (cell.isSelected() != selected) { cell.setSelected(selected); cell.updateBackground(); }
@@ -57,6 +69,7 @@ final class QuickAccessGrid extends ViewGroup {
             cell.setAlpha(feature != null && !featureLive ? .65f : 1f);
             String description = cell.entry.label + (state.isEmpty() ? "" : ", " + state)
                     + (feature != null && !featureLive ? ", last seen" : "")
+                    + (showSchedule && !schedule.live ? ", scheduled time last seen" : "")
                     + (cell.entry.directToggle() ? ", toggle" : ", open");
             cell.setContentDescription(description);
             if (android.os.Build.VERSION.SDK_INT >= 30) cell.setStateDescription(state);
@@ -92,6 +105,9 @@ final class QuickAccessGrid extends ViewGroup {
                             isSelected() ? Ui.withAlpha(ui.accent, 100) : 0), null));
         }
         void measureContent(int width, boolean compact) {
+            label.setVisibility(iconsOnly ? GONE : VISIBLE);
+            icon.setAlpha(editing && iconsOnly ? .22f : 1f);
+            value.setVisibility(iconsOnly || "".equals(value.getTag()) ? GONE : VISIBLE);
             setPadding(ui.dp(4), ui.dp(compact ? 3 : 7), ui.dp(4), ui.dp(compact ? 3 : 7));
             int side = ui.dp(compact ? 18 : 20);
             icon.getLayoutParams().width = icon.getLayoutParams().height = side;
@@ -112,6 +128,7 @@ final class QuickAccessGrid extends ViewGroup {
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
         int width = MeasureSpec.getSize(widthSpec), gap = ui.dp(6);
+        iconsOnly = width < ui.dp(100);
         columns = Math.min(Math.min(4, cells.size()), Math.max(1,
                 (width + gap) / Math.max(1, ui.dp(72 * ui.textScale) + gap)));
         if (cells.size() == 4 && columns == 3) columns = 2;

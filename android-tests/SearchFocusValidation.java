@@ -90,7 +90,7 @@ public final class SearchFocusValidation extends Instrumentation {
         showKeyboard(search, activity.getWindow(), "speed"); sendKeyDownUpSync(KeyEvent.KEYCODE_BACK);
         assertDismissed(search, activity.getWindow(), "speed", "System Back");
         require(screen() == controls, "Hiding the keyboard also navigated away");
-        showKeyboard(search, activity.getWindow(), "speed"); tap(findDescription(root(), "Stats"));
+        showKeyboard(search, activity.getWindow(), "speed"); tap(findDescription(root(), "Live Stats"));
         await(() -> screen() instanceof StatsScreen && !imeVisible(activity.getWindow()), 4000,
                 "Outside navigation tap was swallowed or left the keyboard open");
         checks.add(theme + ": outside taps and system Back clear settings search focus, preserve the filter, and deliver navigation actions");

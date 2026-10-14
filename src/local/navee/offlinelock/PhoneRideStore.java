@@ -7,12 +7,15 @@ import java.util.*;
 public final class PhoneRideStore {
     private static final String HEADER = "event,wall_ms,monotonic_ms,a,b,c,d,e,f,g,h,i,j\n";
     private final File directory;
+    private final boolean fullDetail;
     private String cachedId;
     private long cachedLength, cachedModified, motionLength;
     private Track cached;
 
-    public PhoneRideStore(File directory) throws IOException {
+    public PhoneRideStore(File directory) throws IOException { this(directory, false); }
+    private PhoneRideStore(File directory, boolean fullDetail) throws IOException {
         this.directory = directory;
+        this.fullDetail = fullDetail;
         if (!directory.isDirectory() && !directory.mkdirs())
             throw new IOException("Cannot create phone ride folder");
     }
@@ -158,7 +161,9 @@ public final class PhoneRideStore {
         public final String id, placement, status;
         public final List<Point> points;
         private final List<Point> allPoints;
-        public final int locationCount, rejectedLocationCount;
+        /** Every accepted source fix; the map/inline preview list remains bounded separately. */
+        public List<Point> fullPoints() { return allPoints; }
+        public final int locationCount, rejectedLocationCount, rejectedElevationCount;
         public final long motionSampleCount;
         public final Double distanceMeters,
                 ascentMeters,
@@ -174,6 +179,7 @@ public final class PhoneRideStore {
                 String placement,
                 List<Point> all,
                 int rejected,
+                int rejectedElevation,
                 long motionCount,
                 Double distance,
                 Double ascent,
@@ -185,6 +191,7 @@ public final class PhoneRideStore {
             allPoints = Collections.unmodifiableList(all);
             locationCount = all.size();
             rejectedLocationCount = rejected;
+            rejectedElevationCount = rejectedElevation;
             motionSampleCount = motionCount;
             distanceMeters = distance;
             ascentMeters = ascent;
@@ -215,7 +222,8 @@ public final class PhoneRideStore {
                                     + " GPS fixes"
                                     + (rejected > 0
                                             ? " · " + rejected + " low-quality fixes excluded"
-                                            : "");
+                                            : "")
+                                    + (rejectedElevation > 0 ? " · " + rejectedElevation + " elevation outliers excluded" : "");
         }
 
         public String toCsv() {
@@ -266,6 +274,7 @@ public final class PhoneRideStore {
                             .append(descentMeters)
                             .append(",\"rejectedLocationCount\":")
                             .append(rejectedLocationCount)
+                            .append(",\"rejectedElevationCount\":").append(rejectedElevationCount)
                             .append(",\"motionSampleCount\":")
                             .append(motionSampleCount)
                             .append(",\"points\":[");
@@ -410,6 +419,16 @@ public final class PhoneRideStore {
         if (n < 0) throw new IllegalArgumentException();
         return n;
     }
+    /** Independent immutable read for full-detail charts; reject changing journals. */
+    public Track loadSnapshot(String id) throws IOException {
+        File raw = rawCsv(id), motion = motionCsv(id);
+        long length = raw.length(), modified = raw.lastModified(), motionSize = motion.length();
+        // A separate reader avoids blocking current phone recording on this older journal.
+        Track result = new PhoneRideStore(directory, true).load(id);
+        if (raw.length() != length || raw.lastModified() != modified || motion.length() != motionSize)
+            throw new IOException("Phone samples changed while loading; try again");
+        return result;
+    }
     /** Read only newline-committed rows; an interrupted final write is ignored. */
     public synchronized Track load(String id) throws IOException {
         File f = rawCsv(id), mf = motionCsv(id);
@@ -440,6 +459,8 @@ public final class PhoneRideStore {
                     }
                     String[] v = new String(line.toByteArray(), "UTF-8").split(",", -1);
                     line.reset();
+                    if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Phone loading canceled");
+                    if (fullDetail) RideStore.checkDetailMemory();
                     if (v.length < 3) continue;
                     try {
                         long wall = clock(v, 1), mono = clock(v, 2);
@@ -529,6 +550,7 @@ public final class PhoneRideStore {
             }
         // Derivatives use source-clock observations over >=2 s, never synthetic zero values.
         for (int i = 0; i < telemetry.size(); i++) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Phone loading canceled");
             TelemetrySample t = telemetry.get(i);
             if (t.speed == null || !fresh(t.mono, t.speedMono)) continue;
             for (int j = i - 1; j >= 0; j--) {
@@ -548,10 +570,13 @@ public final class PhoneRideStore {
         double distance = 0, ascent = 0, descent = 0;
         boolean hasDistance = false, hasElevation = false, breakNext = false;
         Double elevationAnchor = null, gpsBaseline = null, pressureBaseline = null;
-        String anchorSource = "";
+        String anchorSource = "", filterSource = "";
+        Double filterElevation = null, filterCheckpoint = null; long filterMono = -1, filterCheckpointMono = -1; int rejectedElevation = 0;
         double segmentDistance = 0;
         Map<Point, Double> positions = new IdentityHashMap<>();
         for (Fix q : fixes) {
+            if (Thread.currentThread().isInterrupted()) throw new InterruptedIOException("Phone loading canceled");
+            if (fullDetail) RideStore.checkDetailMemory();
             if (breakNext) {
                 q.gap = true;
                 breakNext = false;
@@ -578,7 +603,7 @@ public final class PhoneRideStore {
                 segmentDistance = 0;
                 elevationAnchor = null;
                 gpsBaseline = null;
-                pressureBaseline = null;
+                pressureBaseline = null; filterElevation = null; filterSource = "";
             } else {
                 boolean moving =
                         (q.speed != null && q.speed >= 1)
@@ -611,6 +636,25 @@ public final class PhoneRideStore {
                 if (gpsBaseline == null) gpsBaseline = q.alt;
                 relative = q.alt - gpsBaseline;
                 source = "GPS";
+            }
+            // Reject implausible vertical excursions without deleting otherwise useful GPS fixes.
+            // A parked/riding scooter cannot sustain 2.5 m/s vertical travel; allow 4 m of sensor
+            // noise. Check against the last accepted height, so a ramp-shaped spike cannot pass
+            // merely by arriving in small one-second steps. Rejected samples do not enlarge the
+            // re-entry tolerance; a prolonged loss resets the reference after 20 seconds.
+            // Missing elevation breaks ascent/grade.
+            if (relative != null) {
+                long dt = q.mono - filterMono;
+                if (filterElevation == null || !source.equals(filterSource) || dt <= 0 || dt > 20000) {
+                    filterElevation = relative; filterMono = q.mono; filterSource = source; filterCheckpoint = relative; filterCheckpointMono = q.mono;
+                    elevationAnchor = null;
+                } else if (Math.abs(relative - filterElevation) > Math.max(4, Math.min(dt, 3000) / 1000.0 * 2.5)
+                        || Math.abs(relative - filterCheckpoint) > Math.max(4, (q.mono - filterCheckpointMono) / 1000.0 * 2.5)) {
+                    relative = null; rejectedElevation++; elevationAnchor = null; window.clear(); positions.clear();
+                } else {
+                    filterElevation = relative; filterMono = q.mono;
+                    if (q.mono - filterCheckpointMono >= 10000) { filterCheckpoint = relative; filterCheckpointMono = q.mono; }
+                }
             }
             while (telemetryIndex + 1 < telemetry.size()
                     && (telemetry.get(telemetryIndex + 1).epoch < q.epoch
@@ -684,6 +728,7 @@ public final class PhoneRideStore {
                         placement,
                         points,
                         rejected,
+                        rejectedElevation,
                         motionCount,
                         hasDistance ? distance : null,
                         hasElevation ? ascent : null,

@@ -44,6 +44,7 @@ import local.navee.offlinelock.MainActivity;
 import local.navee.offlinelock.ScooterProfiles;
 import local.navee.offlinelock.ScooterService;
 import local.navee.offlinelock.TelemetryHistory;
+import local.navee.offlinelock.Ui;
 
 /**
  * Isolated native measurement regressions for arbitrary window sizes and OEM fold callbacks.
@@ -74,7 +75,11 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().containsKey("odometer_km"), "Cached fixture did not load");
             stopUiPulse(); settle();
             String mode = arguments.getString("mode", "all");
-            if (mode.equals("gauge")) {
+            if (mode.equals("chart")) {
+                verifyChartAxes();
+            } else if (mode.equals("followup")) {
+                verifyDashboardFollowup();
+            } else if (mode.equals("gauge")) {
                 verifyGaugeContent();
                 check("270-degree gauges keep live/dual/unknown/stale/long readings and endpoint labels inside narrow/wide and short/tall cards");
             } else if (mode.equals("quick")) {
@@ -122,6 +127,75 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
         }
     }
+    private void verifyChartAxes() throws Exception {
+        main(() -> {
+            Ui ui = new Ui(activity, true, Float.parseFloat(arguments.getString("text_scale", "1")));
+            Ui.ChartView probe = ui.new ChartView(); probe.setHistoryMode(true);
+            long start = System.currentTimeMillis() - 3600000;
+            List<Ui.Point> measured = Arrays.asList(new Ui.Point(start, 99), new Ui.Point(start + 600000, 99.2),
+                    new Ui.Point(start + 1200000, 99.6, true), new Ui.Point(start + 3600000, 100));
+            probe.setAxis("battery_health_percent", false); probe.set(measured, "%", ui.accent, "No data");
+            require(((Number)field(probe, "max")).doubleValue() == 100, "Relative health escaped 100 percent");
+            int narrowCount = 0, wideCount = 0;
+            for (int width : new int[] {168, 300, 620}) {
+                probe.measure(View.MeasureSpec.makeMeasureSpec(ui.dp(width), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(ui.dp(230), View.MeasureSpec.EXACTLY));
+                probe.layout(0, 0, ui.dp(width), ui.dp(230));
+                Bitmap bitmap = Bitmap.createBitmap(probe.getWidth(), probe.getHeight(), Bitmap.Config.ARGB_8888);
+                try { probe.draw(new android.graphics.Canvas(bitmap)); } finally { bitmap.recycle(); }
+                List<?> labels = (List<?>)field(probe, "timeLabels");
+                float[] starts = (float[])field(probe, "timeLabelStarts"), widths = (float[])field(probe, "timeLabelWidths");
+                float plotWidth = ((Number)field(probe, "right")).floatValue() - ((Number)field(probe, "left")).floatValue();
+                require(labels.size() >= (width == 168 && ui.textScale > 1 ? 1 : 2) && labels.size() <= 6,
+                        "History width lost its fitting time ticks: " + width);
+                for (int i = 0; i < labels.size(); i++) {
+                    require(starts[i] >= 0 && starts[i] + widths[i] <= plotWidth + .01f, "Time label escaped chart");
+                    if (i > 0) require(starts[i] >= starts[i-1] + widths[i-1] + ui.dp(12) - .01f, "Time labels overlap");
+                }
+                if (width == 168) narrowCount = labels.size(); if (width == 620) wideCount = labels.size();
+            }
+            require(wideCount > narrowCount && wideCount >= 4, "History labels did not use wider space");
+            probe.setAxis("power_w", true); probe.set(Arrays.asList(new Ui.Point(start, -300), new Ui.Point(start+3600000, 850)), "W", ui.accent, "No data");
+            double minimum = ((Number)field(probe, "min")).doubleValue(), maximum = ((Number)field(probe, "max")).doubleValue();
+            require(minimum == -maximum && maximum >= 850, "Absolute power is not centered around zero");
+            require(Boolean.TRUE.equals(field(probe, "absoluteAxis")), "Refreshing samples reset absolute axis");
+            probe.setAxis("voltage_v", true); probe.set(Arrays.asList(new Ui.Point(start, 49), new Ui.Point(start+3600000, 51)), "V", ui.accent, "No data");
+            require(((Number)field(probe, "min")).doubleValue() == 0 && ((Number)field(probe, "max")).doubleValue() >= 51,
+                    "Absolute voltage did not stay grounded");
+            // Preserve both explicit gaps and invalid-point gaps, while inspecting the unmodified measurement.
+            probe.setAxis("battery_percent", true);
+            probe.set(Arrays.asList(new Ui.Point(start+3600000, 120), new Ui.Point(start, 97), null,
+                    new Ui.Point(start+600000, 98, true), new Ui.Point(start+1200000, Double.NaN), new Ui.Point(start+1800000, 99)), "%", ui.accent, "No data");
+            List<?> retained = (List<?>)field(probe, "points");
+            require(probe.pointCount() == 4 && ((Ui.Point)retained.get(1)).gapBefore && ((Ui.Point)retained.get(2)).gapBefore,
+                    "Scale changes lost measured samples or gaps");
+            float x = ((Number)field(probe, "right")).floatValue(); long now = SystemClock.uptimeMillis();
+            android.view.MotionEvent down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, x, ui.dp(100), 0);
+            android.view.MotionEvent up = android.view.MotionEvent.obtain(now, now+1, android.view.MotionEvent.ACTION_UP, x, ui.dp(100), 0);
+            try { probe.onTouchEvent(down); probe.onTouchEvent(up); } finally { down.recycle(); up.recycle(); }
+            require(probe.getContentDescription().toString().startsWith("120 %"), "Physical bounds changed the inspected raw reading");
+            require(((Number)invoke(probe, "y", new Class<?>[] {double.class}, 120d)).floatValue() == ((Number)field(probe, "top")).floatValue(),
+                    "Out-of-domain percentage drew outside the plot");
+            probe.set(Collections.emptyList(), "%", ui.accent, "No measured data");
+            require(probe.pointCount() == 0 && probe.getContentDescription().toString().equals("No measured data"), "Empty chart retained old samples");
+            ScrollView scroll = new ScrollView(activity); LinearLayout content = new LinearLayout(activity);
+            content.setOrientation(LinearLayout.VERTICAL); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(16)); content.setBackgroundColor(ui.bg);
+            scroll.addView(content); activity.setContentView(scroll);
+            String[] titles = {"Relative battery health · capped at 100%", "Absolute battery power · centered at zero", "Absolute pack voltage · grounded at zero"};
+            String[] metrics = {"battery_health_percent", "power_w", "voltage_v"}, units = {"%", "W", "V"};
+            for (int chartIndex = 0; chartIndex < 3; chartIndex++) {
+                TextView title = new TextView(activity); title.setText(titles[chartIndex]); title.setTextColor(ui.text); title.setTextSize(16); content.addView(title);
+                Ui.ChartView chart = ui.new ChartView(); chart.setHistoryMode(true); chart.setAxis(metrics[chartIndex], chartIndex > 0);
+                ArrayList<Ui.Point> values = new ArrayList<>();
+                for (int i = 0; i <= 20; i++) values.add(new Ui.Point(start + i*180000,
+                        chartIndex == 0 ? 99 + i*.05 : chartIndex == 1 ? Math.sin(i*.5)*450+100 : 48+Math.cos(i*.25)*2, i == 9));
+                chart.set(values, units[chartIndex], ui.accent, "No data"); content.addView(chart);
+            }
+        });
+        settle(); screenshot("chart-axes");
+        check("Relative percentages stay within 0–100; absolute signed power centers on zero and voltage grounds at zero; refreshed settings, raw touch values and explicit/invalid gaps are preserved");
+        check("Localized history timestamps adapt to 168/300/620dp without overlap or clipping; wide charts show intermediate times and tiny enlarged-text charts retain one readable endpoint");
+    }
     private void admit() {
         String hardware = Build.HARDWARE.toLowerCase(Locale.ROOT);
         require(hardware.contains("ranchu") || hardware.contains("goldfish") || Build.PRODUCT.startsWith("sdk_gphone"), "Refusing a physical phone");
@@ -152,8 +226,13 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             reading(values, "odometer_km", "24.89 km", "km", 24.89d, wall);
             reading(values, "driving_mode", "3", "", 3d, wall);
             reading(values, "charging_state", "Not charging", "", 0d, wall);
+            java.util.Calendar schedule = java.util.Calendar.getInstance();
+            schedule.set(java.util.Calendar.HOUR_OF_DAY, 13); schedule.set(java.util.Calendar.MINUTE, 45);
+            schedule.set(java.util.Calendar.SECOND, 0); schedule.set(java.util.Calendar.MILLISECOND, 0);
+            double rawSchedule = (schedule.getTimeInMillis() + java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis())) / 1000d;
+            reading(values, "scheduled_charge_time_raw", "Fixture schedule", "", rawSchedule, wall);
             TelemetryHistory store = new TelemetryHistory(getTargetContext()); history.set(store);
-            store.record(profile.id, new TelemetryHistory.Snapshot(values, Collections.emptyMap(), wall), 1, true);
+            store.record(profile.id, new TelemetryHistory.Snapshot(values, Collections.singletonMap("timed_charging", 1), wall), 1, true);
             store.load(profile.id, saved::set);
         });
         await(() -> saved.get() != null, "Synthetic cache did not persist");
@@ -463,6 +542,224 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(((Number)field(service.ble, "mutationSequence")).longValue() == 0 && service.ble.commandResults().isEmpty(), "Unexpected scooter command");
         });
     }
+    private void verifyDashboardFollowup() throws Exception {
+        main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
+        int before = dashboardConfig().widgets.size();
+        main(() -> invoke(dashboard(), "palette")); settle();
+        main(() -> {
+            described(dialogRoot(), "Add Gauge").performClick();
+            require(dashboardConfig().widgets.size() == before, "Unsaved add entered the live layout");
+            require(new DashboardConfig(settings(), activity.service().profiles.active().id).widgets.size() == before,
+                    "Unsaved add reached persisted layout");
+        }); settle();
+        main(() -> {
+            // Choosing a sub-option must not implicitly save the new card.
+            View parameter = null;
+            for (TextView text : texts(dialogRoot())) if (text.getText().toString().equals("Parameter")) parameter = (View)text.getParent();
+            require(parameter != null, "Gauge parameter option missing"); parameter.performClick();
+        }); settle();
+        main(() -> {
+            boolean chosen = false;
+            for (TextView text : texts(dialogRoot())) if (text.getText().toString().equals("Battery voltage")) {
+                chosen = ((View)text.getParent()).performClick(); break;
+            }
+            require(chosen, "Draft parameter choice was not exercised");
+            require(dashboardConfig().widgets.size() == before, "Sub-option saved a draft card");
+            invoke(dashboard(), "dismiss");
+        }); settle();
+        main(() -> { invoke(dashboard(), "palette"); }); settle();
+        main(() -> described(dialogRoot(), "Add Note").performClick()); settle();
+        main(() -> described(dialogRoot(), "Save widget options").performClick()); settleMotion();
+        require(dashboardConfig().widgets.size() == before + 1, "Save did not commit exactly one new card");
+        main(() -> described(root(), "Undo dashboard edit").performClick()); settleMotion();
+        require(dashboardConfig().widgets.size() == before, "Draft cancel consumed Undo or Save was not undoable");
+        check("New widget drafts remain unsaved through sub-options and cancellation; only Save adds one undoable card");
+
+        DashboardConfig.Widget quick = new DashboardConfig.Widget("quick");
+        main(() -> {
+            dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(quick);
+            invoke(dashboard(), "render"); invoke(dashboard(), "quickOptions", new Class<?>[]{DashboardConfig.Widget.class}, quick);
+        }); settle();
+        android.app.AlertDialog sheet = editorDialog();
+        main(() -> {
+            String second = quick.quickActions.get(1);
+            String name = local.navee.offlinelock.QuickAccessActions.find(second).label;
+            described(dialogRoot(), "Move " + name + " earlier").performClick();
+            require(editorDialog() == sheet, "Reorder recreated the sheet");
+            require(quick.quickActions.get(0).equals(second), "Reorder changed wrong shortcut");
+        }); settleMotion();
+        main(() -> {
+            described(dialogRoot(), "Remove shortcut ").performClick();
+            require(editorDialog() == sheet, "Remove recreated the sheet");
+            require(quick.quickActions.size() == 3, "Remove did not remove one shortcut");
+        }); settleMotion(); screenshot("shortcut-sheet-stable");
+        main(() -> invoke(dashboard(), "dismiss")); settle();
+        if (((Number)invoke(grid(), "maximumColumns")).intValue() >= 5) {
+            main(() -> {
+                settings().edit().putInt("dashboard_columns", 5).commit();
+                DashboardConfig.Widget photo = new DashboardConfig.Widget("scooter");
+                photo.layouts.put(5, new DashboardLayout.Cell(photo.id, 0, 0, 4, 4));
+                quick.layouts.put(5, new DashboardLayout.Cell(quick.id, 4, 0, 1, 3));
+                dashboardConfig().widgets.add(photo); invoke(dashboard(), "render");
+            }); settleMotion();
+            main(() -> {
+                DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid(), "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, quick);
+                require(((Number)field(grid(), "columns")).intValue() == 5 && cell.w == 1 && cell.x == 4 && cell.y == 0,
+                        "Five-column photo/shortcut split was expanded or displaced");
+                float railDp = ((View)tileById(quick.id)).getWidth() / activity.getResources().getDisplayMetrics().density;
+                require(cell.h == 3, "One-column shortcut rail cannot shrink to three rows");
+            }); screenshot("five-column-shortcut-rail");
+        }
+        main(() -> {
+            View card = (View)tileById(quick.id);
+            measureCard(card, activity.ui().dp(70), activity.ui().dp(182));
+            ViewGroup quickGrid = (ViewGroup)card.findViewWithTag("quick-access-grid");
+            require(Boolean.TRUE.equals(field(quickGrid, "iconsOnly")), "Narrow shortcuts did not switch to icons");
+            for (int i = 0; i < quickGrid.getChildCount(); i++) {
+                View button = quickGrid.getChildAt(i);
+                require(button.getWidth() >= activity.ui().dp(48) && button.getHeight() >= activity.ui().dp(48), "Icon-only button target shrank");
+                require(button.getContentDescription() != null, "Icon-only shortcut lost its accessible label");
+                for (TextView label : texts(button)) require(label.getVisibility() == View.GONE, "Narrow shortcut still shows text");
+            }
+            List<View> controls = editorControls(card);
+            ArrayList<Rect> occupied = new ArrayList<>();
+            for (View control : controls) {
+                Rect box = relativeBounds(control, card);
+                require(control.getWidth() >= activity.ui().dp(48) && control.getHeight() >= activity.ui().dp(48), "Narrow editor target shrank");
+                require(box.top >= 0 && box.bottom <= card.getHeight(), "Narrow editor target escaped card");
+                for (Rect other : occupied) require(!Rect.intersects(box, other), "Narrow editor controls overlap");
+                occupied.add(box);
+            }
+            saveCardBitmap(card, "narrow-shortcut-editor");
+            require(controls.size() == 3, "Tiny rail needs only Move/Options/Resize on the card");
+            require(quick.minimumHeight(70) == 3, "Tiny rail still requires four rows");
+            for (int width : new int[]{58, 70, 72, 94, 96, 113, 143}) {
+                require(quick.minimumHeight(width) == 3, "Two-column editor rail cannot shrink to three rows");
+                measureCard(card, activity.ui().dp(width), activity.ui().dp(182));
+                ArrayList<Rect> boxes = new ArrayList<>();
+                for (View control : editorControls(card)) {
+                    Rect box = relativeBounds(control, card);
+                    require(control.getWidth() >= activity.ui().dp(48) && control.getHeight() >= activity.ui().dp(48), "Three-row rail shrank an editor target");
+                    require(box.left >= 0 && box.right <= card.getWidth() && box.top >= 0 && box.bottom <= card.getHeight(), "Three-row rail editor target escaped card");
+                    for (Rect other : boxes) require(!Rect.intersects(box, other), "Three-row rail editor targets overlap");
+                    boxes.add(box);
+                }
+                require(card.findViewWithTag("quick-access-grid") != null, "Three-row rail lost shortcuts");
+                saveCardBitmap(card, "three-row-shortcut-editor-" + width);
+            }
+        });
+        main(() -> {
+            View card = (View)tileById(quick.id);
+            measureCard(card, activity.ui().dp(72), activity.ui().dp(182));
+            described(card, "Options for ").performClick();
+            android.widget.PopupMenu menu = (android.widget.PopupMenu)field(card.findViewWithTag("widget-editor-bar"), "actionsMenu");
+            require(menu != null && menu.getMenu().size() == 3, "Tiny rail actions menu missing");
+            menu.getMenu().performIdentifierAction(1, 0);
+        }); settle();
+        main(() -> {
+            require(described(dialogRoot(), "Save widget options") != null, "Tiny rail Edit did not open existing options");
+            require(described(dialogRoot(), "Duplicate widget") == null && described(dialogRoot(), "Remove widget") == null, "Actions leaked into Save-only options sheet");
+            invoke(dashboard(), "dismiss");
+        }); settle();
+        final int beforeDuplicate = dashboardConfig().widgets.size();
+        main(() -> {
+            View card = (View)tileById(quick.id);
+            measureCard(card, activity.ui().dp(72), activity.ui().dp(182));
+            described(card, "Options for ").performClick();
+            android.widget.PopupMenu menu = (android.widget.PopupMenu)field(card.findViewWithTag("widget-editor-bar"), "actionsMenu");
+            require(menu.getMenu().findItem(2).isEnabled(), "Tiny rail lost Duplicate");
+            menu.getMenu().performIdentifierAction(2, 0);
+        }); settleMotion();
+        require(dashboardConfig().widgets.size() == beforeDuplicate + 1, "Tiny rail actions did not duplicate");
+        main(() -> described(root(), "Undo dashboard edit").performClick()); settleMotion();
+        main(() -> {
+            View card = (View)tileById(quick.id);
+            measureCard(card, activity.ui().dp(72), activity.ui().dp(182));
+            described(card, "Options for ").performClick();
+            android.widget.PopupMenu menu = (android.widget.PopupMenu)field(card.findViewWithTag("widget-editor-bar"), "actionsMenu");
+            menu.getMenu().performIdentifierAction(3, 0);
+        }); settleMotion();
+        require(dashboardConfig().widgets.size() == beforeDuplicate - 1, "Tiny rail actions did not remove");
+        main(() -> described(root(), "Undo dashboard edit").performClick()); settleMotion();
+        require(dashboardConfig().widgets.size() == beforeDuplicate, "Undo did not restore deleted rail");
+        main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
+        DashboardConfig.Widget recorder = new DashboardConfig.Widget("ride");
+        DashboardConfig.Widget scooter = new DashboardConfig.Widget("scooter");
+        main(() -> {
+            settings().edit().putInt("dashboard_columns", 2).commit();
+            dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(recorder); dashboardConfig().widgets.add(scooter);
+            recorder.layouts.put(2, new DashboardLayout.Cell(recorder.id, 0, 8, 2, 1));
+            scooter.layouts.put(2, new DashboardLayout.Cell(scooter.id, 0, 10, 2, 3));
+            scooter.keys.clear(); scooter.keys.addAll(Arrays.asList("odometer_km", "remaining_range_km", "driving_mode"));
+            invoke(dashboard(), "render");
+        }); settleMotion();
+        main(() -> {
+            int first = Integer.MAX_VALUE;
+            for (Object card : tiles()) first = Math.min(first, ((View)card).getTop());
+            require(first == 0, "Layout kept a leading gap");
+            View card = (View)tileById(recorder.id);
+            measureCard(card, activity.ui().dp(300), activity.ui().dp(54));
+            ScrollView viewport = (ScrollView)field(card, "viewport");
+            require(!viewport.canScrollVertically(1), "One-row recorder requires scrolling");
+            require(((View)field(card, "rideButton")).getHeight() >= activity.ui().dp(48), "One-row recorder touch target shrank");
+            saveCardBitmap(card, "one-row-recorder");
+            View scooterCard = (View)tileById(scooter.id);
+            measureCard(scooterCard, activity.ui().dp(310), activity.ui().dp(182 * activity.ui().textScale
+                    * getTargetContext().getResources().getConfiguration().fontScale));
+            Map<String,TextView> values = (Map<String,TextView>)field(scooterCard, "amounts");
+            float size = values.values().iterator().next().getTextSize();
+            for (TextView value : values.values()) require(Math.abs(value.getTextSize() - size) < .1f, "Scooter values use different sizes");
+            require(!((ScrollView)field(scooterCard, "viewport")).canScrollVertically(1), "Three compact scooter readings unnecessarily scroll: body=" + ((View)field(scooterCard, "body")).getHeight() + " viewport=" + ((View)field(scooterCard, "viewport")).getHeight() + " info=" + ((View)field(scooterCard, "scooterInfo")).getHeight() + " size=" + size);
+            saveCardBitmap(scooterCard, "scooter-common-values");
+        });
+        check("Leading gaps normalize; narrow shortcuts retain safe icon/editor targets; recorder fits one row and scooter numbers share a fitted size");
+        main(() -> { invoke(dashboard(), "toggleEditing"); }); settleMotion();
+        main(() -> {
+            View card = (View)tileById(recorder.id);
+            measureCard(card, activity.ui().dp(300), activity.ui().dp(54));
+            ArrayList<Rect> occupied = new ArrayList<>();
+            for (View control : editorControls(card)) {
+                Rect box = relativeBounds(control, card);
+                require(box.left >= 0 && box.top >= 0 && box.right <= card.getWidth() && box.bottom <= card.getHeight(), "One-row recorder editor escaped card");
+                for (Rect other : occupied) require(!Rect.intersects(box, other), "One-row recorder editor controls overlap");
+                occupied.add(box);
+            }
+            saveCardBitmap(card, "one-row-recorder-editor");
+            invoke(dashboard(), "chooseReadings", new Class<?>[]{DashboardConfig.Widget.class}, scooter);
+        }); settle();
+        screenshot("pinned-selected-readings");
+        main(() -> {
+            View root = dialogRoot();
+            require(root.findViewWithTag("selected-reading:odometer_km") != null, "Selected reading not pinned");
+            require(root.findViewWithTag("reading-choice:odometer_km") != null, "Pinned reading missing from original group");
+            ((android.widget.EditText)described(root, "Search readings")).setText("battery");
+            require(root.findViewWithTag("selected-reading:odometer_km").isShown(), "Search hid pinned selection");
+            root.findViewWithTag("selected-reading:odometer_km").performClick();
+            require(root.findViewWithTag("selected-reading:odometer_km") == null, "Pinned uncheck failed");
+            require(!root.findViewWithTag("reading-choice:odometer_km").isSelected(), "Pinned and original checkboxes disagree");
+            described(root, "Save selected readings").performClick();
+            require(!scooter.keys.contains("odometer_km"), "Pinned uncheck not saved");
+        }); settle();
+        main(() -> invoke(dashboard(), "dismiss"));
+        check("Selected reading copies remain at the top during search and uncheck/save synchronizes both copies");
+        main(() -> {
+            quick.quickActions.clear(); quick.quickActions.addAll(Arrays.asList("feature:timed_charging", "stats"));
+            dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(quick);
+            settings().edit().putString("time_format", "12h").commit();
+            invoke(dashboard(), "render");
+        }); settle();
+        main(() -> {
+            View button = ((View)tileById(quick.id)).findViewWithTag("quick-action:feature:timed_charging");
+            String value = ((TextView)field(button, "value")).getText().toString();
+            require(value.startsWith("On • ") && value.contains("1:45") && value.contains("PM"), "Scheduled shortcut lost its 12-hour time: " + value);
+            settings().edit().putString("time_format", "24h").commit(); invoke(dashboard(), "refresh");
+            value = ((TextView)field(button, "value")).getText().toString();
+            require(value.equals("On • 13:45"), "Scheduled shortcut lost its 24-hour time: " + value);
+            require(button.getContentDescription().toString().contains("13:45"), "Icon-only schedule lost clock accessibility");
+        });
+        check("Scheduled charging shortcut shows the stored time in the selected 12/24-hour format and exposes it accessibly");
+    }
+
     private void verifyQuickAccess() throws Exception {
         DashboardConfig.Widget widget = new DashboardConfig.Widget("quick");
         main(() -> { dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(widget); dashboardConfig().save(); invoke(dashboard(), "render"); });
@@ -623,7 +920,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         final AtomicReference<String> added=new AtomicReference<>();
         main(() -> {
             View add=described(dialogRoot(),"Add Note");require(add!=null,"Note add action missing");add.performClick();
-            added.set(dashboardConfig().widgets.get(dashboardConfig().widgets.size()-1).id);
+            added.set((String)field(dashboard(),"pendingAddedWidgetId"));
         });settleMotion();
         main(() -> {
             require(added.get().equals(field(dashboard(),"pendingAddedWidgetId")),"New widget not tracked until options are saved");
@@ -856,6 +1153,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         List<View> found = new ArrayList<>();
         CharSequence description = root.getContentDescription();
         String label = description == null ? "" : description.toString();
+        if (root.getVisibility() != View.VISIBLE) return found;
         if (label.startsWith("Move ") || label.startsWith("Options for ") || label.startsWith("Duplicate ") || label.startsWith("Remove ") || label.startsWith("Resize ")) found.add(root);
         if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) found.addAll(editorControls(((ViewGroup)root).getChildAt(i)));
         return found;
@@ -895,7 +1193,15 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         main(() -> {
             require(source.title.equals("Power test") && editorDialog() == null, "Save did not persist title and close the sheet");
             assertHistoryControls(false, false);
-            described((View)tileById(source.id), "Duplicate ").performClick();
+            View sourceCard = (View)tileById(source.id);
+            described(sourceCard, "Duplicate ").performClick();
+            DashboardConfig.Widget justCopied = dashboardConfig().widgets.get(dashboardConfig().widgets.size() - 1);
+            Map<String, android.graphics.RectF> previous = (Map<String, android.graphics.RectF>)field(grid(), "previousFrames");
+            if (local.navee.offlinelock.Ui.motionEnabled()) {
+                android.graphics.RectF frame = previous.get(justCopied.id);
+                require(frame != null && frame.left == sourceCard.getLeft() && frame.top == sourceCard.getTop()
+                        && frame.width() == sourceCard.getWidth(), "Duplicate does not split from its source frame");
+            }
         }); settleMotion();
         final AtomicReference<DashboardConfig.Widget> duplicate = new AtomicReference<>();
         main(() -> {

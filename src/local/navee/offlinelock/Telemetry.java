@@ -84,7 +84,7 @@ public final class Telemetry {
     private Integer temperatureSignState;
 
     public Telemetry() {
-        define("Battery", "battery_percent", "Battery charge");
+        define("Battery", "battery_percent", "Battery charge (%)");
         define("Battery", "voltage_v", "Battery voltage");
         define("Battery", "current_a", "Battery current (signed)");
         define("Battery", "power_w", "Battery power (signed)");

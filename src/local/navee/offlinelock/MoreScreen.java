@@ -66,7 +66,7 @@ public final class MoreScreen implements AppScreen {
     private final Row[] menuRows = new Row[SECTIONS.length];
     private LinearLayout cardDestination, onboardingCard, sectionMenu, indexView, sectionHeader;
     private View sectionBack;
-    private TextView sectionTitle;
+    private TextView sectionTitle, sectionBackLabel;
     private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About", "Developer"};
     private static final String[] SECTION_LABELS = {"App preferences", "My scooters", "PIN & proximity unlock",
             "Experimental controls", "Data & history", "About & permissions", "Developer options"};
@@ -88,7 +88,10 @@ public final class MoreScreen implements AppScreen {
     private Row readPinRow, setPinRow, bondRow, pinRow, proximityRow;
     private Row nearbyRow, locationRow, notificationRow;
     private Row developerIndexRow, simulationRow;
-    private TextView simulationStatus;
+    private TextView simulationStatus, chargeCaptureStatus, chargeLearningStatus;
+    private Row chargeCaptureRow, clearChargeRow, exportChargeRow;
+    private SegmentedSelector chargeChargerSelector;
+    private ChargeSessionStore.Charger chosenCharger=ChargeSessionStore.Charger.STOCK;
     private android.widget.Toast developerCountdown;
     private int developerTaps;
     private long lastDeveloperTap;
@@ -184,6 +187,9 @@ public final class MoreScreen implements AppScreen {
             else if (section.equals("Developer")) developerOptions();
             else privacy();
         }
+        cardDestination = column(); sections.put("Units", cardDestination);
+        sectionParent.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
+        units();
         cardDestination = content;
         showSelectedSection();
         refresh();
@@ -234,10 +240,15 @@ public final class MoreScreen implements AppScreen {
         try { return Math.max(0, Integer.parseInt(value)); } catch (NumberFormatException e) { return 0; }
     }
 
-    /** Wide mode has no submenu to close: Back leaves the tab the way Home would, keeping the submenu. */
-    public boolean back() { if (standalone || wide || selectedSection.isEmpty()) return false; selectSection(""); return true; }
+    /** Units returns to its parent; otherwise wide Back leaves the tab, keeping its selected pane. */
+    public boolean back() {
+        if ("Units".equals(selectedSection)) { selectSection("App"); return true; }
+        if (standalone || wide || selectedSection.isEmpty()) return false;
+        selectSection(""); return true;
+    }
 
     private boolean knownSection(String section) {
+        if ("Units".equals(section)) return true;
         if ("Developer".equals(section) && !developerEnabled()) return false;
         for (String candidate : SECTIONS) if (candidate.equals(section)) return true;
         return false;
@@ -253,13 +264,18 @@ public final class MoreScreen implements AppScreen {
         String shown = shownSection();
         boolean index = shown.isEmpty();
         indexView.setVisibility(index || wide ? View.VISIBLE : View.GONE);
-        sectionHeader.setVisibility(index || standalone ? View.GONE : View.VISIBLE);
+        boolean units = "Units".equals(shown);
+        sectionHeader.setVisibility(index || (standalone && !units) ? View.GONE : View.VISIBLE);
+        sectionBack.setVisibility(units || !wide ? View.VISIBLE : View.GONE);
+        sectionBackLabel.setText(units ? "App preferences" : "More");
+        sectionBack.setContentDescription(units ? "Back to App preferences" : "Back to More");
+        if (units) sectionTitle.setText("Units");
         for (int i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].equals(shown)) sectionTitle.setText(SECTION_TITLES[i]);
         for (Map.Entry<String,LinearLayout> section : sections.entrySet())
             section.getValue().setVisibility(section.getKey().equals(shown) ? View.VISIBLE : View.GONE);
         if (index || wide) dataIndexRow.value(historyFileSize());
         if (wide) for (int i = 0; i < SECTIONS.length; i++)
-            if (menuRows[i] != null) markMenuRow(menuRows[i], SECTIONS[i].equals(shown));
+            if (menuRows[i] != null) markMenuRow(menuRows[i], SECTIONS[i].equals(units ? "App" : shown));
     }
     /** Wide menu: the row whose submenu is open on the right gets a red tint and the selected state. */
     private void markMenuRow(Row row, boolean selected) {
@@ -364,12 +380,12 @@ public final class MoreScreen implements AppScreen {
         LinearLayout link = row();
         link.setMinimumHeight(ui.dp(48)); link.setPadding(0, 0, ui.dp(14), 0);
         link.addView(ui.icon("back", 16, ui.accent), new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16)));
-        TextView label = ui.text("More", 14, false); label.setTypeface(ui.medium()); label.setTextColor(ui.accent);
+        TextView label = sectionBackLabel = ui.text("More", 14, false); label.setTypeface(ui.medium()); label.setTextColor(ui.accent);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2); lp.leftMargin = ui.dp(4);
         link.addView(label, lp);
         link.setContentDescription("Back to More"); link.setFocusable(true);
         link.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 30)), null, ui.shape(Color.WHITE, 10, 0)));
-        link.setOnClickListener(v -> selectSection(""));
+        link.setOnClickListener(v -> selectSection("Units".equals(selectedSection) ? "App" : ""));
         return link;
     }
     /** Group label; keeps natural case in its text so screen readers say words, not letters. */
@@ -781,18 +797,17 @@ public final class MoreScreen implements AppScreen {
     private void preferences() {
         segmentedField("Appearance", "theme", new String[]{"Dark", "Follow system", "Light"},
                 new String[]{"dark", "system", "light"}, "dark");
-        segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
-                new String[]{"mi", "km", "dual"}, "mi");
-        segmentedField("Temperature", "temperature_unit", new String[]{"Celsius · °C", "Fahrenheit · °F"},
-                new String[]{"c", "f"}, "c");
-        segmentedField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
-                new String[]{"system", "12h", "24h"}, "system");
-        View spacer = new View(host.activity()); cardDestination.addView(spacer, new LinearLayout.LayoutParams(-1, ui.dp(8)));
-        LinearLayout display = group();
-        preferenceChoice(display, "stats", "Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
+        segmentedField("Live Stats detail", "stats_density", new String[]{"Comfortable", "Dense"},
                 new String[]{"comfortable", "dense"}, "comfortable");
+        View spacer = new View(host.activity());
+        cardDestination.addView(spacer, new LinearLayout.LayoutParams(-1, ui.dp(16)));
+        LinearLayout display = group();
+        display.setTag("preference-display-options");
+        Row units = row(display, "ruler", "Units", "Distance, temperature & time", () -> selectSection("Units"));
+        units.view.setTag("preference-units-menu");
         Row text = row(display, "text", "Text size", null, this::textSize);
         valueRefreshers.add(() -> text.value(Math.round(settings().getFloat("text_scale", 1f) * 100) + "%"));
+        row(display, "map", "Map settings", "Basemap and tile provider", () -> MapPreferences.show(host));
         label("Connection & recording");
         LinearLayout connection = group();
         Row rate = row(connection, "clock", "Telemetry refresh", null, this::telemetryRate);
@@ -800,10 +815,38 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(connection, "bluetooth", "Connect automatically", "When the app opens", "auto_connect", true);
         preferenceToggle(connection, "bluetooth", "Stay connected in background", "When off, idle connections close after 10 seconds. Recordings keep running.", "background_connection", false);
         preferenceToggle(connection, "screen", "Keep screen awake", "While a recording is on screen", "keep_screen_awake", true);
+        row(connection,"battery","Background recording",null,this::backgroundRecording);
+    }
+    private void backgroundRecording(){
+        LinearLayout box=dialogBox("Background recording",null);
+        android.os.PowerManager power=host.activity().getSystemService(android.os.PowerManager.class);
+        note(box,power.isIgnoringBatteryOptimizations(host.activity().getPackageName())
+                ?"Battery optimization is disabled for this app."
+                :"For long recordings, set this app's battery use to Unrestricted in Android settings.");
+        note(box,"Start recording while the app is open, then turn the screen off. Ride and charge recordings keep Bluetooth active even when Stay connected in background is off. The recording notification has a Stop action.");
+        note(box,"Android 14 and later may let you swipe away the notification while unlocked; that does not stop recording. Force stop, revoked permissions, Bluetooth loss and device-specific battery restrictions can interrupt capture.");
+        box.addView(ui.button("Recording notifications",()->openAndroidSettings(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS)));
+        TextView battery=ui.button("App battery settings",()->openAndroidSettings(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS));
+        LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,-2);bp.topMargin=ui.dp(10);box.addView(battery,bp);
+        ScrollView scroller=new ScrollView(host.activity());scroller.addView(box);
+        show(new AlertDialog.Builder(host.activity()).setView(scroller).setPositiveButton("Close",null).create());
+    }
+    private void openAndroidSettings(String action){
+        android.content.Intent intent=new android.content.Intent(action);
+        if(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS.equals(action))intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,host.activity().getPackageName());
+        else intent.setData(android.net.Uri.parse("package:"+host.activity().getPackageName()));
+        try{host.activity().startActivity(intent);}catch(android.content.ActivityNotFoundException missing){host.toast("Open this app's settings in Android");}
+    }
+    private void units() {
+        segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
+                new String[]{"mi", "km", "dual"}, "mi");
+        segmentedField("Temperature", "temperature_unit", new String[]{"Celsius · °C", "Fahrenheit · °F"},
+                new String[]{"c", "f"}, "c");
+        segmentedField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
+                new String[]{"system", "12h", "24h"}, "system");
     }
     private void segmentedField(String title, String key, String[] labels, String[] values, String fallback) {
         TextView caption = ui.text(title, 12.5f, false); caption.setTextColor(ui.muted);
-        if (key.equals("temperature_unit")) ui.decorate(caption, "temperature");
         caption.setPadding(ui.dp(2), ui.dp(12), ui.dp(2), ui.dp(6));
         cardDestination.addView(caption);
         SegmentedSelector selector = new SegmentedSelector(ui, title, labels, choice -> {
@@ -823,22 +866,6 @@ public final class MoreScreen implements AppScreen {
         cardDestination.addView(selector, new LinearLayout.LayoutParams(-1, -2));
         preferenceSelectors.add(selector);
         restyle.run(); valueRefreshers.add(restyle);
-    }
-    private void preferenceChoice(LinearLayout box, String icon, String title, String key, String[] labels, String[] values, String fallback) {
-        Row row = row(box, icon, title, null, () -> {
-            String stored = settings().getString(key, fallback); int selected = 0;
-            for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) selected = i;
-            AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle(title)
-                    .setSingleChoiceItems(labels, selected, (d, choice) -> {
-                        settings().edit().putString(key, values[choice]).apply(); d.dismiss();
-                        if (key.equals("theme") || key.equals("stats_density")) host.rebuild(); else host.redraw();
-                    }).setNegativeButton("Close", null).create(); show(dialog);
-        });
-        valueRefreshers.add(() -> {
-            String stored = settings().getString(key, fallback), shown = labels[0];
-            for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) shown = labels[i];
-            row.value(shown);
-        });
     }
     private void preferenceToggle(LinearLayout box, String icon, String title, String detail, String key, boolean fallback) {
         Row row = toggleRow(box, icon, title, detail, enabled -> {
@@ -889,7 +916,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout clear = group();
         dangerRow(clear, "Clear this scooter's history", () -> clearHistory(false));
         dangerRow(clear, "Clear all connected history", () -> clearHistory(true));
-        footnote("Ride recordings and owner setup are kept separately.");
+        footnote("Ride recordings, charge recordings and owner setup are kept separately.");
     }
     private void refreshHistoryStorage() {
         if (historyUsage == null || service() == null || service().history == null || historyStoragePending) return;
@@ -955,14 +982,18 @@ public final class MoreScreen implements AppScreen {
     }
     private void telemetryRate() {
         final int[] intervals = {2000, 5000, 10000};
-        String[] labels = {"Fast · every 2 seconds", "Balanced · every 5 seconds", "Battery saver · every 10 seconds"};
         int stored = settings().getInt("poll_interval_ms", 2000), selected = 0;
         for (int i = 0; i < intervals.length; i++) if (stored == intervals[i]) selected = i;
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Battery telemetry refresh")
-                .setSingleChoiceItems(labels, selected, (d, choice) -> {
+        LinearLayout box = dialogBox("Battery telemetry refresh",
+                "Ride recording always uses the faster 2-second battery refresh.");
+        SegmentedSelector selector = new SegmentedSelector(ui, "Telemetry refresh",
+                new String[]{"2 seconds", "5 seconds", "10 seconds"}, choice -> {
                     settings().edit().putInt("poll_interval_ms", intervals[choice]).apply();
-                    d.dismiss(); refresh(); host.toast("Ride recording always keeps its faster 2-second battery refresh.");
-                }).setNegativeButton("Close", null).create(); show(dialog);
+                    refresh();
+                });
+        selector.select(selected, false); box.addView(selector, new LinearLayout.LayoutParams(-1, -2));
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box)
+                .setPositiveButton("Done", null).create(); show(dialog);
     }
 
     // ---- PIN & proximity ----------------------------------------------------------------
@@ -1292,7 +1323,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout permissions = group();
         nearbyRow = row(permissions, "bluetooth", "Nearby devices", "Connects to your scooter", host::requestBluetooth);
         locationRow = row(permissions, "route", "Location", "Optional, for ride routes", null);
-        notificationRow = row(permissions, "sound", "Notifications", "Recording notification with Stop", null);
+        notificationRow = row(permissions, "sound", "Notifications", "Recording notification with Stop", ()->openAndroidSettings(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS));
         if (Build.VERSION.SDK_INT < 31) footnote("Older Android versions require location permission for Bluetooth discovery.");
         label("Your data");
         LinearLayout data = ui.card(); cardDestination.addView(data);
@@ -1344,10 +1375,53 @@ public final class MoreScreen implements AppScreen {
         simulationStatus.setTextColor(ui.orange);
         simulationStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         footnote("Sample data only. Bluetooth and recording are paused. Simulation turns off when the app process restarts.");
+        label("Charge recording");
+        ScooterService current=service();
+        chosenCharger=current!=null&&current.chargeCharger()!=null?current.chargeCharger():ChargeSessionStore.Charger.STOCK;
+        chargeChargerSelector=new SegmentedSelector(ui,"Attached charger",new String[]{"Stock","High-speed"},choice->{
+            ScooterService s=service();if(s==null||s.isChargeRecording())return;
+            chosenCharger=choice==0?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED;
+            s.setChargeCharger(chosenCharger);refreshDeveloper();
+        });
+        chargeChargerSelector.setTag("charge-charger-selector");chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
+        preferenceSelectors.add(chargeChargerSelector);
+        LinearLayout.LayoutParams chargerParams=new LinearLayout.LayoutParams(-1,-2);chargerParams.bottomMargin=ui.dp(12);
+        cardDestination.addView(chargeChargerSelector,chargerParams);
+        LinearLayout capture=group();
+        chargeCaptureRow=row(capture,"battery","Record this charge",null,()->{
+            ScooterService s=service();if(s==null)return;
+            if(s.isChargeRecording()){s.stopChargeRecording();refreshDeveloper();return;}
+            String unavailable=s.chargeCaptureUnavailable();if(unavailable!=null){host.toast(unavailable);return;}
+            String charger=chosenCharger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
+            AlertDialog dialog=new AlertDialog.Builder(host.activity()).setTitle("Record this charge?")
+                    .setMessage("Use the "+charger+" charger currently attached. The app saves battery percentage, voltage, current, power and temperature locally every 10 seconds. It keeps Bluetooth awake in the background with a Stop notification.\n\nCapture stops at 100%, when charging ends, on disconnect, or when the app process ends. Up to 20 recordings are kept, at most about 20 MB. Nothing is uploaded. The selected charger is not detected automatically.")
+                    .setNegativeButton("Cancel",null).setPositiveButton("Start recording",(d,which)->{
+                        if(!s.startChargeRecording(chosenCharger))host.toast(s.chargeCaptureStatus());refreshDeveloper();
+                    }).create();show(dialog);
+        });chargeCaptureRow.view.setTag("charge-capture-action");
+        chargeCaptureStatus=footnote("");chargeCaptureStatus.setTag("charge-capture-status");
+        chargeLearningStatus=footnote("");chargeLearningStatus.setTag("charge-learning-status");
+        footnote("Choose the charger currently attached. Estimates need two usable recordings covering the remaining percentage range and compatible live power at the current battery level. Each needs at least 10 complete percentage intervals. Missing or incompatible data keeps the current-rate estimate; the app does not identify chargers.");
+        LinearLayout chargeData=group();
+        exportChargeRow=row(chargeData,"download","Export charge recordings", "JSON · this scooter",()->{
+            ScooterService s=service();if(s==null)return;
+            if(!s.exportChargeRecordings(file->{
+                if(closed||host.activity().isDestroyed())return;
+                if(file==null){host.toast(s.chargeCaptureStatus());return;}
+                host.saveFile("charge-recordings.json","application/json",file);
+            }))host.toast("Stop charge recording before exporting, or wait for the current export");
+        });exportChargeRow.view.setTag("charge-export-action");
+        clearChargeRow=row(chargeData,"trash","Clear this scooter's charge recordings",null,()->{
+            ScooterService s=service();if(s==null||s.isChargeRecording())return;
+            AlertDialog dialog=new AlertDialog.Builder(host.activity()).setTitle("Clear charge recordings?")
+                    .setMessage("Remove this scooter's local charge samples and learned charge curves. Ride recordings and other scooters are kept.")
+                    .setNegativeButton("Cancel",null).setPositiveButton("Clear recordings",(d,which)->s.clearChargeRecordings(this::refreshDeveloper)).create();show(dialog);
+        });clearChargeRow.view.setTag("charge-clear-action");
         LinearLayout visibility = group();
         Row hide = row(visibility, "close", "Hide developer options", null, () -> {
             if (closed) return;
             ScooterService s = service();
+            if(s!=null&&s.isChargeRecording()){host.toast("Stop charge recording before hiding developer options");return;}
             if (s != null && !s.setSimulation(false)) { refreshDeveloper(); return; }
             selectedSection = "";
             settings().edit().putBoolean("developer_options", false).putString("more_section", "").apply();
@@ -1369,8 +1443,24 @@ public final class MoreScreen implements AppScreen {
             refreshSwitch(simulationRow, simulating, enabled && s != null);
             simulationStatus.setVisibility(simulating ? View.VISIBLE : View.GONE);
         }
+        if(chargeCaptureRow!=null){
+            boolean capturing=s!=null&&s.isChargeRecording();
+            String unavailable=s==null?"Connect your scooter first":s.chargeCaptureUnavailable();
+            chargeCaptureRow.title.setText(capturing?"Stop charge recording":"Record this charge");
+            chargeCaptureRow.enabled(enabled&&s!=null&&(capturing||unavailable==null));
+            chargeCaptureStatus.setText(capturing||unavailable==null?s.chargeCaptureStatus():unavailable);
+            chargeLearningStatus.setText(s==null?"":s.chargeLearningSummary());
+            clearChargeRow.enabled(enabled&&s!=null&&!capturing&&!s.chargeExporting());
+            exportChargeRow.enabled(enabled&&s!=null&&!capturing&&!s.chargeExporting());
+            chargeChargerSelector.setAlpha(capturing?.5f:1f);
+            setChildrenEnabled(chargeChargerSelector,!capturing);
+        }
         // A stale saved shortcut must not reveal the section after developer options are hidden.
         if (!enabled && "Developer".equals(selectedSection)) selectSection("");
+    }
+
+    private void setChildrenEnabled(View view,boolean enabled){
+        view.setEnabled(enabled);if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)setChildrenEnabled(((ViewGroup)view).getChildAt(i),enabled);
     }
 
     private void licenses() {

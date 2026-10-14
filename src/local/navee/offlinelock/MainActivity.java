@@ -71,7 +71,10 @@ public final class MainActivity extends Activity implements ScreenHost {
     private final Handler handler=new Handler(Looper.getMainLooper());
     // Volt order: Scooter is the raised centre button of the floating tab bar.
     private final String[] pages={"home","stats","controls","rides","more"};
-    private final String[] names={"Home","Stats","Scooter","Rides","More"};
+    private final String[] names={"Home","Live Stats","Scooter","Rides","More"};
+    private LiveStatsTitle liveStatsTitle;
+    private static final String STATS_AWAY_AT="stats_away_elapsed", STATS_AWAY_BOOT="stats_away_boot";
+    private static final long STATS_RETENTION_MS=10000L;
     private final String[] icons={"home","stats","scooter","rides","more"};
     private static final int NAV_CENTER=2;
     private final LinkedHashMap<String,Integer> scrollPositions=new LinkedHashMap<>();
@@ -113,7 +116,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     };
     private final Runnable settingsRebuild = this::rebuild;
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged=(p,key)->{
-        if(key.equals("theme")||key.equals("units")||key.equals("temperature_unit")) {
+        if(key.equals("theme")||key.equals("units")||key.equals("temperature_unit")||key.equals("stats_density")) {
             handler.removeCallbacks(settingsRebuild);
             handler.postDelayed(settingsRebuild, Ui.motionEnabled() ? 210 : 0);
         } else if(key.equals("text_scale")) { handler.removeCallbacks(settingsRebuild); handler.post(settingsRebuild); }
@@ -149,6 +152,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         else selectedPage="home";
         if(!knownPage(selectedPage))selectedPage="home";
         expireMoreSection(saved!=null);
+        expireStatsSection(saved!=null);
         fold=new FoldMonitor(this,()->{if(!destroyed)rebuild();});
         preferences.registerOnSharedPreferenceChangeListener(settingsChanged);
         rebuild();
@@ -156,6 +160,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override public void onResume(){
         super.onResume();resumed=true;ScooterService.setUiVisible(true);fold.start();
         if(selectedPage.equals("more")){boolean expired=expireMoreSection(true);markMoreActive();if(expired)rebuild();}
+        if(selectedPage.equals("stats")){boolean expired=expireStatsSection(true);markStatsActive();if(expired)rebuild();}
         if(hasBluetoothPermission()){ensureService();if(bound&&scooterService!=null)startService(new Intent(this,ScooterService.class));}
         if(scooterService!=null){maybeApplyOwnerImport();scooterService.visible(true);if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}if(scooterService.ble.connected())scooterService.ble.refresh(false);}
         handler.removeCallbacks(pulse);handler.post(pulse);
@@ -163,6 +168,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onPause(){
         if(selectedPage.equals("more"))markMoreAway();
+        if(selectedPage.equals("stats"))markStatsAway();
         resumed=false;if(lockControl!=null)lockControl.stopMotion();ScooterService.setUiVisible(false);captureScroll();fold.stop();handler.removeCallbacks(pulse);cancelDeferredBodyRefresh();
         if(scooterService!=null)scooterService.visible(false);
         super.onPause();
@@ -473,8 +479,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         String pageName="";for(int i=0;i<pages.length;i++)if(pages[i].equals(selectedPage))pageName=names[i];
         connectionTitle=connectionLabel();connectionTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,12.5f*design.textScale);
         connectionTitle.setTypeface(design.regular());header.addView(connectionTitle);
-        TextView title=design.text(pageName,24,true);title.setPadding(0,design.dp(2),0,0);
-        if(Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);header.addView(title);
+        liveStatsTitle=null;
+        if(selectedPage.equals("stats")){
+            liveStatsTitle=new LiveStatsTitle(design);header.addView(liveStatsTitle);
+        }else{
+            TextView title=design.text(pageName,24,true);title.setPadding(0,design.dp(2),0,0);
+            if(Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);header.addView(title);
+        }
         profileTitle=null;
         return header;
     }
@@ -491,9 +502,32 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(page.equals(selectedPage)){if(scroll!=null)scroll.smoothScrollTo(0,0);return;}
         captureScroll();
         if(selectedPage.equals("more"))markMoreAway();
+        if(selectedPage.equals("stats"))markStatsAway();
+        if(page.equals("stats")){expireStatsSection(true);if(resumed)markStatsActive();}
         if(page.equals("more")){expireMoreSection(true);if(resumed)markMoreActive();}
         selectedPage=page;preferences.edit().putString("last_page",page).apply();rebuild();
         if(scroll!=null)design.reveal(scroll);
+    }
+    /** Brief returns preserve the Live Stats section; a longer absence starts at Overview. */
+    private void markStatsAway(){
+        if(preferences.contains(STATS_AWAY_AT))return;
+        preferences.edit().putLong(STATS_AWAY_AT,SystemClock.elapsedRealtime()).putInt(STATS_AWAY_BOOT,bootCount()).apply();
+    }
+    private void markStatsActive(){
+        preferences.edit().remove(STATS_AWAY_AT).remove(STATS_AWAY_BOOT).apply();
+    }
+    private boolean expireStatsSection(boolean retainActive){return expireStatsSection(retainActive,SystemClock.elapsedRealtime());}
+    private boolean expireStatsSection(boolean retainActive,long now){
+        long away=preferences.getLong(STATS_AWAY_AT,-1);
+        boolean expired=away<0?!retainActive:now<away||now-away>=STATS_RETENTION_MS
+                ||preferences.getInt(STATS_AWAY_BOOT,-1)!=bootCount();
+        if(!expired)return false;
+        boolean changed=!"Overview".equals(preferences.getString("stats_section","Overview"));
+        preferences.edit().putString("stats_section","Overview").remove(STATS_AWAY_AT).remove(STATS_AWAY_BOOT).apply();
+        scrollPositions.put("stats",0);StatsScreen.clearSavedScroll();
+        if(screen instanceof StatsScreen)((StatsScreen)screen).resetScroll();
+        if(scroll!=null&&"stats".equals(scrollPage))scroll.scrollTo(0,0);
+        return changed;
     }
     /** Retain a submenu only while in More or for a short return from another tab/app. */
     private void markMoreAway(){
@@ -535,6 +569,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.HORIZONTAL);return v;}
     private void heading(LinearLayout parent,String title,String detail){TextView h=design.text(title,22,true);h.setPadding(0,design.dp(12),0,design.dp(6));parent.addView(h);if(detail!=null){TextView d=design.caption(detail);d.setPadding(0,0,0,design.dp(16));parent.addView(d);}}
     private void updateHeader(){
+        if(liveStatsTitle!=null)liveStatsTitle.setLive(scooterService!=null&&scooterService.ble.connected());
         BleController ble=scooterService==null?null:scooterService.ble;Boolean locked=ble==null?null:ble.locked();String pending=ble==null?null:ble.pending();boolean ready=ble!=null&&ble.ready(),home=selectedPage.equals("home");Boolean shownLock=locked;if(shownLock==null&&scooterService!=null){Integer saved=scooterService.displayFeatures().get("lock");if(saved!=null)shownLock=saved!=0;}
         boolean connecting=ble!=null&&(ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
                 ||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING||ble.connected())&&!ready;
@@ -1108,7 +1143,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String explanation(ScooterCommands.Feature f){
         if(f.key.equals("energy_recovery"))return "Stronger recovery slows coasting more.";
         if(f.key.equals("display_units"))return "Units shown on the scooter’s own dashboard.";
-        if(f.key.equals("range_algorithm"))return "Changes how range is predicted, not the battery capacity.";
+        if(f.key.equals("range_algorithm"))return "Follow riding mode selects the scooter’s Sport or Eco estimate when stopped. Firmware without Eco uses its D estimate for Eco/Walk. Fixed choices stay selected until you change them.";
         if(f.key.equals("charge_limit"))return "Charging stops at this battery level.";
         if(f.key.equals("start_speed"))return "Wheel speed needed before the throttle responds. Zero allows standing starts.";
         return f.description;
@@ -1116,6 +1151,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private boolean inlineChoice(ScooterCommands.Feature f){return f.type==ScooterCommands.Type.CHOICE&&(f.key.startsWith("line_")||f.key.startsWith("star_"));}
     /** Short value forms for the right edge of a row; pickers still list the full labels. */
     private String valueText(ScooterCommands.Feature feature,int value){
+        if(feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode()) return "Follow riding mode";
         if(feature.key.equals("display_units")&&(value==0||value==1))return value==0?"Miles":"Kilometers";
         String label=featureLabel(feature,value);
         if(feature.key.equals("lock_expiry"))return label.replace(" hours"," h");
@@ -1160,7 +1196,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private final class ControlRow {
         final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action;
-        final String haystack;final boolean inline;
+        final String haystack;final boolean inline;SegmentedSelector patternSelector;
         final LinkedHashMap<Integer,View> options=new LinkedHashMap<>();
         ControlRow(ScooterCommands.Feature feature){
             this.feature=feature;inline=inlineChoice(feature);
@@ -1177,15 +1213,15 @@ public final class MainActivity extends Activity implements ScreenHost {
             }else if(inline){
                 toggle=null;value.setVisibility(View.GONE);
                 if(feature.key.endsWith("_pattern")){
-                    // Patterns are chips under the label (Lights page, ph/28).
+                    // Firmware readback owns the selected value, including while a write is pending.
                     row.line.setMinimumHeight(design.dp(40));row.line.setPadding(0,design.dp(10),0,0);
-                    FlowRow chips=new FlowRow();chips.setPadding(0,0,0,design.dp(4));
-                    for(int i=0;i<feature.optionValues.length;i++){
-                        final int choice=feature.optionValues[i];
-                        TextView chip=design.chip(feature.options[i],false,()->chooseInline(feature,choice));styleZoneChip(chip,false);chip.setContentDescription(feature.label+", "+feature.options[i]);
-                        options.put(choice,chip);chips.addView(chip,new ViewGroup.LayoutParams(-2,-2));
-                    }
-                    card.addView(chips,new LinearLayout.LayoutParams(-1,-2));
+                    patternSelector=new SegmentedSelector(design,feature.label,feature.options,index->{
+                        restorePatternSelection(false);
+                        chooseInline(feature,feature.optionValues[index]);
+                    });
+                    patternSelector.setWrapChoices(true);
+                    patternSelector.setTag("scooter-selector-"+feature.key);
+                    LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,-2);pp.topMargin=design.dp(6);pp.bottomMargin=design.dp(8);card.addView(patternSelector,pp);
                 }else{
                     // Colours are swatches on the right of the row.
                     LinearLayout swatches=row();swatches.setGravity(Gravity.CENTER_VERTICAL);
@@ -1204,17 +1240,18 @@ public final class MainActivity extends Activity implements ScreenHost {
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&liveActual!=null&&scooterService.featureFresh(feature.key);
             String shown;
-            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.recent(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()),System.currentTimeMillis());}
+            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.clock(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));}
             else shown=actual==null?"Not reported":valueText(feature,actual);
             boolean choices=feature.type!=ScooterCommands.Type.CHOICE||(ble!=null&&ble.featureChoices(feature.key).length>0);
             name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&choices);
             if(toggle==null&&!inline){
                 // A long value moves under the label so the row never wraps beside the chevron.
-                boolean wide=shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
+                boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
             }else if(inline)row.setSub(actual==null?"Not reported":null);
+            if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(available&&choices);patternSelector.setAlpha(available&&choices?1f:.5f);}
             for(Map.Entry<Integer,View> option:options.entrySet()){
                 boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();
-                if(view instanceof Swatch)((Swatch)view).set(on);else styleZoneChip((TextView)view,on);
+                ((Swatch)view).set(on);
                 view.setEnabled(available&&choices);view.setAlpha(available&&choices?1f:.5f);
                 if(Build.VERSION.SDK_INT>=30)view.setStateDescription(on?"Selected":"");
             }
@@ -1223,11 +1260,12 @@ public final class MainActivity extends Activity implements ScreenHost {
             // Last-seen state is explained once by the page banner; rows keep rejections and pending changes.
             String feedback=ble==null?null:ble.commandResults().get(feature.key);if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
         }
-    }
-    /** Lighting zone chips keep a 48dp touch target while drawing the 36dp Volt pill. */
-    private void styleZoneChip(TextView chip,boolean selected){
-        design.styleChip(chip,selected);chip.setMinHeight(design.dp(48));
-        chip.setBackground(new android.graphics.drawable.InsetDrawable(chip.getBackground(),0,design.dp(6),0,design.dp(6)));
+        private void restorePatternSelection(boolean animate){
+            Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);
+            if(actual==null&&scooterService!=null)actual=scooterService.displayFeatures().get(feature.key);
+            int selected=-1;for(int i=0;i<feature.optionValues.length;i++)if(actual!=null&&actual==feature.optionValues[i])selected=i;
+            patternSelector.select(selected,animate);
+        }
     }
     private void chooseInline(ScooterCommands.Feature feature,int target){
         if(scooterService==null)return;Integer actual=scooterService.ble.featureValue(feature.key);if(actual!=null&&actual==target)return;
@@ -1237,29 +1275,6 @@ public final class MainActivity extends Activity implements ScreenHost {
         controlDialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle(shortLabel(feature)))
                 .setMessage(feature.description+(feature.requiresParked?"\n\nChanges only while the scooter is stopped.":"")).setPositiveButton("Close",null).create();
         controlDialog.show();styleDialog(controlDialog,0);
-    }
-    /** A wrapping row of chips. */
-    private final class FlowRow extends ViewGroup {
-        FlowRow(){super(MainActivity.this);}
-        @Override protected void onMeasure(int widthSpec,int heightSpec){
-            int width=MeasureSpec.getSize(widthSpec),available=Math.max(1,width-getPaddingLeft()-getPaddingRight()),gap=design.dp(6),x=0,y=getPaddingTop(),rowHeight=0;
-            for(int i=0;i<getChildCount();i++){
-                View child=getChildAt(i);if(child.getVisibility()==View.GONE)continue;
-                child.measure(MeasureSpec.makeMeasureSpec(available,MeasureSpec.AT_MOST),MeasureSpec.makeMeasureSpec(0,MeasureSpec.UNSPECIFIED));
-                if(x>0&&x+child.getMeasuredWidth()>available){y+=rowHeight;x=0;rowHeight=0;}
-                x+=child.getMeasuredWidth()+gap;rowHeight=Math.max(rowHeight,child.getMeasuredHeight());
-            }
-            setMeasuredDimension(resolveSize(width,widthSpec),resolveSize(y+rowHeight+getPaddingBottom(),heightSpec));
-        }
-        @Override protected void onLayout(boolean changed,int l,int t,int r,int b){
-            int available=getWidth()-getPaddingLeft()-getPaddingRight(),gap=design.dp(6),x=0,y=getPaddingTop(),rowHeight=0;
-            for(int i=0;i<getChildCount();i++){
-                View child=getChildAt(i);if(child.getVisibility()==View.GONE)continue;int w=child.getMeasuredWidth(),h=child.getMeasuredHeight();
-                if(x>0&&x+w>available){y+=rowHeight;x=0;rowHeight=0;}
-                int left=getLayoutDirection()==View.LAYOUT_DIRECTION_RTL?getWidth()-getPaddingRight()-x-w:getPaddingLeft()+x;
-                child.layout(left,y,left+w,y+h);x+=w+gap;rowHeight=Math.max(rowHeight,h);
-            }
-        }
     }
     /** Lamp colour swatch; the selected colour gains a ring. */
     private final class Swatch extends View {
@@ -1464,24 +1479,34 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void showChoice(ScooterCommands.Feature feature){
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
         int[] choices=scooterService.ble.featureChoices(feature.key);if(choices.length==0){toast("This choice is not available on the current firmware.");return;}
+        if(feature.key.equals("range_algorithm")) {
+            int[] withFollow=new int[choices.length+1]; withFollow[0]=-1;
+            System.arraycopy(choices,0,withFollow,1,choices.length); choices=withFollow;
+        }
         choiceSheet=new ChoiceSheet(feature,choices);
     }
     /** Choice picker (ph/27). It stays open until the scooter confirms the new value by readback. */
     private final class ChoiceSheet {
         final ScooterCommands.Feature feature;final int[] choices;final AlertDialog dialog;
         final ArrayList<LinearLayout> options=new ArrayList<>();final ArrayList<RadioDot> dots=new ArrayList<>();final ArrayList<TextView> names=new ArrayList<>();
+        final SegmentedSelector selector;
         final LinearLayout wait;final TextView status;
         Integer target;boolean sent;String failure;
         ChoiceSheet(ScooterCommands.Feature feature,int[] choices){
             this.feature=feature;this.choices=choices;
             final AlertDialog[] self=new AlertDialog[1];
             LinearLayout content=sheetContent(shortLabel(feature),explanation(feature),()->{if(self[0]!=null)self[0].dismiss();});
+            String[] labels=new String[choices.length];boolean compact=choices.length>=2&&choices.length<=5&&!feature.key.equals("range_algorithm");
+            for(int i=0;i<choices.length;i++){labels[i]=featureLabel(feature,choices[i]);compact&=labels[i].length()<=18;}
+            selector=compact?new SegmentedSelector(design,shortLabel(feature),labels,this::choose):null;
+            if(selector!=null){selector.setTag("scooter-selector-"+feature.key);content.addView(selector,new LinearLayout.LayoutParams(-1,-2));}
+            else{
             LinearLayout list=design.groupCard();
             for(int i=0;i<choices.length;i++){
                 if(i>0)design.divider(list);
                 final int index=i;
                 LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);option.setMinimumHeight(design.dp(54));option.setPadding(design.dp(4),design.dp(6),design.dp(2),design.dp(6));
-                TextView label=design.text(featureLabel(feature,choices[i]),15,false);option.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                TextView label=design.text(feature.key.equals("range_algorithm") && choices[i]==-1 ? "Follow riding mode" : featureLabel(feature,choices[i]),15,false);option.addView(label,new LinearLayout.LayoutParams(0,-2,1));
                 RadioDot dot=new RadioDot();LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(design.dp(22),design.dp(22));dotParams.leftMargin=design.dp(10);option.addView(dot,dotParams);
                 option.setClickable(true);option.setFocusable(true);option.setBackground(rowRipple());option.setContentDescription(label.getText());
                 option.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName(android.widget.RadioButton.class.getName());info.setCheckable(true);info.setChecked(dot.checked);}});
@@ -1489,6 +1514,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 list.addView(option);options.add(option);dots.add(dot);names.add(label);
             }
             content.addView(list);
+            }
             wait=row();wait.setGravity(Gravity.CENTER_VERTICAL);wait.setPadding(design.dp(4),design.dp(4),0,design.dp(4));
             wait.addView(new Spinner(),new LinearLayout.LayoutParams(design.dp(14),design.dp(14)));
             TextView waiting=design.caption("Waiting for scooter confirmation…");waiting.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
@@ -1499,7 +1525,12 @@ public final class MainActivity extends Activity implements ScreenHost {
             refresh();
         }
         void choose(int index){
+            if(selector!=null)restoreSelection(false);
             if(scooterService==null||sent)return;BleController ble=scooterService.ble;
+            if(feature.key.equals("range_algorithm")) {
+                if(choices[index]==-1) { scooterService.followRidingMode(true); dialog.dismiss(); return; }
+                scooterService.followRidingMode(false);
+            }
             Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==choices[index]){dialog.dismiss();return;}
             failure=null;
             if(ble.set(feature.key,choices[index])){target=choices[index];sent=true;}else failure=ble.message();
@@ -1515,8 +1546,9 @@ public final class MainActivity extends Activity implements ScreenHost {
                 String feedback=ble==null?null:ble.commandResults().get(feature.key);
                 failure=feedback==null||feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")?"The scooter did not confirm this change.":feedback;target=null;
             }
-            Integer shown=waiting?target:actual;boolean enabled=ready&&pending==null&&!sent;
-            for(int i=0;i<choices.length;i++){
+            Integer shown=waiting?target:feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode() ? Integer.valueOf(-1) : actual;boolean enabled=ready&&pending==null&&!sent;
+            if(selector!=null){restoreSelection(true);boolean fresh=enabled&&actual!=null&&scooterService.featureFresh(feature.key);selector.setEnabled(fresh);selector.setAlpha(fresh?1f:.5f);}
+            else for(int i=0;i<choices.length;i++){
                 boolean on=shown!=null&&shown==choices[i];dots.get(i).set(on);dots.get(i).setEnabled(enabled);
                 names.get(i).setTypeface(on?design.bold():design.regular());names.get(i).setTextColor(enabled||on?design.text:design.muted);
                 options.get(i).setEnabled(enabled);if(Build.VERSION.SDK_INT>=30)options.get(i).setStateDescription(on?"Selected":"Not selected");
@@ -1524,6 +1556,11 @@ public final class MainActivity extends Activity implements ScreenHost {
             wait.setVisibility(waiting?View.VISIBLE:View.GONE);
             String message=failure!=null?failure:!ready&&!waiting?"Not connected · connect to change this setting":null;
             status.setText(message==null?"":message);status.setTextColor(failure!=null?design.danger:design.muted);status.setVisibility(message==null?View.GONE:View.VISIBLE);
+        }
+        private void restoreSelection(boolean animate){
+            Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);int selected=-1;
+            for(int i=0;i<choices.length;i++)if(actual!=null&&actual==choices[i])selected=i;
+            selector.select(selected,animate);
         }
     }
     private void showChargingTime(){

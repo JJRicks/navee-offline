@@ -98,7 +98,7 @@ public final class ScooterCommands {
         add("display_units", "Dashboard units", "Preferences", "Set the scooter display to miles or kilometers.", Type.CHOICE, "", 0x55, 0,1,1,
                 new String[]{"Miles / mph","Kilometers / km/h"}, new int[]{0,1}, NO_VALUES, "display_units",7,255,0,"",false,false);
         choice("range_algorithm", "Range estimate", "Preferences", "Choose the OEM estimate model; this changes the displayed prediction, not battery capacity.", 0x56,
-                new int[]{0,1,2,3,4}, new String[]{"Theoretical","Actual riding","Drive mode","Sport mode","Eco mode"},6,"range_algorithm","mileageAlgorithm",false);
+                new int[]{0,1,2,3,4}, new String[]{"Theoretical","Actual riding","D-mode estimate","Sport estimate","Eco estimate"},6,"range_algorithm","mileageAlgorithm",false);
         add("start_speed", "Kick-start speed", "Ride", "Minimum wheel speed before throttle activation. Zero enables standing starts.", Type.SLIDER,"km/h",0x6a,0,5,1,
                 NO_OPTIONS,NO_VALUES,NO_VALUES,"start_speed",19,255,0,"startSpeed",false,true);
         add("speed_limit", "Custom speed cap", "Ride", "Zero disables the cap; other values set the maximum speed when supported.", Type.SLIDER,"km/h",0x6b,0,32,1,

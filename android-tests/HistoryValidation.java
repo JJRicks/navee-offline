@@ -63,6 +63,7 @@ public final class HistoryValidation extends Instrumentation {
             connectedHistoryAndGaps();
             retentionAndOldWindows();
             boundedQuery();
+            recordedCatalogueAndAllWindow();
             storageBudgetAndClear();
             result.putString("result", "PASS");
             result.putInt("check_count", checks.size());
@@ -190,6 +191,26 @@ public final class HistoryValidation extends Instrumentation {
             prior = p.wallMs;
         }
         checks.add("dense history query bounded to600 ordered finite points");
+    }
+
+    private void recordedCatalogueAndAllWindow() throws Exception {
+        java.util.Set<String> a = receive(callback -> history.recordedKeys("A", callback));
+        require(a.contains("battery_percent") && !a.contains("meter_version") && !a.contains("speed_kmh"),
+                "Chart catalogue includes text/cache-only values or loses numerical recordings");
+        java.util.Set<String> missing = receive(callback -> history.recordedKeys("missing", callback));
+        require(missing.isEmpty(), "Chart catalogue leaked another scooter's keys");
+        List<TelemetryHistory.Point> allRecent = receive(callback -> history.queryWindow("gap", "speed_kmh", 0, now, callback));
+        require(allRecent.size() == 3 && allRecent.get(0).value == 10 && allRecent.get(1).value == 11,
+                "All collapsed short history into a daily average");
+        require(allRecent.get(2).gapBefore, "All lost reconnect gaps");
+        List<TelemetryHistory.Point> allOld = receive(callback -> history.queryWindow("old", "battery_health_percent", 0, now, callback));
+        require(allOld.size() == 2 && allOld.get(0).value == 96 && allOld.get(1).value == 97,
+                "All failed to include the oldest retained tier");
+        List<TelemetryHistory.Point> empty = receive(callback -> history.queryWindow("missing", "speed_kmh", 0, now, callback));
+        require(empty.isEmpty(), "All leaked another profile's timeline");
+        List<TelemetryHistory.Point> recent = receive(callback -> history.queryWindow("dense", "speed_kmh", 120000, now, callback));
+        require(!recent.isEmpty() && recent.get(0).wallMs >= now - 120000, "Global window includes older samples");
+        checks.add("numerical chart catalogue, profile isolation, all-history detail and retained tiers");
     }
 
     private void storageBudgetAndClear() throws Exception {

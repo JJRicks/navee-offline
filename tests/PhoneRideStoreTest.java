@@ -82,6 +82,33 @@ public final class PhoneRideStoreTest {
             check(hill.toJson().contains("\"powerW\":1500.0"), "JSON power matching");
             check(hill.toGpx().contains("<trkseg>"), "GPX export");
             check(hill == store.load("hill"), "Unchanged track cached");
+            store.start("altitude-spike", 1700000000000L, 1000, "pocket");
+            StringBuilder spike = new StringBuilder();
+            for (int i = 0; i <= 30; i++) {
+                double altitude = i >= 5 && i <= 25 ? 1500 + 76.2 * (1 - Math.abs(i - 15) / 10.0) : 1500;
+                spike.append(gps(1000 + i * 1000, 43.82 + i * 5 / 111194.9266, 3, 5, .2, altitude, 4d));
+            }
+            store.appendBatch("altitude-spike", spike.toString(), "");
+            PhoneRideStore.Track rejectedAltitude = store.load("altitude-spike");
+            check(rejectedAltitude.rejectedElevationCount > 10, "250 ft excursion in 20 seconds filtered");
+            check(rejectedAltitude.locationCount == 31, "Elevation outlier does not erase valid GPS route");
+            check(rejectedAltitude.points.get(15).relativeAltitudeM == null && rejectedAltitude.points.get(15).gradePercent == null, "Peak hidden from elevation and grade");
+            check(rejectedAltitude.points.get(30).relativeAltitudeM != null, "Elevation recovers after return");
+            check(rejectedAltitude.toCsv().contains("1576.2"), "Original altitude retained in export");
+            check(rejectedAltitude.toJson().contains("rejectedElevationCount"), "Filtering disclosed in analysis");
+            store.start("pressure-spike", 1700000000000L, 1000, "pocket");
+            StringBuilder pressureSpike = new StringBuilder();
+            for (int i = 0; i <= 60; i++) {
+                double altitude = i >= 5 && i <= 45 ? 76.2 * (1 - Math.abs(i - 25) / 20.0) : 0;
+                double pressure = 900 * Math.pow(1 - altitude / 44330, 1 / 0.190294957);
+                pressureSpike.append(PhoneRideStore.row("PRESSURE", 1700000000000L + i * 1000, 1000 + i * 1000, pressure));
+                pressureSpike.append(gps(1000 + i * 1000, 43.82 + i * 5 / 111194.9266, 3, 5, .2, 1500d, 4d));
+            }
+            store.appendBatch("pressure-spike", pressureSpike.toString(), "");
+            PhoneRideStore.Track pressureRejected = store.load("pressure-spike");
+            check(pressureRejected.rejectedElevationCount > 0, "Smoothed barometer ramps also checked for implausible elevation");
+            check(pressureRejected.ascentMeters == null || pressureRejected.ascentMeters < 25, "250 ft pressure spike does not inflate ascent");
+            check(pressureRejected.descentMeters == null || pressureRejected.descentMeters < 25, "250 ft pressure spike does not inflate descent");
             store.start("quality", 1700000000000L, 1000, "mounted");
             b.setLength(0);
             b.append(gps(1000, 43.82, 2, 0, .1, 1500.0, 25.0));
@@ -228,6 +255,23 @@ public final class PhoneRideStoreTest {
                 blocked = true;
             }
             check(blocked, "Invalid ID cannot traverse private files");
+            store.start("long", 1700000000000L, 1000, "pocket");
+            StringBuilder longRows = new StringBuilder();
+            for (int i = 0; i < 6500; i++) longRows.append(gps(1000 + i * 1000L, 43.82 + i * .00001, 2, i == 1235 ? 15 : 5, .1, 1500.0, 2.0));
+            store.appendBatch("long", longRows.toString(), ""); store.stop("long", 1700006500000L, 6501000);
+            PhoneRideStore.Track longTrack = store.loadSnapshot("long");
+            check(longTrack.points.size() <= 3000 && longTrack.fullPoints().size() == 6500, "Full phone snapshot retains all accepted fixes beyond map preview cap");
+            near(15, longTrack.fullPoints().get(1235).speedMps, 0, "Short GPS speed peak remains in full source");
+            check(longTrack.points.stream().noneMatch(p -> p.monoMs == 1236000), "Phone peak omitted by preview is covered by full-data regression");
+            java.util.List<RideChartData.Series> longSeries = RideChartData.build(java.util.Collections.emptyList(), longTrack, false, true);
+            check(longSeries.get(2).values.size() == 6500, "Expanded phone graph uses every accepted fix");
+            near(54, longSeries.get(2).sampleAt(1235000).value, 0.00001, "Phone peak can be inspected in display units at its source elapsed time");
+            Thread.currentThread().interrupt(); boolean canceled = false;
+            try { store.loadSnapshot("long"); } catch (InterruptedIOException expected) { canceled = true; } finally { Thread.interrupted(); }
+            check(canceled && store.loadSnapshot("long").fullPoints().size() == 6500, "Canceled phone load closes reader and retries cleanly");
+            try (RandomAccessFile oversized = new RandomAccessFile(store.rawCsv("oversized"), "rw")) { oversized.setLength(128L * 1024 * 1024 + 1); }
+            boolean tooLarge = false; try { store.loadSnapshot("oversized"); } catch (IOException expected) { tooLarge = true; }
+            check(tooLarge, "Oversized phone journal reports a load error instead of a silently partial full graph");
             System.out.println("PhoneRideStoreTest: " + checks + " assertions passed");
         } finally {
             File[] files = dir.listFiles();

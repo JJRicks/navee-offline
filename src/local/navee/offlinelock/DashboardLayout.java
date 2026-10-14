@@ -117,7 +117,9 @@ public final class DashboardLayout {
      * Text scaling increases the content allowance while fixed padding stays fixed.
      */
     public static float minimumWidgetWidthDp(String type, float textScale) {
-        // Even a simple reading needs room for four separate 36 dp compact editor targets.
+        // A narrow shortcut rail uses icon-only 48 dp targets and a vertical editor toolbar.
+        if ("quick".equals(type)) return 58;
+        // Other cards keep four compact editor targets on one row.
         int width = "capacity".equals(type) ? 152 : 144;
         float scale = Float.isFinite(textScale) ? Math.max(1, textScale) : 1;
         return 32 + (width - 32) * scale;
@@ -198,6 +200,19 @@ public final class DashboardLayout {
                 if (fits(cell, cell.x, placed)) break;
             }
             placed.add(cell);
+        }
+        return result;
+    }
+
+    /** Remove only empty leading rows; preserve all spacing between cards and the source. */
+    public static List<Cell> withoutLeadingRows(List<Cell> source) {
+        List<Cell> result = new ArrayList<Cell>(source.size());
+        int first = Integer.MAX_VALUE;
+        for (Cell cell : source) first = Math.min(first, cell.y);
+        for (Cell cell : source) {
+            Cell copy = cell.copy();
+            copy.y -= first;
+            result.add(copy);
         }
         return result;
     }

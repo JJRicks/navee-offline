@@ -42,6 +42,7 @@ public final class RouteMapView extends View {
     private final Map<String, Long> failed = new HashMap<String, Long>();
     private final Consumer<PhoneRideStore.Point> selection;
     private final int powerLow, powerHigh;
+    private double elevationLow = Double.POSITIVE_INFINITY, elevationHigh = Double.NEGATIVE_INFINITY;
     private int selected = -1, activePointer = -1;
     private double zoom = 15;
     private double centerX, centerY;
@@ -66,8 +67,9 @@ public final class RouteMapView extends View {
         touchSlop = ViewConfiguration.get(ui.context).getScaledTouchSlop();
         this.selection = selection;
         this.points = track.points;
-        powerLow = blend(ui.accentDeep, Color.BLACK, .4);
-        powerHigh = blend(ui.accent, Color.WHITE, .25);
+        for (PhoneRideStore.Point point : points) if (point.relativeAltitudeM != null) { elevationLow = Math.min(elevationLow, point.relativeAltitudeM); elevationHigh = Math.max(elevationHigh, point.relativeAltitudeM); }
+        powerLow = Color.rgb(35, 73, 155);
+        powerHigh = Color.rgb(255, 210, 70);
         provider = new MapTiles(ui.context, tileUrl);
         maximumTileZoom = MapSource.maximumTileZoom(tileUrl);
         setMinimumHeight(ui.dp(290));
@@ -226,11 +228,14 @@ public final class RouteMapView extends View {
             for (int i = 1; i < points.size(); i++) {
                 PhoneRideStore.Point a = points.get(i - 1), b = points.get(i);
                 if (b.gapBefore || b.segment != a.segment) continue;
-                paint.setColor(pass == 0 ? Color.argb(200, 255, 255, 255) : color(b));
+                paint.setColor(pass == 0 ? routeCasingColor() : color(b));
                 paint.setStrokeWidth(ui.dp(pass == 0 ? 7 : 4));
+                boolean missing = "grade".equals(metric) ? b.gradePercent == null : "accel".equals(metric) ? b.gpsAccelerationMps2 == null : "elevation".equals(metric) ? b.relativeAltitudeM == null : b.powerW == null;
+                paint.setPathEffect(pass == 1 && missing ? new android.graphics.DashPathEffect(new float[]{ui.dp(4), ui.dp(5)}, 0) : null);
                 canvas.drawLine(screenX(a), screenY(a), screenX(b), screenY(b), paint);
             }
         }
+        paint.setPathEffect(null);
         if (!points.isEmpty()) {
             marker(canvas, points.get(0), "S", true);
             marker(canvas, points.get(points.size() - 1), "E", false);
@@ -278,6 +283,9 @@ public final class RouteMapView extends View {
         canvas.drawLine(ui.dp(16), ui.dp(30), ui.dp(96), ui.dp(30), paint);
     }
 
+    /** Tiles can be pale in either theme; the casing keeps every ramp value visible. */
+    private int routeCasingColor() { return streets || !ui.dark ? 0xff20242c : Color.WHITE; }
+
     /** Volt map plate: near-black with light text in both themes, so it reads on any basemap. */
     private int paper() {
         return ui.dark ? ui.bg : ui.text;
@@ -314,6 +322,9 @@ public final class RouteMapView extends View {
         List<String> rest = new ArrayList<String>();
         if ("grade".equals(metric)) {
             primary = grade == null ? "Grade not measured" : grade;
+            if (power != null) rest.add(power);
+        } else if ("elevation".equals(metric)) {
+            primary = p.relativeAltitudeM == null ? "Elevation not measured" : String.format(Locale.US, imperial() ? "Elevation %+.0f ft" : "Elevation %+.0f m", p.relativeAltitudeM * (imperial() ? 3.280839895 : 1));
             if (power != null) rest.add(power);
         } else if ("accel".equals(metric)) {
             primary = accel == null ? "GPS accel not measured" : accel;
@@ -404,22 +415,17 @@ public final class RouteMapView extends View {
                         : String.format(Locale.US, "%.0f mph", mph);
     }
 
-    /**
-     * Power uses the Volt red ramp: dark red at 0 W to bright red at 2,000 W (absolute). Grade and
-     * GPS acceleration keep a diverging scale: blue below zero, green level, red above.
-     */
+    /** Blue → yellow sequential and blue → neutral → orange diverging scales avoid red/green ambiguity. */
     private int color(PhoneRideStore.Point p) {
-        Double value =
-                "grade".equals(metric)
-                        ? p.gradePercent
-                        : "accel".equals(metric) ? p.gpsAccelerationMps2 : p.powerW;
-        if (value == null) return ui.muted;
-        if (!"power".equals(metric)) {
-            double bound = "grade".equals(metric) ? 12 : 2;
-            if (value < 0) return blend(ui.ok, ui.blue, Math.min(1, -value / bound));
-            return blend(ui.ok, ui.accent, Math.min(1, value / bound));
+        Double value = "grade".equals(metric) ? p.gradePercent : "accel".equals(metric) ? p.gpsAccelerationMps2
+                : "elevation".equals(metric) ? p.relativeAltitudeM : p.powerW;
+        if (value == null) return Color.rgb(128, 128, 128);
+        if ("power".equals(metric)) return blend(powerLow, powerHigh, Math.min(1, Math.abs(value) / 2000));
+        if ("elevation".equals(metric)) {
+            return blend(powerLow, powerHigh, elevationHigh > elevationLow ? (value - elevationLow) / (elevationHigh - elevationLow) : .5);
         }
-        return blend(powerLow, powerHigh, Math.min(1, Math.abs(value) / 2000));
+        double bound = "grade".equals(metric) ? 12 : 2;
+        return blend(Color.rgb(226, 226, 226), value < 0 ? Color.rgb(0, 114, 178) : Color.rgb(213, 94, 0), Math.min(1, Math.abs(value) / bound));
     }
 
     private static int blend(int a, int b, double fraction) {
