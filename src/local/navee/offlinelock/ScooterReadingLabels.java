@@ -7,7 +7,7 @@ final class ScooterReadingLabels {
     static String label(String key, String fallback) {
         if (key == null) return fallback;
         switch (key) {
-            case "battery_percent": return "Battery charge";
+            case "battery_percent": return "Battery charge (%)";
             case "voltage_v": return "Battery voltage";
             case "current_a": return "Battery current";
             case "power_w": return "Battery power";
