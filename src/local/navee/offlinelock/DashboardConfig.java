@@ -61,7 +61,7 @@ public final class DashboardConfig {
         "Reported health, charge count and a long-term chart",
         "Estimate usable energy from ride energy and battery-percentage drop",
         "Battery-side charging power, current and time at the present rate",
-        "Shortcuts to lights, settings, stats and rides",
+        "Choose two to eight settings, toggles or page shortcuts",
         "Start or finish an explicit ride recording",
         "A personal reminder or maintenance note"
     };
@@ -70,6 +70,7 @@ public final class DashboardConfig {
         public final String id;
         public String type, title, metric, note = "";
         public final ArrayList<String> keys = new ArrayList<>();
+        public final ArrayList<String> quickActions = new ArrayList<>(QuickAccessActions.defaultIds());
         public final Map<Integer, DashboardLayout.Cell> layouts = new HashMap<>();
         public int color;
         public long windowMs;
@@ -203,6 +204,14 @@ public final class DashboardConfig {
             w.maximum = o.optDouble("max", 100);
             w.advertisedWh = o.optDouble("advertisedWh", 0);
             w.showDisconnect = o.optBoolean("showDisconnect", true);
+            JSONArray shortcuts = o.optJSONArray("quickActions");
+            if (shortcuts != null) {
+                ArrayList<String> actionIds = new ArrayList<>();
+                for (int k = 0; k < Math.min(64, shortcuts.length()); k++)
+                    if (shortcuts.opt(k) instanceof String) actionIds.add(shortcuts.getString(k));
+                w.quickActions.clear();
+                w.quickActions.addAll(QuickAccessActions.normalize(actionIds));
+            }
             if (!Double.isFinite(w.advertisedWh)
                     || w.advertisedWh < 0
                     || w.advertisedWh > 10000) w.advertisedWh = 0;
@@ -363,6 +372,7 @@ public final class DashboardConfig {
             o.put("max", w.maximum);
             o.put("advertisedWh", w.advertisedWh);
             o.put("showDisconnect", w.showDisconnect);
+            o.put("quickActions", new JSONArray(QuickAccessActions.normalize(w.quickActions)));
             o.put("keys", new JSONArray(w.keys));
             JSONObject layouts = new JSONObject();
             for (Map.Entry<Integer, DashboardLayout.Cell> e : w.layouts.entrySet()) {
@@ -517,6 +527,17 @@ public final class DashboardConfig {
             // Optional in version-1 snapshots created before this preference existed.
             if (widget.has("showDisconnect"))
                 require(widget.get("showDisconnect") instanceof Boolean, "Invalid disconnect preference");
+            if (widget.has("quickActions")) {
+                JSONArray actions = widget.getJSONArray("quickActions");
+                require(actions.length() >= QuickAccessActions.MIN_ITEMS
+                        && actions.length() <= QuickAccessActions.MAX_ITEMS, "Invalid shortcut count");
+                HashSet<String> actionIds = new HashSet<>();
+                for (int k = 0; k < actions.length(); k++) {
+                    String action = string(actions.get(k));
+                    require(QuickAccessActions.find(action) != null && actionIds.add(action),
+                            "Invalid shortcut");
+                }
+            }
             JSONArray keys = widget.getJSONArray("keys");
             require(keys.length() <= 12, "Too many reading keys");
             for (int k = 0; k < keys.length(); k++) string(keys.get(k));

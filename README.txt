@@ -725,3 +725,12 @@ Application source is MIT; see LICENSE and NOTICE. The user-supplied UT5 MAX
 photo and map content have separate attribution and are not relicensed as MIT.
 Protocol research reference:
 https://github.com/pepperonas/navee-st3-pro
+
+UNRELEASED QUICK ACCESS UPDATE
+Quick access supports 2–8 ordered actions, chosen with its gear → Quick settings.
+Ordinary toggles operate directly; choices, ranges and settings groups open
+panels over Home. Stats/Rides still navigate to those pages. Existing connection,
+parked-state and security confirmations remain in force. Saved slots and copies
+keep the action list. The settings Size row is removed; use the resize corner.
+Saving a newly added off-screen widget scrolls it into view with a short white
+outline; reduced motion uses immediate positioning. Touching stops the cue.

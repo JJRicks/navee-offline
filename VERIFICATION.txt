@@ -1,3 +1,33 @@
+QUICK ACCESS AND EDITOR POLISH — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- All thirteen pure suites pass 46,140 checks/assertions, including 275 named
+  shortcut catalog and normalization checks. Production and native-runner builds
+  pass signing/alignment checks, using the same certificate as official 0.9.1.
+- Four final native quick-access cases pass: 344x882 dp, 725x604 dp,
+  360x800 dp with 140% app text, plus compact with animations disabled.
+  Four default buttons fit a moderate two-row card without scrolling; a shorter
+  card keeps scrolling. Every catalog label and target is measured, including
+  eight-item lists. Rendered fitted cards, long labels and options were inspected.
+- Native checks cover 2–8 ordered choices, duplicate prevention, search,
+  copies, absence of redundant Size options, grouped larger editor controls,
+  and new-widget Save -> reveal -> cleanup. Arrival checks observe animator state
+  rather than assuming fixed wall-clock timing; focus/detach/touch cleanup and
+  reduced-motion positioning are included.
+- Simulated traction and recovery changes stay on Home; kick-start and settings
+  sheets open there. App and Security panels preserve More's saved navigation,
+  dismiss cleanly and release their references. No real scooter mutation occurs.
+- Native slots/history checks pass 357 assertions in thirteen groups, including
+  action count/order, legacy defaults, malformed IDs and independent copies.
+- The exact production APK updated the Pixel in place and returned Status: ok
+  on launch; its process was confirmed running. No app-data reset was performed.
+  The disposable emulator's size/font/motion overrides were restored before stop.
+  This remains an unmerged preview with 0.9.1/code 21 metadata; real-scooter
+  quick-action behavior has not been retested in this pass.
+
+Preview APK SHA-256:
+1c3d7fa911907f37cc5323b5f99106809127a89403d5972bac7a864f3ebb6869
+
 PREFERENCES AND SIMULATED CONNECTION — PREVIEW FOLLOW-UP
 October 13, 2026
 

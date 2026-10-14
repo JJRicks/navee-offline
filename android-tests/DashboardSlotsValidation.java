@@ -56,6 +56,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             boundsNamesAndIsolation();
             migrationCompatibility();
             sixColumnPersistence();
+            quickAccessPersistence();
             legacyFourColumnSlots();
             temporaryWidthConstraints();
             editHistoryRestoresStructureOnly();
@@ -537,6 +538,36 @@ public final class DashboardSlotsValidation extends Instrumentation {
         checks.add("Layout no-ops and settings-only edits preserve redo; new edits branch correctly; bounded history, clear and dashboard isolation work");
     }
 
+    private void quickAccessPersistence() throws Exception {
+        DashboardConfig config = new DashboardConfig(preferences, "quick-actions");
+        config.widgets.clear();
+        DashboardConfig.Widget quick = new DashboardConfig.Widget("quick");
+        config.widgets.add(quick);
+        java.util.List<String> ids = Arrays.asList("feature:traction_control", "feature:energy_recovery",
+                "feature:start_speed", "section:Battery", "section:Ride", "lights", "stats", "rides");
+        for (int count = 2; count <= 8; count++) {
+            quick.quickActions.clear(); quick.quickActions.addAll(ids.subList(0, count));
+            config.save();
+            DashboardConfig reopened = new DashboardConfig(preferences, "quick-actions");
+            require(reopened.widgets.get(0).quickActions.equals(ids.subList(0, count)), "Quick actions failed round trip at count " + count);
+            require(reopened.saveSlot(0, "Quick fixture", 0), "Quick actions slot save failed");
+            reopened.widgets.get(0).quickActions.clear(); reopened.widgets.get(0).quickActions.addAll(Arrays.asList("stats", "rides"));
+            require(reopened.restoreSlot(0) && reopened.widgets.get(0).quickActions.equals(ids.subList(0, count)), "Quick action order/options lost on slot restore");
+        }
+        JSONObject legacy = new JSONObject(preferences.getString("dashboard_v1_quick-actions", "").substring(1,
+                preferences.getString("dashboard_v1_quick-actions", "").length()-1));
+        legacy.remove("quickActions");
+        require(preferences.edit().putString("dashboard_v1_quick-actions", new JSONArray().put(legacy).toString()).commit(), "Legacy fixture save failed");
+        require(new DashboardConfig(preferences, "quick-actions").widgets.get(0).quickActions.equals(
+                local.navee.offlinelock.QuickAccessActions.defaultIds()), "Legacy quick widget lost familiar defaults");
+        legacy.put("quickActions", new JSONArray().put("unknown").put("stats").put("stats").put("feature:not_a_feature"));
+        require(preferences.edit().putString("dashboard_v1_quick-actions", new JSONArray().put(legacy).toString()).commit(), "Malformed fixture save failed");
+        java.util.List<String> normalized = new DashboardConfig(preferences, "quick-actions").widgets.get(0).quickActions;
+        require(normalized.size() >= 2 && normalized.size() <= 8 && new java.util.HashSet<>(normalized).size() == normalized.size(), "Malformed quick actions failed safe count/deduplication");
+        for (String id : normalized) require(local.navee.offlinelock.QuickAccessActions.find(id) != null, "Unknown action survived normalization");
+        checks.add("Quick action selections preserve order and 2–8 counts across persistence and slots; legacy defaults and malformed IDs normalize safely");
+    }
+
     private DashboardConfig fixture(String profile) {
         DashboardConfig config = new DashboardConfig(preferences, profile);
         config.widgets.clear();
@@ -566,7 +597,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                     .append(w.metric).append('|').append(w.note).append('|').append(w.color).append('|')
                     .append(w.windowMs).append('|').append(w.minimum).append('|').append(w.maximum).append('|')
                     .append(w.advertisedWh).append('|').append(w.keys).append('|')
-                    .append(w.showDisconnect).append('|');
+                    .append(w.showDisconnect).append('|').append(w.quickActions).append('|');
             for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
                 DashboardLayout.Cell c = w.layouts.get(columns);
                 if (c == null) result.append("absent;");

@@ -19,6 +19,8 @@ public final class DashboardScreen implements AppScreen {
 
         void navigate(String page);
 
+        default void quickAction(String id) { navigate(id); }
+
         void startRide();
 
         void rename();
@@ -39,6 +41,8 @@ public final class DashboardScreen implements AppScreen {
     private final DashboardEditHistory editHistory = new DashboardEditHistory();
     private WidgetRemovalEffect removalEffect;
     private EditTransition editTransition;
+    private WidgetReveal widgetReveal;
+    private String pendingAddedWidgetId, revealWidgetId;
     private final FrameLayout edit, renameControl;
     /** Home header: connection status line, scooter name, edit hint and the last-seen caption. */
     private final TextView status, profileName, hint, stale;
@@ -264,6 +268,8 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private void toggleEditing() {
+        cancelWidgetReveal();
+        pendingAddedWidgetId = null;
         grid.finishGesture(false);
         stopRemovalEffect();
         stopEditTransition();
@@ -530,8 +536,35 @@ public final class DashboardScreen implements AppScreen {
         if (removalEffect != null) { removalEffect.cancel(); removalEffect = null; }
     }
 
+    private void cancelWidgetReveal() {
+        if (widgetReveal != null) { widgetReveal.cancel(); widgetReveal = null; }
+    }
+
+    private void revealAddedWidget() {
+        if (revealWidgetId == null || closed || !editing || dialog != null
+                || !grid.hasWindowFocus() || !grid.isLaidOut()) return;
+        Tile target = null;
+        for (Tile tile : tiles) if (tile.widget.id.equals(revealWidgetId)) { target = tile; break; }
+        if (target == null) { revealWidgetId = null; return; }
+        if (!target.isLaidOut() || target.isLayoutRequested()) {
+            grid.postOnAnimation(this::revealAddedWidget);
+            return;
+        }
+        revealWidgetId = null;
+        cancelWidgetReveal();
+        widgetReveal = WidgetReveal.start(target, grid.outerScroll(), ui);
+    }
+
+    private void revealIfAdded(DashboardConfig.Widget widget) {
+        if (!widget.id.equals(pendingAddedWidgetId)) return;
+        pendingAddedWidgetId = null;
+        revealWidgetId = widget.id;
+        grid.post(this::revealAddedWidget);
+    }
+
     private void render() {
         if (closed) return;
+        cancelWidgetReveal();
         stopEditTransition();
         grid.stopJiggle();
         grid.finishGesture(false);
@@ -1205,6 +1238,7 @@ public final class DashboardScreen implements AppScreen {
         LinearLayout batteryData, chargingData;
         boolean capacityPending, dragging, showsRange;
         View resizeControl;
+        QuickAccessGrid quickAccess;
         float jiggleAngle;
         Boolean recordingShown;
         long capacityChecked;
@@ -1316,17 +1350,17 @@ public final class DashboardScreen implements AppScreen {
             return card;
         }
 
-        /** Equal centered icon squares; hit targets adapt together from 48 to 36 dp. */
+        /** Slightly larger icon squares; four separate targets still fit compact cards. */
         private FrameLayout overlay(String icon, String label, Runnable action) {
             FrameLayout control = new FrameLayout(host.activity());
             android.graphics.drawable.LayerDrawable square = new android.graphics.drawable.LayerDrawable(
                     new android.graphics.drawable.Drawable[] {ui.shape(Color.argb(160, 0, 0, 0), 8, 0)});
-            square.setLayerSize(0, ui.dp(26), ui.dp(26));
+            square.setLayerSize(0, ui.dp(30), ui.dp(30));
             square.setLayerGravity(0, Gravity.CENTER);
             control.setBackground(ripple(Ui.withAlpha(ui.accent, 60), square, ui.shape(Color.WHITE, 14, 0)));
             control.setPadding(0, 0, 0, 0);
             control.addView(new GlyphView(icon, icon.equals("trash") ? ui.danger : Color.WHITE),
-                    new FrameLayout.LayoutParams(ui.dp(14), ui.dp(14), Gravity.CENTER));
+                    new FrameLayout.LayoutParams(ui.dp(17), ui.dp(17), Gravity.CENTER));
             control.setContentDescription(label);
             if (!icon.equals("grip")) control.setTooltipText(label);
             control.setFocusable(true);
@@ -1355,7 +1389,7 @@ public final class DashboardScreen implements AppScreen {
 
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 int width = MeasureSpec.getSize(widthSpec);
-                target = Math.min(ui.dp(48), width / 4);
+                target = Math.min(ui.dp(52), width / 4);
                 for (int i = 0; i < getChildCount(); i++)
                     getChildAt(i).measure(MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
                             MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
@@ -1568,12 +1602,9 @@ public final class DashboardScreen implements AppScreen {
                     body.addView(stats, new LinearLayout.LayoutParams(-1, -2));
                     break;
                 case "quick":
-                    IconReadingStrip shortcuts = new IconReadingStrip(IconReadingStrip.TILES);
-                    shortcuts.addShortcut("Lights", "Lights", "lights", "lights");
-                    shortcuts.addShortcut("Settings", "Scooter settings", "controls", "scooter");
-                    shortcuts.addShortcut("Stats", "All readings", "stats", "stats");
-                    shortcuts.addShortcut("Rides", "Ride history", "rides", "rides");
-                    body.addView(shortcuts, new LinearLayout.LayoutParams(-1, -2));
+                    quickAccess = new QuickAccessGrid(host, widget.quickActions, editing,
+                            id -> { if (!editing) actions.quickAction(id); });
+                    body.addView(quickAccess, new LinearLayout.LayoutParams(-1, -2));
                     break;
                 case "ride":
                     buildRecorder();
@@ -1993,6 +2024,7 @@ public final class DashboardScreen implements AppScreen {
                         Math.max(1, budget - (subtitle.getVisibility() == View.GONE
                                 ? 0 : subtitle.getMeasuredHeight())));
             }
+            if (quickAccess != null) quickAccess.fitHeight(budget);
             if (chart != null) {
                 // The chart takes whatever its card has left after the other lines.
                 int other = 0;
@@ -2142,6 +2174,7 @@ public final class DashboardScreen implements AppScreen {
 
         void refresh(Map<String, TelemetryHistory.Reading> values) {
             if (!active) return;
+            if (quickAccess != null) quickAccess.refresh();
             if (capacityValue != null) refreshCapacity();
             if (chargingWatts != null) refreshCharging(values);
             boolean anyStale = false;
@@ -2928,7 +2961,7 @@ public final class DashboardScreen implements AppScreen {
                 for (Tile tile : tiles) {
                     boolean shown = tile != gestureTile && tile.isShown()
                             && tile.getGlobalVisibleRect(jiggleVisible);
-                    float angle = shown ? .2f * ramp * (float) Math.sin(elapsed * Math.PI / 620d
+                    float angle = shown ? .2f * ramp * (float) Math.sin(elapsed * Math.PI / 310d
                             + (tile.widget.id.hashCode() & 255) * Math.PI / 128d) : 0;
                     if (Math.abs(tile.jiggleAngle - angle) > .001f) {
                         tile.jiggleAngle = angle;
@@ -2976,11 +3009,12 @@ public final class DashboardScreen implements AppScreen {
         public void onWindowFocusChanged(boolean focused) {
             super.onWindowFocusChanged(focused);
             if (!focused) {
+                cancelWidgetReveal();
                 finishGesture(false);
                 stopEditTransition();
                 stopJiggle();
                 suppressTransitionTouch = false;
-            } else updateEditorMotion();
+            } else { updateEditorMotion(); revealAddedWidget(); }
         }
 
         @Override protected void onAttachedToWindow() {
@@ -3007,6 +3041,9 @@ public final class DashboardScreen implements AppScreen {
         }
 
         @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            if (event.getActionMasked() == MotionEvent.ACTION_DOWN) {
+                cancelWidgetReveal(); revealWidgetId = null;
+            }
             // Old decorative controls must never redirect a quick tap into live scooter controls.
             if (editTransition != null || suppressTransitionTouch) {
                 int action = event.getActionMasked();
@@ -3112,6 +3149,7 @@ public final class DashboardScreen implements AppScreen {
         }
 
         @Override protected void onDetachedFromWindow() {
+            cancelWidgetReveal();
             finishGesture(false);
             stopEditTransition();
             stopMotion();
@@ -3531,6 +3569,8 @@ public final class DashboardScreen implements AppScreen {
             row.setBackground(ripple(Ui.withAlpha(ui.accent, 26), null, ui.shape(Color.WHITE, 10, 0)));
             row.setClickable(true);
             row.setFocusable(true);
+            row.setTag("add-widget:" + type);
+            row.setContentDescription("Add " + DashboardConfig.NAMES[i]);
             row.addView(square(widgetIcon(type), present ? ui.dim : ui.accent, 38),
                     new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)));
             LinearLayout words = column();
@@ -3586,6 +3626,7 @@ public final class DashboardScreen implements AppScreen {
                                         widget.defaultWidth(grid.columns),
                                         widget.defaultHeight()));
                         config.widgets.add(widget);
+                        pendingAddedWidgetId = widget.id;
                         config.save();
                         recordEdit(before);
                         dismiss();
@@ -3626,6 +3667,9 @@ public final class DashboardScreen implements AppScreen {
                     }
                 };
         LinearLayout settings = sheetCard();
+        if (widget.type.equals("quick"))
+            addSettingRow(settings, ui.settingRow("Quick settings", widget.quickActions.size() + " selected",
+                    () -> quickOptions(widget)), "grid");
         if (widget.type.equals("lock")) {
             Switch disconnect = new Switch(dialogContext);
             disconnect.setText("Show Disconnect button");
@@ -3745,41 +3789,11 @@ public final class DashboardScreen implements AppScreen {
             swatches.addView(swatch, new ViewGroup.LayoutParams(ui.dp(48), ui.dp(48)));
         }
         list.addView(swatches, new LinearLayout.LayoutParams(-1, -2));
-        DashboardLayout.Cell cell = grid.currentCell(widget);
-        if (cell != null) {
-            list.addView(sheetLabel("Size"));
-            Flow sizes = new Flow();
-            ArrayList<TextView> chips = new ArrayList<>();
-            for (int w = grid.minimumWidth(widget); w <= grid.columns; w++) {
-                final int width = w;
-                TextView chip = sheetChip(w + " col", cell.w == w);
-                chip.setContentDescription(w == 1 ? "1 column wide" : w + " columns wide");
-                chip.setOnClickListener(
-                        v -> {
-                            DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
-                            grid.prepareEdit();
-                            DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
-                            if (latest == null) return;
-                            latest.w = width;
-                            if (latest.x + latest.w > grid.columns) latest.x = Math.max(0, grid.columns - latest.w);
-                            grid.settle(widget.id);
-                            config.save();
-                            recordEdit(before);
-                            for (TextView other : chips) ui.styleChip(other, other == chip);
-                            render();
-                        });
-                chips.add(chip);
-                sizes.addView(chip);
-            }
-            list.addView(sizes, new LinearLayout.LayoutParams(-1, -2));
-            TextView sizeHint = ui.caption("Tap or drag the lower-right corner for rows.");
-            sizeHint.setPadding(ui.dp(2), ui.dp(8), ui.dp(2), 0);
-            list.addView(sizeHint);
-        }
         TextView save = ui.button("✓ Save", () -> {
             applyTitle.run();
             config.save();
             dismiss();
+            revealIfAdded(widget);
         });
         save.setContentDescription("Save widget options");
         LinearLayout buttons = row();
@@ -3788,6 +3802,108 @@ public final class DashboardScreen implements AppScreen {
         buttons.addView(save, new LinearLayout.LayoutParams(-1, -2));
         String index = DashboardConfig.NAMES[Math.max(0, Arrays.asList(DashboardConfig.TYPES).indexOf(widget.type))];
         showSheet(index, list, buttons, "Close widget options", applyTitle);
+    }
+
+    /** Ordered, named actions. Configuration never executes a scooter command. */
+    private void quickOptions(DashboardConfig.Widget widget) {
+        LinearLayout list = column();
+        TextView count = ui.caption(widget.quickActions.size() + " of 8 shortcuts · tap to change");
+        count.setPadding(0, ui.dp(8), 0, ui.dp(10));
+        list.addView(count);
+        for (int i = 0; i < widget.quickActions.size(); i++) {
+            final int index = i;
+            QuickAccessActions.Entry entry = QuickAccessActions.find(widget.quickActions.get(i));
+            LinearLayout line = row(); line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setPadding(ui.dp(8), ui.dp(6), 0, ui.dp(6));
+            line.setBackground(ui.shape(ui.raised, 14, 0));
+            LinearLayout select = row(); select.setGravity(Gravity.CENTER_VERTICAL);
+            select.setMinimumHeight(ui.dp(48)); select.setClickable(true); select.setFocusable(true);
+            select.setContentDescription("Change shortcut " + (i + 1) + ", " + entry.label);
+            select.setTag("quick-select:" + i);
+            select.addView(new GlyphView(entry.icon, ui.accent), new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)));
+            TextView name = ui.text(entry.label, 14, false);
+            name.setPadding(ui.dp(10), 0, ui.dp(4), 0);
+            select.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            select.setOnClickListener(v -> chooseQuickAction(widget, index));
+            line.addView(select, new LinearLayout.LayoutParams(0, -2, 1));
+            FrameLayout up = roundAction("back", "Move " + entry.label + " earlier", 30, 15, () -> {
+                if (index == 0) return;
+                Collections.swap(widget.quickActions, index, index - 1);
+                saveQuickActions(widget);
+            });
+            up.getChildAt(0).setRotation(90);
+            up.setEnabled(i > 0); up.setAlpha(i > 0 ? 1 : .3f);
+            line.addView(up, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+            FrameLayout remove = roundAction("trash", "Remove shortcut " + entry.label, 30, 15, () -> {
+                if (widget.quickActions.size() <= QuickAccessActions.MIN_ITEMS) return;
+                widget.quickActions.remove(index); saveQuickActions(widget);
+            });
+            remove.setEnabled(widget.quickActions.size() > QuickAccessActions.MIN_ITEMS);
+            remove.setAlpha(remove.isEnabled() ? 1 : .3f);
+            line.addView(remove, new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)));
+            LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(-1, -2); space.bottomMargin = ui.dp(8);
+            list.addView(line, space);
+        }
+        if (widget.quickActions.size() < QuickAccessActions.MAX_ITEMS) {
+            View addShortcut = toolButton("Add shortcut", "plus", () -> chooseQuickAction(widget, -1));
+            addShortcut.setContentDescription("Add quick shortcut");
+            list.addView(addShortcut, new LinearLayout.LayoutParams(-1, ui.dp(52)));
+        }
+        TextView save = ui.button("✓ Save", () -> options(widget));
+        showSheet("Quick settings", list, save, "Close quick settings", null);
+    }
+
+    private void saveQuickActions(DashboardConfig.Widget widget) {
+        config.save(); render(); quickOptions(widget);
+    }
+
+    private void chooseQuickAction(DashboardConfig.Widget widget, int index) {
+        LinearLayout content = column();
+        EditText search = new EditText(dialogContext);
+        search.setSingleLine(true); search.setHint("Search settings");
+        search.setContentDescription("Search quick settings"); ui.styleSearch(search);
+        content.addView(search, ui.searchLayout());
+        LinearLayout choices = column(); content.addView(choices);
+        Runnable filter = () -> {
+            choices.removeAllViews();
+            String query = search.getText().toString().toLowerCase(Locale.ROOT).trim();
+            for (QuickAccessActions.Entry entry : QuickAccessActions.catalog()) {
+                if (!query.isEmpty() && !(entry.label + " " + entry.group).toLowerCase(Locale.ROOT).contains(query)) continue;
+                boolean selected = widget.quickActions.contains(entry.id);
+                boolean current = index >= 0 && widget.quickActions.get(index).equals(entry.id);
+                LinearLayout item = row(); item.setGravity(Gravity.CENTER_VERTICAL);
+                item.setMinimumHeight(ui.dp(60)); item.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8));
+                item.addView(new GlyphView(entry.icon, ui.accent), new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)));
+                LinearLayout words = column();
+                words.addView(ui.text(entry.label, 14, false));
+                words.addView(ui.caption(entry.group + (selected ? " · Selected" : entry.directToggle() ? " · Toggle" : "")));
+                LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(0, -2, 1); space.setMarginStart(ui.dp(12));
+                item.addView(words, space);
+                item.setTag("quick-choice:" + entry.id);
+                item.setContentDescription(entry.label + (selected ? ", selected" : ""));
+                item.setClickable(true); item.setFocusable(true); item.setEnabled(!selected || current);
+                item.setAlpha(item.isEnabled() ? 1 : .4f);
+                item.setBackground(ripple(Ui.withAlpha(ui.accent, 30), null, ui.shape(Color.WHITE, 12, 0)));
+                item.setOnClickListener(v -> {
+                    if (selected && !current) return;
+                    if (index < 0) {
+                        if (widget.quickActions.size() >= QuickAccessActions.MAX_ITEMS) return;
+                        widget.quickActions.add(entry.id);
+                    } else widget.quickActions.set(index, entry.id);
+                    saveQuickActions(widget);
+                });
+                choices.addView(item, new LinearLayout.LayoutParams(-1, -2));
+            }
+            if (choices.getChildCount() == 0) choices.addView(ui.caption("No matching settings"));
+        };
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) { filter.run(); }
+            public void afterTextChanged(android.text.Editable text) {}
+        });
+        filter.run();
+        showSheet("Choose shortcut", content, null, "Close shortcut picker", null);
+        if (dialog != null) SearchFocus.bind(search, dialog.getWindow());
     }
 
     private void duplicateWidget(DashboardConfig.Widget widget) {
@@ -3808,6 +3924,8 @@ public final class DashboardScreen implements AppScreen {
         copy.note = widget.note;
         copy.keys.clear();
         copy.keys.addAll(widget.keys);
+        copy.quickActions.clear();
+        copy.quickActions.addAll(widget.quickActions);
         copy.color = widget.color;
         copy.windowMs = widget.windowMs;
         copy.minimum = widget.minimum;
@@ -3990,6 +4108,7 @@ public final class DashboardScreen implements AppScreen {
         config.save();
         dismiss();
         render();
+        revealIfAdded(widget);
     }
 
     private Double rating(DashboardConfig.Widget widget) {
@@ -4647,6 +4766,11 @@ public final class DashboardScreen implements AppScreen {
         return editing;
     }
 
+    /** Stop decorative scrolling immediately when the user takes over anywhere on the page. */
+    public void onUserTouch() {
+        cancelWidgetReveal(); revealWidgetId = null;
+    }
+
     public boolean back() {
         if (editing) {
             toggleEditing();
@@ -4658,6 +4782,8 @@ public final class DashboardScreen implements AppScreen {
     @Override
     public void close() {
         closed = true;
+        cancelWidgetReveal();
+        pendingAddedWidgetId = revealWidgetId = null;
         stopRemovalEffect();
         stopEditTransition();
         editHistory.clear();

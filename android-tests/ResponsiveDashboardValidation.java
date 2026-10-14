@@ -49,7 +49,8 @@ import local.navee.offlinelock.TelemetryHistory;
  * Isolated native measurement regressions for arbitrary window sizes and OEM fold callbacks.
  * Refuses physical devices and existing app data. READY is a view-only fixture; CONNECTING
  * temporarily changes only the display state, restoring it before the UI thread yields. No
- * transport method, GATT object, authentication, control tap, recording, or scooter command runs.
+ * real GATT, authentication, recording, or scooter command runs; quick-action checks use only
+ * the memory-only simulator for local control taps.
  */
 public final class ResponsiveDashboardValidation extends Instrumentation {
     private Bundle arguments;
@@ -76,6 +77,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             if (mode.equals("gauge")) {
                 verifyGaugeContent();
                 check("270-degree gauges keep live/dual/unknown/stale/long readings and endpoint labels inside narrow/wide and short/tall cards");
+            } else if (mode.equals("quick")) {
+                verifyQuickAccess();
             } else if (mode.equals("motion")) {
                 verifyEditorMotion();
                 check("Editor transitions keep synchronous state and steady hit targets; gentle jiggle pauses during gestures, focus loss and detach, and disabled animations stay still");
@@ -460,6 +463,204 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(((Number)field(service.ble, "mutationSequence")).longValue() == 0 && service.ble.commandResults().isEmpty(), "Unexpected scooter command");
         });
     }
+    private void verifyQuickAccess() throws Exception {
+        DashboardConfig.Widget widget = new DashboardConfig.Widget("quick");
+        main(() -> { dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(widget); dashboardConfig().save(); invoke(dashboard(), "render"); });
+        settleMotion();
+        main(() -> {
+            View card = (View)tileById(widget.id);
+            int width = Math.min(card.getWidth(), activity.ui().dp(310));
+            measureCard(card, width, activity.ui().dp(190 * activity.ui().textScale * getTargetContext().getResources().getConfiguration().fontScale));
+            ScrollView viewport = (ScrollView)field(card, "viewport");
+            require(!viewport.canScrollVertically(1) && !viewport.canScrollVertically(-1), "Four default quick buttons still overflow the two-row card");
+            assertQuickButtons(card, widget.quickActions);
+            saveCardBitmap(card,"quick-four-fit");
+            measureCard(card, width, activity.ui().dp(118));
+            require(viewport.canScrollVertically(1), "Short quick card lost scrolling for the second row");
+            assertQuickButtons(card, widget.quickActions);
+        });
+        screenshot("quick-defaults");
+        ArrayList<String> every = new ArrayList<>();
+        for (local.navee.offlinelock.QuickAccessActions.Entry entry : local.navee.offlinelock.QuickAccessActions.catalog()) every.add(entry.id);
+        for (int start = 0; start < every.size(); start += 8) {
+            final int offset = start;
+            main(() -> {
+                widget.quickActions.clear(); widget.quickActions.addAll(every.subList(offset, Math.min(every.size(), offset+8)));
+                while (widget.quickActions.size()<2) widget.quickActions.add("stats");
+                invoke(dashboard(), "render");
+            }); settle();
+            main(() -> {
+                View card = (View)tileById(widget.id);
+                measureCard(card, Math.min(card.getWidth(), activity.ui().dp(310)), activity.ui().dp(330 * activity.ui().textScale));
+                assertQuickButtons(card, widget.quickActions);
+                saveCardBitmap(card,"quick-catalog-"+offset);
+            });
+        }
+        check("Four default quick actions fit without tiny overflow in a two-row card; shorter cards scroll and every catalog label fits its button");
+        main(() -> {
+            widget.quickActions.clear(); widget.quickActions.addAll(Arrays.asList("feature:traction_control", "feature:start_speed", "feature:energy_recovery", "section:Battery"));
+            dashboardConfig().save(); invoke(dashboard(), "render");
+            require(settings().edit().putBoolean("developer_options", true).commit(), "Could not enable isolated simulator");
+            require(activity.service().setSimulation(true), "Could not start isolated simulator");
+        }); settleMotion(); stopUiPulse();
+        await(() -> field(activity, "screen") instanceof DashboardScreen && activity.service().simulating(), "Simulator dashboard did not rebuild");
+        main(() -> {
+            BleController ble = activity.service().ble;
+            Integer before = ble.featureValue("traction_control"); require(before!=null, "Missing sample traction state");
+            View button = ((View)tileById(widget.id)).findViewWithTag("quick-action:feature:traction_control");
+            require(button!=null && button.isEnabled(), "Connected quick toggle is unavailable"); button.performClick();
+            require(Integer.valueOf(before==0?1:0).equals(ble.featureValue("traction_control")), "Quick toggle failed to change the sample feature in place");
+            require("home".equals(field(activity,"selectedPage")) && field(activity,"screen") instanceof DashboardScreen, "Quick toggle navigated away from Home");
+        }); settle();
+        for (String action : new String[]{"feature:start_speed", "feature:energy_recovery", "section:Battery"}) {
+            main(() -> { invoke(activity,"quickAction",new Class<?>[]{String.class},action); }); settle();
+            main(() -> {
+                require("home".equals(field(activity,"selectedPage")) && field(activity,"screen") instanceof DashboardScreen,"Quick menu navigated away from Home: "+action);
+                android.app.Dialog dialog = (android.app.Dialog)field(activity,action.startsWith("section:")?"quickMenuDialog":"controlDialog");
+                require(dialog!=null && dialog.isShowing(),"Quick menu did not open an overlay: "+action);
+                View menu = dialog.getWindow().getDecorView();
+                for(TextView text:texts(menu)) if(text.isShown() && text.getWidth()>0) assertText(text,text,"Quick menu");
+                if(action.equals("feature:energy_recovery")) {
+                    Object choice=field(activity,"choiceSheet");int[] values=(int[])field(choice,"choices");
+                    int current=activity.service().ble.featureValue("energy_recovery");
+                    int index=values[0]==current?1:0;
+                    invoke(choice,"choose",new Class<?>[]{int.class},index);
+                    require(Integer.valueOf(values[index]).equals(activity.service().ble.featureValue("energy_recovery")),"Quick choice did not update the sample feature");
+                    require(!dialog.isShowing(),"Sample readback did not dismiss the Home quick-choice sheet");
+                } else dialog.dismiss();
+            }); settle();
+        }
+        for(String id:new String[]{"more:App","section:Security"}) {
+            final String moreBefore=settings().getString("more_section", "");
+            main(() -> invoke(activity,"quickAction",new Class<?>[]{String.class},id));settle();
+            main(() -> {
+                android.app.Dialog dialog=(android.app.Dialog)field(activity,"quickMenuDialog");
+                require(dialog!=null&&dialog.isShowing()&&field(activity,"quickMoreScreen")!=null,"Standalone More quick panel missing: "+id);
+                require("home".equals(field(activity,"selectedPage"))&&field(activity,"screen") instanceof DashboardScreen,"Standalone More panel navigated away from Home");
+                require(settings().getString("more_section", "").equals(moreBefore),"Standalone panel changed saved More submenu");
+                dialog.dismiss();
+            });
+            await(() -> field(activity,"quickMenuDialog")==null&&field(activity,"quickMoreScreen")==null,"Standalone More panel leaked references after dismissal");settle();
+        }
+        check("App preferences and Security overlays preserve Home and saved More navigation, then release their temporary screen references");
+        main(() -> { activity.service().setSimulation(false); }); settleMotion(); stopUiPulse();
+        assertNoScooterWork();
+        check("Sample traction toggles in place; kick-start, energy recovery and settings sections open over Home and dismiss without navigation or real scooter work");
+        main(() -> { invoke(dashboard(),"toggleEditing"); });settleMotion();
+        verifyQuickOptions((DashboardConfig.Widget)field(tileById(widget.id),"widget"));
+        main(() -> {
+            DashboardConfig.Widget source=(DashboardConfig.Widget)field(tileById(widget.id),"widget");
+            invoke(dashboard(),"duplicateWidget",new Class<?>[]{DashboardConfig.Widget.class},source);
+            DashboardConfig.Widget copy=dashboardConfig().widgets.get(dashboardConfig().widgets.size()-1);
+            require(!copy.id.equals(source.id) && copy.quickActions.equals(source.quickActions) && copy.quickActions!=source.quickActions,"Quick duplicate did not copy independent ordered settings");
+            invoke(dashboard(),"toggleEditing");
+        });settleMotion();
+        seedEveryWidget(); verifyEditOverlays();
+        verifyAddedWidgetReveal();
+    }
+    private void saveCardBitmap(View card,String name) {
+        Bitmap bitmap=Bitmap.createBitmap(card.getWidth(),card.getHeight(),Bitmap.Config.ARGB_8888);
+        try {card.draw(new android.graphics.Canvas(bitmap));saveNativeBitmap(bitmap,name);}finally{bitmap.recycle();}
+    }
+    private void measureCard(View card,int width,int height) {
+        for(int pass=0;pass<3;pass++) {
+            forceMeasure(card); card.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));
+            card.layout(card.getLeft(),card.getTop(),card.getLeft()+width,card.getTop()+height);
+        }
+    }
+    private void assertQuickButtons(View card,List<String> ids) {
+        View grid=card.findViewWithTag("quick-access-grid"); require(grid instanceof ViewGroup,"Quick action grid missing");
+        ArrayList<Rect> bounds=new ArrayList<>();
+        for(String id:ids) {
+            View button=card.findViewWithTag("quick-action:"+id); require(button!=null,"Quick action missing: "+id);
+            require(button.getHeight()>=activity.ui().dp(48) && button.getWidth()>=activity.ui().dp(48),"Quick target fell below 48dp: "+id);
+            Rect box=relativeBounds(button,grid); require(box.left>=0 && box.top>=0 && box.right<=grid.getWidth()+1 && box.bottom<=grid.getHeight()+1,"Quick button escaped its grid");
+            for(Rect other:bounds)require(!Rect.intersects(box,other),"Quick targets overlap"); bounds.add(box);
+            List<TextView> labels=texts(button);require(!labels.isEmpty(),"Quick action has no readable name: "+id);
+            for(TextView label:labels)assertText(label,button,"Quick "+id);
+        }
+    }
+    private void verifyQuickOptions(DashboardConfig.Widget widget) throws Exception {
+        main(() -> invoke(dashboard(),"quickOptions",new Class<?>[]{DashboardConfig.Widget.class},widget));settle();
+        while(widget.quickActions.size()>2) {
+            main(() -> {View remove=described(dialogRoot(),"Remove shortcut ");require(remove!=null&&remove.isEnabled(),"Remove shortcut unavailable above minimum");remove.performClick();});settle();
+        }
+        main(() -> {
+            View remove=described(dialogRoot(),"Remove shortcut ");require(remove!=null&&!remove.isEnabled(),"Quick options permit fewer than two items");
+        });
+        while(widget.quickActions.size()<8) {
+            final int before=widget.quickActions.size();
+            final AtomicReference<String> selected=new AtomicReference<>();
+            main(() -> {View add=described(dialogRoot(),"Add quick shortcut");require(add!=null&&add.isEnabled(),"Add shortcut missing before maximum");add.performClick();});settle();
+            main(() -> {
+                android.widget.EditText search=(android.widget.EditText)described(dialogRoot(),"Search quick settings");require(search!=null,"Quick choice search missing");
+                search.setText("nothing_matches_this_fixture");require(dialogRoot().findViewWithTag("quick-choice:stats")==null,"Quick search did not filter choices");search.setText("");
+                for(String id:widget.quickActions) {View duplicate=dialogRoot().findViewWithTag("quick-choice:"+id);require(duplicate!=null&&!duplicate.isEnabled(),"Picker permits duplicate shortcut");}
+                for(local.navee.offlinelock.QuickAccessActions.Entry entry:local.navee.offlinelock.QuickAccessActions.catalog()) if(!widget.quickActions.contains(entry.id)) {
+                    View choose=dialogRoot().findViewWithTag("quick-choice:"+entry.id);require(choose!=null&&choose.isEnabled(),"Available shortcut not selectable");selected.set(entry.id);choose.performClick();break;
+                }
+                require(widget.quickActions.size()==before+1 && widget.quickActions.get(before).equals(selected.get()),"Shortcut append lost selection/order");
+            });settle();
+        }
+        screenshot("quick-eight-options");
+        main(() -> {
+            require(described(dialogRoot(),"Add quick shortcut")==null,"Quick options permit more than eight items");
+            for(TextView text:texts(dialogRoot()))if(text.isShown()&&text.getWidth()>0)assertText(text,text,"Quick options label");
+            String second=widget.quickActions.get(1);local.navee.offlinelock.QuickAccessActions.Entry entry=local.navee.offlinelock.QuickAccessActions.find(second);
+            View earlier=described(dialogRoot(),"Move "+entry.label+" earlier");require(earlier!=null&&earlier.isEnabled(),"Shortcut reorder control unavailable");earlier.performClick();
+            require(widget.quickActions.get(0).equals(second),"Shortcut reorder did not move selected action");
+            invoke(dashboard(),"dismiss");
+        });settle();
+        check("Quick options enforce 2–8 independent ordered choices, searchable named actions and duplicate prevention without executing settings");
+    }
+
+    private void verifyAddedWidgetReveal() throws Exception {
+        main(() -> { invoke(dashboard(),"toggleEditing"); });settleMotion();
+        main(() -> {
+            ScrollView scroll=(ScrollView)field(activity,"scroll");scroll.scrollTo(0,0);
+            invoke(dashboard(),"palette");
+        });settle();
+        final AtomicReference<String> added=new AtomicReference<>();
+        main(() -> {
+            View add=described(dialogRoot(),"Add Note");require(add!=null,"Note add action missing");add.performClick();
+            added.set(dashboardConfig().widgets.get(dashboardConfig().widgets.size()-1).id);
+        });settleMotion();
+        main(() -> {
+            require(added.get().equals(field(dashboard(),"pendingAddedWidgetId")),"New widget not tracked until options are saved");
+            for(TextView text:texts(dialogRoot()))require(!text.getText().toString().equals("Size"),"Redundant Size option remains");
+            View save=described(dialogRoot(),"Save widget options");require(save!=null,"New widget Save missing");save.performClick();
+        });
+        await(() -> ((ScrollView)field(activity,"scroll")).getScrollY()>0,"Saving offscreen widget did not scroll toward it");
+        final AtomicReference<Object> reveal=new AtomicReference<>();
+        main(() -> {
+            Object effect=field(dashboard(),"widgetReveal");require(effect!=null,"New widget arrival outline was not created");reveal.set(effect);
+            if(!local.navee.offlinelock.Ui.motionEnabled())require(field(effect,"scrolling")==null && field(effect,"highlighting")==null,"Reduced motion started a reveal animator");
+        });
+        await(() -> Boolean.TRUE.equals(field(reveal.get(),"overlayAdded")) && ((Number)field(field(reveal.get(),"glow"),"strength")).floatValue()>0, "Arrival outline never became visible");
+        main(() -> {
+            View tile=(View)tileById(added.get());Rect visible=new Rect();
+            require(tile.getGlobalVisibleRect(visible) && visible.height()>=Math.min(tile.getHeight(),activity.ui().dp(48)),"Added widget still not visible after reveal");
+            require(editorDialog()==null && field(dashboard(),"pendingAddedWidgetId")==null,"Save did not dismiss options and consume pending add");
+            require(Boolean.TRUE.equals(field(reveal.get(),"overlayAdded")),"New widget outline vanished before its arrival cue");
+            Object glow=field(reveal.get(),"glow");require(((Number)field(glow,"strength")).floatValue()>0,"Arrival outline never became visible");
+            require((((android.graphics.Paint)field(glow,"paint")).getColor() & 0xffffff)==0xffffff,"Arrival outline is not white");
+        });screenshot("new-widget-reveal");
+        SystemClock.sleep(1600);waitForIdleSync();
+        main(() -> {
+            require(Boolean.TRUE.equals(field(reveal.get(),"finished")) && Boolean.FALSE.equals(field(reveal.get(),"overlayAdded"))
+                    && field(reveal.get(),"scrolling")==null && field(reveal.get(),"highlighting")==null,"Finished arrival cue retained its overlay or animator");
+            View tile=(View)tileById(added.get());
+            local.navee.offlinelock.WidgetReveal focus=local.navee.offlinelock.WidgetReveal.start(tile,(ScrollView)field(activity,"scroll"),activity.ui());
+            require(focus!=null,"Lifecycle reveal fixture failed");focus.onWindowFocusChanged(false);
+            require(Boolean.TRUE.equals(field(focus,"finished")) && Boolean.FALSE.equals(field(focus,"overlayAdded")),"Focus loss retained arrival cue");
+            local.navee.offlinelock.WidgetReveal detach=local.navee.offlinelock.WidgetReveal.start(tile,(ScrollView)field(activity,"scroll"),activity.ui());
+            require(detach!=null,"Detach reveal fixture failed");detach.onViewDetachedFromWindow(tile);
+            require(Boolean.TRUE.equals(field(detach,"finished")),"Detached widget retained arrival cue");
+            invoke(dashboard(),"toggleEditing");
+        });settleMotion();
+        check("Saving a new offscreen widget closes options, gently scrolls it into view and clears the pending add; edit controls retain equal larger targets");
+    }
+
     private void verifyGaugeContent() throws Exception {
         final DashboardConfig.Widget widget = new DashboardConfig.Widget("gauge");
         widget.title = "Speed gauge"; widget.metric = "speed_kmh"; widget.minimum = 0; widget.maximum = 50;
@@ -605,7 +806,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     duplicate = described(card, "Duplicate "), remove = described(card, "Remove ");
             Rect gripBounds = relativeBounds(grip, card), optionBounds = relativeBounds(options, card),
                     duplicateBounds = relativeBounds(duplicate, card), removeBounds = relativeBounds(remove, card);
-            int inlineTarget = Math.min(activity.ui().dp(48), card.getWidth() / 4);
+            int inlineTarget = Math.min(activity.ui().dp(52), card.getWidth() / 4);
             require(inlineTarget >= activity.ui().dp(36) - 1, "Inline controls fell below the compact target floor");
             require(gripBounds.left == 0 && optionBounds.left == gripBounds.right
                             && duplicateBounds.left == optionBounds.right && removeBounds.right == card.getWidth(),
@@ -636,11 +837,11 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 }
                 String expectedIcon = label.startsWith("Move ") ? "grip" : label.startsWith("Options for ") ? "gear" : label.startsWith("Duplicate ") ? "copy" : "trash";
                 require(expectedIcon.contentEquals(glyph.getContentDescription()), label + " displays the wrong icon");
-                require(glyphBox.width() == activity.ui().dp(14) && glyphBox.height() == activity.ui().dp(14), label + " icon is not the shared size");
+                require(glyphBox.width() == activity.ui().dp(17) && glyphBox.height() == activity.ui().dp(17), label + " icon is not the shared size");
                 Drawable paintedSquare = findEditorSquare(control.getBackground());
                 require(paintedSquare != null, label + " has no visible centered square");
                 Rect square = new Rect(paintedSquare.getBounds());
-                require(square.width() == activity.ui().dp(26) && square.height() == activity.ui().dp(26), label + " visual square changed size");
+                require(square.width() == activity.ui().dp(30) && square.height() == activity.ui().dp(30), label + " visual square changed size");
                 float dx = glyphBox.exactCenterX() - square.exactCenterX(), dy = glyphBox.exactCenterY() - square.exactCenterY();
                 overlayGeometry.add(label + ": target=" + target + ", glyph_center_delta=" + dx + "," + dy);
                 require(Math.abs(dx) <= 1 && Math.abs(dy) <= 1, label + " glyph is off-center by " + dx + "," + dy);
@@ -685,6 +886,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         main(() -> {
             View sheet = dialogRoot();
             require(described(sheet, "Duplicate ") == null && described(sheet, "Remove ") == null, "Old destructive actions remain inside the options sheet");
+            for (TextView text : texts(sheet)) require(!text.getText().toString().equals("Size"), "Redundant Size section remains in widget options");
             View save = described(sheet, "Save widget options");
             require(save instanceof TextView && ((TextView)save).getText().toString().equals("✓ Save"), "Options sheet lost its Save action");
             require(save.getHeight() >= activity.ui().dp(48), "Save target is too short");
@@ -996,8 +1198,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private String cellText(DashboardLayout.Cell cell) { return cell.x + "," + cell.y + "," + cell.w + "," + cell.h; }
     private Drawable findEditorSquare(Drawable drawable) {
         if (drawable == null) return null;
-        if (drawable instanceof GradientDrawable && drawable.getBounds().width() == activity.ui().dp(26)
-                && drawable.getBounds().height() == activity.ui().dp(26)) return drawable;
+        if (drawable instanceof GradientDrawable && drawable.getBounds().width() == activity.ui().dp(30)
+                && drawable.getBounds().height() == activity.ui().dp(30)) return drawable;
         if (drawable instanceof InsetDrawable) return findEditorSquare(((InsetDrawable)drawable).getDrawable());
         if (drawable instanceof LayerDrawable) {
             LayerDrawable layers = (LayerDrawable)drawable;

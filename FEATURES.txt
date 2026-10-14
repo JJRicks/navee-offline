@@ -221,7 +221,7 @@ grip, options gear, Duplicate copy icon and red Remove trash icon share one row
 of matching squares with centered glyphs. Top targets shrink from 48 dp to
 36 dp on minimum-width cards; the resize corner stays 48 dp. Tap the dots for Move or corner for Size as
 accessible alternatives.
-The same Size/Move dialogs remain inside options. Menus, grips, resize corners
+Size and Move remain accessible by tapping the corner and grip. Menus, grips, resize corners
 and the scooter-name pencil appear only in global dashboard edit mode. The
 rename pencil sits directly beside the scooter name. Local
 renaming remains enabled there while scooter/data actions are disabled.
@@ -396,3 +396,17 @@ Map source offers USGS, OSM and custom HTTPS providers. Unsupported closer USGS
 zooms enlarge available level-16 tiles. HTTP errors and X-Blocked images show a
 status while local routes remain visible. Provider denial pauses further requests;
 legacy unverified cache entries require refresh. No bulk prefetch is performed.
+
+QUICK ACCESS — UNRELEASED FOLLOW-UP
+
+Choose two to eight ordered shortcuts in the widget options. Direct toggles use
+the same live-value and parked checks as Scooter settings. Choices/sliders and
+settings submenus open over Home; PIN/proximity and experimental controls retain
+their existing guarded flows. Stats and Rides are still page shortcuts. Legacy
+widgets default to Lights, Settings, Stats and Rides. Saved slots and duplicates
+retain the chosen list. Labels wrap; compact cards scroll when needed, while
+moderate-height cards fit a two-by-two button arrangement without extra overflow.
+Widget controls are slightly larger, with the left three grouped and trash at
+the right. Size is removed from options; the corner supports drag or tap to resize.
+A new widget is revealed after saving with a short scroll and white outline.
+The cue stops on touch, focus loss or screen changes and respects reduced motion.

@@ -2,12 +2,15 @@
 
 ## Unreleased
 
+- Configure two to eight ordered Quick access items, including direct scooter toggles and settings panels that open above Home. Preserve existing safety/readback checks and legacy shortcut defaults; saved layouts and duplicates retain the selection. Fit compact buttons to the available height without clipping labels.
+- Enlarge editor icons, keep move/options/duplicate together at the left, remove the redundant Size row from options, and double the subtle wiggle speed. Saving a new off-screen widget scrolls it into view with a short white outline; user touch cancels the cue and reduced motion uses immediate positioning.
+
 - Use rounded sliding selectors for appearance, distance/speed units and time format.
 - Add a hidden Developer options menu, unlocked by seven taps on the About version. Its temporary simulated connection supplies sample readings, local-only controls and chart previews, visibly marked with an Exit banner. Real Bluetooth is closed, recording is blocked and samples never enter stored telemetry or battery history.
 - Animate entering/leaving dashboard edit mode with a short slide and control pop, plus a barely visible widget wiggle that pauses during gestures, focus loss and disabled system animations.
 
 - Refresh Gauge with a 270° ring, a larger centered value and unit, and padded minimum/maximum labels; existing value formatting and stale-state presentation are retained.
-- Put each widget's move grip, options gear, copy and red trash icons in one row of matching squares. Keep glyphs centered as targets shrink from 48 to 36 dp on minimum-width cards; the resize corner stays 48 dp. Widget options have only a fixed ✓ Save button below the settings and retain the top-right X.
+- Put each widget's move grip, options gear, copy and red trash icons in one row of matching squares. Keep glyphs centered as targets shrink from 52 to 36 dp on minimum-width cards; the resize corner stays 48 dp. Widget options have only a fixed ✓ Save button below the settings and retain the top-right X.
 - Add grouped Undo/Redo arrows immediately left of Done, with the action row below the scooter name on compact screens. Keep up to 40 layout changes in the current editing session, preserving widget settings; new grid edits clear Redo, while no-op, cancelled and settings-only changes leave it intact. Defaults and slot restores start fresh history.
 - Offer up to six dashboard columns on sufficiently wide screens, with a rounded scrolling selector and animated selection highlight. Adaptive keeps its existing one- through four-column behavior. New five/six-column arrangements derive from saved layouts; existing arrangements and slots remain intact.
 - Give each widget a minimum usable width based on its contents and text size. Saved slots support all one- through six-column arrangements, and a six-column grid allows a four/two split between the scooter and lock cards.

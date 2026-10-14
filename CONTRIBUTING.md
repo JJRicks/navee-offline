@@ -105,7 +105,7 @@ endpoints with padding. Keep its visible and spoken Last seen state.
 The editor uses dedicated top-left move grips and bottom-right resize corners,
 with tap-accessible Move/Size dialogs. The grip, options gear, copy and red trash
 actions are icon-only, matching centered squares on one row. Their targets are
-48 dp where space permits, shrinking to 36 dp on the narrowest supported cards;
+52 dp where space permits, shrinking to 36 dp on the narrowest supported cards;
 the resize corner remains 48 dp. Keep their accessibility names and glyph centers
 correct at both sizes. Options
 have one fixed ✓ Save footer and retain the top-right X; edits are not a new
@@ -196,3 +196,14 @@ to verify outside taps, scrolling, system Back, query preservation, and ordinary
 form focus in both themes. Enable the emulator software keyboard; this runner
 refuses physical phones and existing app data. Search bindings must pass touches
 through, release listeners with the field, and leave ordinary form editors alone.
+
+Quick access uses stable catalog IDs (QuickAccessActions) and a normalized 2–8
+item list in each widget. Never accept arbitrary commands or navigation routes.
+The dashboard invokes existing MainActivity editors and BleController gates;
+experimental/security shortcuts must keep their explanatory approval flow.
+QuickAccessGrid measures real label heights; do not clip them or shrink targets
+below 48 dp to hide a scrollbar. The widget options no longer duplicate Size.
+WidgetReveal is bounded and drawing-only: cancel on touch, render, focus loss,
+reflow or close, and never move a card that is already visible.
+The quick native mode exercises configuration, safe simulation actions, sheets,
+responsive content and the new-widget cue.

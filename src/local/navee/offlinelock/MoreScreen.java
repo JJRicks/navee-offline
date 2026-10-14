@@ -60,6 +60,7 @@ public final class MoreScreen implements AppScreen {
     private final LinearLayout content;
     /** Unfolded/tablet width: the menu stays on the left and the chosen submenu opens on the right. */
     private final boolean wide;
+    private final boolean standalone;
     /** Wide mode only: each pane scrolls on its own. */
     private ScrollView menuScroll, sectionScroll;
     private final Row[] menuRows = new Row[SECTIONS.length];
@@ -113,16 +114,20 @@ public final class MoreScreen implements AppScreen {
         }
     }
 
-    public MoreScreen(ScreenHost host) {
+    public MoreScreen(ScreenHost host) { this(host, null); }
+
+    /** Dashboard sheet: the existing controls, without changing More's saved navigation state. */
+    MoreScreen(ScreenHost host, String initialSection) {
         this.host = host; ui = host.ui();
-        wide = host.activity().getResources().getConfiguration().screenWidthDp >= 650;
+        standalone = initialSection != null;
+        wide = !standalone && host.activity().getResources().getConfiguration().screenWidthDp >= 650;
         scroll = new PageScroll();
         scroll.setFillViewport(true); scroll.setClipToPadding(false);
         content = column();
         if (wide) content.setPadding(ui.dp(24), ui.dp(6), ui.dp(24), 0);
         else content.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24));
         scroll.addView(content, new ScrollView.LayoutParams(-1, wide ? -1 : -2));
-        selectedSection = settings().getString("more_section", "");
+        selectedSection = standalone ? initialSection : settings().getString("more_section", "");
         if (!knownSection(selectedSection)) selectedSection = "";
 
         LinearLayout menuParent = content, sectionParent = content;
@@ -230,7 +235,7 @@ public final class MoreScreen implements AppScreen {
     }
 
     /** Wide mode has no submenu to close: Back leaves the tab the way Home would, keeping the submenu. */
-    public boolean back() { if (wide || selectedSection.isEmpty()) return false; selectSection(""); return true; }
+    public boolean back() { if (standalone || wide || selectedSection.isEmpty()) return false; selectSection(""); return true; }
 
     private boolean knownSection(String section) {
         if ("Developer".equals(section) && !developerEnabled()) return false;
@@ -248,7 +253,7 @@ public final class MoreScreen implements AppScreen {
         String shown = shownSection();
         boolean index = shown.isEmpty();
         indexView.setVisibility(index || wide ? View.VISIBLE : View.GONE);
-        sectionHeader.setVisibility(index ? View.GONE : View.VISIBLE);
+        sectionHeader.setVisibility(index || standalone ? View.GONE : View.VISIBLE);
         for (int i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].equals(shown)) sectionTitle.setText(SECTION_TITLES[i]);
         for (Map.Entry<String,LinearLayout> section : sections.entrySet())
             section.getValue().setVisibility(section.getKey().equals(shown) ? View.VISIBLE : View.GONE);
@@ -267,7 +272,7 @@ public final class MoreScreen implements AppScreen {
         final ScrollView pane = sectionScroller();
         sectionScrollPositions.put(shownSection(), pane.getScrollY());
         selectedSection = section;
-        settings().edit().putString("more_section", section).apply();
+        if (!standalone) settings().edit().putString("more_section", section).apply();
         showSelectedSection(); refresh();
         String shown = shownSection();
         final int position = sectionScrollPositions.containsKey(shown) ? sectionScrollPositions.get(shown) : 0;
@@ -1195,6 +1200,9 @@ public final class MoreScreen implements AppScreen {
         pill.setFocusable(true); pill.setEnabled(false);
         pill.setOnClickListener(v -> experimental(feature));
         return pill;
+    }
+    void inspectQuickFeature(ScooterCommands.Feature feature) {
+        if (!closed && feature != null && feature.experimental) experimental(feature);
     }
     private void experimental(ScooterCommands.Feature feature) {
         BleController ble = service().ble; Integer current = ble.featureValue(feature.key);

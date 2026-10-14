@@ -95,6 +95,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     private long lastBodyRefreshMs;
     private int topInset,bottomInset,leftInset,rightInset;
     private AlertDialog scanDialog, controlDialog;
+    private AlertDialog quickMenuDialog;
+    private MoreScreen quickMoreScreen;
+    private final ArrayList<ControlRow> quickMenuRows = new ArrayList<>();
     private Runnable pendingRideLocation;
     private boolean rideLocationResolved;
     private android.window.OnBackInvokedCallback systemBack;
@@ -166,7 +169,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onDestroy(){
         if(Build.VERSION.SDK_INT>=33&&systemBack!=null)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(systemBack);
-        destroyed=true;pendingRideLocation=null;if(controlDialog!=null)controlDialog.dismiss();bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
+        destroyed=true;closeQuickMenu();pendingRideLocation=null;if(controlDialog!=null)controlDialog.dismiss();bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
         if(screen!=null)screen.close();if(scanDialog!=null)scanDialog.dismiss();
         if(scooterService!=null)scooterService.unlisten(serviceChanged);
         if(bound||binding)try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}
@@ -176,6 +179,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         captureScroll();saved.putString("page",selectedPage);saved.putBoolean("pending_connect",pendingConnect);saved.putBoolean("pending_scan",pendingScan);
         for(String page:pages)saved.putInt("scroll_"+page,scrollPositions.containsKey(page)?scrollPositions.get(page):0);
         super.onSaveInstanceState(saved);
+    }
+    @Override public boolean dispatchTouchEvent(MotionEvent event) {
+        if (event.getActionMasked() == MotionEvent.ACTION_DOWN && screen instanceof DashboardScreen)
+            ((DashboardScreen) screen).onUserTouch();
+        return super.dispatchTouchEvent(event);
     }
     @Override public void onBackPressed(){navigateBack();}
     private void navigateBack(){
@@ -226,6 +234,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void cancelDeferredBodyRefresh(){handler.removeCallbacks(deferredBodyRefresh);bodyRefreshScheduled=false;}
     private void refreshBodyNow(){
         lastBodyRefreshMs=SystemClock.elapsedRealtime();if(screen!=null)screen.refresh();updateScan();
+        for (ControlRow row : quickMenuRows) row.refresh();
+        if (quickMoreScreen != null) quickMoreScreen.refresh();
+        if (choiceSheet != null) choiceSheet.refresh();
         if(resumed&&scooterService!=null&&scooterService.isRecording()&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED&&!preferences.getBoolean("notification_prompted",false)){preferences.edit().putBoolean("notification_prompted",true).apply();requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_PERMISSION);}
         boolean awake=resumed&&preferences.getBoolean("keep_screen_awake",true)&&scooterService!=null&&scooterService.isRecording();
         if(awake)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -233,6 +244,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override public void rebuild(){
         if(destroyed||rebuilding)return;handler.removeCallbacks(settingsRebuild);rebuilding=true;
         displayedSimulation = scooterService != null && scooterService.simulating();
+        closeQuickMenu();
         if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}
         captureScroll();if(screen!=null)screen.close();
         design=new Ui(this,darkTheme(),preferences.getFloat("text_scale",1f));
@@ -282,7 +294,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             View spacer=new View(this);spacer.setBackgroundColor(design.bg);content.addView(spacer,new LinearLayout.LayoutParams(-1,Math.max(design.dp(12),fold.hinge.height())));
         }else content.addView(header);
         pageFrame=new FrameLayout(this);content.addView(pageFrame,new LinearLayout.LayoutParams(-1,0,1));
-        screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(boolean showDisconnect){return makeDashboardLock(showDisconnect);}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void rename(){renameScooter();}public void connectionDetails(){showConnectionDetails();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
+        screen=selectedPage.equals("home")?new DashboardScreen(this,new DashboardScreen.Actions(){public View lock(boolean showDisconnect){return makeDashboardLock(showDisconnect);}public void clearLock(){clearDashboardLock();}public void navigate(String page){select(page);}public void quickAction(String id){MainActivity.this.quickAction(id);}public void rename(){renameScooter();}public void connectionDetails(){showConnectionDetails();}public void startRide(){select("rides");if(screen instanceof RidesScreen)((RidesScreen)screen).beginRecording();}}):selectedPage.equals("controls")?new ControlsScreen(false):scooterService==null?new LoadingScreen():selectedPage.equals("stats")?new StatsScreen(this):selectedPage.equals("rides")?new RidesScreen(this):new MoreScreen(this);
         if(horizontalHinge()&&screen instanceof DashboardScreen){
             // Tabletop posture: Home's header sits in the upper pane, the widgets below the hinge.
             header.setPadding(design.dp(expanded?24:18),design.dp(8),design.dp(expanded?24:18),design.dp(8));
@@ -958,6 +970,120 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private static final String TOP_SPEED_WORDS=normalize("Top speed maximum speed sport mode limit mph km/h");
     private static String normalize(String text){return text==null?"":text.toLowerCase(Locale.ROOT).replaceAll("[\\s_-]+","");}
+    /** Dashboard actions reuse the normal control dispatch and its live-state safety checks. */
+    private void quickAction(String id) {
+        QuickAccessActions.Entry entry = QuickAccessActions.find(id);
+        if (entry == null) return;
+        if (id.equals("stats") || id.equals("rides")) { select(id); return; }
+        if (scooterService == null) { toast("Connect to your scooter first."); return; }
+        if (id.equals("lights")) { showQuickSettings("Lights"); return; }
+        if (id.equals("controls")) { showQuickSettings("Settings"); return; }
+        if (id.startsWith("more:")) { showQuickMore(id.substring(5), null); return; }
+        if (id.startsWith("section:")) {
+            String section = id.substring(8);
+            if (section.equals("Security")) showQuickMore("Security", null);
+            else if (section.equals("Profile")) renameScooter();
+            else showQuickSettings(section);
+            return;
+        }
+        ScooterCommands.Feature feature = entry.feature();
+        if (feature == null) return;
+        if (feature.experimental) { showQuickMore("Lab", feature); return; }
+        if (feature.sensitive || feature.key.equals("proximity_key")) {
+            showQuickMore("Security", null); return;
+        }
+        BleController ble = scooterService.ble;
+        if (!ble.ready()) { toast("Connect to change this setting."); return; }
+        if (ble.pending() != null) { toast("Wait for the current scooter change."); return; }
+        boolean fresh = feature.type == ScooterCommands.Type.TIME
+                ? scooterService.readingFresh("scheduled_charge_time_raw")
+                : scooterService.featureFresh(feature.key);
+        Integer actual = ble.featureValue(feature.key);
+        if (!fresh || (feature.type != ScooterCommands.Type.TIME && actual == null)) {
+            toast("This firmware has not supplied a fresh value for this setting."); return;
+        }
+        if (entry.directToggle()) {
+            if (!ble.set(feature.key, actual == 1 ? 0 : 1)) toast(ble.message());
+            redraw();
+        } else {
+            closeQuickMenu();
+            if (controlDialog != null) { controlDialog.dismiss(); controlDialog = null; }
+            editFeature(feature);
+        }
+    }
+
+    private void closeQuickMenu() {
+        AlertDialog old = quickMenuDialog; quickMenuDialog = null;
+        MoreScreen oldMore = quickMoreScreen; quickMoreScreen = null;
+        quickMenuRows.clear();
+        if (oldMore != null) oldMore.close();
+        if (old != null) old.dismiss();
+    }
+
+    /** A named scooter settings group shown above Home, keeping the underlying layout untouched. */
+    private void showQuickSettings(String section) {
+        closeQuickMenu();
+        if (controlDialog != null) { controlDialog.dismiss(); controlDialog = null; }
+        final AlertDialog[] self = new AlertDialog[1];
+        LinearLayout body = sheetContent(section.equals("Settings") ? "Scooter settings" : section,
+                null, () -> { if (self[0] != null) self[0].dismiss(); });
+        body.setTag("quick-settings-sheet");
+        LinearLayout settings = design.groupCard(); body.addView(settings);
+        for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
+            if (f.experimental || f.sensitive || f.key.equals("lock") || f.key.equals("proximity_key")) continue;
+            boolean match = section.equals("Settings")
+                    || section.equals("Lights") && (f.key.equals("headlight") || f.key.equals("auto_sensor")
+                            || f.key.startsWith("line_") || f.key.startsWith("star_"))
+                    || section.equals("Line lights") && f.key.startsWith("line_")
+                    || section.equals("Star lights") && f.key.startsWith("star_")
+                    || section.equals("Dashboard & sound") && (f.group.equals("Preferences")
+                            || f.key.equals("turn_sound"))
+                    || section.equals(f.group);
+            if (!match) continue;
+            if (settings.getChildCount() > 0) design.divider(settings);
+            ControlRow row = new ControlRow(f); quickMenuRows.add(row);
+            settings.addView(row.card); row.refresh();
+        }
+        if (section.equals("Settings")) {
+            for (String id : new String[]{"section:Security", "section:Profile", "more:App"}) {
+                QuickAccessActions.Entry shortcut = QuickAccessActions.find(id);
+                design.divider(settings);
+                SettingLine row = new SettingLine(shortcut.icon, shortcut.label, null);
+                row.chevron(() -> quickAction(id)); settings.addView(row.card);
+            }
+        }
+        AlertDialog dialog = showSheet(body); self[0] = dialog; quickMenuDialog = dialog;
+        dialog.setOnDismissListener(d -> {
+            if (quickMenuDialog == dialog) { quickMenuDialog = null; quickMenuRows.clear(); }
+        });
+    }
+
+    /** Reuses the existing PIN/experimental approvals and application preferences in a temporary panel. */
+    private void showQuickMore(String section, ScooterCommands.Feature inspect) {
+        closeQuickMenu();
+        if (controlDialog != null) { controlDialog.dismiss(); controlDialog = null; }
+        final AlertDialog[] self = new AlertDialog[1];
+        String title = section.equals("Security") ? "PIN & proximity unlock"
+                : section.equals("Lab") ? "Experimental controls"
+                : section.equals("App") ? "App preferences"
+                : section.equals("Scooters") ? "My scooters"
+                : section.equals("Data") ? "Data & history" : "About & permissions";
+        LinearLayout body = sheetContent(title, null,
+                () -> { if (self[0] != null) self[0].dismiss(); });
+        body.setTag("quick-more-sheet");
+        MoreScreen overlay = new MoreScreen(this, section);
+        quickMoreScreen = overlay;
+        body.addView(overlay.view(), new LinearLayout.LayoutParams(-1,
+                Math.max(design.dp(200), Math.round(getResources().getDisplayMetrics().heightPixels * .64f))));
+        AlertDialog dialog = showSheet(body); self[0] = dialog; quickMenuDialog = dialog;
+        dialog.setOnDismissListener(d -> {
+            if (quickMenuDialog == dialog) {
+                quickMenuDialog = null; quickMoreScreen = null; overlay.close();
+            }
+        });
+        if (inspect != null) overlay.inspectQuickFeature(inspect);
+    }
+
     /** Phone-width labels; search still matches the catalog's full names and descriptions. */
     private String shortLabel(ScooterCommands.Feature f){
         if(f.key.equals("charge_start"))return "Charge start";
