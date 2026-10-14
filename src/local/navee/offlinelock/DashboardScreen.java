@@ -3760,20 +3760,12 @@ public final class DashboardScreen implements AppScreen {
             addSettingRow(settings,
                     ui.settingRow(
                             "Scale minimum",
-                            String.format(
-                                    Locale.US,
-                                    "%.2f %s",
-                                    chartNumber(widget.metric, widget.minimum),
-                                    chartUnit(widget.metric, readings())),
+                            scaleSummary(widget, widget.minimum),
                             () -> scale(widget, false)), "speed");
             addSettingRow(settings,
                     ui.settingRow(
                             "Scale maximum",
-                            String.format(
-                                    Locale.US,
-                                    "%.2f %s",
-                                    chartNumber(widget.metric, widget.maximum),
-                                    chartUnit(widget.metric, readings())),
+                            scaleSummary(widget, widget.maximum),
                             () -> scale(widget, true)), "speed");
         }
         if (settings.getChildCount() > 0) {
@@ -4439,6 +4431,14 @@ public final class DashboardScreen implements AppScreen {
         return ms / 86400000 + " days";
     }
 
+    private String scaleSummary(DashboardConfig.Widget widget, double value) {
+        double displayed = chartNumber(widget.metric, value);
+        String amount = widget.metric.endsWith("_kmh")
+                ? new GaugeScaleInput(value, displayed, 1).text
+                : String.format(Locale.US, "%.2f", displayed);
+        return amount + " " + chartUnit(widget.metric, readings());
+    }
+
     private void scale(DashboardConfig.Widget widget, boolean maximum) {
         dismiss();
         EditText input = new EditText(dialogContext);
@@ -4447,7 +4447,8 @@ public final class DashboardScreen implements AppScreen {
                         | InputType.TYPE_NUMBER_FLAG_DECIMAL
                         | InputType.TYPE_NUMBER_FLAG_SIGNED);
         double original = maximum ? widget.maximum : widget.minimum;
-        GaugeScaleInput scaleInput = new GaugeScaleInput(original, chartNumber(widget.metric, original));
+        GaugeScaleInput scaleInput = new GaugeScaleInput(original, chartNumber(widget.metric, original),
+                widget.metric.endsWith("_kmh") ? 1 : 6);
         input.setText(scaleInput.text);
         dialog =
                 new AlertDialog.Builder(dialogContext)

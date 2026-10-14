@@ -17,6 +17,13 @@ public final class GaugeScaleInputTest {
             equal("31.06856", speed.text);
             exact(50, speed.resolve(speed.text, mph -> mph * 1.609344));
             exact(16.09344, speed.resolve("10", mph -> mph * 1.609344));
+            GaugeScaleInput conciseSpeed = new GaugeScaleInput(50, 50 / 1.609344, 1);
+            equal("31.1", conciseSpeed.text);
+            exact(50, conciseSpeed.resolve("31.10", mph -> { throw new AssertionError("Rounded speed changed"); }));
+            exact(16.09344, conciseSpeed.resolve("10", mph -> mph * 1.609344));
+            equal("50", new GaugeScaleInput(50, 50, 1).text);
+            equal("0", new GaugeScaleInput(-.01, -.01, 1).text);
+            exact(-.01, new GaugeScaleInput(-.01, -.01, 1).resolve("0", v -> v));
             equal("-40", new GaugeScaleInput(-40, -40).text);
             equal("0", new GaugeScaleInput(0, -0.0).text);
             equal("12.345679", new GaugeScaleInput(12.3456789, 12.3456789).text);

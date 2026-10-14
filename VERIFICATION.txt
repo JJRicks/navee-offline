@@ -1,3 +1,20 @@
+SPEED GAUGE TENTHS — OWNER FOLLOW-UP
+October 13, 2026
+
+- Speed-gauge scale summaries and prefills use at most one decimal in mph or
+  km/h. Both paths share rounding/negative-zero handling. Other gauge quantities
+  retain their precision. This does not restrict manually typed precision.
+- All fifteen pure suites pass 46,219 checks/assertions, including 25 gauge-input
+  cases. The added cases confirm 50 km/h displays 31.1 mph, unchanged input keeps
+  the exact 50 km/h bound, intentional edits convert, and tiny negative speed
+  prefills show 0 without changing the original when simply saved.
+- Production build passes signing/alignment. The earlier native validation below
+  remains the UI evidence; no additional native matrix was needed for this
+  display-only precision follow-up.
+
+Preview APK SHA-256:
+5454d3d50a9e85b8c37e41ede57218828c3da431edc430a928f62c8a67eabbaf
+
 GAUGE SCALE PREFILL — REVIEW FOLLOW-UP
 October 13, 2026
 

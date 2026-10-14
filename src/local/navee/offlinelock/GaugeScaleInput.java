@@ -10,11 +10,15 @@ final class GaugeScaleInput {
     final String text;
 
     GaugeScaleInput(double canonical, double displayed) {
+        this(canonical, displayed, 6);
+    }
+
+    GaugeScaleInput(double canonical, double displayed, int decimals) {
         original = canonical;
         BigDecimal decimal = BigDecimal.valueOf(displayed);
-        BigDecimal rounded = decimal.setScale(6, RoundingMode.HALF_UP);
-        // Do not show a genuinely nonzero, very small bound as zero.
-        if (rounded.signum() == 0 && decimal.signum() != 0) rounded = decimal;
+        BigDecimal rounded = decimal.setScale(Math.max(0, Math.min(6, decimals)), RoundingMode.HALF_UP);
+        // Generic parameters retain very small bounds; speeds deliberately use tenths.
+        if (decimals > 1 && rounded.signum() == 0 && decimal.signum() != 0) rounded = decimal;
         text = rounded.stripTrailingZeros().toPlainString();
     }
 

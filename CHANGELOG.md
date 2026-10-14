@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Limit speed-gauge scale summaries and editor prefills to tenths while preserving exact stored bounds on unchanged saves.
+
 - Clean up floating-point noise in gauge scale editors while preserving the exact stored limit when saving unchanged text.
 
 - Add a Celsius/Fahrenheit selector under App preferences for temperature readings, dashboard gauges and charts, and ride summaries. Stored telemetry and gauge bounds remain in Celsius; Fahrenheit scale edits convert back before saving.
