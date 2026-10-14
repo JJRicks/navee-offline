@@ -2,41 +2,32 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.10.0**. Independent project; not affiliated with NAVEE.
+Current application version: **0.11.0** (versionCode 23). Independent project; not affiliated with NAVEE.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
 
-Version 0.10.0 adds dashboard Undo/Redo, up to six columns, compact editing
-controls and smoother animations. Quick access supports two to eight chosen
-settings, and widgets gain clearer gauges, battery contrast and larger scooter
-readings. App preferences include Celsius/Fahrenheit, and a hidden developer
-menu supplies isolated sample data for UI testing. Existing layouts and app
-data stay intact. See [VERIFICATION.txt](VERIFICATION.txt) for executed checks
-and remaining physical test limits.
-
-Version 0.9.1 fixes dashboard spacing on narrow and unfolded screens, keeps
-lock and battery controls readable with larger text, and centers widget edit
-icons. Saved layouts stay intact.
-
-Version 0.9.0 adds three dashboard save slots, a step list beside setup on wide
-screens, and two optional owner-setup routes: Shizuku on the phone and a
-Chrome/USB testing preview. The Volt design and existing profiles, dashboards,
-and recordings are retained. First-time capture still uses Android debugging
-access with explicit consent; everyday scooter use needs no setup helper.
+Version 0.11.0 adds a searchable chart browser for recorded numerical readings,
+reorderable chart/reading favourites, full-detail ride graphs, charge recording
+and JSON export, and stronger screen-off recording protection. Battery widgets,
+compact dashboard editing, scooter selectors and preferences are easier to use.
+New or reset dashboards use the owner's ten-widget setup, with a five-column
+choice that adapts to narrower screens. Existing layouts, slots, profiles and
+recordings stay intact. See [VERIFICATION.txt](VERIFICATION.txt) for executed
+checks and remaining physical test limits.
 
 - **Home:** an editable dashboard for each scooter, with automatic connection, a large lock switch, battery overview, charts, and shortcuts.
 - **Scooter:** compact grouped settings for riding, battery, lights, dashboard/sounds, and security. Rename your scooter here or use its widget's pencil while editing Home.
-- **Stats:** battery, electrical, ride, and diagnostic readings; grey last-known values retain their measurement times after disconnection or restart.
-- **Rides:** persistent scooter readings plus optional GPS, barometer, and experimental motion. Route maps show synchronized power, estimated grade, and speed-derived acceleration; compare rides and export raw CSV, joined CSV, JSON, or GPX.
+- **Stats:** searchable grouped readings and charts for every recorded numerical parameter, shared chart windows, fullscreen inspection, and manually ordered favourites. Grey last-known values retain their measurement times.
+- **Rides:** persistent scooter readings plus optional GPS, barometer, and experimental motion. Inspect original sample values in expandable multi-series graphs, rename and compare rides, view route overlays, and export raw CSV, joined CSV, JSON, or GPX.
 - **More:** profiles, owner setup, security options, app preferences, experimental settings, and connected-history storage controls. Submenus are remembered for one minute away from the tab or app; a longer absence returns to the More index.
 
 The named controls target the US UT5 MAX, model/PID 2538. Other models, regions, and firmware may differ. [FEATURES.txt](FEATURES.txt) and [VERIFICATION.txt](VERIFICATION.txt) distinguish implemented behavior from hardware checks.
 
 ## App preferences and UI preview
 
-Appearance, distance/speed units, temperature units and time format use rounded selectors with a sliding highlight. They keep readable labels and scroll sideways when needed. Celsius/Fahrenheit changes displayed readings and chart/gauge scales; stored telemetry stays in Celsius.
+Open **More → App preferences → Units** for distance/speed, temperature and time format. These settings and Appearance use rounded selectors with a sliding highlight; some narrow controls scroll sideways. Celsius/Fahrenheit changes displayed readings and chart/gauge scales; stored telemetry stays in Celsius. Map settings and Background recording guidance also live in App preferences.
 
 For UI testing, open **More → About & permissions** and tap the **Navee Offline version seven times**. **Developer options** then appears in More. Its **Simulate scooter as connected** switch supplies sample readings, local control responses and generated chart previews. A persistent sample-data banner includes **Exit**. Simulation closes the real Bluetooth connection, cannot start a ride or phone sensors, and never saves fake telemetry into your history, last-seen cache or battery analysis. Finish any active recording before enabling it. It is temporary and turns off when the service/app process restarts; normal profile and dashboard settings remain yours. Use **Hide developer options** to hide the menu again.
 
@@ -44,7 +35,7 @@ For UI testing, open **More → About & permissions** and tap the **Navee Offlin
 
 Tap the **pencil** to edit Home. Drag the top-left dots to move a widget, or drag its visible lower-right corner to resize it; a long press on the dots also starts a move. A dashed outline previews the full destination while neighboring cards slide aside and fill empty rows. Releasing saves the preview; cancelling restores the starting arrangement. Tap **Done** to use scooter controls again.
 
-Each card has one row of matching square controls: the **move grip**, **gear** for options, **copy** for Duplicate, and a red **trash icon** at the right for Remove. The icons stay centered and the row becomes more compact on narrow cards. The options sheet keeps its **X** at the top-right and has just **✓ Save** in its fixed footer. The move, options and duplicate controls stay grouped on the left, with trash at the right. For a drag-free alternative, tap the dots for **Move** or the corner for **Size**; the redundant Size row is removed from widget options. Widget menus, handles and the scooter-name pencil appear only while global dashboard editing is on. Dialogs follow the app's light/dark theme.
+Each card has one row of matching square controls: the **move grip**, **gear** for options, **copy** for Duplicate, and a red **trash icon** at the right for Remove. The icons stay centered. Below 96 dp, a narrow card keeps separate Move and Options targets; Options opens Edit, Duplicate and Remove actions. The options sheet keeps its **X** at the top-right and has just **✓ Save** in its fixed footer. The move, options and duplicate controls stay grouped on the left, with trash at the right. For a drag-free alternative, tap the dots for **Move** or the corner for **Size**; the redundant Size row is removed from widget options. Widget menus, handles and the scooter-name pencil appear only while global dashboard editing is on. Dialogs follow the app's light/dark theme.
 
 Curved **Undo/Redo** arrows share a rounded control immediately left of **Done**. On compact screens, this action row sits below the scooter name. Undo keeps up to 40 moves, resizes, additions, deletions and duplicates during the current editing session, retaining the widgets' latest settings. A new layout change clears Redo; cancelled gestures, unchanged actions and settings-only edits do not. Finishing editing, leaving Home or recreating the screen ends this temporary history. Restoring defaults or a saved layout starts fresh; use the saved-layout slots to keep arrangements beyond an editing session.
 
@@ -68,25 +59,25 @@ also restores that shared choice without replacing other scooters’ widgets.
 Slots are local to this phone and scooter; they contain layout settings, not
 readings, recordings, or owner credentials. Even an empty dashboard can be saved.
 
-The 15 choices are Lock & connection, Your scooter, Battery overview, Big reading, Gauge, Live trend, History chart, Reading list, Trip overview, Battery health, Capacity experiment, Charging, Quick access, Ride recorder, and Note. Customize titles, parameters, reading lists, colors, chart windows, and gauge ranges where applicable. Up to 32 widgets are allowed, with one lock widget. The six defaults include the lock, a UT5 MAX photo for a recognized model that stays visible when disconnected, battery charge with estimated range/power/reported health/temperature, a 15-minute power chart, the capacity experiment, and recording controls. Quick access remains available in Add widget. While the scooter freshly reports charging, the battery card replaces its normal details with charging power, current and estimated time remaining, keeping the same battery percentage and cell. Existing custom layouts are preserved; add new widgets through Edit or restore defaults.
+The 15 choices are Lock & connection, Your scooter, Battery overview, Big reading, Gauge, Live trend, History chart, Reading list, Trip overview, Battery health, Capacity experiment, Charging, Quick access, Ride recorder, and Note. Customize titles, parameters, reading lists, colors, chart windows, and gauge ranges where applicable. Up to 32 widgets are allowed, with one lock widget. New widgets remain drafts until **Save**; closing without saving leaves the dashboard unchanged. A recognized UT5 MAX photo remains visible while disconnected. Existing custom layouts are preserved; add widgets through Edit or restore defaults.
 
 **Quick access:** open its gear → **Quick settings** to choose two to eight ordered shortcuts. Tap an item to replace it, use the up arrow to move it earlier, or add/remove items. Ordinary scooter toggles work directly; controls such as kick-start speed and energy recovery open their normal editors above Home. Scooter groups and app-preference menus open temporary panels; Stats and Rides remain page shortcuts. Existing live-state, parked, security and experimental-control checks still apply. Buttons wrap their labels and adapt their padding to fit four items cleanly at moderate card heights; short cards remain scrollable. Saved slots and duplicates retain the chosen actions.
 
-New dashboards and **Layout → Restore default widgets** use the saved phone/foldable preset. At two columns, Your scooter spans the top, lock and battery sit side by side, followed by Live trend, Capacity experiment, and Ride recorder. At four columns, the scooter card takes three columns beside the lock; power and battery share the next row, with recording below the power chart and the capacity experiment across the bottom. One- and three-column variants fit other screen widths. Existing custom dashboards, including empty ones, retain their saved widgets and layouts.
+New dashboards and **Layout → Restore default widgets** use the owner's ten-widget setup and saved widget options, including maximum-speed and scheduled-charging Quick access shortcuts. The preset selects five columns where they fit and adapts to fewer columns on narrower screens. Existing current layouts, custom options and all three saved slots are preserved by the update; restoring defaults is an explicit action.
 
 **Your scooter** places a larger photo on the left and stacks configurable readings vertically on the right, defaulting to just odometer and drive mode. These two values grow into the available space, with a moderate size cap and automatic shrinking in compact cards. Reported charges and battery throughput remain in Stats and can still be selected for a custom widget. The former four-reading default is updated once to these two readings; other custom lists and saved card positions/sizes are preserved. New scooter cards use four rows and can shrink to three. Use the pencil beside its name while editing Home to rename the local profile. On the UT5 MAX (PID 2538), owner-observed mode codes 11, 2, and 3 display as WALK, ECO, and SPORT; other codes and models retain raw labels. Raw diagnostics and ride exports remain unchanged. The battery cell uses a compact **%** label.
 
 Live SPORT is pale blue in the dark theme and a readable darker blue in the light theme; ECO is green, and WALK uses a green pedestrian icon. Last-known modes stay grey, with their mode names retained for accessibility.
 
-Card contents adapt as you resize: rows stack at narrow widths, values fit within readable font limits, and photos, battery cells, gauges and charts use the available space. Short content stays balanced within its card instead of gathering at the top; saved card positions and sizes stay intact. Swipe anywhere within overflowing widget content to scroll it. Your scooter, Lock & connection, Gauge and Ride recorder have three-row minimums to keep their content usable.
+Card contents adapt as you resize: rows stack at narrow widths, values fit within readable font limits, and photos, battery cells, gauges and charts use the available space. Short content stays balanced within its card instead of gathering at the top; saved card positions and sizes stay intact. Swipe anywhere within overflowing widget content to scroll it. Your scooter, Lock & connection and Gauge keep practical minimum heights. A wide Ride recorder can use one row; narrow Quick access rails can use three rows while retaining separate editing targets.
 
 **Gauge** uses a 270° ring around a larger centered value and unit, with space below for the minimum and maximum labels. Parameter formatting and grey stale readings retain their existing behavior.
 
 The battery overview uses a tall red battery cell with percentage and estimated range, with power, reported health and temperature readings underneath. Narrow cards and large text wrap readings rather than hide values. While charging, a separate card above the widgets shows the scooter, progress to the charge limit, estimated time and battery-side power. Last-known readings stay grey and retain their timestamps.
 
-Lock & connection is a full-width bar: tap anywhere on it or slide it to lock or unlock. When locked, the white knob sits on the right; when unlocked, the red knob sits on the left. A **Disconnect** button is shown while connected by default; turn off **Show Disconnect button** in this widget's options to hide it. This option never hides **Connect** or **Cancel** while disconnected or connecting, when the card shows the last verified lock time. The connection line in each page header shows Connected, Connecting or Disconnected with the last-seen time; tap it for details and to connect or disconnect. **More → App preferences → Time format** follows the phone by default, or selects 12-hour/24-hour clocks for displayed times.
+Lock & connection is a full-width bar: tap anywhere on it or slide it to lock or unlock. When locked, the white knob sits on the right; when unlocked, the red knob sits on the left. A **Disconnect** button is shown while connected by default; turn off **Show Disconnect button** in this widget's options to hide it. This option never hides **Connect** or **Cancel** while disconnected or connecting, when the card shows the last verified lock time. The connection line in each page header shows Connected, Connecting or Disconnected with the last-seen time; tap it for details and to connect or disconnect. **More → App preferences → Units → Time format** follows the phone by default, or selects 12-hour/24-hour clocks for displayed times.
 
-The existing Live trend widget supports a **2 minutes** window, including for battery power. Redundant “signed” and “Recent readings • live” labels are removed from the chart presentation; the underlying values and recorded sign remain unchanged. Stats also omits repeated instructions while retaining technical explanations that affect interpretation.
+The Live trend widget supports a **2 minutes** window, including for battery power. Chart widgets also offer **Relative/Absolute** Y-axis scaling; percentage axes stay within 0–100, and signed power/current can center on zero. Redundant “signed” and “Recent readings • live” labels are removed from the chart presentation; the underlying values and recorded sign remain unchanged. Stats also omits repeated instructions while retaining technical explanations that affect interpretation.
 
 Scooter, Lights, Stats, and the widget parameter picker’s search fields release focus when the keyboard is dismissed or you tap outside, keeping the current filter. Consistent inner padding and space between search, filters and results make these controls easier to scan.
 
@@ -106,9 +97,13 @@ Cold, load, voltage range, gauge rounding and recalibration can shift this estim
 
 ## Charging readings
 
-The battery overview automatically switches its normal details to charging power, current and a rough remaining time while the scooter freshly reports charging. The battery percentage and cell remain visible; normal details return when charging is no longer freshly reported. The separate **Charging** widget is also available. Power is the magnitude of paired battery voltage and current while charging. It measures the **battery side**, not outlet consumption or charger efficiency.
+The battery overview automatically switches to separate **Charging power** and **Time to full** tiles while the scooter freshly reports charging. Normal readings return when charging is no longer freshly reported. The separate **Charging** widget remains available. Power uses paired battery voltage/current and measures the **battery side**, not outlet consumption or charger efficiency. Live power is red for draw and green for charging; stale readings are muted.
 
-Remaining time uses reported rated Ah, the battery percentage still needed, and the current charging rate. A known charge limit below 100% becomes the target, with a reminder that reaching full requires raising it. An unknown limit is identified explicitly; a displayed 100% estimate assumes charging continues. Missing, stale or unpaired inputs leave the affected reading unavailable. Very low current still permits power/current readings but no time estimate. Charging normally slows near full, so this present-rate estimate may be optimistic; it is not a promised completion time or a capacity test.
+The fallback time estimate uses reported rated Ah, the remaining percentage and the current charging rate. A known charge limit becomes the target; missing, stale or unpaired inputs leave affected readings unavailable. Tapering near full can make the current-rate estimate optimistic.
+
+**More → Developer options → Charge recording** offers explicit recording with a manually selected **Stock** or **High-speed** charger label. The app does not detect the charger. Qualified sessions learn separate curves for each scooter/label; a learned time is used only when live power matches the saved sessions at the current battery level. Otherwise it falls back to the current-rate estimate. Neither method is a promised completion time or capacity test.
+
+Charge recording saves bounded local samples every ten seconds and stops on disconnect, completion, an explicit Stop, or an ending/error condition. **Export charge recordings** saves the selected scooter's versioned JSON through Android's file picker, including original electrical readings, timestamps, gaps and the manual charger label. Export requires capture to be stopped and excludes owner credentials, names, MAC addresses, PINs and locations.
 
 ## Last-known readings and connected history
 
@@ -117,6 +112,12 @@ Last-known stats and settings stay on the phone for the selected scooter. Grey v
 Connected history starts enabled and saves scooter readings while connected, without starting a ride, GPS, or phone sensors. Its total storage budget is **50 MiB** across profiles: detailed samples for up to seven days, minute summaries for up to 30 days, and daily summaries for up to two years. Older samples can be trimmed sooner to stay within the budget. Use **More → Data & history** to inspect storage, stop new timeline samples, or clear one scooter's history or all history. Turning history off retains the last-known cache; clearing removes both its selected timelines and cache. Ride recordings and owner setup are separate.
 
 The usual ten-second idle background timeout is unchanged. History does not prolong a connection or turn an ordinary connection into a ride recording.
+
+## Live Stats and range estimates
+
+**Readings** keeps its dynamic reading count, search and categories; the redundant favourites-only filter is removed. **Charts** uses the same searchable categories and offers every numerical parameter retained for the selected scooter or currently reported. One **Window** picker applies to all charts: 2 minutes, 10 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days or All. All eight choices appear together, including on narrow screens. Stars add charts to **Overview**, where readings and charts share a manually reorderable favourites list. Each graph expands for inspection. Only visible charts load data; missing intervals remain gaps, and older retained history may be summarized.
+
+**Follow riding mode** selects the supported firmware range estimator for the current mode when fresh state confirms the scooter is stationary. Fixed choices disable following for that scooter. Missing Eco support falls back to the firmware's D-mode estimator, with an explanation in the picker. Range displays still use the scooter's prediction; they do not measure usable capacity or automatically detect Boost. Unconfirmed automatic attempts are bounded across reconnects.
 
 ## Lights
 
@@ -178,13 +179,13 @@ See [SETUP.txt](SETUP.txt) for the capture helper and private backup/import inst
 
 ## Phone recordings and maps
 
-Start from **Rides → Start recording** while the app is visible. Choose precise location for a useful route; denying location still permits scooter and motion recording. GPS and phone sensors stop when the recording stops. The usual ten-second idle background timeout is unchanged.
+Start from **Rides → Start recording** while the app is visible. Choose precise location for a useful route; denying location still permits scooter and motion recording. GPS and phone sensors stop when the recording stops. Active ride/charge capture uses an immediate ongoing notification with Stop, foreground-service protection and a renewed bounded CPU wake lock. **More → App preferences → Background recording** explains notification/battery settings. The normal ten-second idle timeout still applies outside recordings. Android may let an ongoing notification be dismissed while unlocked; force stop, lost Bluetooth, and manufacturer battery policies remain limits.
 
-The phone journal is separate from the scooter energy accumulator. GPS continues through a Bluetooth gap. Missing or poor fixes split the route; grade uses a distance window, preferably barometric elevation, with stricter limits for GPS altitude. GPS and scooter speed derivatives are separate from the phone's raw and gravity-free acceleration. Pocket movement, vibration, pressure changes, and GPS error remain visible limitations. None of these measurements establishes battery capacity.
+The phone journal is separate from the scooter energy accumulator. GPS continues through a Bluetooth gap. Missing or poor fixes split the route; grade uses a distance window, preferably barometric elevation, with stricter limits for GPS altitude. Implausible altitude excursions are excluded from derived elevation, grade and ascent while raw measurements are retained. GPS and scooter speed derivatives are separate from the phone's raw and gravity-free acceleration. Pocket movement, vibration, pressure changes, and GPS error remain limitations.
 
-In a saved ride choose **Route & phone sensors**. Pinch to zoom around your fingers, drag to pan, or use the zoom and Fit buttons. Tap the route to inspect a reading; switch colors between power, grade, and GPS acceleration. **Basemap** loads only the area you view. It starts off and caches ordinary visits. The default is **USGS Topo**, a U.S. street/terrain map requiring no account or key. [USGS map-service terms](https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map) permit public use. Attribution is shown beside the map. Close zooms enlarge the available level-16 tiles instead of requesting unsupported detail.
+Saved rides bring route, phone sensors and scooter readings together. The expandable graph supports power, wheel/GPS speed, voltage, battery, relative elevation, GPS acceleration and instantaneous energy per distance. Tap or slide to inspect original values and actual sample times, pinch to zoom, and pan with two fingers or the time labels. Each series has its own scale. Inline graphs use a lightweight preview; fullscreen loads the full committed recording asynchronously, including short peaks skipped by the preview. Loading failures retain the preview and offer Retry. Rename with the pencil beside the ride title. New rides use positive current as battery draw; older recordings retain their original interpretation.
 
-Use **Map source** directly in the route viewer or under **Rides → Phone sensors** to select USGS, OpenStreetMap, or a custom HTTPS source and its attribution. Existing custom sources are preserved. OpenStreetMap remains subject to its [tile policy](https://operations.osmfoundation.org/policies/tiles/); a reproduced policy rejection does not establish which server rule triggered it. The app retains its honest identifying header, stops repeated denied requests, and rejects `X-Blocked` error pictures even when HTTP reports success. Old unverified cache entries require a successful refresh before display, so a cached block picture cannot reappear as a map. Routes remain visible when the basemap is unavailable.
+Route maps offer power, grade, GPS acceleration and elevation overlays. Pinch, pan, tap to inspect, or use zoom/Fit. **More → App preferences → Map settings** controls basemap use and the USGS, OpenStreetMap or custom HTTPS provider. USGS Topo is enabled by default for new preferences; existing explicit choices are retained. It provides U.S. roads/terrain without an account or key, with attribution and cached viewport visits. Close zooms enlarge level-16 tiles rather than requesting unsupported detail. [USGS terms](https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map) and the [OpenStreetMap tile policy](https://operations.osmfoundation.org/policies/tiles/) apply to their respective providers. Denied or `X-Blocked` responses pause requests and never replace the local route with an error picture.
 
 Map requests disclose the viewed area and IP address to the selected provider; credentials and ride journals are not uploaded. No city/route prefetch or bulk download is offered.
 
