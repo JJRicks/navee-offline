@@ -33,6 +33,8 @@ public final class SegmentedSelector extends HorizontalScrollView {
         this.ui = ui;
         setFillViewport(true);
         setHorizontalScrollBarEnabled(false);
+        setHorizontalFadingEdgeEnabled(true);
+        setFadingEdgeLength(ui.dp(16));
         setClipToOutline(true);
         setBackground(ui.shape(ui.dark ? ui.bg : ui.raised, 14, ui.outline));
         // Natural text widths and a wrapping height preserve large text. A narrow screen scrolls

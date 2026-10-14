@@ -663,7 +663,9 @@ public final class Ui {
         public static final int MAX_POINTS = 1600;
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         private final ArrayList<Point> points = new ArrayList<Point>();
-        private String unit = "", empty = "No measured data yet";
+        private String unit = "", empty = "No measured data yet", axisMetric = "";
+        private boolean absoluteAxis;
+        private ChartScale.Range range = ChartScale.range("", "", false, 0, 1);
         private int color = accent, selected = -1;
         private double min = 0, max = 1;
         private long first = 0, last = 1, gapThresholdMs = 3500;
@@ -674,6 +676,7 @@ public final class Ui {
         private final SimpleDateFormat time = new SimpleDateFormat(use24Hour ? "HH:mm:ss" : "h:mm:ss a", Locale.getDefault());
         private final SimpleDateFormat historyTime = new SimpleDateFormat(use24Hour ? "HH:mm" : "h:mm a", Locale.getDefault());
         private final SimpleDateFormat historyDate = new SimpleDateFormat("MMM d", Locale.getDefault());
+        private final SimpleDateFormat historyDateTime = new SimpleDateFormat(use24Hour ? "MMM d HH:mm" : "MMM d h:mm a", Locale.getDefault());
         private final SimpleDateFormat historyDetail = new SimpleDateFormat(use24Hour ? "MMM d, yyyy HH:mm:ss" : "MMM d, yyyy h:mm:ss a", Locale.getDefault());
         public ChartView() {
             super(context); setMinimumHeight(dp(210)); setFocusable(true);
@@ -684,8 +687,17 @@ public final class Ui {
         public void setGapThresholdMs(long value) { gapThresholdMs = Math.max(1, value); invalidate(); }
         /** Historical aggregation intervals rely on explicit gaps, rather than the live 3.5 s rule. */
         public void setHistoryMode(boolean value) { historyMode = value; gapThresholdMs = value ? Long.MAX_VALUE : 3500; invalidate(); }
-        private String axisTime(long millis) {
-            return (historyMode ? last - first >= 86400000L ? historyDate : historyTime : time).format(new Date(millis));
+        /** Optional widget preference; existing Live Stats callers retain relative scaling. */
+        public void setAxis(String metric, boolean absolute) {
+            String key = metric == null ? "" : metric;
+            if (axisMetric.equals(key) && absoluteAxis == absolute) return;
+            axisMetric = key; absoluteAxis = absolute; updateScale(); invalidate();
+        }
+        private String axisTime(long millis, int count) {
+            long span = last - first;
+            SimpleDateFormat format = !historyMode ? time : span / Math.max(1, count - 1) >= 86400000L ? historyDate
+                    : span >= 86400000L ? historyDateTime : span < 120000L ? time : historyTime;
+            return format.format(new Date(millis));
         }
         private String detailTime(long millis) { return (historyMode ? historyDetail : time).format(new Date(millis)); }
         public void set(List<Point> source, String unit, int color, String empty) {
@@ -710,40 +722,41 @@ public final class Ui {
                 for (int i = points.size() - 2; i >= 0; i--) if (points.get(i).millis == points.get(i + 1).millis) points.remove(i);
             }
             if (!points.isEmpty()) {
-                min = max = points.get(0).value;
-                for (Point p : points) { min = Math.min(min, p.value); max = Math.max(max, p.value); }
-                double center = min / 2 + max / 2;
-                // A few milliwatts/millivolts of sensor noise should remain nearly flat.
-                // This changes the viewing scale only; every measured point stays intact.
-                double minimumSpan = this.unit.equals("V") ? 0.1
-                        : this.unit.equals("W") ? Math.max(1, Math.abs(center) * 0.02) : 1;
-                double span = Math.max(max - min, minimumSpan);
-                min = center - span * 0.62; max = center + span * 0.62;
                 first = points.get(0).millis; last = points.get(points.size() - 1).millis;
                 if (last == first) last = first + 1000;
             }
             selected = Math.min(selected, points.size() - 1);
+            updateScale();
+            invalidate();
+        }
+        private void updateScale() {
+            double low = 0, high = 1;
+            if (!points.isEmpty()) {
+                low = high = points.get(0).value;
+                for (Point point : points) { low = Math.min(low, point.value); high = Math.max(high, point.value); }
+            }
+            range = ChartScale.range(axisMetric, unit, absoluteAxis, low, high); min = range.min; max = range.max;
             setContentDescription(points.isEmpty() ? this.empty : "Measured " + this.unit + " chart, " + points.size()
                     + " samples. Displayed axis " + axisNumber(min) + " to " + axisNumber(max) + ". Touch to inspect readings.");
-            invalidate();
         }
         public int pointCount() { return points.size(); }
         @Override protected void onMeasure(int width, int height) {
             setMeasuredDimension(resolveSize(dp(300), width), resolveSize(dp(220), height));
         }
         private float x(long millis) { return left + (float) ((millis - first) / (double) (last - first)) * (right - left); }
-        private float y(double value) { return bottom - (float) ((value - min) / (max - min)) * (bottom - top); }
+        private float y(double value) { return bottom - (float) range.fraction(value) * (bottom - top); }
         @Override protected void onDraw(Canvas canvas) {
             left = dp(44); right = getWidth() - dp(14); top = dp(40); bottom = getHeight() - dp(35);
             if (right <= left || bottom <= top) return;
             paint.setTypeface(REGULAR); paint.setTextSize(Math.min(sp(10), dp(14)));
             paint.setStrokeWidth(dp(1)); paint.setStyle(Paint.Style.FILL);
-            for (int i = 0; i < 4; i++) {
-                float yy = top + (bottom - top) * i / 3;
+            int intervals = absoluteAxis ? 4 : 3;
+            for (int i = 0; i <= intervals; i++) {
+                float yy = top + (bottom - top) * i / intervals;
                 paint.setColor(raised); canvas.drawLine(left, yy, right, yy, paint);
                 if (!points.isEmpty()) {
                     paint.setColor(muted); paint.setTextAlign(Paint.Align.RIGHT);
-                    canvas.drawText(axisNumber(max - (max - min) * i / 3), left - dp(7), yy + dp(3), paint);
+                    canvas.drawText(axisNumber(range.at(1 - i / (double) intervals)), left - dp(7), yy + dp(3), paint);
                 }
             }
             if (points.isEmpty()) {
@@ -752,12 +765,7 @@ public final class Ui {
                 canvas.drawText(message, (left + right) / 2, (top + bottom) / 2, paint); return;
             }
             paint.setTextSize(Math.min(sp(10), dp(14))); paint.setColor(muted); paint.setTextAlign(Paint.Align.LEFT);
-            String firstLabel = axisTime(first), lastLabel = axisTime(last);
-            if (paint.measureText(firstLabel) + paint.measureText(lastLabel) + dp(8) <= right - left)
-                canvas.drawText(firstLabel, left, bottom + dp(21), paint);
-            paint.setTextAlign(Paint.Align.RIGHT);
-            canvas.drawText(TextUtils.ellipsize(lastLabel, new android.text.TextPaint(paint),
-                    Math.max(1, right - left), TextUtils.TruncateAt.END).toString(), right, bottom + dp(21), paint);
+            drawTimeLabels(canvas);
             // Each filled segment closes independently, preserving visible data gaps.
             float zero = Math.max(top, Math.min(bottom, y(0)));
             Path line = new Path(), fill = new Path();
@@ -800,6 +808,37 @@ public final class Ui {
                 canvas.drawText(unit, left, dp(22), paint);
             }
         }
+        private final ArrayList<String> timeLabels = new ArrayList<String>();
+        private float[] timeLabelStarts = new float[0], timeLabelWidths = new float[0];
+        private void drawTimeLabels(Canvas canvas) {
+            float width = right - left;
+            timeLabels.clear(); timeLabelStarts = timeLabelWidths = new float[0];
+            // Try dense labels first, measuring actual localized glyphs and accessibility scale.
+            for (int count = historyMode ? 6 : 2; count >= 2; count--) {
+                ArrayList<String> labels = new ArrayList<String>(); float[] widths = new float[count];
+                boolean duplicate = false;
+                for (int i = 0; i < count; i++) {
+                    long millis = first + (long)((last - first) * (i / (double)(count - 1)));
+                    String label = axisTime(millis, count);
+                    if (labels.contains(label)) duplicate = true;
+                    labels.add(label); widths[i] = paint.measureText(label);
+                }
+                float[] starts = ChartScale.labelStarts(width, widths, dp(12));
+                if (!duplicate && starts != null) {
+                    timeLabels.addAll(labels); timeLabelStarts = starts; timeLabelWidths = widths; break;
+                }
+            }
+            // A tiny card cannot fit two full timestamps; preserve its most recent label.
+            if (timeLabels.isEmpty()) {
+                String label = TextUtils.ellipsize(axisTime(last, 2), new android.text.TextPaint(paint),
+                        Math.max(1, width), TextUtils.TruncateAt.END).toString();
+                timeLabels.add(label); timeLabelWidths = new float[] {paint.measureText(label)};
+                timeLabelStarts = new float[] {width - timeLabelWidths[0]};
+            }
+            paint.setTextAlign(Paint.Align.LEFT);
+            for (int i = 0; i < timeLabels.size(); i++)
+                canvas.drawText(timeLabels.get(i), left + timeLabelStarts[i], bottom + dp(21), paint);
+        }
         @Override public boolean onTouchEvent(MotionEvent event) {
             if (points.isEmpty()) return false;
             if (event.getAction() == MotionEvent.ACTION_DOWN || event.getAction() == MotionEvent.ACTION_MOVE) {
@@ -820,7 +859,7 @@ public final class Ui {
         @Override public boolean performClick() { super.performClick(); return true; }
         private String axisNumber(double value) {
             double scale = Math.max(Math.abs(min), Math.abs(max)) >= 1000 ? 1000 : 1;
-            double step = (max - min) / (3 * scale);
+            double step = (max / scale / 2 - min / scale / 2) * (2.0 / (absoluteAxis ? 4 : 3));
             int decimals = Math.max(0, Math.min(6, (int) Math.ceil(-Math.log10(step))));
             double scaled = value / scale;
             if (Math.abs(scaled) < Math.pow(10, -decimals) / 2) scaled = 0;

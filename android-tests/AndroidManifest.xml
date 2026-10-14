@@ -15,4 +15,5 @@
   <instrumentation android:name="local.navee.offlinelock.tests.DeveloperSettingsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated developer preview and preferences validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.LiveStatsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated Live Stats validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.RidesAnalysisValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated unified ride analysis validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.BatteryWidgetValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated battery widget presentation validation" />
 </manifest>
