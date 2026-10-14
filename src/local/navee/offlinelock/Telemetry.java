@@ -22,7 +22,7 @@ public final class Telemetry {
         public final String value;
         /** Normalized SI/metric quantity where its unit is confirmed; otherwise null. */
         public final Double numericValue;
-        /** The actual read/report opcode, or -1 for a field not received yet. */
+        /** The actual read/report opcode, or -1 for unavailable/synthetic display data. */
         public final int sourceCmd;
         /** Monotonic timestamp of the underlying reading, or -1 if unavailable. */
         public final long updatedMs;
@@ -148,6 +148,14 @@ public final class Telemetry {
 
     private void define(String group, String key, String label) {
         readings.put(key, new Metric(group, key, label, null, null, -1, -1));
+    }
+
+    /** Display simulator only: never creates a raw frame, response status or real source opcode. */
+    synchronized void putSimulationSample(String key, String value, Double number, long elapsedMs) {
+        if (!readings.containsKey(key) || value == null || elapsedMs < 0
+                || (number != null && !Double.isFinite(number)))
+            throw new IllegalArgumentException("Invalid simulated telemetry");
+        put(key, value, number, -1, elapsedMs);
     }
 
     /** Accepts the status byte followed by only this response's data, not a whole wire frame. */

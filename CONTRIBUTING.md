@@ -15,6 +15,15 @@ Use JDK 17 or newer for development. The core Java tests require only that JDK; 
 
 `android-tests/ParkedValidation.java` is a separate, explicitly invoked instrumentation runner. Its modes include real lock/settings writes and stationary recording sessions; choose a mode only when those actions are intended and the owner is present with a safely parked scooter. Navigation/background modes perform different checks and have documented guards. Read the chosen mode before running it.
 
+`android-tests/DeveloperSettingsValidation.java` validates rounded preferences and
+the hidden simulation menu on a disposable emulator with Bluetooth disabled.
+Its default mode tests simulation isolation; `-e mode preferences` limits it to
+the selectors and unlock gate. It refuses physical phones or existing profiles.
+Compare the real telemetry database, profile/control-evidence preferences and
+private ride files before/after the preview; require the real GATT, scanner,
+command queue and recorder to stay idle. Include normal/reduced motion and a
+compact large-text case when these controls change.
+
 `android-tests/LaunchValidation.java` checks fresh launch, permissions, themes, and recreation. It refuses physical phones or existing app data and requires a fresh emulator. Run denied and granted-permission modes separately; granted mode requires Bluetooth off.
 
 Preserve the app's confirmed-state lock behavior, permission/lifecycle guards, fixed ten-second idle background grace, and recording exception. Firmware settings use canonical raw units; mph/km display conversion must not change command values. Missing/stale samples must remain unavailable rather than becoming zeros or invented energy.
@@ -56,9 +65,18 @@ store owner identity or PIN traffic. Dashboard layout is per scooter and column
 count. Dashboard defaults seed explicit one/two/three/four-column rectangles
 only for new/reset dashboards; never overwrite saved custom or empty dashboards.
 The two/four-column presets reproduce the captured folded/unfolded arrangement.
+Adaptive keeps its existing one- through four-column breakpoints; explicit
+five/six-column choices are available only when the measured width permits.
+Materialize a new finer grid from the saved four-column arrangement (or another
+available width), leaving its source untouched. Enforce each widget's minimum
+width at the current measured width and combined app/system text scale. Temporary
+window or font changes must not persist expanded rectangles until an actual edit
+is committed. The grid, size chips and size dialog must use the same limits.
 Widget scale values are stored in canonical units and converted for display.
 
-Dashboard slots keep all column layouts and widget options together per scooter.
+Dashboard slots keep all one- through six-column layouts and widget options
+together per scooter. Continue accepting existing slots with only one- through
+four-column layouts and without the optional showDisconnect field (default true).
 Editing or resetting the live dashboard must never mutate a saved slot. Validate
 a snapshot before restoring it, and preserve intentionally empty dashboards.
 `DashboardSlotsValidation` checks persistence, isolation and malformed snapshots
@@ -77,13 +95,69 @@ the same key, start a disposable emulator, and pass `--adb`, `--serial`, `--app`
 `--runner`, and `--out`; use `--help` for individual cases. This is layout validation,
 not a substitute for Samsung hardware or live Bluetooth testing.
 
-The editor uses dedicated top-left move grips and bottom-right resize
-corners, with tap-accessible Move/Size dialogs and one gear-shaped widget-options menu.
+Focused cases include `--case 344x882:1:editor` and
+`--case 725x604:1:editor` for editor actions, plus `--case 360x800:1.4:gauge`
+for the Gauge with larger app text. Gauge checks draw live, dual-unit, unknown,
+stale and long negative readings at minimum/full widths and short/tall heights;
+the number/unit block must remain inside the ring and range labels below its
+endpoints with padding. Keep its visible and spoken Last seen state.
+
+The editor uses dedicated top-left move grips and bottom-right resize corners,
+with tap-accessible Move/Size dialogs. The grip, options gear, copy and red trash
+actions are icon-only, matching centered squares on one row. Their targets are
+52 dp where space permits, shrinking to 36 dp on the narrowest supported cards;
+the resize corner remains 48 dp. Keep their accessibility names and glyph centers
+correct at both sizes. Options
+have one fixed ✓ Save footer and retain the top-right X; edits are not a new
+transactional cancel/rollback flow. Preserve the one-lock-widget restriction and
+32-widget limit when duplicating. The connected lock's Disconnect action defaults
+on and may be hidden per widget; Connect/Cancel must remain available.
+
+Undo/Redo are curved arrows in one rounded group immediately left of Done, with
+the header action row below the scooter name on compact editing screens. History
+holds up to 40 committed structural grid changes in memory: membership/order and
+per-width geometry, retaining current widget settings. New real grid edits clear
+Redo; no-op, cancelled gestures and settings-only edits must not. Done/Back,
+leaving Home, screen recreation, default reset and slot restoration end the
+current history. Never use layout Undo to affect scooter controls or recorded data.
+
+Edit-mode transitions must change edit state synchronously, then animate only the
+presentation. The 210 ms grid/header slide and control pop use at most one million
+snapshot pixels for disappearing controls; recycle them on finish or interruption.
+Consume grid taps spanning the transition so disappearing editor icons cannot hit
+newly enabled scooter actions. Preserve disabled-control alpha. One shared clock
+wiggles only visible cards by at most 0.2 degrees, without changing hit targets;
+pause the gesture card and stop on focus/visibility loss, detach, close or disabled
+motion. Preference selectors use a 190 ms slide and coalesced 210 ms theme/unit
+rebuild so the animation can finish. Keep their labels readable and targets >=48 dp.
+
+Developer simulation is an explicit runtime-only UI preview, not a BLE test mode.
+Guard the service recording/history boundary AND the transport mutation boundary.
+Close/cancel the real connection before sampling; never synthesize a GATT, owner
+identity or raw BLE packets. Keep fake readings, settings and chart series in memory,
+mark the UI and diagnostics as simulated, and clear them when simulation ends.
+Do not persist them to profiles, control evidence, last-seen cache, telemetry/ride
+history or capacity analysis. Background connection preferences must not keep the
+simulation running. Preserve the real last-seen data and require an inactive ride
+before entry. Native validation should compare storage and transport state, not
+merely report a hard-coded mutation count.
+
+The removal effect is decorative and must not delay deletion or neighbor reflow.
+It uses a bounded snapshot (at most 2 megapixels and 2048 px per side) for a 200 ms
+shrink/fade and soft puffs. Cancel it on another action or dashboard close, remove
+the overlay on detach/completion and recycle the snapshot. Disabled animation or
+snapshot failure must leave immediate removal functional.
+
 Gesture previews must use an untouched start snapshot, pin the full requested
 rectangle, compact neighbors without overlap, save only on release and restore
-on cancellation or teardown. Preserve scrolling outside the handles. Reflow is
-200 ms and the dashed destination transition 120 ms; respect system animation
-settings. Check direct drag, long press, corner resize, cancellation, theme
+on cancellation or teardown. Preserve scrolling outside the handles. Animate
+position and size from the currently rendered rectangle when a gesture interrupts
+an earlier transition, then reset transforms on completion or cancellation.
+Current timings are 140 ms for the active card, 210 ms for neighbors, 150 ms for
+the destination outline and 180 ms for release. Respect system animation
+settings. Lock motion is visual only: value and accessibility state must retain
+the last confirmed report. Navigation arrival effects must not replay on telemetry
+refreshes. Check direct drag, long press, corner resize, cancellation, theme
 contrast and interrupted animations at each tested width. Executed results
 belong in `VERIFICATION.txt`, not inferred from an implementation change.
 
@@ -104,9 +178,9 @@ confirmed mode codes (11/2/3). Unknown codes/models and raw diagnostics/exports
 must retain their original values. Reported charge/throughput counters are not
 measured capacity or current-ride consumption.
 
-The battery ring should use the space remaining after its icon readings, with a
-thicker arc and balanced visual placement. Check four readings in one row where
-they fit, then wrapping at narrow widths or large text. Preserve charging context switches, missing/stale semantics and spoken
+The battery cell should use the space remaining after its readings, preserving
+readable percentage/range text and balanced visual placement. Check readings
+in one row where they fit, then wrapping at narrow widths or large text. Preserve charging context switches, missing/stale semantics and spoken
 labels for icon-only readings. Live footer removal must not hide stale timestamps.
 
 Connection status remains concise; errors stay reachable by tapping it. Reuse the
@@ -122,3 +196,14 @@ to verify outside taps, scrolling, system Back, query preservation, and ordinary
 form focus in both themes. Enable the emulator software keyboard; this runner
 refuses physical phones and existing app data. Search bindings must pass touches
 through, release listeners with the field, and leave ordinary form editors alone.
+
+Quick access uses stable catalog IDs (QuickAccessActions) and a normalized 2–8
+item list in each widget. Never accept arbitrary commands or navigation routes.
+The dashboard invokes existing MainActivity editors and BleController gates;
+experimental/security shortcuts must keep their explanatory approval flow.
+QuickAccessGrid measures real label heights; do not clip them or shrink targets
+below 48 dp to hide a scrollbar. The widget options no longer duplicate Size.
+WidgetReveal is bounded and drawing-only: cancel on touch, render, focus loss,
+reflow or close, and never move a card that is already visible.
+The quick native mode exercises configuration, safe simulation actions, sheets,
+responsive content and the new-widget cue.

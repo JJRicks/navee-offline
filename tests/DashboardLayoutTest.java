@@ -21,6 +21,9 @@ public final class DashboardLayoutTest {
         previewKeepsFullTargetAndSnapshot();
         previewBoundsAndOrder();
         deterministicPreviews();
+        sixColumnLayouts();
+        proportionalGridConversion();
+        minimumUsableWidths();
         System.out.println("DashboardLayout tests passed: " + assertions + " assertions");
     }
 
@@ -85,7 +88,7 @@ public final class DashboardLayoutTest {
                 cell("large", Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE, Integer.MAX_VALUE),
                 cell("small", Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE, Integer.MIN_VALUE)),
                 Integer.MAX_VALUE, "large");
-        equal(cell("large", 0, 332, 4, 16), find(extreme, "large"), "Large values clamp to bounded saved-row allowance without overflow");
+        equal(cell("large", 0, 332, 6, 16), find(extreme, "large"), "Large values clamp to bounded saved-row allowance without overflow");
         equal(cell("small", 0, 0, 1, 1), find(extreme, "small"), "Negative values clamp to usable card geometry");
         List<DashboardLayout.Cell> narrow = DashboardLayout.settle(Arrays.asList(
                 cell("a", 3, 0, 4, 2), cell("b", 2, 0, 2, 1)), 0, null);
@@ -139,12 +142,12 @@ public final class DashboardLayoutTest {
     private static void deterministicLayouts() {
         // Exhaustive, repeatable small-grid gesture cases, including mixed sizes
         // and narrow-screen conversions. No random seed can hide a regression.
-        for (int columns = 1; columns <= 4; columns++) {
+        for (int columns = 1; columns <= DashboardLayout.MAX_COLUMNS; columns++) {
             for (int variant = 0; variant < 24; variant++) {
                 List<DashboardLayout.Cell> input = new ArrayList<DashboardLayout.Cell>();
                 for (int i = 0; i < 12; i++) input.add(cell("card" + i,
-                        (i * 3 + variant) % 6 - 1, (i + variant) % 8,
-                        1 + (i + variant) % 4, 1 + (i * 2 + variant) % 5));
+                        (i * 3 + variant) % 8 - 1, (i + variant) % 8,
+                        1 + (i + variant) % DashboardLayout.MAX_COLUMNS, 1 + (i * 2 + variant) % 5));
                 String priority = "card" + variant % 12;
                 List<DashboardLayout.Cell> first = DashboardLayout.settle(input, columns, priority);
                 List<DashboardLayout.Cell> second = DashboardLayout.settle(input, columns, priority);
@@ -232,12 +235,12 @@ public final class DashboardLayoutTest {
     }
 
     private static void deterministicPreviews() {
-        for (int columns = 1; columns <= 4; columns++) {
+        for (int columns = 1; columns <= DashboardLayout.MAX_COLUMNS; columns++) {
             for (int variant = 0; variant < 16; variant++) {
                 List<DashboardLayout.Cell> input = new ArrayList<DashboardLayout.Cell>();
                 for (int i = 0; i < 8; i++) input.add(cell("card" + i,
-                        (i * 3 + variant) % 6 - 1, (i * 2 + variant) % 14,
-                        1 + (i + variant) % 4, 1 + (i * 2 + variant) % 5));
+                        (i * 3 + variant) % 8 - 1, (i * 2 + variant) % 14,
+                        1 + (i + variant) % DashboardLayout.MAX_COLUMNS, 1 + (i * 2 + variant) % 5));
                 String priority = "card" + variant % 8;
                 List<DashboardLayout.Cell> first = DashboardLayout.preview(input, columns, priority);
                 same(first, DashboardLayout.preview(input, columns, priority),
@@ -251,6 +254,100 @@ public final class DashboardLayoutTest {
                     check(first.get(i).id.equals(input.get(i).id), "Preview output retains input order");
             }
         }
+    }
+
+    private static void sixColumnLayouts() {
+        List<DashboardLayout.Cell> dashboard = Arrays.asList(
+                cell("scooter", 0, 0, 4, 4), cell("lock", 4, 0, 2, 4),
+                cell("battery", 0, 4, 3, 6), cell("chart", 3, 4, 3, 5));
+        same(dashboard, DashboardLayout.settle(dashboard, 6, null),
+                "Six-column layout keeps the two-thirds scooter/one-third lock and equal halves");
+        List<DashboardLayout.Cell> changed = new ArrayList<DashboardLayout.Cell>();
+        for (DashboardLayout.Cell c : dashboard) changed.add(c.copy());
+        changed.get(1).w = 3;
+        changed.get(1).x = 3;
+        List<DashboardLayout.Cell> preview = DashboardLayout.preview(changed, 6, "lock");
+        equal(cell("lock", 3, 0, 3, 4), find(preview, "lock"),
+                "A six-column resize keeps the entire wider lock target");
+        valid(preview, 6);
+        same(preview, DashboardLayout.settle(preview, 6, null),
+                "Saving and settling a six-column preview preserves its placements");
+        check(DashboardLayout.settle(Arrays.asList(cell("a", 0, 0, 99, 1)), 99, null).get(0).w == 6,
+                "Column counts above the supported maximum cannot produce unusable extra columns");
+    }
+
+    private static void proportionalGridConversion() {
+        DashboardLayout.Cell scooter = cell("scooter", 0, 0, 3, 4);
+        DashboardLayout.Cell lock = cell("lock", 3, 0, 1, 4);
+        equal(cell("scooter", 0, 0, 4, 4), DashboardLayout.rescale(scooter, 4, 6),
+                "Existing three-quarter scooter becomes two-thirds on six columns");
+        equal(cell("lock", 4, 0, 2, 4), DashboardLayout.rescale(lock, 4, 6),
+                "Existing one-quarter lock receives two columns on six columns");
+        equal(cell("scooter", 0, 0, 3, 4), DashboardLayout.rescale(scooter, 4, 5),
+                "Five-column scooter keeps three columns");
+        equal(cell("lock", 3, 0, 2, 4), DashboardLayout.rescale(lock, 4, 5),
+                "Five-column lock gains the remaining two columns");
+        equal(cell("scooter", 0, 0, 3, 4), scooter, "Converting keeps source geometry unchanged");
+        equal(cell("lock", 3, 0, 1, 4), lock, "Converting does not mutate another source");
+        for (int from = 1; from <= DashboardLayout.MAX_COLUMNS; from++) {
+            for (int to = from; to <= DashboardLayout.MAX_COLUMNS; to++) {
+                List<DashboardLayout.Cell> cells = new ArrayList<DashboardLayout.Cell>();
+                for (int x = 0; x < from; x++)
+                    cells.add(DashboardLayout.rescale(cell("card" + x, x, 3, 1, 5), from, to));
+                valid(cells, to);
+                int next = 0;
+                for (DashboardLayout.Cell c : cells) {
+                    check(c.x == next && c.y == 3 && c.h == 5,
+                            "Finer grids preserve shared edges, row and height without gaps");
+                    next = c.x + c.w;
+                }
+                check(next == to, "Converted adjacent cards fill the complete new grid");
+            }
+        }
+        equal(cell("large", 0, -4, 6, 3), DashboardLayout.rescale(
+                cell("large", Integer.MAX_VALUE, -4, Integer.MAX_VALUE, 3), 4, 6),
+                "Conversion bounds horizontal geometry without overflow and leaves rows to settle");
+        rejects(() -> DashboardLayout.rescale(null, 4, 6));
+    }
+
+    private static void minimumUsableWidths() {
+        String[] types = {"lock", "scooter", "battery", "metric", "gauge", "live", "history",
+                "readings", "trip", "health", "capacity", "charging", "quick", "ride", "note"};
+        check(DashboardLayout.minimumSpan("lock", 6, 600, 10, 1) == 2,
+                "Two-sixths lock is usable on a compact unfolded screen");
+        check(DashboardLayout.minimumSpan("scooter", 6, 600, 10, 1) <= 4,
+                "Four-sixths scooter is not rejected by its physical width floor");
+        check(DashboardLayout.minimumSpan("lock", 6, 462, 10, 1) == 2,
+                "An exactly matching minimum width does not gain an extra column");
+        for (String type : types) {
+            check(DashboardLayout.minimumSpan(type, 2, 344, 10, 1) == 1,
+                    "Existing reasonable half-width " + type + " cards still fit");
+            check(DashboardLayout.minimumWidgetWidthDp(type, 1) >= 144,
+                    "Every widget has room for three independent editor touch targets");
+            for (int columns = 1; columns <= DashboardLayout.MAX_COLUMNS; columns++) {
+                for (int width : new int[] {1, 280, 320, 600, 852, 1440}) {
+                    for (float scale : new float[] {1, 1.3f, 1.4f, 1.82f, 2}) {
+                        int span = DashboardLayout.minimumSpan(type, columns, width, 10, scale);
+                        float floor = DashboardLayout.minimumWidgetWidthDp(type, scale);
+                        check(span >= 1 && span <= columns, "Physical width floor returns a bounded span");
+                        check(span == columns || span * (double) width / columns - 10 >= floor - .0001,
+                                "Constrained cards meet their usable width whenever space permits");
+                        check(span == 1 || (span - 1) * (double) width / columns - 10 < floor + .0001,
+                                "Constrained cards do not consume an unnecessary additional column");
+                        check(span >= DashboardLayout.minimumSpan(type, columns, width, 10, 1),
+                                "Larger text never lowers a widget's minimum span");
+                    }
+                }
+            }
+        }
+        check(DashboardLayout.minimumSpan("lock", 6, Float.NaN, 10, 1) == 6
+                        && DashboardLayout.minimumSpan("lock", 6, 0, 10, 1) == 6,
+                "Unmeasured or invalid width uses full width until a real measurement arrives");
+        check(DashboardLayout.minimumWidgetWidthDp("lock", Float.NaN)
+                        == DashboardLayout.minimumWidgetWidthDp("lock", 1),
+                "Invalid text scale cannot make minimum widths NaN");
+        check(DashboardLayout.minimumSpan("lock", 6, 600, Float.NaN, 1) == 2,
+                "Invalid gap falls back to a bounded zero gap");
     }
 
     private static DashboardLayout.Cell cell(String id, int x, int y, int w, int h) {

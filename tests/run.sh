@@ -9,7 +9,7 @@ TEST_BUILD_DIR="$NAVEE_BUILD_DIR/core-tests"
 rm -rf -- "$TEST_BUILD_DIR/classes"
 mkdir -p "$TEST_BUILD_DIR/classes"
 sources=()
-for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore PhoneRideStore DashboardLayout BatteryCapacityEstimate ChargingEstimate OwnerCaptureEngine; do
+for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore PhoneRideStore DashboardLayout BatteryCapacityEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput; do
     sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
 done
 sources+=("$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java")
@@ -24,7 +24,7 @@ for source in "$TEST_DIR"/shizuku-stubs/android/content/*.java \
 done
 sources+=("$APP_DIR/src/local/navee/offlinelock/ShizukuCaptureClient.java" "$TEST_DIR/ShizukuCaptureClientTest.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
-for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore PhoneRideStore DashboardLayout BatteryCapacityEstimate ChargingEstimate OwnerCaptureEngine; do
+for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore PhoneRideStore DashboardLayout BatteryCapacityEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput; do
     java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"
 done
 

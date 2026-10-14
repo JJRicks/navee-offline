@@ -774,7 +774,7 @@ public final class DashboardValidation extends Instrumentation {
             require(!((View)field(dashboard(), "profileName")).isClickable(), "Scooter name remains a configuration action outside editing");
             for (Object tile : tiles()) {
                 DashboardConfig.Widget widget = (DashboardConfig.Widget)field(tile, "widget");
-                for (String prefix : new String[] {"Options for ", "Move ", "Resize "})
+                for (String prefix : new String[] {"Options for ", "Move ", "Resize ", "Duplicate ", "Remove "})
                     require(findDescription((View)tile, prefix + widget.title) == null,
                             "Widget configuration control remains outside editing: " + prefix + widget.title);
             }
@@ -1183,19 +1183,40 @@ public final class DashboardValidation extends Instrumentation {
                 "An extra bottom adjustment bar duplicates the corner controls");
         View grip = findDescription(tile, "Move " + title), corner = findDescription(tile, "Resize " + title);
         View options = findDescription(tile, "Options for " + title);
+        View duplicate = findDescription(tile, "Duplicate " + title), remove = findDescription(tile, "Remove " + title);
         require(grip != null && corner != null, "Dedicated move and corner resize handles are missing");
-        require(findDescription(options, "gear") != null, "Widget options do not use a gear icon");
+        require(options != null && findDescription(options, "gear") != null && all(options, TextView.class).isEmpty(),
+                "Widget options need the icon-only gear action");
+        require(duplicate != null && findDescription(duplicate, "copy") != null && all(duplicate, TextView.class).isEmpty(),
+                "Widget duplication needs the icon-only copy action");
+        require(remove != null && findDescription(remove, "trash") != null,
+                "Widget removal needs its trash action");
         main(() -> {
-            Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile);
-            int touch = activity.ui().dp(48), tolerance = activity.ui().dp(24);
-            require(corner.getWidth() >= touch && corner.getHeight() >= touch, "Resize hit area is smaller than 48 dp");
+            Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile),
+                    optionsBounds = relativeBounds(options, tile), duplicateBounds = relativeBounds(duplicate, tile),
+                    removeBounds = relativeBounds(remove, tile);
+            int resizeTouch = activity.ui().dp(48), inlineTouch = Math.min(resizeTouch, tile.getWidth() / 4),
+                    tolerance = activity.ui().dp(24);
+            require(inlineTouch >= activity.ui().dp(36) - 1, "Inline editor targets fell below the compact size floor");
+            require(corner.getWidth() >= resizeTouch && corner.getHeight() >= resizeTouch, "Resize hit area is smaller than 48 dp");
             require(cornerBounds.right >= tile.getWidth() - tolerance && cornerBounds.bottom >= tile.getHeight() - tolerance,
                     "Resize target is not in the widget's bottom-right corner");
-            require(gripBounds.left <= tolerance && gripBounds.top <= tolerance,
+            require(gripBounds.left == 0 && gripBounds.top == 0,
                     "Move grip is not in the widget's top-left corner");
-            for (View control : new View[] {grip, options, corner}) {
-                require(control.getWidth() >= touch && control.getHeight() >= touch,
-                        "An editor overlay has a touch target smaller than 48 dp");
+            require(optionsBounds.left == gripBounds.right && duplicateBounds.left == optionsBounds.right
+                            && optionsBounds.top == gripBounds.top && duplicateBounds.top == gripBounds.top,
+                    "Gear and copy actions must share one inline row beside the move grip");
+            require(removeBounds.right == tile.getWidth() && removeBounds.top == gripBounds.top,
+                    "Trash action is not in the widget's top-right corner");
+            List<Rect> occupied = new ArrayList<>();
+            for (View control : new View[] {grip, options, duplicate, remove}) {
+                require(control.getWidth() == inlineTouch && control.getHeight() == inlineTouch,
+                        "Inline editor controls must have equal square targets");
+                require(control.isClickable() && control.isFocusable() && control.getContentDescription() != null,
+                        "Icon-only controls lost their accessible action");
+                Rect bounds = relativeBounds(control, tile);
+                for (Rect other : occupied) require(!Rect.intersects(bounds, other), "Inline editor targets overlap");
+                occupied.add(bounds);
                 require(translucentBackground(control), "An editor overlay background is fully opaque");
             }
         });
@@ -1233,12 +1254,19 @@ public final class DashboardValidation extends Instrumentation {
         main(() -> {
             TextView label = findText(dialogRoot(), "Title");
             TextView title = dialogRoot().findViewWithTag("widget-options-title");
-            TextView duplicate = findText(dialogRoot(), "Duplicate"), remove = findText(dialogRoot(), "Remove");
-            require(title != null && title.isShown() && label != null && duplicate != null && remove != null,
-                    "Options dialog title, labels and footer actions must be visible");
-            for (TextView text : new TextView[] {title, label, duplicate, remove})
+            TextView save = findText(dialogRoot(), "✓ Save");
+            View close = findDescription(dialogRoot(), "Close widget options");
+            require(title != null && title.isShown() && label != null && save != null && save.isShown()
+                            && close != null && close.isShown(),
+                    "Options dialog title, labels, Save and close actions must be visible");
+            require(findText(dialogRoot(), "Duplicate") == null && findText(dialogRoot(), "Remove") == null
+                            && findText(dialogRoot(), "Remove widget") == null,
+                    "Widget options still duplicate the editor's copy/remove actions");
+            for (TextView text : new TextView[] {title, label})
                 require(contrast(text.getCurrentTextColor(), activity.ui().surface) >= 4.5,
                         "Options dialog text has insufficient contrast in " + (activity.ui().dark ? "dark" : "light") + " theme: " + text.getText());
+            require(contrast(save.getCurrentTextColor(), activity.ui().accent) >= 4.5,
+                    "Save text has insufficient contrast against its accent button");
         });
         closeDialog();
     }

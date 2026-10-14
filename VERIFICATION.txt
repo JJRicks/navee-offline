@@ -1,3 +1,214 @@
+GAUGE SCALE PREFILL — REVIEW FOLLOW-UP
+October 13, 2026
+
+- Reproduced Claude's non-blocking finding: 23.5 C prefilled as
+  74.30000000000001 F, and 50 km/h as 31.068559611866696 mph.
+- Gauge scale fields now round display text to six decimals, strip trailing zeros,
+  and retain a decimal point independent of locale. Very small nonzero limits
+  remain nonzero. Saving the unchanged displayed number preserves the exact
+  original canonical bound; edited values follow existing inverse conversion
+  and min/max validation.
+- All fifteen pure suites pass 46,213 checks/assertions. Nineteen new focused
+  cases cover Fahrenheit and mph prefills, exact unchanged saves, intentional
+  edits, German locale, negative/small values and nonfinite rejection.
+- Signed production build passes signing/alignment checks. The hotfix changes
+  only gauge-edit text handling; previous native UI validation is recorded below.
+
+Hotfix preview APK SHA-256:
+09fb7732e9500c2f7e8c72a357bfbaec84e57bf66781a68a0e433ba7b0ae0077
+
+TEMPERATURE UNITS AND LARGER SCOOTER VALUES — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- All fourteen pure suites pass 46,194 checks/assertions, including 54 temperature
+  tests for freezing, negative readings, inverse conversion, ranges, missing and
+  nonfinite readings, and default/future preferences. Production and runner builds
+  pass signing/alignment checks.
+- Larger My Scooter values pass three existing responsive native cases at
+  344x882 dp, 725x604 dp, and 360x800 dp with 140% text. Default caption/value
+  bounds and no inner overflow pass; screenshots inspected at all three sizes.
+  This matrix uses the two-reading default. The unchanged fitter also handles
+  custom lists, but the larger multi-reading values were not independently
+  exercised in that matrix.
+- The combined temperature build passes another 725x604 dp native card case.
+  Manual emulator check selects Fahrenheit through App preferences, confirms
+  selection after the rebuild, and shows cached 23 C as 73 F in Stats. Selector
+  and Stats screenshots inspected. Celsius remains the default; raw telemetry,
+  stored history and gauge bounds stay Celsius, with inverse conversion on edits.
+- Final signed preview updated the Pixel in place. The disposable emulator was
+  stopped after restoring its screen/font overrides. No release or merge occurred.
+  Temperature chart/ride-summary formatting and gauge-limit edits are integrated
+  but were not individually exercised through the UI in this pass.
+
+Preview APK SHA-256:
+19282da6a857197c8a9da36de67c9558a6a23feb25602f2da4e09a57ccee29a9
+
+READINGS PICKER AND COMPACT SCOOTER CAPTIONS — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- Production build passes compilation, signing and alignment. Final preview
+  updated the Pixel in place; the dashboard resumed with the compact captions.
+- Native dark-mode picker screenshot inspected: themed icon/label/category rows,
+  tinted checkboxes, readable search, selection counter and fixed Save footer.
+  Manual filtering by "range" retained the selected estimated range and showed
+  related settings. A temporary draft selection updated the counter and checkbox;
+  the sheet was cancelled. Tapping a result released search focus.
+- After that check, pinned the search/header to a stable available sheet height
+  across query changes and added compact labels as search aliases. The final build
+  visibly displays Odometer, Est. range and Battery temp. while accessibility
+  descriptions retain the original full names. Source inspection confirms compact
+  mappings cover all 93 catalog keys, with a full-label fallback for future keys.
+- Further phone interaction was left to the owner when they resumed using it.
+  The final fixed-height/search-alias adjustment, light mode and enlarged text
+  were not separately exercised in this pass. No automated suites were rerun for
+  this UI-only change; earlier results below refer to their recorded previews.
+
+Preview APK SHA-256:
+c6c996019c4f33ac4bf9e8e891536870a07ed9ffbe70ed8cbd9facd55d1b5e16
+
+BATTERY TRACK CONTRAST — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- Paint-only battery overview change: tinted empty capacity, faint diagonal
+  texture and full-capacity outline. Fill geometry and reading logic are unchanged.
+- Production build passes compilation, APK signing and alignment. Updated the
+  Pixel in place without resetting data; launch returned Status: ok with the
+  existing activity receiving the intent.
+- Inspected the native unfolded Pixel screenshot in dark mode at simulated 78%:
+  empty capacity is visibly distinct from the solid fill and surrounding card.
+  Light mode and real-scooter behavior were not retested for this paint-only pass;
+  the earlier automated suite results below apply to the preceding preview.
+
+Preview APK SHA-256:
+f29b7b5dcc25760439a89794abdfed94d5a8c3d1243dcbf50687609e1fe88b20
+
+QUICK ACCESS AND EDITOR POLISH — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- All thirteen pure suites pass 46,140 checks/assertions, including 275 named
+  shortcut catalog and normalization checks. Production and native-runner builds
+  pass signing/alignment checks, using the same certificate as official 0.9.1.
+- Four final native quick-access cases pass: 344x882 dp, 725x604 dp,
+  360x800 dp with 140% app text, plus compact with animations disabled.
+  Four default buttons fit a moderate two-row card without scrolling; a shorter
+  card keeps scrolling. Every catalog label and target is measured, including
+  eight-item lists. Rendered fitted cards, long labels and options were inspected.
+- Native checks cover 2–8 ordered choices, duplicate prevention, search,
+  copies, absence of redundant Size options, grouped larger editor controls,
+  and new-widget Save -> reveal -> cleanup. Arrival checks observe animator state
+  rather than assuming fixed wall-clock timing; focus/detach/touch cleanup and
+  reduced-motion positioning are included.
+- Simulated traction and recovery changes stay on Home; kick-start and settings
+  sheets open there. App and Security panels preserve More's saved navigation,
+  dismiss cleanly and release their references. No real scooter mutation occurs.
+- Native slots/history checks pass 357 assertions in thirteen groups, including
+  action count/order, legacy defaults, malformed IDs and independent copies.
+- The exact production APK updated the Pixel in place and returned Status: ok
+  on launch; its process was confirmed running. No app-data reset was performed.
+  The disposable emulator's size/font/motion overrides were restored before stop.
+  This remains an unmerged preview with 0.9.1/code 21 metadata; real-scooter
+  quick-action behavior has not been retested in this pass.
+
+Preview APK SHA-256:
+1c3d7fa911907f37cc5323b5f99106809127a89403d5972bac7a864f3ebb6869
+
+PREFERENCES AND SIMULATED CONNECTION — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- All twelve pure suites passed 45,865 checks/assertions, including 2,817 new
+  simulator-model assertions. Production build passes signing/alignment checks;
+  source still identifies this unmerged preview as 0.9.1/code 21.
+- Native preference/developer cases passed at 344x882 dp, 725x604 dp and
+  360x800 dp with 140% app text. They check readable selector labels, >=48 dp
+  targets, radio semantics, saved preferences and the hidden seven-tap menu.
+- A fourth case passed with Android animations disabled, including synthetic
+  source=-1 readings with no raw frames/statuses, charging preview and Home's
+  sample banner. The four cases total 1,885 assertions. Compact preference and
+  simulated Home screenshots were inspected.
+- The full compact simulator case passed 604 assertions. Every catalog field
+  has fresh sample data; charts are bounded and temporary. Local lock/unlock,
+  disconnect/reconnect and scanner paths leave GATT, scanner, writer, queue and
+  mutation state idle. Recording and phone sensors remain stopped. Background
+  connection preferences cannot keep the simulator ticking or hold a wake lock.
+- After replacing queued developer-unlock countdown toasts with one short
+  updatable toast, the final production APK passed the compact native developer
+  case again (713 assertions). The exact validated APK updated the Pixel in place;
+  no uninstall or data reset was used. A cold launch returned Status: ok and
+  Android reported MainActivity resumed. The disposable emulator was stopped.
+- Tests compare actual logical SQLite rows, profile/control-evidence preferences
+  and private ride files before/after simulation and service recreation: all
+  are unchanged. Exit restores genuine stale readings; service recreation starts
+  with simulation off. Preference and simulation screenshots are inspected.
+
+ICON-ONLY EDITOR, GRID HISTORY AND EDIT MOTION — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- Production and native-runner builds pass. Three native editor cases passed
+  at 344x882, 725x604 and 360x800 dp (140% app text). All fifteen widget types
+  keep four matching icon-only controls in one row, with centered glyphs and
+  non-overlapping equal 36-48 dp targets; the resize corner remains 48 dp.
+- Grouped curved Undo/Redo arrows fit beside Done with equal 48 dp targets and
+  are hidden outside editing. Native tests cover duplicate/delete undo/redo,
+  current settings surviving removal/restoration, committed move/resize history,
+  cancelled gestures preserving both stacks, and unchanged Save operations.
+- A fourth editor case passed with Android animations disabled. Removal commits
+  immediately; normal completion and immediate Undo release the bounded poof
+  snapshot, while disabled animation creates none. No scooter writes occurred.
+- The updated slot/history suite passed 330 assertions in twelve groups. Its
+  new cases cover all-column geometry, widget identity and settings preservation,
+  no-op/redo behavior, the bounded history, explicit clearing, profile isolation
+  and absence of persistence writes from the history model itself.
+
+- Three additional native motion cases passed: compact and expanded screens,
+  plus compact with Android animations disabled. They verify synchronous edit
+  state changes, settled transition geometry, bounded canvas-only jiggle with
+  fixed hit targets, gesture pause, real focus loss/resume, detach, rapid toggles,
+  recycled exit snapshots and taps spanning the exit transition being consumed.
+
+The user explicitly requested and received the earlier PR #12 preview on the
+Pixel after the initial PR handoff. The install used an in-place update and a
+successful cold launch was verified. Version metadata remains 0.9.1 for this
+preview; it is not an official release or an independently approved merge.
+
+DASHBOARD EDITOR AND SIX-COLUMN LAYOUT — UNRELEASED VALIDATION
+October 13, 2026
+
+- All eleven core suites passed 43,048 checks/assertions. Coverage includes
+  collision-free placement through six columns, proportional layout migration,
+  content-width floors and preview/cancellation behavior. Production builds pass
+  APK v2/v3 signing and 16 KiB alignment checks with the existing Java warnings.
+- Focused native emulator cases passed at 344x882 and 725x604 dp for all fifteen
+  widget types, edit-control bounds, separate 48 dp touch targets, Save/title
+  handling, duplication/removal, six-column sizing, the four/two top-row split,
+  minimum-width resize clamping and cancellation preserving stored rectangles.
+  A 360x800 dp case with 140% app text passed the editor-geometry checks.
+- Native layout-slot validation passed 297 assertions in ten groups, including
+  all fifteen types, legacy snapshots, one- through six-column round trips,
+  optional Disconnect preference and per-scooter/slot isolation.
+- Compact constraints passed with normal animation and with Android animation
+  disabled. These cover Disconnect visibility, Connect/Cancel availability,
+  confirmed lock accessibility state during motion, lifecycle cancellation and
+  charging layouts. Fixtures change presentation only; no scooter writes occur.
+- The final Gauge build passed three focused native cases at 344x882, 725x604
+  and 360x800 dp (140% app text): sixty combinations of minimum/full widths,
+  short/tall heights and live, dual-unit, unknown, stale and long negative values.
+  Measured glyph bounds stay inside the 270-degree ring, range labels retain
+  padding below it, and stale timestamps remain visible and accessible. Native
+  compact/expanded drawings were inspected. A final compact editor case also
+  passed and confirmed that SPORT remains on one line. Nine responsive cases
+  passed in total; the temporary emulator was shut down afterward.
+- Initial emulator failures were traced to test-only issues: bounds subtracted
+  a child TextView's own scroll rather than its parent's scroll, and a queued
+  presentation refresh replaced the synthetic charging state. Both were fixed
+  in the runner before the successful focused reruns.
+
+Separately, the owner's authorized slot-2 setup saved all fifteen widget types
+with default heights and a two-column layout on the Pixel. A temporary same-
+signed helper changed only that slot, verified it in a fresh process, and was
+removed. The existing active dashboard, other slots and profile data were
+preserved. At that point the unreleased editor was not installed; the Pixel
+was still on the official 0.9.1 build. No release or merge is part of this validation.
+
 NAVEE OFFLINE 0.9.1 — RELEASE VALIDATION
 October 13, 2026
 

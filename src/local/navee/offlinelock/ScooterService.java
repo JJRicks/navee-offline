@@ -85,6 +85,29 @@ public final class ScooterService extends Service {
     }
     @Override public IBinder onBind(Intent intent){return binder;}
     public void listen(Runnable listener){listeners.add(listener);}public void unlisten(Runnable listener){listeners.remove(listener);}
+    public boolean simulating() { return ble != null && ble.simulating(); }
+
+    /** Runtime-only preview: actual caches and journals never receive sample readings. */
+    public boolean setSimulation(boolean enabled) {
+        if (destroyed || ble == null) return false;
+        if (enabled == simulating()) return true;
+        if (enabled && (isRecording() || phoneSaving())) {
+            android.widget.Toast.makeText(this, "Finish the current recording before simulating", android.widget.Toast.LENGTH_LONG).show();
+            return false;
+        }
+        if (enabled && (profiles.active() == null || !settings.getBoolean("developer_options", false))) return false;
+        // Flush only genuine data before the BLE layer closes its current connection.
+        if (enabled) { observeTelemetry(); persistHistory(true); }
+        historyConnected = false; historyDirty = false; observedSources.clear();
+        power.clear(); voltage.clear(); speed.clear();
+        invalidateCapacityEstimate();
+        ble.setSimulation(enabled);
+        cancelBackgroundDeadline();
+        applyWorkPolicy(false);
+        changed();
+        return simulating() == enabled;
+    }
+
     public boolean isRecording(){return rides!=null&&rides.activeId()!=null;}
     public String recordingError(){return recordingError;}
     public boolean phoneSaving(){return phoneSavingCount>0;}
@@ -103,6 +126,7 @@ public final class ScooterService extends Service {
     public boolean isVisible(){return visible;}
     public long backgroundDeadlineMs(){return backgroundDeadlineMs;}
     public boolean workAllowed(){
+        if (simulating()) return visible;
         return visible
                 || isRecording()
                 || phoneSaving()
@@ -146,6 +170,18 @@ public final class ScooterService extends Service {
 
     private void applyWorkPolicy(boolean connect){
         if(destroyed)return;
+        if (simulating()) {
+            cancelBackgroundDeadline();
+            ble.visibility(visible, false, 0);
+            handler.removeCallbacks(tick);
+            workActive = visible;
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+            // A visual preview has no reason to keep a foreground service or sensors alive.
+            stopForeground(STOP_FOREGROUND_REMOVE); foregroundStarted = false;
+            if (visible) handler.post(tick);
+            changed();
+            return;
+        }
         if (visible
                 || isRecording()
                 || phoneSaving()
@@ -165,7 +201,10 @@ public final class ScooterService extends Service {
         if(wakeLock!=null&&wakeLock.isHeld()&&!isRecording()&&!phoneSaving())wakeLock.release();
         stopForeground(STOP_FOREGROUND_REMOVE);foregroundStarted=false;stopSelf();
     }
-    public void startRide(String label){if(phoneSaving()){
+    public void startRide(String label){if(simulating()) {
+            android.widget.Toast.makeText(this, "Turn off simulation to record a real ride", android.widget.Toast.LENGTH_SHORT).show();
+            return;
+        }if(phoneSaving()){
             android.widget.Toast.makeText(
                             this, "Finishing the previous ride", android.widget.Toast.LENGTH_SHORT)
                     .show();
@@ -179,6 +218,7 @@ public final class ScooterService extends Service {
                     "Recording could not be saved. Free some phone storage, then try Stop again.";
             android.widget.Toast.makeText(this,recordingError,android.widget.Toast.LENGTH_LONG).show();changed();return;}stopPhoneRecording();if(wakeLock.isHeld()&&!phoneSaving())wakeLock.release();applyWorkPolicy(false);changed();}
     private void startPhoneRecording(){
+        if (simulating()) return;
         if(phoneRides==null||!isRecording()||phoneRecorder!=null)return;
         boolean gps =
                 settings.getBoolean("phone_gps", true)
@@ -194,6 +234,7 @@ public final class ScooterService extends Service {
     }
     private void stopPhoneRecording(){if(phoneRecorder!=null){PhoneRideRecorder finishing=phoneRecorder;phoneRecorder=null;phoneSavingCount++;finishing.stop(()->handler.post(()->{phoneSavingCount=Math.max(0,phoneSavingCount-1);phoneFinalStatus=finishing.status();if(!destroyed){if(!isRecording()&&!phoneSaving()&&wakeLock.isHeld())wakeLock.release();applyWorkPolicy(false);changed();}}));}phoneLocationForeground=false;}
     private void recordPhoneTelemetry(long now){
+        if (simulating()) return;
         if(phoneRecorder==null)return;Telemetry.Metric speedMetric=null,volts=null,amps=null,battery=null;
         if(ble.connected())for(Telemetry.Metric m:ble.telemetry.metrics()){
             if(m.numericValue==null||m.updatedMs<0||now<m.updatedMs||now-m.updatedMs>3000)continue;
@@ -206,6 +247,13 @@ public final class ScooterService extends Service {
         phoneRecorder.telemetry(now,speedMetric==null?null:speedMetric.numericValue,pair?volts.numericValue*amps.numericValue:null,battery==null?null:battery.numericValue,speedMetric==null?-1:speedMetric.updatedMs,pair?volts.updatedMs:-1,battery==null?-1:battery.updatedMs);
     }
     public List<Ui.Point> trend(String key){
+        if (simulating()) {
+            long wall = System.currentTimeMillis(), mono = SystemClock.elapsedRealtime();
+            List<Ui.Point> points = new ArrayList<>();
+            for (TelemetryHistory.Point p : simulationHistory(key, wall - 120000, wall))
+                points.add(new Ui.Point(p.wallMs - wall + mono, p.value, p.gapBefore));
+            return points;
+        }
         ArrayDeque<Ui.Point> source =
                 key.equals("voltage_v") ? voltage : key.equals("speed_kmh") ? speed : power;
         return new ArrayList<>(source);}
@@ -216,6 +264,12 @@ public final class ScooterService extends Service {
                     if (destroyed || !workActive) return;
                     if (!workAllowed()) {
                         stopIdleWork();
+                        return;
+                    }
+                    if (simulating()) {
+                        ble.tickSimulation();
+                        if (visible) changed();
+                        if (visible && workActive) handler.postDelayed(this, 1000);
                         return;
                     }
                     long mono = SystemClock.elapsedRealtime(), wall = System.currentTimeMillis();
@@ -324,6 +378,15 @@ public final class ScooterService extends Service {
      * this cache.
      */
     public Map<String, TelemetryHistory.Reading> displayReadings() {
+        if (simulating()) {
+            Map<String, TelemetryHistory.Reading> samples = new LinkedHashMap<>();
+            long wall = System.currentTimeMillis(), mono = SystemClock.elapsedRealtime();
+            for (Telemetry.Metric m : ble.telemetry.metrics())
+                samples.put(m.key, new TelemetryHistory.Reading(m.key, m.label, m.group,
+                        m.value, TelemetryHistory.unitFor(m.key), m.numericValue,
+                        Math.max(1, wall - Math.max(0, mono - m.updatedMs)), ble.connected()));
+            return Collections.unmodifiableMap(samples);
+        }
         observeTelemetry();
         String id = activeProfileId();
         TelemetryHistory.Snapshot snapshot = displayCache.get(id);
@@ -371,6 +434,11 @@ public final class ScooterService extends Service {
             return;
         }
         String profile = activeProfileId();
+        if (simulating()) {
+            callback.accept(BatteryCapacityEstimate.unavailable(profile, advertisedWh, windowDays,
+                    "Simulation uses sample data; real ride analysis is paused"));
+            return;
+        }
         int days = Math.max(1, Math.min(3650, windowDays));
         Double reference = advertisedWh != null && Double.isFinite(advertisedWh) && advertisedWh > 0 ? advertisedWh : null;
         if (destroyed || rides == null || profile.isEmpty()) {
@@ -420,7 +488,35 @@ public final class ScooterService extends Service {
         });
     }
 
+    /** Bounded, generated chart previews; no database writes or real history queries. */
+    public List<TelemetryHistory.Point> simulationHistory(String key, long from, long to) {
+        if (!simulating() || to <= from) return Collections.emptyList();
+        Double base = ble.telemetry.number(key);
+        if (base == null || !Double.isFinite(base)) return Collections.emptyList();
+        List<TelemetryHistory.Point> points = new ArrayList<>();
+        for (int i = 0; i < 120; i++) {
+            double fraction = i / 119d;
+            double value = base;
+            if (key.equals("power_w")) value += 5 * Math.sin(fraction * 24);
+            else if (key.equals("voltage_v")) value += .15 * Math.sin(fraction * 18);
+            else if (key.equals("temperature_c")) value += .6 * Math.sin(fraction * 8);
+            else if (key.equals("battery_health_percent")) value = Math.min(100, base + 1 - fraction);
+            else if (key.equals("battery_percent")) value = Math.min(100, base + 8 * (1 - fraction));
+            else if (key.equals("odometer_km")) value = Math.max(0, base - 3 * (1 - fraction));
+            points.add(new TelemetryHistory.Point(from + (long) ((to - (double) from) * fraction), value, false));
+        }
+        return points;
+    }
+
     public Map<String, Integer> displayFeatures() {
+        if (simulating()) {
+            Map<String, Integer> samples = new LinkedHashMap<>();
+            for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
+                Integer value = ble.featureValue(f.key);
+                if (value != null) samples.put(f.key, value);
+            }
+            return Collections.unmodifiableMap(samples);
+        }
         observeTelemetry();
         TelemetryHistory.Snapshot snapshot = displayCache.get(activeProfileId());
         return snapshot == null ? Collections.emptyMap() : snapshot.features;
@@ -473,7 +569,7 @@ public final class ScooterService extends Service {
     }
 
     private void observeTelemetry() {
-        if (history == null || destroyed || ble == null) return;
+        if (history == null || destroyed || ble == null || simulating()) return;
         ensureDisplayCache();
         String id = activeProfileId();
         ScooterProfiles.Profile connected = ble.profile();
@@ -555,7 +651,7 @@ public final class ScooterService extends Service {
     }
 
     private void persistHistory(boolean force) {
-        if (history == null || !historyDirty || observedProfile.isEmpty()) return;
+        if (simulating() || history == null || !historyDirty || observedProfile.isEmpty()) return;
         long now = SystemClock.elapsedRealtime();
         if (!force && now - lastHistoryWrite < 5000) return;
         TelemetryHistory.Snapshot snapshot = displayCache.get(observedProfile);
@@ -591,7 +687,7 @@ public final class ScooterService extends Service {
     }
 
     private void startForegroundNotice(boolean startup) {
-        if (!ble.permissions() || (!startup && !workAllowed())) return;
+        if ((!startup && simulating()) || !ble.permissions() || (!startup && !workAllowed())) return;
         Notification notice = notification();
         if (Build.VERSION.SDK_INT >= 29)
             startForeground(
@@ -664,6 +760,7 @@ public final class ScooterService extends Service {
             o.put("format", "navee-offline-diagnostics-v1");
             o.put("app_version", AppVersion.name(this));
             o.put("captured_at_ms", System.currentTimeMillis());
+            o.put("simulated", simulating());
             o.put("connected", ble.ready());
             o.put("connection", ble.state().name());
             o.put("mtu", ble.mtu());

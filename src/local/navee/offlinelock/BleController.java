@@ -24,6 +24,7 @@ public final class BleController {
     private final Context context;private final ScooterProfiles profiles;private final Handler handler=new Handler(Looper.getMainLooper());private final BluetoothAdapter adapter;
     private final Protocol.Decoder decoder=new Protocol.Decoder();private final ArrayDeque<byte[]> queue=new ArrayDeque<>();private final ArrayList<String> events=new ArrayList<>();
     private final LinkedHashMap<String,ScanResult> discoveries=new LinkedHashMap<>();private final LinkedHashMap<String,String> commandResults=new LinkedHashMap<>();
+    private ScooterSimulation simulation;private boolean simulationChanging;
     private Listener listener;private BluetoothGatt gatt;private BluetoothGattCharacteristic writer;private BluetoothLeScanner scanner;private ScooterProfiles.Profile profile;
     private State state=State.DISCONNECTED;private String message="Ready when your scooter is.",serial="";private boolean authenticated,wanted,scanning,writing,mtuRequested,discovered,subscribing,subscribed,challengePending,visible,recording;
     private int generation,writeOperation,authRounds,retries,pollTicks,mtu=23;private long statusMs,lastFrameMs,motionMs,warningMs;private int speedRaw=-1,driving=-1,warning;
@@ -32,32 +33,61 @@ public final class BleController {
     private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
     public BleController(Context c,ScooterProfiles p){context=c.getApplicationContext();profiles=p;BluetoothManager m=context.getSystemService(BluetoothManager.class);adapter=m==null?null:m.getAdapter();IntentFilter filter=new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);if(Build.VERSION.SDK_INT>=33)context.registerReceiver(bluetoothReceiver,filter,Context.RECEIVER_EXPORTED);else context.registerReceiver(bluetoothReceiver,filter);}
     public void setListener(Listener l){listener=l;}
-    public State state(){return state;}public String message(){return message;}public boolean ready(){return workAllowed()&&state==State.READY&&authenticated&&gatt!=null&&statusMs>0&&now()-statusMs<=7000&&!serial.isEmpty();}
-    public boolean connected(){return gatt!=null&&authenticated;}public Boolean locked(){Integer n=featureValue("lock");return ready()&&n!=null?(n!=0):null;}
+    /** Runtime only. The transition guard also prevents listeners from persisting display samples. */
+    public boolean simulating(){return simulationChanging||simulation!=null;}
+    public void setSimulation(boolean enabled){
+        if(simulationChanging||enabled==(simulation!=null))return;
+        simulationChanging=true;
+        // Cancel pending real operations before any sample can be displayed. In-flight
+        // callbacks also lose their generation/GATT identity when close() runs.
+        wanted=false;handler.removeCallbacksAndMessages(null);clearMutation();
+        close(State.DISCONNECTED);telemetry.clear();profile=null;scanner=null;discoveries.clear();commandResults.clear();
+        simulation=enabled?new ScooterSimulation():null;
+        state=enabled?State.READY:State.DISCONNECTED;
+        if(enabled)updateSimulation();
+        simulationChanging=false;
+        notice(enabled?"Simulation active · no scooter is connected.":"Simulation ended. Your scooter remains disconnected.");
+    }
+    /** Called by the visible UI's existing timer; no simulator background loop is created. */
+    public void tickSimulation(){if(simulation==null||state!=State.READY)return;updateSimulation();}
+    private void updateSimulation(){
+        if(simulation==null)return;
+        long time=Math.max(1,now());simulation.tick(telemetry,time);
+        statusMs=lastFrameMs=motionMs=warningMs=time;speedRaw=driving=warning=0;serial="SIMULATION";
+    }
+    public Map<String,Integer> simulationFeatures(){return simulation==null?Collections.emptyMap():simulation.features();}
+    public boolean simulationCharging(){return simulation!=null&&simulation.charging();}
+    public void setSimulationCharging(boolean charging){if(simulation==null)return;simulation.setCharging(charging);tickSimulation();changed();}
+    private void connectSimulation(){if(simulation==null)return;state=State.READY;updateSimulation();notice("Simulation connected · no Bluetooth traffic.");}
+    private void simulationUnavailable(String action){notice(action+" is unavailable in simulation. No scooter command was sent.");}
+    public State state(){return state;}public String message(){return message;}public boolean ready(){if(simulating())return simulation!=null&&state==State.READY;return workAllowed()&&state==State.READY&&authenticated&&gatt!=null&&statusMs>0&&now()-statusMs<=7000&&!serial.isEmpty();}
+    public boolean connected(){return simulating()?simulation!=null&&state==State.READY:gatt!=null&&authenticated;}public Boolean locked(){Integer n=featureValue("lock");return ready()&&n!=null?(n!=0):null;}
     public String pending(){return mutation==null?null:mutation.key;}public int mtu(){return mtu;}public long statusAge(){return statusMs==0?Long.MAX_VALUE:now()-statusMs;}public long lastFrameAge(){return lastFrameMs==0?Long.MAX_VALUE:now()-lastFrameMs;}
-    public boolean stationary(){return motionMs>0&&now()>=motionMs&&now()-motionMs<6000&&speedRaw==0&&driving==0;}
+    public boolean stationary(){if(simulating())return simulation!=null&&state==State.READY;return motionMs>0&&now()>=motionMs&&now()-motionMs<6000&&speedRaw==0&&driving==0;}
     public ScooterProfiles.Profile profile(){return profile==null?profiles.active():profile;}public List<ScanResult> discoveries(){return new ArrayList<>(discoveries.values());}public List<String> events(){return new ArrayList<>(events);}public Map<String,String> commandResults(){return new LinkedHashMap<>(commandResults);}public ScooterCommands.PinState pinState(){return pinState;}
-    public Integer featureValue(String key){try{return ScooterCommands.find(key).readback(statusFrame);}catch(Exception e){return null;}}
-    public int[] featureChoices(String key){try{return ScooterCommands.choiceValues(key,statusFrame);}catch(Exception e){return new int[0];}}
+    public Integer featureValue(String key){if(simulating())return simulation==null?null:simulation.featureValue(key);try{return ScooterCommands.find(key).readback(statusFrame);}catch(Exception e){return null;}}
+    public int[] featureChoices(String key){if(simulating())return simulation==null?new int[0]:simulation.featureChoices(key);try{return ScooterCommands.choiceValues(key,statusFrame);}catch(Exception e){return new int[0];}}
     public boolean permissions(){return Build.VERSION.SDK_INT>=31?context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED&&context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED:context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
     public boolean bluetoothEnabled(){return adapter!=null&&permissions()&&adapter.isEnabled();}
-    public boolean bonded(){return permissions()&&gatt!=null&&gatt.getDevice().getBondState()==BluetoothDevice.BOND_BONDED;}
-    public void bond(){ScooterCommands.Feature f=ScooterCommands.find("proximity_key");if(!canChange(f))return;if(pinStateMs==0||now()-pinStateMs>10000){readPin();notice("Read PIN status, then pair this phone.");return;}if(pinState==null||pinState.status!=0||!pinState.configured||!Boolean.TRUE.equals(pinState.enabled)){notice("Configure and enable the dashboard PIN before pairing for proximity unlock.");return;}if(bonded()){notice("This phone is already paired with your scooter.");return;}try{if(gatt.getDevice().createBond())notice("Approve the Bluetooth pairing request on your phone.");else notice("Bluetooth pairing could not start. Try again.");}catch(Exception e){notice("Bluetooth pairing is unavailable.");}}
-    private final BroadcastReceiver bluetoothReceiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent intent){if(BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())){int value=intent.getIntExtra(BluetoothAdapter.EXTRA_STATE,-1);if(value==BluetoothAdapter.STATE_OFF&&gatt!=null)failed("Bluetooth is off. Pending actions were cancelled.",true);else if(value==BluetoothAdapter.STATE_ON&&wanted&&gatt==null&&workAllowed())connectLast();return;}BluetoothDevice device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);if(device==null||gatt==null||!device.getAddress().equals(gatt.getDevice().getAddress()))return;int value=intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE,-1);if(value==BluetoothDevice.BOND_BONDED)notice("Phone paired. You can now enable proximity unlock.");else if(value==BluetoothDevice.BOND_NONE)notice("Bluetooth pairing is not active.");}};
-    private boolean workAllowed(){return visible||recording||context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getBoolean("background_connection",false)||backgroundDeadlineMs>now();}
+    public boolean bonded(){return !simulating()&&permissions()&&gatt!=null&&gatt.getDevice().getBondState()==BluetoothDevice.BOND_BONDED;}
+    public void bond(){if(simulating()){simulationUnavailable("Bluetooth pairing");return;}ScooterCommands.Feature f=ScooterCommands.find("proximity_key");if(!canChange(f))return;if(pinStateMs==0||now()-pinStateMs>10000){readPin();notice("Read PIN status, then pair this phone.");return;}if(pinState==null||pinState.status!=0||!pinState.configured||!Boolean.TRUE.equals(pinState.enabled)){notice("Configure and enable the dashboard PIN before pairing for proximity unlock.");return;}if(bonded()){notice("This phone is already paired with your scooter.");return;}try{if(gatt.getDevice().createBond())notice("Approve the Bluetooth pairing request on your phone.");else notice("Bluetooth pairing could not start. Try again.");}catch(Exception e){notice("Bluetooth pairing is unavailable.");}}
+    private final BroadcastReceiver bluetoothReceiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent intent){if(simulating())return;if(BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())){int value=intent.getIntExtra(BluetoothAdapter.EXTRA_STATE,-1);if(value==BluetoothAdapter.STATE_OFF&&gatt!=null)failed("Bluetooth is off. Pending actions were cancelled.",true);else if(value==BluetoothAdapter.STATE_ON&&wanted&&gatt==null&&workAllowed())connectLast();return;}BluetoothDevice device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);if(device==null||gatt==null||!device.getAddress().equals(gatt.getDevice().getAddress()))return;int value=intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE,-1);if(value==BluetoothDevice.BOND_BONDED)notice("Phone paired. You can now enable proximity unlock.");else if(value==BluetoothDevice.BOND_NONE)notice("Bluetooth pairing is not active.");}};
+    private boolean workAllowed(){if(simulating())return false;return visible||recording||context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getBoolean("background_connection",false)||backgroundDeadlineMs>now();}
     public void visibility(boolean v,boolean r){visibility(v,r,0);}
-    public void visibility(boolean v,boolean r,long deadline){boolean resumed=v&&!visible;visible=v;recording=r;backgroundDeadlineMs=deadline;if(!workAllowed())suspend();else if(resumed&&authenticated)refresh(false);}
-    public void connectLast(){if(!workAllowed()){suspend();return;}ScooterProfiles.Profile p=profiles.active();if(p==null||!p.configured()){notice("Add your scooter’s owner identity to get started.");return;}if(gatt!=null&&(state==State.CONNECTING||state==State.AUTHENTICATING||connected())&&profile!=null&&p.id.equals(profile.id))return;wanted=true;retries=0;if(p.mac.isEmpty())scan();else connect(p,p.mac);}
-    public void connectDiscovered(ScanResult result){if(!workAllowed()){suspend();return;}ScooterProfiles.Profile p=profiles.active();if(p==null||!p.configured()){notice("Set up an owner profile first.");return;}wanted=true;retries=0;connect(p,result.getDevice().getAddress());}
-    public void disconnect(){wanted=false;handler.removeCallbacksAndMessages(null);close(State.DISCONNECTED);telemetry.clear();profile=null;notice("Disconnected. Tap Connect when you’re ready.");}
+    public void visibility(boolean v,boolean r,long deadline){if(simulating()){visible=v;recording=false;backgroundDeadlineMs=0;if(v)tickSimulation();return;}boolean resumed=v&&!visible;visible=v;recording=r;backgroundDeadlineMs=deadline;if(!workAllowed())suspend();else if(resumed&&authenticated)refresh(false);}
+    public void connectLast(){if(simulating()){connectSimulation();return;}if(!workAllowed()){suspend();return;}ScooterProfiles.Profile p=profiles.active();if(p==null||!p.configured()){notice("Add your scooter’s owner identity to get started.");return;}if(gatt!=null&&(state==State.CONNECTING||state==State.AUTHENTICATING||connected())&&profile!=null&&p.id.equals(profile.id))return;wanted=true;retries=0;if(p.mac.isEmpty())scan();else connect(p,p.mac);}
+    public void connectDiscovered(ScanResult result){if(simulating()){connectSimulation();return;}if(!workAllowed()){suspend();return;}ScooterProfiles.Profile p=profiles.active();if(p==null||!p.configured()){notice("Set up an owner profile first.");return;}wanted=true;retries=0;connect(p,result.getDevice().getAddress());}
+    public void disconnect(){if(simulating()){state=State.DISCONNECTED;notice("Simulation disconnected. Your real scooter is unchanged.");return;}wanted=false;handler.removeCallbacksAndMessages(null);close(State.DISCONNECTED);telemetry.clear();profile=null;notice("Disconnected. Tap Connect when you’re ready.");}
     /** Stop every pending connection operation; saved profiles and diagnostic history survive. */
     public void suspend(){
+        if(simulating())return;
         wanted=false;handler.removeCallbacksAndMessages(null);
         if(gatt==null&&!scanning&&state==State.DISCONNECTED&&mutation==null&&queue.isEmpty())return;
         close(State.DISCONNECTED);notice("Bluetooth paused while the app is in the background.");
     }
-    public void destroy(){wanted=false;close(State.DISCONNECTED);handler.removeCallbacksAndMessages(null);listener=null;try{context.unregisterReceiver(bluetoothReceiver);}catch(Exception ignored){}}
+    public void destroy(){if(simulating()){telemetry.clear();simulation=null;simulationChanging=false;commandResults.clear();}wanted=false;close(State.DISCONNECTED);handler.removeCallbacksAndMessages(null);listener=null;try{context.unregisterReceiver(bluetoothReceiver);}catch(Exception ignored){}}
     public void scan(){
+        if(simulating()){simulationUnavailable("Bluetooth discovery");return;}
         if(!workAllowed()){suspend();return;}
         if(!permissions()){notice("Allow Nearby devices to find your scooter.");return;}if(!bluetoothEnabled()){notice("Turn on Bluetooth to connect.");return;}
         if(mutation!=null){notice("Wait for the current scooter change before scanning.");return;}
@@ -75,6 +105,7 @@ public final class BleController {
     }
     private void stopScan(){++scanSequence;if(scanTimeout!=null)handler.removeCallbacks(scanTimeout);scanTimeout=null;if(scanning&&scanner!=null&&scanCallback!=null)try{scanner.stopScan(scanCallback);}catch(Exception ignored){}scanning=false;scanCallback=null;}
     private void connect(ScooterProfiles.Profile p,String mac){
+        if(simulating())return;
         if(!workAllowed()){suspend();return;}
         if(!permissions()){notice("Allow Nearby devices to connect.");return;}if(!bluetoothEnabled()){notice("Turn on Bluetooth to connect.");return;}
         close(State.CONNECTING);profile=p;telemetry.clear();pinState=null;loadResults();message="Connecting to "+p.name+"…";changed();
@@ -82,10 +113,11 @@ public final class BleController {
         int session=generation;handler.postDelayed(()->{if(session==generation&&gatt!=null&&!ready())failed("Connection timed out. The scooter may be asleep.",true);},18000);
     }
     private void close(State next){
-        ++generation;++writeOperation;stopScan();BluetoothGatt old=gatt;gatt=null;writer=null;if(old!=null)try{old.disconnect();old.close();}catch(Exception ignored){}
+        ++generation;++writeOperation;stopScan();BluetoothGatt old=gatt;gatt=null;writer=null;if(old!=null){try{old.disconnect();}catch(Exception ignored){}try{old.close();}catch(Exception ignored){}}
         queue.clear();decoder.reset();if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=null;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
     }
     private void failed(String text,boolean retry){
+        if(simulating())return;
         boolean reconnect=retry&&wanted&&workAllowed();close(reconnect?State.WAITING:State.DISCONNECTED);notice(text);
         if(reconnect&&profile!=null&&!profile.mac.isEmpty()){
             int session=generation;long delay=Math.min(60000,1000L<<Math.min(6,retries++));event("Reconnect in "+delay/1000+"s");
@@ -112,10 +144,11 @@ public final class BleController {
         @Override public void onCharacteristicChanged(BluetoothGatt g,BluetoothGattCharacteristic c){if(Build.VERSION.SDK_INT<33&&c.getValue()!=null){byte[] copy=c.getValue().clone();handler.post(()->{if(g==gatt&&c.getUuid().equals(NOTIFY))incoming(copy);});}}
         @Override public void onCharacteristicWrite(BluetoothGatt g,BluetoothGattCharacteristic c,int code){handler.post(()->{if(g!=gatt)return;if(!workAllowed()){suspend();return;}writing=false;++writeOperation;if(code!=0){failed("Bluetooth write failed ("+code+"). Pending actions were cancelled.",true);return;}handler.postDelayed(BleController.this::pump,80);});}
     };
-    private void discover(BluetoothGatt g){if(g!=gatt||discovered)return;if(!workAllowed()){suspend();return;}discovered=true;if(!g.discoverServices())failed("Could not inspect the scooter’s services.",true);}
-    private void authenticate(){if(!workAllowed()){suspend();return;}if(profile==null||++authRounds>3){failed("Owner authentication did not complete.",false);return;}state=State.AUTHENTICATING;message="Authenticating offline…";authenticated=false;challengePending=false;changed();send(Protocol.auth(Protocol.fromHex(profile.identity),1,profile.role));}
-    private void send(byte[] frame){if(!workAllowed()||gatt==null||writer==null)return;if(frame.length==7)for(byte[] existing:queue)if(Arrays.equals(frame,existing))return;if(frame.length>7&&authenticated)queue.addFirst(frame);else queue.addLast(frame);pump();}
+    private void discover(BluetoothGatt g){if(simulating())return;if(g!=gatt||discovered)return;if(!workAllowed()){suspend();return;}discovered=true;if(!g.discoverServices())failed("Could not inspect the scooter’s services.",true);}
+    private void authenticate(){if(simulating())return;if(!workAllowed()){suspend();return;}if(profile==null||++authRounds>3){failed("Owner authentication did not complete.",false);return;}state=State.AUTHENTICATING;message="Authenticating offline…";authenticated=false;challengePending=false;changed();send(Protocol.auth(Protocol.fromHex(profile.identity),1,profile.role));}
+    private void send(byte[] frame){if(simulating())return;if(!workAllowed()||gatt==null||writer==null)return;if(frame.length==7)for(byte[] existing:queue)if(Arrays.equals(frame,existing))return;if(frame.length>7&&authenticated)queue.addFirst(frame);else queue.addLast(frame);pump();}
     private void pump(){
+        if(simulating()){queue.clear();writing=false;return;}
         if(!workAllowed()||writing||queue.isEmpty()||gatt==null||writer==null)return;byte[] frame=queue.removeFirst();int cmd=frame[3]&255;int type=(writer.getProperties()&BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)!=0?BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE:BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT;
         writing=true;if(mutation!=null&&Arrays.equals(frame,mutation.bytes)){mutation.sent=true;long token=mutation.token;int s=generation;handler.postDelayed(()->mutationTimeout(s,token),6500);}
         if(cmd==0x7a){pinReadPending=true;pinReadToken=mutation!=null&&mutation.ack?mutation.token:0;int s=generation;long request=++pinReadSequence;handler.postDelayed(()->{if(s==generation&&request==pinReadSequence&&pinReadPending){pinReadPending=false;notice("PIN status did not arrive. Tap Read PIN status to try again.");}},4500);}
@@ -124,6 +157,7 @@ public final class BleController {
         if(result!=0){writing=false;failed("Bluetooth is busy. Pending actions were cancelled.",true);return;}int op=++writeOperation,session=generation;handler.postDelayed(()->{if(session==generation&&writing&&op==writeOperation)failed("Bluetooth send timed out. Pending actions were cancelled.",true);},3500);
     }
     private void incoming(byte[] bytes){
+        if(simulating())return;
         if(!workAllowed())return;
         for(Protocol.Frame f:decoder.feed(bytes)){
             lastFrameMs=now();if(f.flag!=0){failed("Unsupported encrypted scooter response.",false);return;}
@@ -149,10 +183,11 @@ public final class BleController {
             changed();
         }
     }
-    private void remember(){if(authenticated&&gatt!=null&&!serial.isEmpty()&&statusMs>0){String address=gatt.getDevice().getAddress();boolean changed=!address.equals(profile.mac);profile.mac=address;if(changed||now()-savedProfileMs>60000||profile.lastConnected==0){profile.lastConnected=System.currentTimeMillis();profiles.update(profile);savedProfileMs=now();}state=State.READY;retries=0;if(mutation==null)message="Connected locally. Your scooter’s state is confirmed.";}}
-    public void refresh(boolean full){if(!workAllowed()||!authenticated)return;for(int cmd:full?ScooterCommands.diagnosticReads():new int[]{0x70,0x72,0x79})send(Protocol.frame(cmd,null));}
-    private void poll(int session){handler.postDelayed(()->{if(!workAllowed()||session!=generation||!authenticated||gatt==null)return;long silentLimit=visible||recording?12000:35000;if((lastFrameMs>0&&now()-lastFrameMs>silentLimit)||(statusMs>0&&now()-statusMs>silentLimit)){failed("Scooter readings stopped. Reconnecting locally…",true);return;}send(Protocol.frame(0x70,null));int interval=context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getInt("poll_interval_ms",2000);interval=Math.max(2000,Math.min(10000,interval));if((visible||recording)&&now()-lastBatteryPollMs>=(recording?2000:interval)){send(Protocol.frame(0x72,null));send(Protocol.frame(0x79,null));lastBatteryPollMs=now();}changed();poll(session);},visible||recording?2000:15000);}
+    private void remember(){if(simulating())return;if(authenticated&&gatt!=null&&!serial.isEmpty()&&statusMs>0){String address=gatt.getDevice().getAddress();boolean changed=!address.equals(profile.mac);profile.mac=address;if(changed||now()-savedProfileMs>60000||profile.lastConnected==0){profile.lastConnected=System.currentTimeMillis();profiles.update(profile);savedProfileMs=now();}state=State.READY;retries=0;if(mutation==null)message="Connected locally. Your scooter’s state is confirmed.";}}
+    public void refresh(boolean full){if(simulating()){tickSimulation();changed();return;}if(!workAllowed()||!authenticated)return;for(int cmd:full?ScooterCommands.diagnosticReads():new int[]{0x70,0x72,0x79})send(Protocol.frame(cmd,null));}
+    private void poll(int session){if(simulating())return;handler.postDelayed(()->{if(simulating()||!workAllowed()||session!=generation||!authenticated||gatt==null)return;long silentLimit=visible||recording?12000:35000;if((lastFrameMs>0&&now()-lastFrameMs>silentLimit)||(statusMs>0&&now()-statusMs>silentLimit)){failed("Scooter readings stopped. Reconnecting locally…",true);return;}send(Protocol.frame(0x70,null));int interval=context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getInt("poll_interval_ms",2000);interval=Math.max(2000,Math.min(10000,interval));if((visible||recording)&&now()-lastBatteryPollMs>=(recording?2000:interval)){send(Protocol.frame(0x72,null));send(Protocol.frame(0x79,null));lastBatteryPollMs=now();}changed();poll(session);},visible||recording?2000:15000);}
     private boolean canChange(ScooterCommands.Feature f){
+        if(simulating())return simulation!=null&&state==State.READY&&f!=null&&!f.sensitive;
         if(f==null){notice("This control is unavailable.");return false;}if(!ready()){notice("Wait for a fresh, verified scooter connection.");return false;}if(mutation!=null){notice("Wait for the current change to finish.");return false;}
         if(profile.pid()!=2538){notice("This control catalog is verified for UT5 MAX model 2538. Other models remain read-only.");return false;}
         if(f.requiresParked&&!stationary()){notice("Wait for a fresh stationary reading before changing this setting.");return false;}
@@ -160,25 +195,31 @@ public final class BleController {
         if(f.sensitive&&profile.role!=0){notice("PIN settings require the owner profile.");return false;}return true;
     }
     public boolean set(String key,int value){ScooterCommands.Feature f=ScooterCommands.find(key);
+        if(simulating()){
+            if(simulation==null||!ready()){notice("Connect the simulated scooter first.");return false;}
+            try{simulation.set(key,value);updateSimulation();result(key,"Simulated locally; no scooter command sent");notice(f.label+" updated in simulation.");return true;}
+            catch(IllegalArgumentException invalid){notice(invalid.getMessage());return false;}
+        }
         if(key.equals("lock")&&value==0){if(!ready()||mutation!=null){notice("Wait for a fresh scooter connection.");return false;}}else if(!canChange(f))return false;
         Integer current=featureValue(key);if(current!=null&&current==value){notice(f.label+" is already set.");return true;}
         try{
             byte[] bytes;if(key.equals("proximity_key")){if(pinStateMs==0||now()-pinStateMs>10000){readPin();notice("Read the PIN state, then apply proximity unlock.");return false;}boolean bonded=gatt.getDevice().getBondState()==BluetoothDevice.BOND_BONDED;bytes=ScooterCommands.setProximity(value==1,profile.role==0,bonded,pinState);}else bytes=ScooterCommands.set(key,value,statusFrame);
             begin(key,value,bytes,null);return true;
         }catch(IllegalArgumentException e){notice(e.getMessage());return false;}}
-    public void setChargeStart(long seconds,int offset){ScooterCommands.Feature f=ScooterCommands.find("charge_start");if(!canChange(f))return;begin("charge_start",0,ScooterCommands.setChargeStart(seconds,offset),seconds+offset);}
-    public void syncClock(){if(!canChange(ScooterCommands.find("charge_start")))return;long wall=System.currentTimeMillis();byte[] bytes=ScooterCommands.setClock(wall/1000,TimeZone.getDefault().getOffset(wall)/1000);mutation=new Mutation("clock_sync",0x6f,0,++mutationSequence);mutation.bytes=bytes;message="Setting the scooter’s clock from this phone…";changed();send(bytes);}
-    public void readPin(){if(!ready()||profile.role!=0){notice("Connect as the scooter owner to read PIN settings.");return;}if(pinReadPending||mutation!=null)return;send(ScooterCommands.readPin(true));}
-    public void setPin(String digits){ScooterCommands.Feature f=ScooterCommands.find("pin");if(!canChange(f)||pinReadPending)return;try{begin("pin",1,ScooterCommands.setPin(digits,true),null);mutation.desiredPin=digits.toCharArray();}catch(Exception e){notice(e.getMessage());}}
-    public void enablePin(boolean enabled){ScooterCommands.Feature f=ScooterCommands.find("pin");if(!canChange(f)||pinReadPending)return;if(!enabled&&Integer.valueOf(1).equals(featureValue("proximity_key"))){notice("Turn off proximity unlock before disabling its fallback PIN.");return;}if(pinStateMs==0||now()-pinStateMs>10000){readPin();notice("Read the current PIN state first.");return;}try{begin("pin",enabled?1:0,ScooterCommands.enablePin(enabled,true,pinState!=null&&pinState.status==0&&pinState.configured),null);}catch(Exception e){notice(e.getMessage());}}
+    public void setChargeStart(long seconds,int offset){if(simulating()){if(simulation==null||!ready()){notice("Connect the simulated scooter first.");return;}try{simulation.setChargeStart(seconds,offset);updateSimulation();result("charge_start","Simulated locally; no scooter command sent");notice("Charging schedule updated in simulation.");}catch(IllegalArgumentException invalid){notice(invalid.getMessage());}return;}ScooterCommands.Feature f=ScooterCommands.find("charge_start");if(!canChange(f))return;begin("charge_start",0,ScooterCommands.setChargeStart(seconds,offset),seconds+offset);}
+    public void syncClock(){if(simulating()){if(!ready()){notice("Connect the simulated scooter first.");return;}result("clock_sync","Simulated locally; no scooter command sent");notice("Clock sync simulated locally.");return;}if(!canChange(ScooterCommands.find("charge_start")))return;long wall=System.currentTimeMillis();byte[] bytes=ScooterCommands.setClock(wall/1000,TimeZone.getDefault().getOffset(wall)/1000);mutation=new Mutation("clock_sync",0x6f,0,++mutationSequence);mutation.bytes=bytes;message="Setting the scooter’s clock from this phone…";changed();send(bytes);}
+    public void readPin(){if(simulating()){simulationUnavailable("Handlebar PIN access");return;}if(!ready()||profile.role!=0){notice("Connect as the scooter owner to read PIN settings.");return;}if(pinReadPending||mutation!=null)return;send(ScooterCommands.readPin(true));}
+    public void setPin(String digits){if(simulating()){simulationUnavailable("Handlebar PIN changes");return;}ScooterCommands.Feature f=ScooterCommands.find("pin");if(!canChange(f)||pinReadPending)return;try{begin("pin",1,ScooterCommands.setPin(digits,true),null);mutation.desiredPin=digits.toCharArray();}catch(Exception e){notice(e.getMessage());}}
+    public void enablePin(boolean enabled){if(simulating()){simulationUnavailable("Handlebar PIN changes");return;}ScooterCommands.Feature f=ScooterCommands.find("pin");if(!canChange(f)||pinReadPending)return;if(!enabled&&Integer.valueOf(1).equals(featureValue("proximity_key"))){notice("Turn off proximity unlock before disabling its fallback PIN.");return;}if(pinStateMs==0||now()-pinStateMs>10000){readPin();notice("Read the current PIN state first.");return;}try{begin("pin",enabled?1:0,ScooterCommands.enablePin(enabled,true,pinState!=null&&pinState.status==0&&pinState.configured),null);}catch(Exception e){notice(e.getMessage());}}
     private void begin(String key,int target,byte[] bytes,Long time){
+        if(simulating())return;
         mutation=new Mutation(key,bytes[3]&255,target,++mutationSequence);mutation.time=time;mutation.bytes=bytes;message="Applying "+ScooterCommands.find(key).label.toLowerCase(Locale.ROOT)+"…";changed();send(bytes);
     }
-    private void mutationTimeout(int session,long token){if(session!=generation||mutation==null||mutation.token!=token)return;String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed(text+". Pending commands were cancelled.",true);}
-    private void confirmMutation(Protocol.Frame f){if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync"))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=feature.readback(f);if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
+    private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed(text+". Pending commands were cancelled.",true);}
+    private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync"))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=feature.readback(f);if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;result(key,evidence);clearMutation();notice(text);}
     private void clearMutation(){if(mutation!=null&&mutation.desiredPin!=null){Arrays.fill(mutation.desiredPin,'\u0000');Arrays.fill(mutation.bytes,(byte)0);}mutation=null;}
-    private void result(String key,String text){commandResults.put(key,text);if(profile!=null)context.getSharedPreferences("control_evidence",Context.MODE_PRIVATE).edit().putString(profile.id,new JSONObject(commandResults).toString()).apply();}
-    private void loadResults(){commandResults.clear();if(profile==null)return;try{JSONObject saved=new JSONObject(context.getSharedPreferences("control_evidence",Context.MODE_PRIVATE).getString(profile.id,"{}"));for(ScooterCommands.Feature feature:ScooterCommands.catalog())if(saved.has(feature.key))commandResults.put(feature.key,saved.getString(feature.key));if(saved.has("clock_sync"))commandResults.put("clock_sync",saved.getString("clock_sync"));}catch(Exception ignored){}}
+    private void result(String key,String text){commandResults.put(key,text);if(!simulating()&&profile!=null)context.getSharedPreferences("control_evidence",Context.MODE_PRIVATE).edit().putString(profile.id,new JSONObject(commandResults).toString()).apply();}
+    private void loadResults(){commandResults.clear();if(simulating()||profile==null)return;try{JSONObject saved=new JSONObject(context.getSharedPreferences("control_evidence",Context.MODE_PRIVATE).getString(profile.id,"{}"));for(ScooterCommands.Feature feature:ScooterCommands.catalog())if(saved.has(feature.key))commandResults.put(feature.key,saved.getString(feature.key));if(saved.has("clock_sync"))commandResults.put("clock_sync",saved.getString("clock_sync"));}catch(Exception ignored){}}
 }

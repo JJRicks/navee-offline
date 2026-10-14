@@ -19,6 +19,7 @@ import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.graphics.drawable.StateListDrawable;
 import android.os.Build;
+import android.os.SystemClock;
 import android.text.Editable;
 import android.text.InputFilter;
 import android.text.InputType;
@@ -59,18 +60,19 @@ public final class MoreScreen implements AppScreen {
     private final LinearLayout content;
     /** Unfolded/tablet width: the menu stays on the left and the chosen submenu opens on the right. */
     private final boolean wide;
+    private final boolean standalone;
     /** Wide mode only: each pane scrolls on its own. */
     private ScrollView menuScroll, sectionScroll;
     private final Row[] menuRows = new Row[SECTIONS.length];
     private LinearLayout cardDestination, onboardingCard, sectionMenu, indexView, sectionHeader;
     private View sectionBack;
     private TextView sectionTitle;
-    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About"};
+    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About", "Developer"};
     private static final String[] SECTION_LABELS = {"App preferences", "My scooters", "PIN & proximity unlock",
-            "Experimental controls", "Data & history", "About & permissions"};
+            "Experimental controls", "Data & history", "About & permissions", "Developer options"};
     private static final String[] SECTION_TITLES = {"App preferences", "My scooters", "PIN & proximity",
-            "Firmware lab", "Data & history", "About & permissions"};
-    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "history", "info"};
+            "Firmware lab", "Data & history", "About & permissions", "Developer options"};
+    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "history", "info", "lab"};
     /** TelemetryHistory's database file; only its size on disk is read here, never its contents. */
     private static final String HISTORY_DATABASE = "telemetry-history.db";
     private final Map<String,LinearLayout> sections = new LinkedHashMap<>();
@@ -78,12 +80,18 @@ public final class MoreScreen implements AppScreen {
     private String selectedSection;
     private boolean closed;
     private final List<Runnable> valueRefreshers = new ArrayList<>();
+    private final List<SegmentedSelector> preferenceSelectors = new ArrayList<>();
     private final List<AlertDialog> dialogs = new ArrayList<>();
     private final List<Row> profileEditActions = new ArrayList<>();
     private Row renameProfileRow, forgetProfileRow, backupProfileRow, disconnectProfileRow, chooseProfileRow;
     private Row scootersIndexRow, dataIndexRow;
     private Row readPinRow, setPinRow, bondRow, pinRow, proximityRow;
     private Row nearbyRow, locationRow, notificationRow;
+    private Row developerIndexRow, simulationRow;
+    private TextView simulationStatus;
+    private android.widget.Toast developerCountdown;
+    private int developerTaps;
+    private long lastDeveloperTap;
     private TextView securityNotice, setupState, connectionSummary;
     private LinearLayout indexProfileCard, scootersProfileCard;
     private ImageView indexPhoto, scootersPhoto;
@@ -106,16 +114,20 @@ public final class MoreScreen implements AppScreen {
         }
     }
 
-    public MoreScreen(ScreenHost host) {
+    public MoreScreen(ScreenHost host) { this(host, null); }
+
+    /** Dashboard sheet: the existing controls, without changing More's saved navigation state. */
+    MoreScreen(ScreenHost host, String initialSection) {
         this.host = host; ui = host.ui();
-        wide = host.activity().getResources().getConfiguration().screenWidthDp >= 650;
+        standalone = initialSection != null;
+        wide = !standalone && host.activity().getResources().getConfiguration().screenWidthDp >= 650;
         scroll = new PageScroll();
         scroll.setFillViewport(true); scroll.setClipToPadding(false);
         content = column();
         if (wide) content.setPadding(ui.dp(24), ui.dp(6), ui.dp(24), 0);
         else content.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24));
         scroll.addView(content, new ScrollView.LayoutParams(-1, wide ? -1 : -2));
-        selectedSection = settings().getString("more_section", "");
+        selectedSection = standalone ? initialSection : settings().getString("more_section", "");
         if (!knownSection(selectedSection)) selectedSection = "";
 
         LinearLayout menuParent = content, sectionParent = content;
@@ -132,6 +144,7 @@ public final class MoreScreen implements AppScreen {
         if (wide) sectionMenu.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
         for (int i = 0; i < SECTIONS.length; i++) {
             final String section = SECTIONS[i];
+            if (!knownSection(section)) continue;
             Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i], null, () -> selectSection(section));
             // Room for the selected row's red tint to frame its icon in the wide menu.
             if (wide) row.view.setPadding(ui.dp(8), ui.dp(9), ui.dp(8), ui.dp(9));
@@ -139,6 +152,10 @@ public final class MoreScreen implements AppScreen {
             if (section.equals("Scooters")) scootersIndexRow = row;
             else if (section.equals("Data")) dataIndexRow = row;
             else if (section.equals("Lab")) badge(row.value, "LAB");
+            else if (section.equals("Developer")) {
+                developerIndexRow = row;
+                row.view.setTag("developer-options-menu");
+            }
         }
         TextView footer = ui.text("Navee Offline " + AppVersion.name(host.activity()) + " · not affiliated with NAVEE", 11.5f, false);
         footer.setTextColor(ui.muted); footer.setGravity(Gravity.CENTER);
@@ -156,6 +173,7 @@ public final class MoreScreen implements AppScreen {
         sectionHeader.addView(sectionTitle);
 
         for (String section : SECTIONS) {
+            if (!knownSection(section)) continue;
             cardDestination = column(); sections.put(section, cardDestination);
             sectionParent.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
             if (section.equals("App")) preferences();
@@ -163,6 +181,7 @@ public final class MoreScreen implements AppScreen {
             else if (section.equals("Security")) security();
             else if (section.equals("Lab")) lab();
             else if (section.equals("Data")) dataHistory();
+            else if (section.equals("Developer")) developerOptions();
             else privacy();
         }
         cardDestination = content;
@@ -174,6 +193,8 @@ public final class MoreScreen implements AppScreen {
     @Override public void close() {
         saveWideScroll();
         closed = true;
+        if (developerCountdown != null) { developerCountdown.cancel(); developerCountdown = null; }
+        for (SegmentedSelector selector : preferenceSelectors) selector.finishMotion();
         for (AlertDialog dialog : new ArrayList<>(dialogs)) if (dialog.isShowing()) dialog.dismiss();
         dialogs.clear();
     }
@@ -214,12 +235,14 @@ public final class MoreScreen implements AppScreen {
     }
 
     /** Wide mode has no submenu to close: Back leaves the tab the way Home would, keeping the submenu. */
-    public boolean back() { if (wide || selectedSection.isEmpty()) return false; selectSection(""); return true; }
+    public boolean back() { if (standalone || wide || selectedSection.isEmpty()) return false; selectSection(""); return true; }
 
     private boolean knownSection(String section) {
+        if ("Developer".equals(section) && !developerEnabled()) return false;
         for (String candidate : SECTIONS) if (candidate.equals(section)) return true;
         return false;
     }
+    private boolean developerEnabled() { return settings().getBoolean("developer_options", false); }
     /**
      * The submenu on screen. Wide mode always shows one: with none chosen (first visit, or one expired
      * after a minute away) it opens App preferences without storing it, so the retention rules are unchanged.
@@ -230,12 +253,13 @@ public final class MoreScreen implements AppScreen {
         String shown = shownSection();
         boolean index = shown.isEmpty();
         indexView.setVisibility(index || wide ? View.VISIBLE : View.GONE);
-        sectionHeader.setVisibility(index ? View.GONE : View.VISIBLE);
+        sectionHeader.setVisibility(index || standalone ? View.GONE : View.VISIBLE);
         for (int i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].equals(shown)) sectionTitle.setText(SECTION_TITLES[i]);
         for (Map.Entry<String,LinearLayout> section : sections.entrySet())
             section.getValue().setVisibility(section.getKey().equals(shown) ? View.VISIBLE : View.GONE);
         if (index || wide) dataIndexRow.value(historyFileSize());
-        if (wide) for (int i = 0; i < SECTIONS.length; i++) markMenuRow(menuRows[i], SECTIONS[i].equals(shown));
+        if (wide) for (int i = 0; i < SECTIONS.length; i++)
+            if (menuRows[i] != null) markMenuRow(menuRows[i], SECTIONS[i].equals(shown));
     }
     /** Wide menu: the row whose submenu is open on the right gets a red tint and the selected state. */
     private void markMenuRow(Row row, boolean selected) {
@@ -248,7 +272,7 @@ public final class MoreScreen implements AppScreen {
         final ScrollView pane = sectionScroller();
         sectionScrollPositions.put(shownSection(), pane.getScrollY());
         selectedSection = section;
-        settings().edit().putString("more_section", section).apply();
+        if (!standalone) settings().edit().putString("more_section", section).apply();
         showSelectedSection(); refresh();
         String shown = shownSection();
         final int position = sectionScrollPositions.containsKey(shown) ? sectionScrollPositions.get(shown) : 0;
@@ -755,11 +779,13 @@ public final class MoreScreen implements AppScreen {
     // ---- App preferences ----------------------------------------------------------------
 
     private void preferences() {
-        chipField("Appearance", "theme", new String[]{"Dark", "Follow system", "Light"},
+        segmentedField("Appearance", "theme", new String[]{"Dark", "Follow system", "Light"},
                 new String[]{"dark", "system", "light"}, "dark");
-        chipField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
+        segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
                 new String[]{"mi", "km", "dual"}, "mi");
-        chipField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
+        segmentedField("Temperature", "temperature_unit", new String[]{"Celsius · °C", "Fahrenheit · °F"},
+                new String[]{"c", "f"}, "c");
+        segmentedField("Time format", "time_format", new String[]{"Follow system", "12 hour", "24 hour"},
                 new String[]{"system", "12h", "24h"}, "system");
         View spacer = new View(host.activity()); cardDestination.addView(spacer, new LinearLayout.LayoutParams(-1, ui.dp(8)));
         LinearLayout display = group();
@@ -775,32 +801,27 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(connection, "bluetooth", "Stay connected in background", "When off, idle connections close after 10 seconds. Recordings keep running.", "background_connection", false);
         preferenceToggle(connection, "screen", "Keep screen awake", "While a recording is on screen", "keep_screen_awake", true);
     }
-    private void chipField(String title, String key, String[] labels, String[] values, String fallback) {
+    private void segmentedField(String title, String key, String[] labels, String[] values, String fallback) {
         TextView caption = ui.text(title, 12.5f, false); caption.setTextColor(ui.muted);
-        caption.setPadding(ui.dp(2), ui.dp(8), ui.dp(2), ui.dp(2));
+        if (key.equals("temperature_unit")) ui.decorate(caption, "temperature");
+        caption.setPadding(ui.dp(2), ui.dp(12), ui.dp(2), ui.dp(6));
         cardDestination.addView(caption);
-        Flow flow = new Flow();
-        final TextView[] chips = new TextView[labels.length];
-        final int[] shown = {-2};
+        SegmentedSelector selector = new SegmentedSelector(ui, title, labels, choice -> {
+            if (closed || values[choice].equals(settings().getString(key, fallback))) return;
+            settings().edit().putString(key, values[choice]).apply();
+            // MainActivity coalesces theme and display-unit rebuilds after the 190ms slide. A second
+            // immediate rebuild here would destroy the animation (and the user's scroll position).
+            if (key.equals("time_format")) host.redraw();
+        });
+        selector.setTag("preference-selector-" + key);
         Runnable restyle = () -> {
             String stored = settings().getString(key, fallback); int selected = -1;
             for (int i = 0; i < values.length; i++) if (stored.equals(values[i])) selected = i;
             if (selected < 0) for (int i = 0; i < values.length; i++) if (fallback.equals(values[i])) selected = i;
-            if (selected == shown[0]) return;
-            shown[0] = selected;
-            for (int i = 0; i < chips.length; i++) styleChip(chips[i], i == selected);
+            selector.select(Math.max(0, selected), false);
         };
-        for (int i = 0; i < labels.length; i++) {
-            final String value = values[i];
-            TextView chip = ui.chip(labels[i], false, () -> {
-                if (value.equals(settings().getString(key, fallback))) return;
-                settings().edit().putString(key, value).apply(); restyle.run();
-                if (key.equals("theme")) host.rebuild(); else host.redraw();
-            });
-            chip.setMinHeight(ui.dp(48)); chip.setContentDescription(title + ": " + labels[i]);
-            chips[i] = chip; flow.addView(chip, new ViewGroup.LayoutParams(-2, -2));
-        }
-        cardDestination.addView(flow, new LinearLayout.LayoutParams(-1, -2));
+        cardDestination.addView(selector, new LinearLayout.LayoutParams(-1, -2));
+        preferenceSelectors.add(selector);
         restyle.run(); valueRefreshers.add(restyle);
     }
     private void preferenceChoice(LinearLayout box, String icon, String title, String key, String[] labels, String[] values, String fallback) {
@@ -1183,6 +1204,9 @@ public final class MoreScreen implements AppScreen {
         pill.setOnClickListener(v -> experimental(feature));
         return pill;
     }
+    void inspectQuickFeature(ScooterCommands.Feature feature) {
+        if (!closed && feature != null && feature.experimental) experimental(feature);
+    }
     private void experimental(ScooterCommands.Feature feature) {
         BleController ble = service().ble; Integer current = ble.featureValue(feature.key);
         if (!ble.ready() || current == null) { host.toast("This firmware has not supplied a fresh status field for that control."); return; }
@@ -1256,7 +1280,11 @@ public final class MoreScreen implements AppScreen {
 
     private void privacy() {
         LinearLayout c = ui.card();
-        c.addView(ui.text("Navee Offline " + AppVersion.name(host.activity()), 17, true));
+        TextView version = ui.text("Navee Offline " + AppVersion.name(host.activity()), 17, true);
+        version.setTag("about-version");
+        version.setMinHeight(ui.dp(48)); version.setGravity(Gravity.CENTER_VERTICAL);
+        clickable(version, this::tapDeveloperVersion);
+        c.addView(version);
         TextView about = ui.caption("Controls and ride recording connect directly over Bluetooth. No account or server login. Independent project, not affiliated with NAVEE.");
         about.setPadding(0, ui.dp(6), 0, 0); c.addView(about);
         cardDestination.addView(c);
@@ -1276,6 +1304,75 @@ public final class MoreScreen implements AppScreen {
         row(more, "copy", "Licenses & attribution", null, this::licenses);
         row(more, "bluetooth", "Connect selected scooter", null, host::connect);
     }
+
+    /** Deliberate local opt-in, matching Android's familiar seven-tap developer unlock. */
+    private void tapDeveloperVersion() {
+        if (closed) return;
+        if (developerCountdown != null) { developerCountdown.cancel(); developerCountdown = null; }
+        if (developerEnabled()) { host.toast("Developer options are already enabled."); return; }
+        long now = SystemClock.uptimeMillis();
+        if (now - lastDeveloperTap > 3000) developerTaps = 0;
+        lastDeveloperTap = now;
+        int remaining = 7 - ++developerTaps;
+        if (remaining <= 0) {
+            developerTaps = 0;
+            settings().edit().putBoolean("developer_options", true).apply();
+            host.toast("Developer options enabled.");
+            host.rebuild();
+        } else if (remaining <= 3) {
+            developerCountdown = android.widget.Toast.makeText(host.activity(),
+                    remaining + (remaining == 1 ? " more tap" : " more taps") + " to enable developer options.",
+                    android.widget.Toast.LENGTH_SHORT);
+            developerCountdown.show();
+        }
+    }
+
+    private void developerOptions() {
+        LinearLayout controls = group();
+        simulationRow = toggleRow(controls, "scooter", "Simulate scooter as connected", null, enabled -> {
+            ScooterService s = service();
+            if (closed || s == null || !developerEnabled()) return;
+            s.setSimulation(enabled);
+            // The service may refuse while a ride or phone recording is active. Always show
+            // its actual state, never the tentative state of a performed switch click.
+            refreshDeveloper(); host.redraw();
+        });
+        simulationRow.view.setTag("developer-simulation-row");
+        simulationRow.toggle.setTag("developer-simulation-toggle");
+        simulationStatus = footnote("Simulation active · sample data");
+        simulationStatus.setTag("developer-simulation-status");
+        simulationStatus.setTextColor(ui.orange);
+        simulationStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        footnote("Sample data only. Bluetooth and recording are paused. Simulation turns off when the app process restarts.");
+        LinearLayout visibility = group();
+        Row hide = row(visibility, "close", "Hide developer options", null, () -> {
+            if (closed) return;
+            ScooterService s = service();
+            if (s != null && !s.setSimulation(false)) { refreshDeveloper(); return; }
+            selectedSection = "";
+            settings().edit().putBoolean("developer_options", false).putString("more_section", "").apply();
+            host.rebuild();
+        });
+        hide.view.setTag("developer-hide-options");
+    }
+
+    private void refreshDeveloper() {
+        ScooterService s = service();
+        boolean enabled = developerEnabled();
+        boolean simulating = s != null && s.simulating();
+        if (developerIndexRow != null) {
+            developerIndexRow.view.setVisibility(enabled ? View.VISIBLE : View.GONE);
+            developerIndexRow.value(simulating ? "Simulating" : null);
+            developerIndexRow.value.setTextColor(ui.orange);
+        }
+        if (simulationRow != null) {
+            refreshSwitch(simulationRow, simulating, enabled && s != null);
+            simulationStatus.setVisibility(simulating ? View.VISIBLE : View.GONE);
+        }
+        // A stale saved shortcut must not reveal the section after developer options are hidden.
+        if (!enabled && "Developer".equals(selectedSection)) selectSection("");
+    }
+
     private void licenses() {
         LinearLayout box = dialogBox("Licenses & attribution", "Navee Offline is an independent project, not affiliated with NAVEE or its app vendor.");
         note(box, "Saira typeface\nCopyright 2020 The Saira Project Authors. SIL Open Font License 1.1; not covered by the app's MIT licence.");
@@ -1368,6 +1465,7 @@ public final class MoreScreen implements AppScreen {
 
     @Override public void refresh() {
         ScooterService s = service(); if (s == null) return;
+        refreshDeveloper();
         if (shownSection().equals("Data")) refreshHistoryStorage();
         for (Runnable refresh : valueRefreshers) refresh.run();
         ScooterProfiles.Profile p = active();

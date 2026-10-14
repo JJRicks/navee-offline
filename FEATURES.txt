@@ -7,6 +7,11 @@ The app talks directly to the scooter over Bluetooth. Optional map tiles use
 internet; authentication, controls and recording require no server. First-time
 owner setup is covered in SETUP.txt.
 
+UNRELEASED SOURCE UPDATE: the current branch adds compact widget editing icons and Undo/Redo,
+optional five/six-column grids, a per-widget Disconnect option, and short UI
+animations. The feature descriptions below include this source update. It is
+not part of the published 0.9.1 APK; see VERIFICATION.txt for executed checks.
+
 0.9.1 adapts dashboard cards to available width, height and text scale, fixes
 flat-fold spacing, and centers edit controls. It preserves saved layouts and
 adds no scooter command or telemetry field. Physical Fold 5 testing is pending.
@@ -192,10 +197,17 @@ Home supports 15 widget types: Lock & connection, Your scooter, Battery overview
 Big reading, Gauge, Live trend, History chart, Reading list, Trip overview,
 Battery health, Capacity experiment, Charging, Quick access, Ride recorder and
 Note. Each profile has its own dashboard, with separate saved layouts for
-adaptive/selected column counts.
-Narrow screens limit the selected number of columns to what fits.
+adaptive/selected column counts. A rounded column selector offers Adaptive and
+one through six, with a sliding red highlight and horizontal scrolling when
+needed. Adaptive retains its one- through four-column behavior; five/six columns
+are optional on sufficiently wide screens. Each widget's minimum usable width
+also accounts for text size, so small windows cannot force unusably thin cards.
+New five/six-column layouts derive from the stored four-column arrangement where
+available, preserving the original. Six columns support a four/two split between
+Your scooter and Lock & connection.
 Layout also provides three named save slots per scooter. Each captures the full
-widget setup and all stored column layouts together, plus the column choice.
+widget setup and all stored one- through six-column layouts together, plus the
+column choice. Older slots remain readable.
 Restoring defaults does not change these slots. Slots stay local; reading/ride
 data and owner credentials are not included.
 
@@ -203,21 +215,47 @@ The pencil reveals Add widget, Layout and widget controls. Drag the top-left
 dots directly, or long-press them, to move a widget. A visible bottom-right
 corner resizes it. Full-size dashed previews show the drop destination while
 neighboring cards reflow and fill vertical gaps. Release saves; cancellation
-restores the starting layout. Reflow is 200 ms and outline motion 120 ms, with
-disabled system animations respected. The gear is the sole widget-options
-entry; tap the dots for Move or corner for Size as accessible alternatives.
-The same Size/Move dialogs remain inside options. Menus, grips, resize corners
+restores the starting layout. Size and position animate together with short
+preview/release transitions and disabled system animations respected. The move
+grip, options gear, Duplicate copy icon and red Remove trash icon share one row
+of matching squares with centered glyphs. Top targets shrink from 48 dp to
+36 dp on minimum-width cards; the resize corner stays 48 dp. Tap the dots for Move or corner for Size as
+accessible alternatives.
+Size and Move remain accessible by tapping the corner and grip. Menus, grips, resize corners
 and the scooter-name pencil appear only in global dashboard edit mode. The
 rename pencil sits directly beside the scooter name. Local
 renaming remains enabled there while scooter/data actions are disabled.
 Translucent edit controls float over each card, preserving exactly the same
 widget and content dimensions as normal viewing. Toggling edit mode does not
 expand cards or rearrange their contents.
-Dialogs follow the app theme. Widget options have a top-right X and a fixed
-bottom row of actual Duplicate and Remove widget buttons, centered side by side.
-Remove uses red text, outline and trash icon. Settings scroll above the footer.
-The connection widget always places status above its slider and centers the
-Connect/Disconnect button below, without width-dependent rearrangement.
+Curved Undo/Redo arrows share a rounded group immediately left of Done; compact
+editing places the action row below the scooter name. The current editing session
+keeps up to 40 grid changes: moves, resizes, additions, deletions and duplicates.
+Undo/Redo preserve the latest widget options. New layout changes clear Redo;
+cancelled gestures, no-op actions and settings-only edits do not consume history.
+Done, leaving Home or screen recreation clears this temporary history, as does
+restoring defaults or a saved slot. Saved slots are separate from Undo/Redo.
+Dialogs follow the app theme. Widget options retain a top-right X and have only
+a fixed ✓ Save button below the scrolling settings. Disconnect is visible in
+the connected lock widget by default; Show Disconnect button can hide it there.
+Connect and Cancel remain available while disconnected or connecting.
+Entering/leaving editing slides the grid and pops its controls in/out in 210 ms.
+Visible editing cards have a subtle 0.2-degree wiggle, paused for the active
+move/resize card and stopped on focus loss, hidden views, detach or close.
+Appearance, distance/speed and time format use rounded selectors with sliding
+highlights. Narrow widths scroll horizontally without shrinking readable labels.
+A hidden Developer options menu is unlocked by seven taps on the Navee Offline
+version under About & permissions. Its simulation toggle closes real Bluetooth,
+shows all catalog parameters using sample readings, and offers local-only scalar
+control responses and generated chart previews. A persistent banner marks the
+samples and exits simulation. Samples are never saved into the real telemetry
+cache, history, rides or battery analysis. Recording/phone sensors cannot start;
+active recordings must finish first. Simulation is runtime-only and ends when
+the service/app process restarts; normal profiles/dashboard preferences remain.
+Short page-arrival and button-press effects accompany deliberate interactions.
+Removal uses a 200 ms shrink/fade with soft puffs without delaying the grid update.
+The lock knob animates confirmed state changes while preserving command and
+confirmation behavior. These effects respect disabled system animations.
 The scooter card gives one/two-reading configurations a larger adaptive value
 size (up to 28 sp at normal text scale); longer lists retain the prior size cap.
 Done restores normal widget actions.
@@ -229,13 +267,12 @@ battery overview, 15-minute power trend, Capacity experiment and Ride recorder.
 New/reset dashboards reproduce the captured two-column folded and four-column
 unfolded arrangements; one/three-column presets fit other widths. Quick access
 is available in Add widget. Existing custom/empty dashboards stay intact.
-The battery overview prioritizes a large centered percentage ring with a thicker
-arc and balanced space above its readings. Range, power,
-controller-reported health and temperature use route, lightning, heart and
-thermometer icons in a bottom row. Narrow cards/large text wrap those readings.
+The battery overview uses a tall red cell showing percentage and estimated
+range, with power, controller-reported health and temperature underneath.
+Narrow cards and large text wrap those readings.
 Fresh charging status swaps that row to charging power/current, remaining time
-and temperature while retaining the percentage ring. Repeated Live footers and
-the extra Battery label beside the ring are removed; stale values remain grey
+and temperature while retaining the percentage cell. Repeated Live footers are
+removed; stale values remain grey
 with their measurement timestamps.
 
 Your scooter places a larger photo on the left and stacks up to 12 configurable
@@ -359,3 +396,17 @@ Map source offers USGS, OSM and custom HTTPS providers. Unsupported closer USGS
 zooms enlarge available level-16 tiles. HTTP errors and X-Blocked images show a
 status while local routes remain visible. Provider denial pauses further requests;
 legacy unverified cache entries require refresh. No bulk prefetch is performed.
+
+QUICK ACCESS — UNRELEASED FOLLOW-UP
+
+Choose two to eight ordered shortcuts in the widget options. Direct toggles use
+the same live-value and parked checks as Scooter settings. Choices/sliders and
+settings submenus open over Home; PIN/proximity and experimental controls retain
+their existing guarded flows. Stats and Rides are still page shortcuts. Legacy
+widgets default to Lights, Settings, Stats and Rides. Saved slots and duplicates
+retain the chosen list. Labels wrap; compact cards scroll when needed, while
+moderate-height cards fit a two-by-two button arrangement without extra overflow.
+Widget controls are slightly larger, with the left three grouped and trash at
+the right. Size is removed from options; the corner supports drag or tap to resize.
+A new widget is revealed after saving with a short scroll and white outline.
+The cue stops on touch, focus loss or screen changes and respects reduced motion.

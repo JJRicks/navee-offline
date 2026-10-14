@@ -1,5 +1,31 @@
 # Changelog
 
+## Unreleased
+
+- Clean up floating-point noise in gauge scale editors while preserving the exact stored limit when saving unchanged text.
+
+- Add a Celsius/Fahrenheit selector under App preferences for temperature readings, dashboard gauges and charts, and ride summaries. Stored telemetry and gauge bounds remain in Celsius; Fahrenheit scale edits convert back before saving.
+- Let My Scooter values grow larger while retaining width/height fitting, the readable minimum and long-value wrapping.
+
+- Modernize the shared widget-readings picker with a themed searchable sheet, icons, selection counter and pinned Save button. Preserve filtered selections and enforce the 12-reading limit. My Scooter uses compact captions for all parameters while retaining full names for search, accessibility and tooltips.
+
+- Make the battery overview's empty capacity easier to distinguish with a dim red track, faint diagonal texture and thin outline; stale and unavailable readings remain neutral grey.
+
+- Configure two to eight ordered Quick access items, including direct scooter toggles and settings panels that open above Home. Preserve existing safety/readback checks and legacy shortcut defaults; saved layouts and duplicates retain the selection. Fit compact buttons to the available height without clipping labels.
+- Enlarge editor icons, keep move/options/duplicate together at the left, remove the redundant Size row from options, and double the subtle wiggle speed. Saving a new off-screen widget scrolls it into view with a short white outline; user touch cancels the cue and reduced motion uses immediate positioning.
+
+- Use rounded sliding selectors for appearance, distance/speed units and time format.
+- Add a hidden Developer options menu, unlocked by seven taps on the About version. Its temporary simulated connection supplies sample readings, local-only controls and chart previews, visibly marked with an Exit banner. Real Bluetooth is closed, recording is blocked and samples never enter stored telemetry or battery history.
+- Animate entering/leaving dashboard edit mode with a short slide and control pop, plus a barely visible widget wiggle that pauses during gestures, focus loss and disabled system animations.
+
+- Refresh Gauge with a 270° ring, a larger centered value and unit, and padded minimum/maximum labels; existing value formatting and stale-state presentation are retained.
+- Put each widget's move grip, options gear, copy and red trash icons in one row of matching squares. Keep glyphs centered as targets shrink from 52 to 36 dp on minimum-width cards; the resize corner stays 48 dp. Widget options have only a fixed ✓ Save button below the settings and retain the top-right X.
+- Add grouped Undo/Redo arrows immediately left of Done, with the action row below the scooter name on compact screens. Keep up to 40 layout changes in the current editing session, preserving widget settings; new grid edits clear Redo, while no-op, cancelled and settings-only changes leave it intact. Defaults and slot restores start fresh history.
+- Offer up to six dashboard columns on sufficiently wide screens, with a rounded scrolling selector and animated selection highlight. Adaptive keeps its existing one- through four-column behavior. New five/six-column arrangements derive from saved layouts; existing arrangements and slots remain intact.
+- Give each widget a minimum usable width based on its contents and text size. Saved slots support all one- through six-column arrangements, and a six-column grid allows a four/two split between the scooter and lock cards.
+- Show Disconnect in the connected lock widget by default, with a widget option to hide it. Connect and Cancel remain available when needed.
+- Add short size/position transitions during dashboard editing, a 200 ms soft-puff removal effect, confirmed-state lock movement, page transitions and button feedback, respecting Android's disabled-animation setting. Lock commands and confirmation requirements are unchanged.
+
 ## 0.9.1 — 2026-10-13
 
 - Dashboard lock controls adapt to the width of their card: narrow cards stack the lock heading and keep the action within reach. Short slider labels preserve the full-height touch target, and Connecting no longer repeats the scooter name already shown in Home's header.

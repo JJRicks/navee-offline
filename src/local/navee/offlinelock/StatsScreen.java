@@ -673,6 +673,8 @@ public final class StatsScreen implements AppScreen {
         if (metric.value == null) return "Not reported";
         if (isKnownDriveMode(metric.key) && metric.number != null)
             return Telemetry.drivingModeLabel(2538, metric.number);
+        if (DisplayTemperature.isTemperature(metric.key) && metric.number != null)
+            return DisplayTemperature.format(metric.number, preferences.getString("temperature_unit", "c"), 0);
         String units = preferences.getString("units", "mi");
         if (metric.key.equals("stored_trips")) return DisplayUnits.metricText(metric.value, units);
         if (metric.number == null || "km".equals(units)) return metric.value;

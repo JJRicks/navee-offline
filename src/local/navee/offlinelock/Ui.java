@@ -87,6 +87,44 @@ public final class Ui {
     public Typeface bold() { return BOLD; }
     public int dp(float value) { return Math.round(value * density); }
     public float sp(float value) { return value * context.getResources().getDisplayMetrics().scaledDensity * textScale; }
+    /** Shared motion policy, including Android's accessibility/remove-animation setting. */
+    public static boolean motionEnabled() { return android.animation.ValueAnimator.areAnimatorsEnabled(); }
+    /** A short arrival cue for deliberate navigation; data refreshes never replay it. */
+    public void reveal(View view) {
+        if (!motionEnabled() || !view.isAttachedToWindow()) return;
+        view.animate().cancel();
+        view.setAlpha(.94f); view.setTranslationY(dp(8));
+        final class Arrival extends android.animation.AnimatorListenerAdapter implements View.OnAttachStateChangeListener {
+            void finish() {
+                view.removeOnAttachStateChangeListener(this);
+                view.setAlpha(1); view.setTranslationY(0);
+            }
+            @Override public void onAnimationEnd(android.animation.Animator animation) { finish(); }
+            @Override public void onAnimationCancel(android.animation.Animator animation) { finish(); }
+            @Override public void onViewDetachedFromWindow(View detached) { detached.animate().cancel(); finish(); }
+            @Override public void onViewAttachedToWindow(View attached) {}
+        }
+        Arrival arrival = new Arrival(); view.addOnAttachStateChangeListener(arrival);
+        view.animate().alpha(1).translationY(0).setDuration(180)
+                .setInterpolator(new android.view.animation.PathInterpolator(.2f, 0, 0, 1))
+                .setListener(arrival).start();
+    }
+    /** Native pressed feedback leaves layout sizes unchanged. */
+    public void pressFeedback(View view) {
+        if (!motionEnabled()) return;
+        android.animation.StateListAnimator states = new android.animation.StateListAnimator();
+        android.animation.ObjectAnimator down = android.animation.ObjectAnimator.ofPropertyValuesHolder(view,
+                android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, .98f),
+                android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, .98f));
+        down.setDuration(90);
+        android.animation.ObjectAnimator up = android.animation.ObjectAnimator.ofPropertyValuesHolder(view,
+                android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 1),
+                android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 1));
+        up.setDuration(140); up.setInterpolator(new android.view.animation.PathInterpolator(.2f, 0, 0, 1));
+        states.addState(new int[] {android.R.attr.state_enabled, android.R.attr.state_pressed}, down);
+        states.addState(new int[0], up); view.setStateListAnimator(states);
+        states.jumpToCurrentState();
+    }
     /** Keep compact status timestamps on one line, shrinking only when their width requires it. */
     public void fitStatusLine(TextView view) {
         int maximum = Math.round(view.getTextSize());
@@ -161,6 +199,7 @@ public final class Ui {
         button.setClickable(true); button.setFocusable(true);
         button.setContentDescription(label);
         button.setOnClickListener(v -> { if (action != null) action.run(); });
+        pressFeedback(button);
         LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
         params.topMargin = dp(6); params.bottomMargin = dp(6); button.setLayoutParams(params);
         return button;
@@ -412,6 +451,7 @@ public final class Ui {
         item.setContentDescription(label); item.setSelected(selected); item.setFocusable(true);
         if (Build.VERSION.SDK_INT >= 30) item.setStateDescription(selected ? "Selected" : "");
         item.setOnClickListener(v -> { if (action != null) action.run(); });
+        pressFeedback(item);
         return item;
     }
     /** A compact section picker that keeps every destination visible on narrow screens. */
@@ -500,6 +540,7 @@ public final class Ui {
                 dot.setVisibility(on ? View.VISIBLE : View.INVISIBLE); item.addView(dot, dp);
                 item.setBackground(new RippleDrawable(ColorStateList.valueOf(withAlpha(accent, 30)), null, shape(Color.WHITE, 22, 0)));
                 item.setOnClickListener(v -> { if (onSelect != null) onSelect.accept(index); });
+                pressFeedback(item);
             }
             pill.addView(item, new LinearLayout.LayoutParams(0, -1, 1));
         }
@@ -518,6 +559,7 @@ public final class Ui {
             if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(on ? "Selected" : "");
             button.setElevation(dp(8));
             button.setOnClickListener(v -> { if (onSelect != null) onSelect.accept(center); });
+            pressFeedback(button);
             bar.addView(button, new android.widget.FrameLayout.LayoutParams(dp(68), dp(68), Gravity.TOP | Gravity.CENTER_HORIZONTAL));
         }
         return bar;

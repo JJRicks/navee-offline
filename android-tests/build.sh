@@ -22,7 +22,7 @@ javac --release 8 -encoding UTF-8 \
     "$SCRIPT_DIR/DashboardValidation.java" "$SCRIPT_DIR/HistoryValidation.java" \
     "$SCRIPT_DIR/SearchFocusValidation.java" "$SCRIPT_DIR/WindowTouchTrace.java" \
     "$SCRIPT_DIR/MapTilesValidation.java" "$SCRIPT_DIR/DashboardSlotsValidation.java" \
-    "$SCRIPT_DIR/ResponsiveDashboardValidation.java"
+    "$SCRIPT_DIR/ResponsiveDashboardValidation.java" "$SCRIPT_DIR/DeveloperSettingsValidation.java"
 jar cf "$TEST_BUILD_DIR/runner.jar" -C "$TEST_BUILD_DIR/classes" .
 "$BUILD_TOOLS/d8" --lib "$ANDROID_JAR" --classpath "$APP_JAR" --min-api 26 \
     --output "$TEST_BUILD_DIR/dex" "$TEST_BUILD_DIR/runner.jar"
