@@ -2,7 +2,13 @@
 
 This is compatibility validation, not an independent review or merge approval. The integration branch is local only; no owner phone, remote merge, release, or deployment was used.
 
-## Source and build
+## Latest checkpoint
+
+Final tested integrated product head: `0664473d530a4e73d38816193812140bd287f46c`. All requested feature and review-fix heads are present through PR #20 `acb30fda633c54f60f73b0f1903071fc16050c5f`. The final combined app and native runner build, all 19 core suites (53,785 checks), and integrated charge-capture lifecycle (49 assertions) passed. Earlier UI matrices below cover unchanged screens and the later targeted map/battery/dashboard changes. There are no unresolved source merge conflicts. The legacy full keyboard fixture limitation below remains explicit.
+
+Final APK: `../next-integration-evidence/charge-followup.apk`, SHA-256 `822028b137110a4dae0386c75bc425b5cd6327e4aa7d2d9a3c4336d29ff82991`. `../next-integration-evidence/final-identity.json` records that product head and build identity.
+
+## Source and build (initial combined checkpoint)
 
 - Branch: `codex/next-version-validation` in `work/next-integration-validation`.
 - Baseline: `5cb5e46c521494a689c258770b264c3ad917f233`.
@@ -75,4 +81,10 @@ The combined app and native runner rebuilt successfully. All 19 core suites pass
 
 The large/light grade route and compact one-line voltage screenshots were inspected. Evidence is in `../next-integration-evidence/review-followup-matrix/`. APK `../next-integration-evidence/review-followup.apk` SHA-256: `9d5931f2e73a2df5fa621393b70b25e5724583b7ec89734d6fed5f793eec3ed0`.
 
-PR #20's later review requested a compatibility gate between observed charging power and learned charger curves. That follow-up is not in this checkpoint and needs its final head integrated, then core and charge-capture tests rerun. Independent PR reviews remain separate from these local results.
+## Final charging follow-up
+
+PR #20 `acb30fda633c54f60f73b0f1903071fc16050c5f` merged cleanly, including the MoreScreen preference wording alongside the other preference changes. This adds a same-state-of-charge compatibility gate between observed power and learned charger curves, honest fallback status, and qualification-aware bounded retention; the capture lifecycle is unchanged.
+
+The final app and runner rebuilt at `0664473d530a4e73d38816193812140bd287f46c`. All 19 core suites passed (53,785 checks), including the additional charger mismatch/retention cases. The integrated `ChargeCaptureValidation` passed 49 assertions, with `real_bluetooth_capture_tested=false` as intended. No real scooter charging claim is made.
+
+Evidence: `../next-integration-evidence/charge-followup/`, `../next-integration-charge-followup-core.log`, `../next-integration-charge-followup-build.log`, and `../next-integration-charge-followup-runner.log`. No broad UI matrix was repeated for this isolated calculation/retention change. Independent PR reviews remain separate from these local results.
