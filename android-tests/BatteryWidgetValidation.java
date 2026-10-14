@@ -65,6 +65,7 @@ public final class BatteryWidgetValidation extends Instrumentation {
             checkDischarging();
             checkCharging();
             checkHealth();
+            checkShortReading();
             checkLongReading();
             checkDetails();
             checkAxisRoundTrip();
@@ -135,6 +136,21 @@ public final class BatteryWidgetValidation extends Instrumentation {
             bring((View)health);
         }); settle(); screenshot("health-readings");
         main(() -> { for (TextView text : texts((View)tile("readings"))) assertText(text); });
+    }
+
+    private void checkShortReading() throws Exception {
+        AtomicReference<TextView> value = new AtomicReference<>();
+        main(() -> {
+            value.set(((Map<String, TextView>)field(tile("readings"), "amounts")).get("voltage_v"));
+            value.get().setText("50.41 V");
+        });
+        waitForIdleSync();
+        main(() -> {
+            assertText(value.get());
+            require(value.get().getLayout().getLineCount() == 1,
+                    "Short number/unit reading orphaned the unit instead of fitting one line");
+        });
+        screenshot("short-reading");
     }
 
     private void checkLongReading() throws Exception {

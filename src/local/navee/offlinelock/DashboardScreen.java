@@ -1166,7 +1166,9 @@ public final class DashboardScreen implements AppScreen {
             label.setCompoundDrawablesRelative(glyphDrawable(icon, ui.muted, 15), null, null, null);
             label.setCompoundDrawablePadding(ui.dp(5));
             addView(label, new LinearLayout.LayoutParams(-1, -2));
-            value = new FittedValue("—", 12, 26, 2);
+            // Keep ordinary number/unit pairs together before permitting a
+            // readable-floor wrap for unusually long diagnostic values.
+            value = new FittedValue("—", 12, 26, 1);
             value.setIncludeFontPadding(true);
             value.setGravity(Gravity.CENTER_VERTICAL);
             value.setMinHeight(ui.dp(48 * ui.textScale));
