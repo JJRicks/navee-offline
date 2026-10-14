@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.11.0 (versionCode 23)
+NAVEE OFFLINE — VERSION 0.12.0 (versionCode 24)
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,15 +11,14 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
-0.11.0 adds searchable charts for recorded numerical readings, mixed reorderable
-favourites, full-detail ride graphs, explicit charge recording and JSON export,
-and stronger screen-off recording protection. Battery cards, compact editing,
-scooter selectors and preferences are refined. New/reset dashboards use the
-owner's ten-widget preset with a five-column choice that adapts to narrower
-screens. Existing layouts, slots, profiles and recordings remain intact.
-See CHANGELOG.md for earlier releases and VERIFICATION.txt for executed checks
-and remaining physical test limits. Install over the previous official APK to
-retain app data; do not uninstall first.
+0.12.0 adds consistent short transitions across navigation, dialogs and maps,
+fixes scrollbar flashes and restored-scroll jumps, and lets you drag Stats
+favourites by their handles. An All widgets example is placed in saved-layout
+slot 3 only when that slot does not already exist for the scooter. It includes
+all 15 widget types with useful settings and one- through six-column layouts.
+Your current dashboard, other slots, profiles and recordings remain unchanged.
+See CHANGELOG.md and VERIFICATION.txt for changes and the tested scope. Install
+over the previous official APK to retain app data; do not uninstall first.
 
 GET CONNECTED
 
@@ -151,7 +150,9 @@ Stats
   24 hours, 7 days, 30 days and All. Every option is visible together. Charts
   update while visible and expand for inspection; unavailable intervals stay
   gaps and older history can use retained summaries. Star readings or charts
-  for Overview, then manually reorder the mixed list. Diagnostics retain
+  for Overview. The Reorder icon opens a sheet with drag handles; dropping saves
+  the order, while a cancelled drag restores its starting arrangement. Screen
+  readers retain Move up/Move down actions. Diagnostics retain
   non-secret raw payloads/statuses and JSON export. Saved readings stay grey.
 
 Rides
@@ -240,6 +241,13 @@ Replacing an occupied slot or restoring over the current dashboard asks first.
 Slots stay on this phone and belong to the selected scooter. They contain no
 readings, rides or owner credentials; empty dashboards can be saved too.
 
+If slot 3 does not exist, the app adds All widgets for that scooter, containing
+all 15 types with sensible parameters and saved layouts for one through six
+columns. Any existing slot 3, including a saved empty layout, is preserved.
+The example does not activate itself or change the current column preference.
+Restore it from Edit > Layout > Saved layouts when you want to try it; save
+your current dashboard in another slot first to keep both arrangements.
+
 The battery card uses a red battery cell showing percentage and estimated range,
 with power, controller-reported health and temperature underneath. Small cards
 and large text wrap readings instead of hiding values. Fresh charging status
@@ -292,6 +300,11 @@ two-column lock card in a six-column grid gives a two-thirds/one-third split.
 Each scooter retains separate arrangements for each column count. Moving or
 resizing one card moves colliding cards out of its way. Restore default widgets
 replaces only that scooter's dashboard configuration, keeping readings and rides.
+
+Pages use consistent short fades/glides, dialogs rise smoothly, and ride maps
+and their tiles appear without abrupt content jumps. Saved scroll positions
+apply before the page appears. Scrollbars show when scrolling, avoiding flashes
+on settings rebuilds. Disabled Android animations make transitions immediate.
 
 Entering/leaving edit mode briefly slides the dashboard and pops the controls.
 Visible editing cards wiggle very subtly; a dragged/resized card stays steady.

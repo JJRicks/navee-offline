@@ -1,4 +1,54 @@
-RELEASE 0.11.0 (versionCode 23)
+RELEASE VALIDATION 0.12.0 (versionCode 24)
+October 14, 2026
+
+Scope:
+- PR #23 contributes consistent navigation/dialog/map motion, scrollbar and
+  scroll-restoration fixes, and drag-to-reorder Stats favourites with cancelled
+  gestures restoring the starting order and accessible move actions retained.
+- A new All widgets example seeds saved-layout slot 3 only when absent for that
+  scooter. It contains all 15 widget types with useful options and one- through
+  six-column arrangements. Existing active layouts, column choice and occupied
+  slots are preserved; the example is activated only by explicit restoration.
+- Version metadata and usage/release documentation are updated to 0.12.0/code 24.
+
+Executed release-specific checks:
+- Claude-authored PR #23 was independently reviewed at dbaef289; the cancelled
+  drag finding is resolved. The exact PR APK passed 793 Live Stats assertions
+  each with animations enabled and disabled. The original review also covered
+  snapshot lifecycle, page restoration, accessibility and expanded ride graphs.
+  PR #23 merged as b7fff13 with successful main CI checks.
+- All 20 core suites pass (53,855 checks), as do all 11 owner-capture cleanup
+  guards. Pinned Shizuku dependencies were explicitly verified before building.
+- The combined release APK and native runner build, sign and align successfully.
+  APK version is 0.12.0/code 24; production remains non-debuggable and uses the
+  same signing certificate as the previous official release.
+- Native saved-layout persistence passes 4,224 assertions. It covers fresh and
+  existing profiles; absent-only seeding; stable generated IDs; all 15 types and
+  useful options; non-overlapping 1–6-column layouts; safe temporary resizing;
+  and preservation of current/occupied/empty/damaged slots and unrelated data.
+- The saved-layout UI workflow passes at 344 dp, including saving, cancelled and
+  confirmed restore/overwrite, activity recreation and light theme/140% text.
+- Responsive example validation passes at 344x882, 448x960 and 725x604 dp,
+  each with 100% and 140% app text. Full-page screenshots were inspected.
+  Every type renders once; saved data is unchanged; cards remain within the
+  grid without overlap, and compact Connect is initially reachable. Dense cards
+  keep their supported internal scrolling at narrow widths/large text.
+- Tests use an explicitly selected disposable emulator with synthetic readings
+  and Bluetooth disabled. No owner setup, identity or telemetry is bundled in
+  the example. The active dashboard is unchanged until explicit restoration.
+- Existing SDK obsolete/deprecated/native-access build warnings remain; no
+  compilation, signing or alignment error occurred.
+- Publication and downloaded-asset verification are recorded with the GitHub
+  release after independent review. This document does not claim a phone install.
+
+Limits:
+- Emulator rendering does not establish smoothness on every physical phone.
+- No new scooter, charger, outdoor GPS/barometer or battery-capacity validation
+  follows from this UI/example-layout pass. Existing measurement limits remain.
+- No owner-phone or USB installation was performed as part of this documentation.
+
+
+HISTORICAL RELEASE 0.11.0 (versionCode 23)
 October 14, 2026
 
 Reviewed feature integration:

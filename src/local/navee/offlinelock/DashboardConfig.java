@@ -186,6 +186,7 @@ public final class DashboardConfig {
         if (saved != null)
             try {
                 widgets.addAll(readWidgets(new JSONArray(saved)));
+                seedExampleSlot();
                 return;
             } catch (Exception ignored) {
                 widgets.clear();
@@ -198,6 +199,13 @@ public final class DashboardConfig {
             for (String key : preferences.getAll().keySet())
                 if (key.startsWith("dashboard_v1_")) { firstDashboard = false; break; }
         loadDefaults(firstDashboard);
+        seedExampleSlot();
+    }
+
+    /** A missing example is safe to add; an occupied slot belongs to its owner, even if unreadable. */
+    private void seedExampleSlot() {
+        if (!slotExists(2))
+            saveSlot(2, "All widgets", AllWidgetsDashboard.COLUMNS, AllWidgetsDashboard.create());
     }
 
     private static ArrayList<Widget> readWidgets(JSONArray a) throws JSONException {
@@ -429,6 +437,10 @@ public final class DashboardConfig {
 
     /** Captures every stored width together, without materializing missing width layouts. */
     public boolean saveSlot(int index, String name, int columns) {
+        return saveSlot(index, name, columns, widgets);
+    }
+
+    private boolean saveSlot(int index, String name, int columns, List<Widget> definitions) {
         if (!validSlot(index) || columns < 0 || columns > MAX_COLUMNS) return false;
         try {
             JSONObject snapshot = new JSONObject();
@@ -436,7 +448,7 @@ public final class DashboardConfig {
             snapshot.put("name", slotName(name, index));
             snapshot.put("savedAt", System.currentTimeMillis());
             snapshot.put("columns", columns);
-            snapshot.put("widgets", writeWidgets(widgets));
+            snapshot.put("widgets", writeWidgets(definitions));
             validateSlot(snapshot);
             String key = slotKeyPrefix + index;
             Map<String, ?> previous = preferences.getAll();
