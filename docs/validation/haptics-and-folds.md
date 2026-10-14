@@ -13,9 +13,11 @@ This follows the owner's 0.12.0 Pixel feedback:
   - **toggle on/off:** switches and favourite stars;
   - **lift:** picking up a widget or favourite;
   - **confirm:** the scooter reporting the lock state the rider asked for (within 15 s), or a ride actually starting or being saved.
-- Ordinary taps and scrolling stay silent, as do programmatic changes. `FeedbackSwitch` only reacts to `performClick`.
+- Ordinary taps and scrolling stay silent, as do programmatic changes. `FeedbackSwitch` reacts only to the rider's taps and committed thumb drags.
 - A switch plays the direction the rider flipped it. Scooter settings put the switch back to the reported state until the scooter replies, so reading it after the click would play the opposite direction.
 - Rides' Phone sensors rows now pass label taps through `performClick`, like the other switch rows, so tapping the label feels the same as tapping the switch.
+- A committed thumb drag counts as one click in the dragged direction, with one haptic. Android commits a drag with `setChecked` and cancels the click. Before this, any switch that acts on clicks only looked changed after a swipe, and the next redraw put it back. That included the new Haptic feedback opt-out, the other App preferences toggles and scooter settings. Taps, cancelled drags and code changes behave as before.
+- Stars play their haptic before the favourite changes. On Overview, removing a chart rebuilds the favourites card, and Android drops a haptic from the detached star.
 - Android 14+ uses the dedicated segment, toggle and drag effects. Older versions fall back to clock tick, long press and context click.
 - **More → App preferences → Haptic feedback** (`haptics_enabled`, default on) turns every app haptic off. Android's Touch feedback setting still applies on top. Turning the switch on confirms with a toggle haptic; turning it off is silent.
 - The full-backup preference validation treats `haptics_enabled` as a boolean.
@@ -81,3 +83,23 @@ Not covered on the emulator:
 The emulator ran its stale layout pass late in the slide, so its snap is small. On a faster phone that pass can come earlier, while more of the slide offset remains, which fits the reported quarter-to-third jump.
 
 **Live Stats timeouts.** These are the occasional 180 s `run-live-stats.py` timeouts noted in `smooth-motion.md`; one hit the 725 × 604 case in this branch's first sweep. A thread dump of a stalled run showed the runner blocked in `Instrumentation.waitForIdleSync`, called from `settle()`, while the app's main thread was responsive, waiting in its message loop. The connected Live Stats pulse redraws every 40 ms, so on a loaded emulator a redraw is almost always pending and the idle wait can starve. `settle()` now waits for already-queued main-thread work and a 300 ms animation window, and `await(...)` still covers slower conditions. Two back-to-back stress runs of responsive, Rides and Live Stats then passed every case.
+
+## Codex review follow-up
+
+Codex reviewed `b31a500` and found two issues. Both are fixed.
+- **[P2] A thumb swipe didn't save.** Android's `Switch` commits a thumb drag with `setChecked` and cancels the click, so click-driven switches only looked changed. Swiping Haptic feedback off left haptics on, and the next redraw flipped the switch back. The pattern predates this PR and also affected the other App preferences toggles and scooter settings. `FeedbackSwitch` now treats a committed drag as one click in the dragged direction, with one haptic.
+- **[P3] Removing a chart on Overview was silent.** The favourite callback rebuilt the favourites card and detached the star before its haptic, and Android drops haptics from detached views. Stars now play first. The favourite toggles never refuse, so the state they play is exact.
+
+`DeveloperSettingsValidation` now drives real touch sequences on a switch, not `performClick`:
+- swiping Haptic feedback off, then on, saves each time and survives a redraw;
+- a cancelled swipe changes nothing;
+- a probe `FeedbackSwitch` that keeps showing its reported state, like a scooter setting, gets exactly one click per committed drag or tap, carrying the dragged state, and none for a cancelled drag or code changes.
+
+Against the `b31a500` app the new check fails with "Swiping Haptic feedback off did not save". On the new head it passes by default (1,053 assertions) and in `preferences` mode with animations off (505).
+
+On the emulator, real `adb input swipe` gestures and the vibrator log show:
+- swiping "Simulate scooter as connected" starts the simulation and logs `TOGGLE_ON`;
+- swiping simulated Cruise control on, then off, sends the setting each time ("Simulated locally; no scooter command sent") and logs `TOGGLE_ON`, then `TOGGLE_OFF`;
+- removing a chart favourite on Overview logs `TOGGLE_OFF` and removes it.
+
+The full sweep then passed on the new head: core 22/22, `run-responsive.py` 26/26, `run-rides.py` (123 checks × 3), `run-live-stats.py` 5/5, battery widgets, charge capture, `LaunchValidation` denied and granted, both `DeveloperSettingsValidation` modes and `PhoneRideValidation`.

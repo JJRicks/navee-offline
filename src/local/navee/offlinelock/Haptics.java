@@ -3,6 +3,7 @@ package local.navee.offlinelock;
 import android.content.Context;
 import android.os.Build;
 import android.view.HapticFeedbackConstants;
+import android.view.MotionEvent;
 import android.view.View;
 import android.widget.Switch;
 
@@ -51,13 +52,31 @@ final class Haptics {
      * A Switch that answers the rider's flip with a toggle haptic; programmatic changes stay silent.
      * The haptic follows the state the rider asked for: scooter settings put the switch back to the
      * reported state until the scooter replies.
+     *
+     * <p>A committed thumb drag counts as a click. Android commits it with setChecked and cancels the
+     * click, so click listeners would otherwise never hear about it and the switch would only look
+     * changed. A tap still clicks after the touch, through performClick.
      */
     static final class FeedbackSwitch extends Switch {
+        private boolean touching, clickedInTouch;
         FeedbackSwitch(Context context) { super(context); }
         @Override public boolean performClick() {
+            if (touching) clickedInTouch = true;
             boolean requested = !isChecked();
             boolean handled = super.performClick();
             Haptics.toggle(this, requested);
+            return handled;
+        }
+        @Override public boolean onTouchEvent(MotionEvent event) {
+            boolean before = isChecked();
+            touching = true; clickedInTouch = false;
+            boolean handled;
+            try { handled = super.onTouchEvent(event); } finally { touching = false; }
+            if (event.getActionMasked() == MotionEvent.ACTION_UP && !clickedInTouch && isChecked() != before) {
+                boolean requested = isChecked();
+                callOnClick();
+                Haptics.toggle(this, requested);
+            }
             return handled;
         }
     }

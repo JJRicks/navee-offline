@@ -16,14 +16,19 @@ import android.graphics.RectF;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
+import android.widget.FrameLayout;
 import android.widget.HorizontalScrollView;
+import android.widget.Switch;
 import android.widget.TextView;
 import java.io.File;
 import java.io.FileInputStream;
 import java.io.FileOutputStream;
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.security.MessageDigest;
@@ -35,6 +40,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.TreeMap;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BleController;
@@ -68,6 +74,7 @@ public final class DeveloperSettingsValidation extends Instrumentation {
             seed(); launch();
             main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
             verifySelectors(); checks.add("Rounded preference tracks retain readable labels, 48dp targets, radio semantics, selected indication and existing preference keys");
+            verifyFeedbackSwitches(); checks.add("Switch thumb drags count like taps: Haptic feedback saves a swipe and keeps it through a redraw; one click in the dragged direction, none for a cancelled drag or code");
             verifyDeveloperGate(); checks.add("Developer options stay hidden and reject direct access until seven version taps");
             if (!"preferences".equals(arguments.getString("mode", "all"))) {
                 verifySimulation();
@@ -152,6 +159,74 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         }); settle();
         main(() -> require(selector("theme").isShown() && !selector("units").isShown(), "Back did not restore App preferences"));
         screenshot("preferences");
+    }
+    /** Real touch sequences, not performClick: Android commits a thumb drag with setChecked and cancels the click. */
+    private void verifyFeedbackSwitches() throws Exception {
+        for (boolean on : new boolean[]{false, true}) {
+            final boolean target = on;
+            main(() -> require(hapticSwitch().isChecked() != target && settings().getBoolean("haptics_enabled", true) != target,
+                    "Haptic feedback started in the wrong state"));
+            main(() -> dragThumb(hapticSwitch(), target, false)); settle();
+            main(() -> require(hapticSwitch().isChecked() == target && settings().getBoolean("haptics_enabled", !target) == target,
+                    "Swiping Haptic feedback " + (target ? "on" : "off") + " did not save"));
+            main(() -> activity.redraw()); settle();
+            main(() -> require(hapticSwitch().isChecked() == target, "A redraw undid the swiped Haptic feedback switch"));
+        }
+        main(() -> dragThumb(hapticSwitch(), false, true)); settle();
+        main(() -> require(hapticSwitch().isChecked() && settings().getBoolean("haptics_enabled", false), "A cancelled swipe changed Haptic feedback"));
+
+        // Like a scooter setting, the probe keeps showing the reported state; the click must still see the request.
+        AtomicInteger clicks = new AtomicInteger(); AtomicReference<Boolean> asked = new AtomicReference<>();
+        AtomicReference<Switch> probe = new AtomicReference<>(); AtomicReference<FrameLayout> host = new AtomicReference<>();
+        main(() -> {
+            try {
+                Constructor<?> make = Class.forName("local.navee.offlinelock.Haptics$FeedbackSwitch", true, activity.getClassLoader())
+                        .getDeclaredConstructor(Context.class);
+                make.setAccessible(true); probe.set((Switch)make.newInstance(activity));
+            } catch (ReflectiveOperationException error) { throw new IllegalStateException("FeedbackSwitch is unavailable", error); }
+            Switch toggle = probe.get(); activity.ui().styleSwitch(toggle);
+            toggle.setOnClickListener(v -> { clicks.incrementAndGet(); asked.set(toggle.isChecked()); toggle.setChecked(!toggle.isChecked()); });
+            FrameLayout frame = new FrameLayout(activity); frame.addView(toggle, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+            activity.addContentView(frame, new ViewGroup.LayoutParams(-1, -1)); host.set(frame);
+        }); settle();
+        try {
+            main(() -> { probe.get().setChecked(true); probe.get().setChecked(false); require(clicks.get() == 0, "Code changes reached the click listener"); }); settle();
+            main(() -> dragThumb(probe.get(), true, false)); settle();
+            main(() -> require(clicks.get() == 1 && Boolean.TRUE.equals(asked.get()) && !probe.get().isChecked(),
+                    "A committed drag did not click exactly once for the dragged state"));
+            main(() -> dragThumb(probe.get(), true, true)); settle();
+            main(() -> require(clicks.get() == 1 && !probe.get().isChecked(), "A cancelled drag clicked or moved the switch"));
+            main(() -> tapSwitch(probe.get())); settle();
+            main(() -> require(clicks.get() == 2 && Boolean.TRUE.equals(asked.get()) && !probe.get().isChecked(), "A tap did not click exactly once"));
+        } finally {
+            main(() -> { FrameLayout frame = host.get(); if (frame != null && frame.getParent() != null) ((ViewGroup)frame.getParent()).removeView(frame); });
+            settle();
+        }
+    }
+    private Switch hapticSwitch() {
+        ArrayList<View> found = new ArrayList<>();
+        root().findViewsWithText(found, "Haptic feedback", View.FIND_VIEWS_WITH_CONTENT_DESCRIPTION);
+        for (View view : found) if (view instanceof Switch && view.isShown()) return (Switch)view;
+        require(false, "Missing Haptic feedback switch"); return null;
+    }
+    /** Drags the thumb towards {@code on}; {@code cancel} ends it as Android does when a parent takes the gesture. */
+    private void dragThumb(Switch toggle, boolean on, boolean cancel) {
+        Rect thumb = new Rect(toggle.getThumbDrawable().getBounds()), track = new Rect(toggle.getTrackDrawable().getBounds());
+        require(!thumb.isEmpty() && !track.isEmpty(), "Switch thumb was never drawn");
+        float x = thumb.exactCenterX(), y = thumb.exactCenterY(), travel = (on ? 1 : -1) * Math.max(track.width(), activity.ui().dp(40));
+        long down = SystemClock.uptimeMillis();
+        touch(toggle, down, down, MotionEvent.ACTION_DOWN, x, y);
+        for (int step = 1; step <= 8; step++) touch(toggle, down, down + step * 30, MotionEvent.ACTION_MOVE, x + travel * step / 8, y);
+        touch(toggle, down, down + 270, cancel ? MotionEvent.ACTION_CANCEL : MotionEvent.ACTION_UP, x + travel, y);
+    }
+    private void tapSwitch(Switch toggle) {
+        float x = toggle.getWidth() / 2f, y = toggle.getHeight() / 2f; long down = SystemClock.uptimeMillis();
+        touch(toggle, down, down, MotionEvent.ACTION_DOWN, x, y); touch(toggle, down, down + 60, MotionEvent.ACTION_UP, x, y);
+    }
+    private void touch(View view, long down, long when, int action, float x, float y) {
+        MotionEvent event = MotionEvent.obtain(down, when, action, x, y, 0);
+        try { boolean handled = view.dispatchTouchEvent(event); require(handled || action != MotionEvent.ACTION_DOWN, "Switch refused the touch"); }
+        finally { event.recycle(); }
     }
     @SuppressWarnings("unchecked") private List<TextView> choices(String key) { return (List<TextView>)field(field(selector(key), "track"), "choices"); }
     private View selector(String key) { View found = root().findViewWithTag("preference-selector-" + key); require(found != null, "Missing selector " + key); return found; }
