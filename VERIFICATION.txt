@@ -1,4 +1,4 @@
-RELEASE PREPARATION 0.11.0 (versionCode 23)
+RELEASE 0.11.0 (versionCode 23)
 October 14, 2026
 
 Reviewed feature integration:
@@ -30,17 +30,29 @@ Reviewed feature integration:
   Earlier runs, their APK hashes, logs and screenshots are retained locally;
   this section does not claim a new owner-phone installation.
 
-Release-specific scope and pending verification:
-- 0.11.0/code 23 documentation and the owner's ten-widget default Home setup are
-  being prepared separately from the tested integration. The default includes
-  saved options, maximum-speed/scheduled-charge shortcuts and a five-column
-  choice that adapts to narrower screens. Existing current layouts and slots
-  are preserved. Source/default tests and final release build/install results
-  must be recorded when they have actually completed.
-- The 0.11.0/code 23 production APK and native runner build successfully. APK
-  signing/alignment pass; the signing certificate matches the preceding official
-  0.10.0 release, and the production manifest is not debuggable. Native default,
-  release-artifact identity, upgrade and publication checks follow separately.
+Release-specific checks:
+- The release includes the owner's ten-widget Home preset and all captured
+  options/rectangles. Maximum speed is the first Quick access item, followed by
+  Scheduled charging. Five columns are the initial choice; narrower screens
+  use the existing adaptive fallback. Fresh widget IDs are generated and no
+  owner identity, name or setup data is bundled.
+- Native defaults/slots validation passes 1,092 assertions, matching every
+  captured option and rectangle, preserving existing dashboards and columns,
+  legacy Adaptive choices, other profiles, saved slots and recorded history.
+- The signed 0.11.0 APK passes card checks at 344x882, 448x960 and 725x604 dp,
+  plus 360x800 and 725x604 dp with 140% app text. Folded, unfolded and large-text
+  screenshots were inspected. Connected/disconnected/connecting lock controls,
+  scooter readings and battery readings fit without hidden inner overflow.
+- Fresh launches pass with Nearby permission denied and granted, including
+  onboarding, all five tabs, dark/light/system themes and activity recreation.
+- Production APK and native runner build. APK signing/alignment pass and its
+  signing certificate matches official 0.10.0. The production manifest remains
+  non-debuggable. Pinned Shizuku dependencies were explicitly verified.
+- Existing Java 8/deprecated-API and SDK native-access build warnings remain;
+  no new compile, signing or alignment failure occurred.
+- Release assets provide SHA256SUMS. Downloaded-asset verification and the
+  owner's USB upgrade are recorded with the published release, separately from
+  these emulator checks. No physical scooter command was sent during this pass.
 
 Physical limits:
 - Parked mode switching and confirmed range/control readback remain to be checked
