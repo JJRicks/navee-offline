@@ -90,6 +90,7 @@ public final class RidesScreen implements AppScreen {
     private final Row sensorsRow, compareRow;
     private final Ui.ChartView liveChart;
     private final ExecutorService phoneLoader = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "phone-ride-preview"); t.setDaemon(true); return t; });
+    private final ExecutorService chartLoader = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "full-ride-chart"); t.setDaemon(true); return t; });
     private final ExecutorService thumbLoader = Executors.newSingleThreadExecutor(r -> { Thread t = new Thread(r, "ride-thumbnails"); t.setDaemon(true); t.setPriority(Thread.MIN_PRIORITY); return t; });
     private boolean closed;
     private final List<RouteMapView> maps = new ArrayList<RouteMapView>();
@@ -572,7 +573,7 @@ public final class RidesScreen implements AppScreen {
         rideHeading(body, ride);
         List<RideStore.Point> measured = service.rides.trend(ride.id, 600);
         LinearLayout route = vertical(); body.addView(route);
-        ChartPanel graph = new ChartPanel(measured, null, false); body.addView(graph);
+        ChartPanel graph = new ChartPanel(ride.id, measured, null, false); body.addView(graph);
         body.addView(ui.sectionLabel("Journey"));
         tiles(body, new String[]{"Distance", distance(ride.distanceKm), "Duration", duration(ride.elapsedMs),
                 "Avg speed", speed(ride.averageSpeedKmh), "Max speed", speed(ride.maximumSpeedKmh)});
@@ -628,14 +629,19 @@ public final class RidesScreen implements AppScreen {
         private void finish(){finished=true;phoneRefreshers.remove(this);route.removeView(placeholder);}
     }
     private final class ChartPanel extends LinearLayout {
+        final String rideId;
         final List<RideStore.Point> measured; PhoneRideStore.Track phone;
         final RideChartView chart; final Flow choices; final Set<String> chosen;
         final LinearLayout inspection; String inspectionSignature = "";
         final boolean full; List<RideChartData.Series> data;
-        ChartPanel(List<RideStore.Point> measured, PhoneRideStore.Track phone, boolean full) {
-            super(host.activity()); this.measured = measured; this.phone = phone; this.full = full;
+        final TextView loadStatus; AlertDialog expandedDialog; java.util.concurrent.Future<?> fullLoad;
+        int loadGeneration; boolean fullDataLoaded;
+        ChartPanel(String rideId, List<RideStore.Point> measured, PhoneRideStore.Track phone, boolean full) {
+            super(host.activity()); this.rideId = rideId; this.measured = measured; this.phone = phone; this.full = full;
             setOrientation(VERTICAL); setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12)); setBackground(ui.shape(ui.surface, 20, 0));
             LinearLayout head = horizontal(); head.setGravity(Gravity.CENTER_VERTICAL); head.addView(ui.text("Ride readings", 18, true), new LinearLayout.LayoutParams(0, -2, 1));
+            loadStatus = ui.text("Loading…", 12, false); loadStatus.setMinHeight(ui.dp(48)); loadStatus.setGravity(Gravity.CENTER); loadStatus.setPadding(ui.dp(6), 0, ui.dp(6), 0);
+            if (full) head.addView(loadStatus);
             if (!full) { TextView expand = ui.secondaryButton("Expand", this::expand); iconize(expand, "fit"); head.addView(expand, new LinearLayout.LayoutParams(-2, -2)); }
             addView(head); choices = new Flow(); choices.setPadding(0, ui.dp(8), 0, ui.dp(10));
             if (full) {
@@ -686,7 +692,10 @@ public final class RidesScreen implements AppScreen {
         }
         void setPhone(PhoneRideStore.Track track) { phone = track; update(); }
         void update() {
-            data = RideChartData.build(measured, phone, !"km".equals(preferences.getString("units", "mi")));
+            applyData(RideChartData.build(measured, phone, !"km".equals(preferences.getString("units", "mi"))));
+        }
+        void applyData(List<RideChartData.Series> prepared) {
+            data = prepared;
             choices.removeAllViews();
             for (RideChartData.Series series : data) {
                 CheckBox toggle = new CheckBox(host.activity()); toggle.setButtonDrawable(null); toggle.setMinHeight(ui.dp(48));
@@ -702,11 +711,54 @@ public final class RidesScreen implements AppScreen {
             chart.set(data, chosen);
         }
         void expand() {
-            ChartPanel expanded = new ChartPanel(measured, phone, true);
+            if (closed || !isAttachedToWindow() || (expandedDialog != null && expandedDialog.isShowing())) return;
+            ChartPanel expanded = new ChartPanel(rideId, measured, phone, true);
             expanded.setMinimumHeight(Math.max(ui.dp(400), host.activity().getWindow().getDecorView().getHeight() - ui.dp(110)));
             AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(expanded).setPositiveButton("Done", null).create();
-            show(dialog, PAGE, () -> { chosen.clear(); chosen.addAll(preferences.getStringSet("ride_chart_series", RideChartData.defaults())); update(); });
+            expandedDialog = dialog;
+            show(dialog, PAGE, () -> { cancelFullLoad(); expandedDialog = null; if (!closed && isAttachedToWindow()) { chosen.clear(); chosen.addAll(preferences.getStringSet("ride_chart_series", RideChartData.defaults())); update(); } });
             dialog.getWindow().setLayout(-1, -1);
+            expanded.loadStatus.setOnClickListener(v -> loadFull(expanded, dialog));
+            loadFull(expanded, dialog);
+        }
+        void loadFull(ChartPanel expanded, AlertDialog dialog) {
+            if (closed || !isAttachedToWindow() || !dialog.isShowing()) return;
+            cancelFullLoad(); final int generation = loadGeneration;
+            expanded.loadStatus.setText("Loading…"); expanded.loadStatus.setEnabled(false);
+            if (service.phoneSaving()) { fullLoadFailed(expanded, "Phone data is still being saved. Try again shortly."); return; }
+            final boolean miles = !"km".equals(preferences.getString("units", "mi"));
+            final RideStore rideStore = service.rides; final PhoneRideStore phoneStore = service.phoneRides;
+            fullLoad = chartLoader.submit(() -> {
+                try {
+                    List<RideStore.Point> all = rideStore.fullTrend(rideId);
+                    PhoneRideStore.Track track = phoneStore == null ? null : phoneStore.loadSnapshot(rideId);
+                    List<RideChartData.Series> prepared = RideChartData.build(all, track, miles, true);
+                    host.activity().runOnUiThread(() -> {
+                        if (!currentLoad(generation, expanded, dialog)) return;
+                        fullLoad = null; expanded.fullDataLoaded = true; expanded.applyData(prepared);
+                        expanded.loadStatus.setText("All samples"); expanded.loadStatus.setContentDescription("All recorded chart samples loaded");
+                    });
+                } catch (java.io.InterruptedIOException | java.util.concurrent.CancellationException canceled) {
+                    // Closing, replacing the ride, or leaving Rides cancels without a late UI update.
+                } catch (IOException | RideStore.DetailMemoryException failure) {
+                    String message = failure instanceof RideStore.DetailMemoryException
+                            ? "Not enough memory for all samples. Showing preview; the full journal is available through Export."
+                            : "Could not load all samples. Showing preview; tap Retry to try again.";
+                    host.activity().runOnUiThread(() -> { if (currentLoad(generation, expanded, dialog)) { fullLoad = null; fullLoadFailed(expanded, message); } });
+                }
+            });
+        }
+        boolean currentLoad(int generation, ChartPanel expanded, AlertDialog dialog) {
+            return !closed && generation == loadGeneration && expandedDialog == dialog && dialog.isShowing()
+                    && isAttachedToWindow() && expanded.isAttachedToWindow() && !host.activity().isDestroyed();
+        }
+        void fullLoadFailed(ChartPanel expanded, String message) {
+            expanded.loadStatus.setText("Preview · Retry"); expanded.loadStatus.setEnabled(true);
+            expanded.loadStatus.setContentDescription("Preview only. Retry loading all recorded chart samples"); host.toast(message);
+        }
+        void cancelFullLoad() { loadGeneration++; if (fullLoad != null) { fullLoad.cancel(true); fullLoad = null; } }
+        @Override protected void onDetachedFromWindow() {
+            cancelFullLoad(); if (expandedDialog != null) expandedDialog.dismiss(); super.onDetachedFromWindow();
         }
     }
     /** Energy, quality, sensor history, notes, exports and Delete: shared by the details page and the wide detail pane. */
@@ -1553,7 +1605,7 @@ public final class RidesScreen implements AppScreen {
     }
     @Override public void close() {
         if (wide && !closed) wideListScroll = scroll.getScrollY();
-        closed = true; phoneRefreshers.clear(); phoneLoader.shutdownNow(); thumbLoader.shutdownNow(); for (RouteMapView map : maps) map.close(); maps.clear();
+        closed = true; phoneRefreshers.clear(); phoneLoader.shutdownNow(); chartLoader.shutdownNow(); thumbLoader.shutdownNow(); for (RouteMapView map : maps) map.close(); maps.clear();
         for (AlertDialog dialog : new ArrayList<AlertDialog>(dialogs)) dialog.dismiss(); dialogs.clear();
     }
 }

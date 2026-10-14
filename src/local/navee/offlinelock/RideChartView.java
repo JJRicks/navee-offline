@@ -30,7 +30,7 @@ public final class RideChartView extends View {
     public void setInspectionListener(InspectionListener listener) { inspectionListener = listener; notifyInspection(); }
     public void set(List<RideChartData.Series> all, Set<String> selected) {
         series = new ArrayList<>(); double end = 1;
-        for (RideChartData.Series s : all) { for (RideChartData.Value p : s.values) end = Math.max(end, p.time); if (selected.contains(s.key)) series.add(s); }
+        for (RideChartData.Series s : all) { end = Math.max(end, s.endTime); if (selected.contains(s.key)) series.add(s); }
         boolean reset = duration <= 1; duration = end; if (reset) { from = 0; to = duration; } else clamp();
         setMinimumWidth(ui.dp(220)); notifyInspection(); requestLayout(); invalidate();
     }
@@ -79,15 +79,17 @@ public final class RideChartView extends View {
             canvas.restore();
             canvas.save(); canvas.clipRect(plot); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2));
             paint.setPathEffect(s.index % 3 == 0 ? null : new DashPathEffect(new float[]{ui.dp(s.index % 3 == 1 ? 7 : 2), ui.dp(3)}, 0));
-            Path path = new Path(); boolean drawing = false; RideChartData.Value previous = null;
-            int[] visible=s.visibleRange(from,to);
-            for (int point=visible[0];point<visible[1];point++) {
-                RideChartData.Value p=s.values.get(point);
-                if (p.value == null || !Double.isFinite(p.value)) { drawing = false; previous = p; continue; }
+            Path path = new Path();
+            int[] visible = s.drawIndices(from, to, (int)Math.ceil(plot.width()));
+            for (int position = 0; position < visible.length; position++) {
+                int encoded = visible[position];
+                boolean start = encoded < 0; RideChartData.Value p = s.values.get(start ? -encoded - 1 : encoded);
                 float px = plot.left + (float)((p.time - from) / (to - from)) * plot.width();
                 float py = plot.bottom - (float)((p.value - s.min) / (s.max - s.min)) * plot.height();
-                if (!drawing || !s.connects(previous, p)) path.moveTo(px, py); else path.lineTo(px, py);
-                drawing = true; previous = p;
+                if (start) {
+                    path.moveTo(px, py);
+                    if (position + 1 == visible.length || visible[position + 1] < 0) canvas.drawPoint(px, py, paint);
+                } else path.lineTo(px, py);
             }
             canvas.drawPath(path, paint); paint.setPathEffect(null); paint.setStyle(Paint.Style.FILL); canvas.restore();
         }
