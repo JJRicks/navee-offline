@@ -119,12 +119,21 @@ public final class DeveloperSettingsValidation extends Instrumentation {
     }
     private void verifySelectors() throws Exception {
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "App")); settle();
-        String[] keys = {"theme", "units", "time_format"};
-        String[][] values = {{"dark", "system", "light"}, {"mi", "km", "dual"}, {"system", "12h", "24h"}};
+        String[] keys = {"theme", "stats_density", "units", "temperature_unit", "time_format"};
+        String[][] values = {{"dark", "system", "light"}, {"comfortable", "dense"}, {"mi", "km", "dual"}, {"c", "f"}, {"system", "12h", "24h"}};
         for (int group = 0; group < keys.length; group++) {
             final String key = keys[group];
+            if (key.equals("units")) {
+                main(() -> {
+                    View selector = selector("stats_density"), groupView = root().findViewWithTag("preference-display-options");
+                    require(groupView.getTop() - selector.getBottom() >= activity.ui().dp(16), "Display submenu touches final selector");
+                    require(!selector("units").isShown() && !selector("temperature_unit").isShown(), "Unit controls still crowd App preferences");
+                    View units = root().findViewWithTag("preference-units-menu");
+                    require(units != null && units.isShown(), "Units submenu is missing"); units.performClick();
+                }); settle();
+            }
             main(() -> assertSelector(key));
-            for (int choice : new int[]{2, 0}) {
+            for (int choice : new int[]{values[group].length - 1, 0}) {
                 final int selected = choice; final String expected = values[group][choice];
                 main(() -> { View previousSelector = selector(key); choices(key).get(selected).performClick();
                     if (!Ui.motionEnabled()) require(field(field(previousSelector, "track"), "animation") == null,
@@ -132,13 +141,20 @@ public final class DeveloperSettingsValidation extends Instrumentation {
                 main(() -> { require(settings().getString(key, "").equals(expected), "Selector changed the wrong preference key"); assertSelector(key); });
             }
         }
+        screenshot("units");
+        main(() -> {
+            require("Units".equals(field(more(), "selectedSection")), "Unit changes lost submenu navigation");
+            require(((MoreScreen)more()).back(), "Back did not leave Units");
+            require("App".equals(field(more(), "selectedSection")), "Units back skipped App preferences");
+        }); settle();
+        main(() -> require(selector("theme").isShown() && !selector("units").isShown(), "Back did not restore App preferences"));
         screenshot("preferences");
     }
     @SuppressWarnings("unchecked") private List<TextView> choices(String key) { return (List<TextView>)field(field(selector(key), "track"), "choices"); }
     private View selector(String key) { View found = root().findViewWithTag("preference-selector-" + key); require(found != null, "Missing selector " + key); return found; }
     private void assertSelector(String key) {
         View selector = selector(key); Object track = field(selector, "track");
-        require(selector instanceof HorizontalScrollView && selector.getWidth() > 0, "Selector lost its bounded readable track");
+        require(selector instanceof HorizontalScrollView && selector.isShown() && selector.getWidth() > 0, "Selector lost its bounded readable track");
         int selected = 0; List<Rect> targets = new ArrayList<>();
         for (TextView choice : choices(key)) {
             require(choice.getWidth() >= activity.ui().dp(48) && choice.getHeight() >= activity.ui().dp(48), "Preference target became too small");
