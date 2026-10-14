@@ -82,6 +82,33 @@ public final class PhoneRideStoreTest {
             check(hill.toJson().contains("\"powerW\":1500.0"), "JSON power matching");
             check(hill.toGpx().contains("<trkseg>"), "GPX export");
             check(hill == store.load("hill"), "Unchanged track cached");
+            store.start("altitude-spike", 1700000000000L, 1000, "pocket");
+            StringBuilder spike = new StringBuilder();
+            for (int i = 0; i <= 30; i++) {
+                double altitude = i >= 5 && i <= 25 ? 1500 + 76.2 * (1 - Math.abs(i - 15) / 10.0) : 1500;
+                spike.append(gps(1000 + i * 1000, 43.82 + i * 5 / 111194.9266, 3, 5, .2, altitude, 4d));
+            }
+            store.appendBatch("altitude-spike", spike.toString(), "");
+            PhoneRideStore.Track rejectedAltitude = store.load("altitude-spike");
+            check(rejectedAltitude.rejectedElevationCount > 10, "250 ft excursion in 20 seconds filtered");
+            check(rejectedAltitude.locationCount == 31, "Elevation outlier does not erase valid GPS route");
+            check(rejectedAltitude.points.get(15).relativeAltitudeM == null && rejectedAltitude.points.get(15).gradePercent == null, "Peak hidden from elevation and grade");
+            check(rejectedAltitude.points.get(30).relativeAltitudeM != null, "Elevation recovers after return");
+            check(rejectedAltitude.toCsv().contains("1576.2"), "Original altitude retained in export");
+            check(rejectedAltitude.toJson().contains("rejectedElevationCount"), "Filtering disclosed in analysis");
+            store.start("pressure-spike", 1700000000000L, 1000, "pocket");
+            StringBuilder pressureSpike = new StringBuilder();
+            for (int i = 0; i <= 60; i++) {
+                double altitude = i >= 5 && i <= 45 ? 76.2 * (1 - Math.abs(i - 25) / 20.0) : 0;
+                double pressure = 900 * Math.pow(1 - altitude / 44330, 1 / 0.190294957);
+                pressureSpike.append(PhoneRideStore.row("PRESSURE", 1700000000000L + i * 1000, 1000 + i * 1000, pressure));
+                pressureSpike.append(gps(1000 + i * 1000, 43.82 + i * 5 / 111194.9266, 3, 5, .2, 1500d, 4d));
+            }
+            store.appendBatch("pressure-spike", pressureSpike.toString(), "");
+            PhoneRideStore.Track pressureRejected = store.load("pressure-spike");
+            check(pressureRejected.rejectedElevationCount > 0, "Smoothed barometer ramps also checked for implausible elevation");
+            check(pressureRejected.ascentMeters == null || pressureRejected.ascentMeters < 25, "250 ft pressure spike does not inflate ascent");
+            check(pressureRejected.descentMeters == null || pressureRejected.descentMeters < 25, "250 ft pressure spike does not inflate descent");
             store.start("quality", 1700000000000L, 1000, "mounted");
             b.setLength(0);
             b.append(gps(1000, 43.82, 2, 0, .1, 1500.0, 25.0));

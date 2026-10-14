@@ -25,6 +25,7 @@ public final class RideStoreTest {
         clockChangesDoNotInventEnergy();
         sessionsAreIndependentAndManageable();
         highRateRecordingRemainsBoundedAndReplayable();
+        renamePreservesMeasurements();
         System.out.println("RideStoreTest: " + assertions + " assertions passed");
     }
     private static File directory() throws Exception { return Files.createTempDirectory("navee-rides-test-").toFile(); }
@@ -286,6 +287,21 @@ public final class RideStoreTest {
         check(small.size() == 12 && small.get(11).elapsedMs == s.elapsedMs, "Requested chart resolution respected");
         RideStore.Summary replay = new RideStore(dir).get(id);
         check(s.toJson().equals(replay.toJson()), "High-rate persisted analysis matches live analysis");
+    }
+    private static void renamePreservesMeasurements() throws Exception {
+        File dir = directory(); RideStore store = new RideStore(dir);
+        String id = store.start("UT5", "Original", WALL, 0);
+        store.sample(WALL, 0, snapshot(0, 500, 20, 1)); store.sample(WALL + 1000, 1000, snapshot(1000, 500, 20, 1.005));
+        RideStore.Summary original = store.stop(WALL + 2000, 2000);
+        store.rename(id, "Campus, return \"ride\"");
+        RideStore.Summary renamed = new RideStore(dir).get(id);
+        check(renamed.label.equals("Campus, return \"ride\""), "Quoted rename survives replay after STOP");
+        check(renamed.sampleCount == original.sampleCount && renamed.elapsedMs == original.elapsedMs, "Rename preserves time and samples");
+        near(original.measuredThroughputWh, renamed.measuredThroughputWh, "Rename preserves energy");
+        check(store.list().get(0).label.equals(renamed.label), "Cached list picks up new title");
+        boolean rejected = false; try { store.rename(id, "   "); } catch (IllegalArgumentException expected) { rejected = true; }
+        check(rejected, "Empty rename rejected");
+        store.rename(id, "Second name"); check(new RideStore(dir).get(id).label.equals("Second name"), "Newest rename wins");
     }
     private static void near(double expected, Double actual, String message) {
         check(actual != null && Math.abs(expected - actual) <= Math.max(1e-8, Math.abs(expected) * 1e-10),

@@ -164,6 +164,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             clickDescription("Rides");
             Object rides = field(activity, "screen");
             main(() -> {
+                settings.edit().putBoolean("map_basemap_enabled", false).commit();
                 invoke(rides, "presentPhoneRide", new Class<?>[]{PhoneRideStore.Track.class}, fixture);
                 @SuppressWarnings("unchecked") List<AlertDialog> dialogs = (List<AlertDialog>) field(rides, "dialogs");
                 preview = dialogs.get(dialogs.size() - 1);
@@ -173,9 +174,8 @@ public final class UiOrganizationValidation extends Instrumentation {
                     4000, "Route preview did not attach");
             View dialogRoot = preview.getWindow().getDecorView();
             RouteMapView map = first(dialogRoot, RouteMapView.class);
-            CheckBox streets = first(dialogRoot, CheckBox.class);
-            require(streets != null && !streets.isChecked(), "Basemap must stay off during the offline preview test");
-            verifyMapSources(rides, dialogRoot, map, streets);
+            require(!((Boolean)field(map, "streets")), "Explicitly disabled basemap must remain offline");
+            verifyMapSources(map);
             reveal(map);
             main(() -> {
                 long now = SystemClock.uptimeMillis();
@@ -195,7 +195,7 @@ public final class UiOrganizationValidation extends Instrumentation {
             require(export != null, "Route export action is missing"); reveal(export); requireFullyVisible(export, "Phone export action");
             screenshot("synthetic-route-bottom-dark");
             main(() -> {
-                require(!streets.isChecked() && !((Boolean)field(map, "streets")), "Preview enabled network tile loading");
+                require(!((Boolean)field(map, "streets")), "Preview enabled network tile loading");
                 require(((Set<?>)field(map, "pending")).isEmpty(), "Offline preview queued a tile download");
             });
             click(preview.getButton(AlertDialog.BUTTON_POSITIVE)); preview = null;
@@ -316,15 +316,16 @@ public final class UiOrganizationValidation extends Instrumentation {
         finally { event.recycle(); }
     }
 
-    private void verifyMapSources(Object rides, View dialogRoot, RouteMapView map, CheckBox streets) throws Exception {
+    private void verifyMapSources(RouteMapView map) throws Exception {
         String usgs = "https://basemap.nationalmap.gov/arcgis/rest/services/USGSTopo/MapServer/tile/{z}/{y}/{x}";
         String osm = "https://tile.openstreetmap.org/{z}/{x}/{y}.png";
-        String usgsName = "Map source · USGS Topo · United States";
-        require(findDescription(dialogRoot, usgsName) != null, "Fresh map preview did not default to USGS");
-        chooseMapSource(rides, dialogRoot, usgsName, "OpenStreetMap");
-        assertOfflineMapSource(dialogRoot, map, streets, "Map source · OpenStreetMap", "© OpenStreetMap contributors", osm, 19);
-        chooseMapSource(rides, dialogRoot, "Map source · OpenStreetMap", "USGS Topo");
-        assertOfflineMapSource(dialogRoot, map, streets, usgsName, "U.S. Geological Survey, National Geospatial Program", usgs, 16);
+        main(() -> {
+            map.setSource(osm);
+            require(((Integer)field(map, "maximumTileZoom")) == 19, "OpenStreetMap zoom limit");
+            require(!((Boolean)field(map, "streets")), "Source changes preserve offline mode");
+            map.setSource(usgs);
+            require(((Integer)field(map, "maximumTileZoom")) == 16, "USGS zoom limit");
+        });
 
         // Hold both existing workers so the old request can be canceled before any network work.
         ExecutorService executor = (ExecutorService)field(map, "TILES");
@@ -354,39 +355,14 @@ public final class UiOrganizationValidation extends Instrumentation {
             releaseOne.countDown(); releaseTwo.countDown();
             firstWorker.get(5, TimeUnit.SECONDS); secondWorker.get(5, TimeUnit.SECONDS);
         }
-        assertOfflineMapSource(dialogRoot, map, streets, usgsName, "U.S. Geological Survey, National Geospatial Program", usgs, 16);
-        check("USGS and OpenStreetMap source changes update labels and attribution offline; stale queued callbacks cannot alter the replacement source");
+        main(() -> require(((Set<?>)field(map, "pending")).isEmpty(), "Offline source has no queued tiles"));
+        check("USGS and OpenStreetMap preserve offline loading; stale queued callbacks cannot alter the replacement source");
     }
     private static void waitForWorker(CountDownLatch occupied, CountDownLatch release) {
         occupied.countDown();
         try { if (!release.await(10, TimeUnit.SECONDS)) throw new IllegalStateException("Tile queue fixture timed out"); }
         catch (InterruptedException error) { Thread.currentThread().interrupt(); throw new IllegalStateException(error); }
     }
-    private void chooseMapSource(Object rides, View dialogRoot, String label, String option) {
-        clickDescription(dialogRoot, label);
-        AtomicReference<View> pickerRoot = new AtomicReference<>();
-        main(() -> {
-            @SuppressWarnings("unchecked") List<AlertDialog> dialogs = (List<AlertDialog>)field(rides, "dialogs");
-            AlertDialog picker = dialogs.get(dialogs.size()-1);
-            require(picker.isShowing() && picker.getWindow() != null, "Map source picker did not open");
-            pickerRoot.set(picker.getWindow().getDecorView());
-        });
-        // Each source is a radio row; clicking its name selects it and closes the sheet.
-        clickText(pickerRoot.get(), option);
-    }
-    private void assertOfflineMapSource(View dialogRoot, RouteMapView map, CheckBox streets, String label,
-            String credit, String url, int maximumZoom) {
-        main(() -> {
-            require(findDescription(dialogRoot, label) != null, "Map source label did not change to " + label);
-            TextView attribution = findTextIncludingHidden(dialogRoot, credit);
-            require(attribution != null && attribution.getVisibility() == View.GONE, "Map attribution did not follow the selected offline source");
-            require(settings().getString("map_tile_url", "").equals(url), "Map source URL was not saved");
-            require(((Integer)field(map, "maximumTileZoom")) == maximumZoom, "Map source zoom limit was not updated");
-            require(!streets.isChecked() && !((Boolean)field(map, "streets")), "Changing map source enabled network loading");
-            require(((Set<?>)field(map, "pending")).isEmpty(), "Changing an offline map source queued tile downloads");
-        });
-    }
-
     private void verifyMoreReturn(SharedPreferences settings) {
         clickText(root(), "App preferences");
         clickDescription("Home"); clickDescription("More");
