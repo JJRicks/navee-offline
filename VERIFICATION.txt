@@ -1,3 +1,26 @@
+READINGS PICKER AND COMPACT SCOOTER CAPTIONS — PREVIEW FOLLOW-UP
+October 13, 2026
+
+- Production build passes compilation, signing and alignment. Final preview
+  updated the Pixel in place; the dashboard resumed with the compact captions.
+- Native dark-mode picker screenshot inspected: themed icon/label/category rows,
+  tinted checkboxes, readable search, selection counter and fixed Save footer.
+  Manual filtering by "range" retained the selected estimated range and showed
+  related settings. A temporary draft selection updated the counter and checkbox;
+  the sheet was cancelled. Tapping a result released search focus.
+- After that check, pinned the search/header to a stable available sheet height
+  across query changes and added compact labels as search aliases. The final build
+  visibly displays Odometer, Est. range and Battery temp. while accessibility
+  descriptions retain the original full names. Source inspection confirms compact
+  mappings cover all 93 catalog keys, with a full-label fallback for future keys.
+- Further phone interaction was left to the owner when they resumed using it.
+  The final fixed-height/search-alias adjustment, light mode and enlarged text
+  were not separately exercised in this pass. No automated suites were rerun for
+  this UI-only change; earlier results below refer to their recorded previews.
+
+Preview APK SHA-256:
+c6c996019c4f33ac4bf9e8e891536870a07ed9ffbe70ed8cbd9facd55d1b5e16
+
 BATTERY TRACK CONTRAST — PREVIEW FOLLOW-UP
 October 13, 2026
 

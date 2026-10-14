@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Modernize the shared widget-readings picker with a themed searchable sheet, icons, selection counter and pinned Save button. Preserve filtered selections and enforce the 12-reading limit. My Scooter uses compact captions for all parameters while retaining full names for search, accessibility and tooltips.
+
 - Make the battery overview's empty capacity easier to distinguish with a dim red track, faint diagonal texture and thin outline; stale and unavailable readings remain neutral grey.
 
 - Configure two to eight ordered Quick access items, including direct scooter toggles and settings panels that open above Home. Preserve existing safety/readback checks and legacy shortcut defaults; saved layouts and duplicates retain the selection. Fit compact buttons to the available height without clipping labels.

@@ -1447,13 +1447,9 @@ public final class DashboardScreen implements AppScreen {
                     for (String key : widget.keys) {
                         LinearLayout item = column();
                         item.setPadding(0, ui.dp(3), ui.dp(4), ui.dp(3));
-                        TextView label =
-                                ui.caption(
-                                        key.equals("capacity_throughput_ah")
-                                                ? "Battery throughput"
-                                                : key.equals("charge_cycles")
-                                                        ? "Reported charges"
-                                                        : label(key));
+                        TextView label = ui.caption(ScooterReadingLabels.label(key, label(key)));
+                        label.setContentDescription(label(key));
+                        item.setTooltipText(label(key));
                         label.setTextSize(12.5f * ui.textScale);
                         item.addView(label, new LinearLayout.LayoutParams(-1, -2));
                         // The two glanceable stats can grow into a roomy card. Width
@@ -4072,6 +4068,12 @@ public final class DashboardScreen implements AppScreen {
      * stays pinned underneath it.
      */
     private void showSheet(String title, View content, View footer, String closeLabel, Runnable onClose) {
+        showSheet(title, null, content, footer, closeLabel, onClose);
+    }
+
+    /** A fixed search header keeps filtering available while a long choice list scrolls. */
+    private void showSheet(String title, View fixedHeader, View content, View footer,
+            String closeLabel, Runnable onClose) {
         dismiss();
         int maximum = (int) (host.activity().getResources().getDisplayMetrics().heightPixels * .86);
         LinearLayout sheet =
@@ -4080,7 +4082,8 @@ public final class DashboardScreen implements AppScreen {
                     protected void onMeasure(int widthSpec, int heightSpec) {
                         int limit = MeasureSpec.getMode(heightSpec) == MeasureSpec.UNSPECIFIED
                                 ? maximum : Math.min(maximum, MeasureSpec.getSize(heightSpec));
-                        super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(limit, MeasureSpec.AT_MOST));
+                        super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(limit,
+                                fixedHeader == null ? MeasureSpec.AT_MOST : MeasureSpec.EXACTLY));
                     }
                 };
         sheet.setOrientation(LinearLayout.VERTICAL);
@@ -4102,6 +4105,7 @@ public final class DashboardScreen implements AppScreen {
         closeSize.setMarginStart(ui.dp(8));
         header.addView(close, closeSize);
         sheet.addView(header, new LinearLayout.LayoutParams(-1, -2));
+        if (fixedHeader != null) sheet.addView(fixedHeader, new LinearLayout.LayoutParams(-1, -2));
         ScrollView scroll = new ScrollView(host.activity());
         scroll.setClipToPadding(false);
         scroll.setPadding(0, ui.dp(4), 0, ui.dp(4));
@@ -4299,40 +4303,128 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private void chooseReadings(DashboardConfig.Widget widget) {
-        dismiss();
         List<Telemetry.Metric> metrics = new Telemetry().metrics();
-        String[] names = new String[metrics.size()];
-        boolean[] checked = new boolean[names.length];
+        // Keep the draft independent of the filtered views. Closing discards it;
+        // saving retains selection order, including readings hidden by the query.
         LinkedHashSet<String> chosen = new LinkedHashSet<>(widget.keys);
-        for (int i = 0; i < names.length; i++) {
-            names[i] = metrics.get(i).group + " · " + metrics.get(i).label;
-            checked[i] = chosen.contains(metrics.get(i).key);
+        LinearLayout header = column();
+        EditText search = new EditText(dialogContext);
+        search.setSingleLine(true);
+        search.setHint("Search readings");
+        search.setContentDescription("Search readings");
+        ui.styleSearch(search);
+        search.setBackground(ui.shape(ui.dark ? ui.bg : ui.raised, 14, ui.outline));
+        header.addView(search, ui.searchLayout());
+        TextView count = ui.caption(chosen.size() + " of 12 selected");
+        count.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(10));
+        count.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        header.addView(count);
+        LinearLayout choices = column();
+        ArrayList<View> items = new ArrayList<>();
+        for (Telemetry.Metric metric : metrics) {
+            LinearLayout item = row();
+            item.setGravity(Gravity.CENTER_VERTICAL);
+            item.setMinimumHeight(ui.dp(64));
+            item.setPadding(ui.dp(12), ui.dp(12), ui.dp(8), ui.dp(12));
+            item.setClickable(true);
+            item.setFocusable(true);
+            item.setTag("reading-choice:" + metric.key);
+            item.setContentDescription(metric.label + ", " + metric.group);
+            GlyphView icon = new GlyphView(readingIcon(metric.key), ui.accent);
+            icon.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            item.addView(icon, new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
+            LinearLayout words = column();
+            words.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+            words.addView(ui.text(metric.label, 14, false));
+            TextView group = ui.caption(metric.group);
+            group.setPadding(0, ui.dp(3), 0, 0);
+            words.addView(group);
+            LinearLayout.LayoutParams wordsSize = new LinearLayout.LayoutParams(0, -2, 1);
+            wordsSize.setMargins(ui.dp(12), 0, ui.dp(8), 0);
+            item.addView(words, wordsSize);
+            CheckBox check = new CheckBox(dialogContext);
+            check.setButtonTintList(new android.content.res.ColorStateList(
+                    new int[][] {new int[] {android.R.attr.state_checked}, new int[] {}},
+                    new int[] {ui.accent, ui.muted}));
+            check.setClickable(false);
+            check.setFocusable(false);
+            check.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            item.addView(check, new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)));
+            Runnable style = () -> {
+                boolean selected = chosen.contains(metric.key);
+                check.setChecked(selected);
+                item.setSelected(selected);
+                item.setBackground(ripple(Ui.withAlpha(ui.accent, 30),
+                        ui.shape(selected ? blend(ui.raised, ui.accent, ui.dark ? .14f : .08f) : ui.raised,
+                                14, selected ? Ui.withAlpha(ui.accent, 110) : 0), null));
+            };
+            item.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                @Override public void onInitializeAccessibilityNodeInfo(View view,
+                        android.view.accessibility.AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(view, info);
+                    info.setClassName("android.widget.CheckBox");
+                    info.setCheckable(true);
+                    info.setChecked(chosen.contains(metric.key));
+                }
+            });
+            item.setOnClickListener(v -> {
+                if (chosen.contains(metric.key)) chosen.remove(metric.key);
+                else if (chosen.size() < 12) chosen.add(metric.key);
+                else {
+                    host.toast("Choose up to 12 readings.");
+                    return;
+                }
+                style.run();
+                count.setText(chosen.size() + " of 12 selected");
+            });
+            style.run();
+            LinearLayout.LayoutParams gap = new LinearLayout.LayoutParams(-1, -2);
+            gap.bottomMargin = ui.dp(8);
+            choices.addView(item, gap);
+            items.add(item);
         }
-        dialog =
-                new AlertDialog.Builder(dialogContext)
-                        .setTitle("Choose up to 12 readings")
-                        .setMultiChoiceItems(
-                                names,
-                                checked,
-                                (d, n, on) -> {
-                                    if (on) chosen.add(metrics.get(n).key);
-                                    else chosen.remove(metrics.get(n).key);
-                                })
-                        .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Save", null)
-                        .create();
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(
-                        v -> {
-                            if (chosen.size() > 12) {
-                                host.toast("Choose up to 12 readings.");
-                                return;
-                            }
-                            widget.keys.clear();
-                            widget.keys.addAll(chosen);
-                            changedWidget(widget);
-                        });
+        TextView empty = ui.caption("No matching readings");
+        empty.setGravity(Gravity.CENTER);
+        empty.setPadding(ui.dp(12), ui.dp(24), ui.dp(12), ui.dp(24));
+        choices.addView(empty, new LinearLayout.LayoutParams(-1, -2));
+        Runnable filter = () -> {
+            String query = search.getText().toString().trim().toLowerCase(Locale.ROOT);
+            int matches = 0;
+            for (int i = 0; i < metrics.size(); i++) {
+                Telemetry.Metric metric = metrics.get(i);
+                boolean visible = (metric.label + " " + metric.group + " " + metric.key
+                        + " " + ScooterReadingLabels.label(metric.key, metric.label))
+                        .toLowerCase(Locale.ROOT).contains(query);
+                items.get(i).setVisibility(visible ? View.VISIBLE : View.GONE);
+                if (visible) matches++;
+            }
+            empty.setVisibility(matches == 0 ? View.VISIBLE : View.GONE);
+            if (choices.getParent() instanceof ScrollView)
+                ((ScrollView) choices.getParent()).scrollTo(0, 0);
+        };
+        search.addTextChangedListener(new android.text.TextWatcher() {
+            public void beforeTextChanged(CharSequence s, int start, int count, int after) {}
+            public void onTextChanged(CharSequence s, int start, int before, int count) { filter.run(); }
+            public void afterTextChanged(android.text.Editable text) {}
+        });
+        filter.run();
+        TextView save = ui.button("✓ Save", () -> {
+            if (chosen.size() > 12) {
+                host.toast("Choose up to 12 readings.");
+                return;
+            }
+            widget.keys.clear();
+            widget.keys.addAll(chosen);
+            config.save();
+            render();
+            options(widget);
+        });
+        save.setContentDescription("Save selected readings");
+        LinearLayout footer = column();
+        footer.setPadding(0, ui.dp(12), 0, 0);
+        footer.addView(save, new LinearLayout.LayoutParams(-1, -2));
+        showSheet("Choose readings", header, choices, footer, "Cancel reading selection", null);
+        if (dialog != null) SearchFocus.bind(search, dialog.getWindow());
     }
 
     private String windowName(long ms) {
