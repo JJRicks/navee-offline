@@ -58,7 +58,7 @@ import local.navee.offlinelock.TelemetryHistory;
  */
 public final class DashboardValidation extends Instrumentation {
     private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
-    private static final String[] DESTINATIONS = {"Home", "Scooter", "Stats", "Rides", "More"};
+    private static final String[] DESTINATIONS = {"Home", "Scooter", "Live Stats", "Rides", "More"};
     private static final String[] DEFAULT_TYPES = {"lock", "scooter", "battery", "live", "capacity", "ride"};
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
     private static final String RENAMED = "Synthetic renamed scooter";

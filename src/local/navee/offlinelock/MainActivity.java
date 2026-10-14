@@ -71,7 +71,10 @@ public final class MainActivity extends Activity implements ScreenHost {
     private final Handler handler=new Handler(Looper.getMainLooper());
     // Volt order: Scooter is the raised centre button of the floating tab bar.
     private final String[] pages={"home","stats","controls","rides","more"};
-    private final String[] names={"Home","Stats","Scooter","Rides","More"};
+    private final String[] names={"Home","Live Stats","Scooter","Rides","More"};
+    private LiveStatsTitle liveStatsTitle;
+    private static final String STATS_AWAY_AT="stats_away_elapsed", STATS_AWAY_BOOT="stats_away_boot";
+    private static final long STATS_RETENTION_MS=10000L;
     private final String[] icons={"home","stats","scooter","rides","more"};
     private static final int NAV_CENTER=2;
     private final LinkedHashMap<String,Integer> scrollPositions=new LinkedHashMap<>();
@@ -149,6 +152,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         else selectedPage="home";
         if(!knownPage(selectedPage))selectedPage="home";
         expireMoreSection(saved!=null);
+        expireStatsSection(saved!=null);
         fold=new FoldMonitor(this,()->{if(!destroyed)rebuild();});
         preferences.registerOnSharedPreferenceChangeListener(settingsChanged);
         rebuild();
@@ -156,6 +160,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override public void onResume(){
         super.onResume();resumed=true;ScooterService.setUiVisible(true);fold.start();
         if(selectedPage.equals("more")){boolean expired=expireMoreSection(true);markMoreActive();if(expired)rebuild();}
+        if(selectedPage.equals("stats")){boolean expired=expireStatsSection(true);markStatsActive();if(expired)rebuild();}
         if(hasBluetoothPermission()){ensureService();if(bound&&scooterService!=null)startService(new Intent(this,ScooterService.class));}
         if(scooterService!=null){maybeApplyOwnerImport();scooterService.visible(true);if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}if(scooterService.ble.connected())scooterService.ble.refresh(false);}
         handler.removeCallbacks(pulse);handler.post(pulse);
@@ -163,6 +168,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onPause(){
         if(selectedPage.equals("more"))markMoreAway();
+        if(selectedPage.equals("stats"))markStatsAway();
         resumed=false;if(lockControl!=null)lockControl.stopMotion();ScooterService.setUiVisible(false);captureScroll();fold.stop();handler.removeCallbacks(pulse);cancelDeferredBodyRefresh();
         if(scooterService!=null)scooterService.visible(false);
         super.onPause();
@@ -473,8 +479,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         String pageName="";for(int i=0;i<pages.length;i++)if(pages[i].equals(selectedPage))pageName=names[i];
         connectionTitle=connectionLabel();connectionTitle.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,12.5f*design.textScale);
         connectionTitle.setTypeface(design.regular());header.addView(connectionTitle);
-        TextView title=design.text(pageName,24,true);title.setPadding(0,design.dp(2),0,0);
-        if(Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);header.addView(title);
+        liveStatsTitle=null;
+        if(selectedPage.equals("stats")){
+            liveStatsTitle=new LiveStatsTitle(design);header.addView(liveStatsTitle);
+        }else{
+            TextView title=design.text(pageName,24,true);title.setPadding(0,design.dp(2),0,0);
+            if(Build.VERSION.SDK_INT>=28)title.setAccessibilityHeading(true);header.addView(title);
+        }
         profileTitle=null;
         return header;
     }
@@ -491,9 +502,32 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(page.equals(selectedPage)){if(scroll!=null)scroll.smoothScrollTo(0,0);return;}
         captureScroll();
         if(selectedPage.equals("more"))markMoreAway();
+        if(selectedPage.equals("stats"))markStatsAway();
+        if(page.equals("stats")){expireStatsSection(true);if(resumed)markStatsActive();}
         if(page.equals("more")){expireMoreSection(true);if(resumed)markMoreActive();}
         selectedPage=page;preferences.edit().putString("last_page",page).apply();rebuild();
         if(scroll!=null)design.reveal(scroll);
+    }
+    /** Brief returns preserve the Live Stats section; a longer absence starts at Overview. */
+    private void markStatsAway(){
+        if(preferences.contains(STATS_AWAY_AT))return;
+        preferences.edit().putLong(STATS_AWAY_AT,SystemClock.elapsedRealtime()).putInt(STATS_AWAY_BOOT,bootCount()).apply();
+    }
+    private void markStatsActive(){
+        preferences.edit().remove(STATS_AWAY_AT).remove(STATS_AWAY_BOOT).apply();
+    }
+    private boolean expireStatsSection(boolean retainActive){return expireStatsSection(retainActive,SystemClock.elapsedRealtime());}
+    private boolean expireStatsSection(boolean retainActive,long now){
+        long away=preferences.getLong(STATS_AWAY_AT,-1);
+        boolean expired=away<0?!retainActive:now<away||now-away>=STATS_RETENTION_MS
+                ||preferences.getInt(STATS_AWAY_BOOT,-1)!=bootCount();
+        if(!expired)return false;
+        boolean changed=!"Overview".equals(preferences.getString("stats_section","Overview"));
+        preferences.edit().putString("stats_section","Overview").remove(STATS_AWAY_AT).remove(STATS_AWAY_BOOT).apply();
+        scrollPositions.put("stats",0);StatsScreen.clearSavedScroll();
+        if(screen instanceof StatsScreen)((StatsScreen)screen).resetScroll();
+        if(scroll!=null&&"stats".equals(scrollPage))scroll.scrollTo(0,0);
+        return changed;
     }
     /** Retain a submenu only while in More or for a short return from another tab/app. */
     private void markMoreAway(){
@@ -535,6 +569,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private LinearLayout row(){LinearLayout v=new LinearLayout(this);v.setOrientation(LinearLayout.HORIZONTAL);return v;}
     private void heading(LinearLayout parent,String title,String detail){TextView h=design.text(title,22,true);h.setPadding(0,design.dp(12),0,design.dp(6));parent.addView(h);if(detail!=null){TextView d=design.caption(detail);d.setPadding(0,0,0,design.dp(16));parent.addView(d);}}
     private void updateHeader(){
+        if(liveStatsTitle!=null)liveStatsTitle.setLive(scooterService!=null&&scooterService.ble.connected());
         BleController ble=scooterService==null?null:scooterService.ble;Boolean locked=ble==null?null:ble.locked();String pending=ble==null?null:ble.pending();boolean ready=ble!=null&&ble.ready(),home=selectedPage.equals("home");Boolean shownLock=locked;if(shownLock==null&&scooterService!=null){Integer saved=scooterService.displayFeatures().get("lock");if(saved!=null)shownLock=saved!=0;}
         boolean connecting=ble!=null&&(ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
                 ||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING||ble.connected())&&!ready;

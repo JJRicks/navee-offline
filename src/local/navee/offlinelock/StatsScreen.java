@@ -5,17 +5,17 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Color;
+import android.graphics.Canvas;
+import android.graphics.Paint;
+import android.graphics.Path;
+import android.graphics.drawable.GradientDrawable;
 import android.graphics.Typeface;
 import android.graphics.drawable.Drawable;
-import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.SystemClock;
 import android.text.Editable;
-import android.text.SpannableStringBuilder;
-import android.text.Spanned;
 import android.text.TextWatcher;
-import android.text.style.ForegroundColorSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
@@ -51,10 +51,12 @@ public final class StatsScreen implements AppScreen {
     private final LinkedHashMap<String, Group> groups = new LinkedHashMap<String, Group>();
     private final LinkedHashMap<String, ValueRow> favouriteRows = new LinkedHashMap<String, ValueRow>();
     private final LinkedHashMap<String, ValueRow> deviceRows = new LinkedHashMap<String, ValueRow>();
-    private final LinkedHashMap<String, TextView> chartChips = new LinkedHashMap<String, TextView>();
+    private final LinkedHashMap<String, Ui.ChartView> charts = new LinkedHashMap<>();
+    private final LinkedHashMap<String, TextView> chartValues = new LinkedHashMap<>();
+    private final SegmentedSelector sectionTabs;
     private final Set<String> favourites;
     private final boolean dense;
-    private String query, chartKey, selectedSection;
+    private String query, selectedSection;
     private String favouritesShown, devicesShown, eventsShown;
     private final EditText search;
     private static final String[] SECTIONS = {"Overview", "Readings", "Charts", "Diagnostics"};
@@ -62,12 +64,11 @@ public final class StatsScreen implements AppScreen {
     private boolean favouritesOnly;
     private AlertDialog metricDialog;
     private final TextView status, batteryHeadline, batteryDetails, batteryCaveat, filterButton,
-            resultCount, rawValues, chartTitle, livePower, favouritesHint;
+            resultCount, rawValues, favouritesHint;
     private final TextView refreshButton;
     private final LinearLayout favouritesCard, deviceCard, eventsCard;
     private final View deviceLabel;
     private final Ui.BatteryRing batteryRing;
-    private final Ui.ChartView chart;
     private static final class Row {
         final String key, group, label;
         final LinearLayout layout;
@@ -101,7 +102,6 @@ public final class StatsScreen implements AppScreen {
         favourites = new LinkedHashSet<String>(preferences.getStringSet("stats_favourites", new LinkedHashSet<String>()));
         favouritesOnly = preferences.getBoolean("stats_favourites_only", false);
         query = preferences.getString("stats_query", "");
-        chartKey = preferences.getString("stats_chart_key", "power_w");
         int widthDp = host.activity().getResources().getConfiguration().screenWidthDp;
         // Same trigger as MainActivity's side rail: the content area beside the rail is wide enough for two panes.
         wide = widthDp >= WIDE_DP;
@@ -110,7 +110,15 @@ public final class StatsScreen implements AppScreen {
         if (wide && selectedSection.equals("Readings")) selectedSection = "Overview";
         status = ui.caption(""); status.setPadding(0, 0, 0, ui.dp(10));
         overviewSection = vertical(); readingsSection = vertical(); chartsSection = vertical(); diagnosticsSection = vertical();
-        View tabs = fittedTabs(ui.sectionTabs(wide ? WIDE_SECTIONS : SECTIONS, selectedSection, this::selectSection));
+        String[] sections = wide ? WIDE_SECTIONS : SECTIONS;
+        sectionTabs = new SegmentedSelector(ui, "Live Stats section", sections, choice -> selectSection(sections[choice]));
+        sectionTabs.useCompactPadding();
+        sectionTabs.setTag("live-stats-sections");
+        sectionTabs.select(java.util.Arrays.asList(sections).indexOf(selectedSection), false);
+        LinearLayout tabHolder = vertical();
+        tabHolder.setPadding(0, ui.dp(2), 0, ui.dp(12));
+        tabHolder.addView(sectionTabs, new LinearLayout.LayoutParams(-1, -2));
+        View tabs = tabHolder;
         if (!wide) {
             scroll = new ScrollView(host.activity()); scroll.setFillViewport(true); scroll.setClipToPadding(false);
             page = vertical(); page.setPadding(ui.dp(18), ui.dp(6), ui.dp(18), ui.dp(24)); scroll.addView(page);
@@ -159,37 +167,44 @@ public final class StatsScreen implements AppScreen {
         batteryCaveat = ui.caption("Reported health is a controller estimate, not a measured capacity test.");
         batteryCaveat.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11.5f * ui.textScale);
         batteryCaveat.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(4)); overviewSection.addView(batteryCaveat);
-        overviewSection.addView(ui.sectionLabel("Favourites"));
+        TextView favouritesTitle = ui.text("Favourites", 19, true);
+        favouritesTitle.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), ui.dp(10));
+        if (Build.VERSION.SDK_INT >= 28) favouritesTitle.setAccessibilityHeading(true);
+        overviewSection.addView(favouritesTitle);
         favouritesCard = ui.groupCard(); overviewSection.addView(favouritesCard);
-        favouritesHint = ui.caption("No favourites yet. In Readings, tap the star beside a reading to show it here.");
-        favouritesHint.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(8)); overviewSection.addView(favouritesHint);
+        favouritesHint = ui.text("Choose your favourite readings\nTap a star in Readings to add it here", 14, false);
+        favouritesHint.setTextColor(ui.muted); favouritesHint.setGravity(Gravity.CENTER);
+        favouritesHint.setMinHeight(ui.dp(120)); favouritesHint.setPadding(ui.dp(20), ui.dp(22), ui.dp(20), ui.dp(22));
+        GradientDrawable empty = new GradientDrawable(); empty.setColor(Ui.withAlpha(ui.surface, 140));
+        empty.setCornerRadius(ui.dp(18)); empty.setStroke(ui.dp(1), ui.dim, ui.dp(6), ui.dp(5));
+        favouritesHint.setBackground(empty); favouritesHint.setTag("stats-empty-favourites");
+        favouritesHint.setFocusable(true); favouritesHint.setOnClickListener(v -> {
+            if (!wide) selectSection("Readings");
+            else readingsScroll.smoothScrollTo(0, 0);
+        });
+        overviewSection.addView(favouritesHint, new LinearLayout.LayoutParams(-1, -2));
 
-        // Charts: one card with the measured series, its chips and the two-minute window note.
-        LinearLayout chartCard = ui.card(); chartTitle = ui.text("Measured battery power", 17, true); chartCard.addView(chartTitle);
-        if (Build.VERSION.SDK_INT >= 28) chartTitle.setAccessibilityHeading(true);
-        livePower = ui.caption("Direction remains unconfirmed until you establish what the scooter's sign means.");
-        livePower.setPadding(0, ui.dp(5), 0, ui.dp(8)); chartCard.addView(livePower);
-        // Chips keep their natural width and wrap whole onto another row in narrow panes.
-        ViewGroup choices = new WrapRow();
-        addChartChoice(choices, "Power", "power_w"); addChartChoice(choices, "Voltage", "voltage_v"); addChartChoice(choices, "Speed", "speed_kmh");
-        chartCard.addView(choices, new LinearLayout.LayoutParams(-1, -2)); chart = ui.new ChartView(); chartCard.addView(chart);
-        TextView window = ui.caption("2-minute window"); window.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11 * ui.textScale);
-        window.setGravity(Gravity.CENTER_HORIZONTAL); window.setPadding(0, ui.dp(2), 0, 0); chartCard.addView(window); chartsSection.addView(chartCard);
+        // Each measured series keeps its own chart and unit. Values update in place without
+        // changing the user's scroll position or replacing another series.
+        addChart("power_w", "Battery power");
+        addChart("voltage_v", "Battery voltage");
+        addChart("speed_kmh", "Scooter speed");
 
         // Readings: search, the Favourites filter chip with a count, then collapsible groups.
         search = new EditText(host.activity()); search.setSingleLine(true); search.setHint("Search");
         ui.styleSearch(search); search.setContentDescription("Search scooter measurements"); search.setText(query);
         readingsSection.addView(search, ui.searchLayout());
         SearchFocus.bind(search, host.activity().getWindow());
-        LinearLayout filters = new LinearLayout(host.activity()); filters.setOrientation(LinearLayout.HORIZONTAL); filters.setGravity(Gravity.CENTER_VERTICAL);
+        LinearLayout filters = new StackingRow(); filters.setGravity(Gravity.CENTER_VERTICAL);
         filterButton = ui.text("Favourites", 12.5f, false); filterButton.setTypeface(ui.semibold());
         filterButton.setGravity(Gravity.CENTER); filterButton.setMinHeight(ui.dp(48)); filterButton.setMinWidth(ui.dp(48));
-        filterButton.setPadding(ui.dp(14), 0, ui.dp(14), 0); filterButton.setFocusable(true); filterButton.setClickable(true);
-        filterButton.setContentDescription("Show favourites only");
+        filterButton.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12)); filterButton.setFocusable(true); filterButton.setClickable(true);
+        filterButton.setContentDescription("Filter readings: favourites only");
         filterButton.setOnClickListener(v -> {
             favouritesOnly = !favouritesOnly; preferences.edit().putBoolean("stats_favourites_only", favouritesOnly).apply(); applyFilter();
         });
-        filters.addView(filterButton, new LinearLayout.LayoutParams(-2, -2));
+        LinearLayout.LayoutParams filterParams = new LinearLayout.LayoutParams(0, -2, 1); filterParams.rightMargin = ui.dp(4);
+        filters.addView(filterButton, filterParams);
         resultCount = ui.caption(""); resultCount.setGravity(Gravity.END); resultCount.setPadding(ui.dp(12), 0, ui.dp(4), 0);
         filters.addView(resultCount, new LinearLayout.LayoutParams(0, -2, 1));
         LinearLayout.LayoutParams filterSpacing = new LinearLayout.LayoutParams(-1, -2); filterSpacing.bottomMargin = ui.dp(4);
@@ -256,47 +271,6 @@ public final class StatsScreen implements AppScreen {
         for (String known : SECTIONS) if (known.equals(section)) return known;
         return "Overview";
     }
-    /**
-     * Keeps the section tabs (four on a phone, three in the wide left pane) on one row: trims tab padding only as far as the
-     * width requires, then shares any spare width so the row spans the page. At very large text
-     * the shared picker still wraps rather than clipping a label.
-     */
-    private View fittedTabs(View tabs) {
-        LinearLayout holder = new LinearLayout(host.activity()) {
-            @Override protected void onMeasure(int widthSpec, int heightSpec) {
-                fitTabs(tabs, MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight());
-                super.onMeasure(widthSpec, heightSpec);
-            }
-        };
-        holder.addView(tabs, new LinearLayout.LayoutParams(-1, -2));
-        return holder;
-    }
-    private void fitTabs(View view, int available) {
-        if (!(view instanceof ViewGroup) || available <= 0) return;
-        ViewGroup group = (ViewGroup) view; int count = group.getChildCount(); if (count == 0) return;
-        for (int i = 0; i < count; i++) if (!(group.getChildAt(i) instanceof TextView)) return;
-        int inner = available - group.getPaddingLeft() - group.getPaddingRight() - ui.dp(6) * (count - 1) - ui.dp(1);
-        int[] paddings = {12, 10, 8, 6, 4};
-        int[] natural = new int[count];
-        for (int padding : paddings) {
-            int total = 0;
-            for (int i = 0; i < count; i++) {
-                TextView tab = (TextView) group.getChildAt(i);
-                natural[i] = Math.max(ui.dp(48), (int) Math.ceil(tab.getPaint().measureText(tab.getText().toString())) + 2 * ui.dp(padding) + 1);
-                total += natural[i];
-            }
-            boolean fits = total <= inner, last = padding == paddings[paddings.length - 1];
-            if (!fits && !last) continue;
-            int extra = fits ? (inner - total) / count : 0;
-            for (int i = 0; i < count; i++) {
-                TextView tab = (TextView) group.getChildAt(i); int side = ui.dp(padding), width = fits ? natural[i] + extra : ui.dp(48);
-                if (tab.getPaddingLeft() != side || tab.getPaddingRight() != side)
-                    tab.setPadding(side, tab.getPaddingTop(), side, tab.getPaddingBottom());
-                if (tab.getMinWidth() != width) tab.setMinWidth(width);
-            }
-            return;
-        }
-    }
     private void showSection() {
         overviewSection.setVisibility(selectedSection.equals("Overview") ? View.VISIBLE : View.GONE);
         readingsSection.setVisibility(readingsShown() ? View.VISIBLE : View.GONE);
@@ -305,6 +279,7 @@ public final class StatsScreen implements AppScreen {
     }
     private void selectSection(String section) {
         selectedSection = validSection(section); showSection();
+        sectionTabs.select(java.util.Arrays.asList(wide ? WIDE_SECTIONS : SECTIONS).indexOf(selectedSection), true);
         if (!readingsShown()) {
             InputMethodManager keyboard = host.activity().getSystemService(InputMethodManager.class);
             if (keyboard != null) keyboard.hideSoftInputFromWindow(search.getWindowToken(), 0);
@@ -313,29 +288,6 @@ public final class StatsScreen implements AppScreen {
         preferences.edit().putString("stats_section", selectedSection).apply();
         // When wide only the left pane changes, so only it returns to the top.
         refresh(); sectionScroll.post(() -> sectionScroll.scrollTo(0, 0));
-    }
-    /** Lays children out left to right at their natural size, wrapping whole children to new rows. */
-    private final class WrapRow extends ViewGroup {
-        WrapRow() { super(host.activity()); }
-        @Override protected void onMeasure(int widthSpec, int heightSpec) {
-            int width = MeasureSpec.getSize(widthSpec), x = 0, y = 0, rowHeight = 0;
-            for (int i = 0; i < getChildCount(); i++) {
-                View child = getChildAt(i);
-                measureChild(child, MeasureSpec.makeMeasureSpec(width, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-                int w = child.getMeasuredWidth() + ui.dp(6);
-                if (x > 0 && x + child.getMeasuredWidth() > width) { y += rowHeight; x = 0; rowHeight = 0; }
-                x += w; rowHeight = Math.max(rowHeight, child.getMeasuredHeight());
-            }
-            setMeasuredDimension(resolveSize(width, widthSpec), resolveSize(y + rowHeight, heightSpec));
-        }
-        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            int width = r - l, x = 0, y = 0, rowHeight = 0;
-            for (int i = 0; i < getChildCount(); i++) {
-                View child = getChildAt(i); int w = child.getMeasuredWidth(), h = child.getMeasuredHeight();
-                if (x > 0 && x + w > width) { y += rowHeight; x = 0; rowHeight = 0; }
-                child.layout(x, y, x + w, y + h); x += w + ui.dp(6); rowHeight = Math.max(rowHeight, h);
-            }
-        }
     }
     /** Two equal buttons side by side, stacked full width when either label would have to break. */
     private final class StackingRow extends LinearLayout {
@@ -360,48 +312,94 @@ public final class StatsScreen implements AppScreen {
             super.onMeasure(widthSpec, heightSpec);
         }
     }
-    private void addChartChoice(ViewGroup row, String label, String key) {
-        TextView chip = ui.chip(label, key.equals(chartKey), () -> {
-            chartKey = key; preferences.edit().putString("stats_chart_key", key).apply();
-            for (Map.Entry<String, TextView> e : chartChips.entrySet()) ui.styleChip(e.getValue(), e.getKey().equals(chartKey));
-            refreshChart();
-        });
-        chartChips.put(key, chip);
-        // The pill stays chip-sized; its frame extends the touch target to 48dp.
-        FrameLayout target = new FrameLayout(host.activity()); target.setMinimumHeight(ui.dp(48));
-        target.addView(chip, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER_VERTICAL));
-        target.setOnClickListener(v -> chip.performClick());
-        target.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        row.addView(target, new ViewGroup.LayoutParams(-2, -2));
+    private void addChart(String key, String title) {
+        LinearLayout card = ui.card(); card.setTag("stats-chart-card:" + key);
+        TextView heading = ui.text(title, 17, true);
+        if (Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
+        card.addView(heading);
+        TextView value = ui.caption(""); value.setPadding(0, ui.dp(6), 0, ui.dp(4));
+        card.addView(value); chartValues.put(key, value);
+        Ui.ChartView graph = ui.new ChartView(); graph.setTag("stats-chart:" + key);
+        card.addView(graph); charts.put(key, graph);
+        TextView window = ui.caption("2-minute window"); window.setGravity(Gravity.CENTER_HORIZONTAL);
+        window.setPadding(0, ui.dp(4), 0, 0); card.addView(window); chartsSection.addView(card);
+    }
+    /** Balance labels and values, stacking before a narrow pane splits a value mid-word. */
+    private final class ReadingRow extends LinearLayout {
+        TextView amount;
+        View words;
+        private final int fixedDp;
+        private boolean stacked;
+        ReadingRow(int fixedDp) { super(host.activity()); this.fixedDp = fixedDp; }
+        @Override protected void onMeasure(int width, int height) {
+            int inner = Math.max(0, MeasureSpec.getSize(width) - getPaddingLeft() - getPaddingRight());
+            int available = Math.max(0, inner - ui.dp(fixedDp));
+            int valueWidth = Math.min(ui.dp(150), Math.max(ui.dp(40), Math.round(available * .45f)));
+            float longest = 0;
+            if (amount != null) for (String word : amount.getText().toString().split("\\s+"))
+                longest = Math.max(longest, amount.getPaint().measureText(word));
+            stacked = amount != null && words != null && MeasureSpec.getMode(width) != MeasureSpec.UNSPECIFIED && longest > valueWidth;
+            if (!stacked) {
+                if (amount != null) { amount.setMaxWidth(valueWidth); amount.setGravity(Gravity.END); }
+                super.onMeasure(width, height); return;
+            }
+            View leading = getChildAt(0) == words ? null : getChildAt(0);
+            View trailing = getChildAt(getChildCount() - 1) == amount ? null : getChildAt(getChildCount() - 1);
+            int fixed = leading != null ? ui.dp(48) : trailing != null ? ui.dp(48) : 0;
+            int contentWidth = Math.max(1, inner - fixed);
+            int freeHeight = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+            words.measure(MeasureSpec.makeMeasureSpec(contentWidth, MeasureSpec.EXACTLY), freeHeight);
+            amount.setMaxWidth(contentWidth); amount.setGravity(Gravity.START);
+            amount.measure(MeasureSpec.makeMeasureSpec(contentWidth, MeasureSpec.EXACTLY), freeHeight);
+            if (leading != null) leading.measure(MeasureSpec.makeMeasureSpec(ui.dp(36), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(ui.dp(36), MeasureSpec.EXACTLY));
+            if (trailing != null) trailing.measure(MeasureSpec.makeMeasureSpec(ui.dp(48), MeasureSpec.EXACTLY), MeasureSpec.makeMeasureSpec(ui.dp(48), MeasureSpec.EXACTLY));
+            int needed = words.getMeasuredHeight() + ui.dp(6) + amount.getMeasuredHeight();
+            setMeasuredDimension(resolveSize(MeasureSpec.getSize(width), width), resolveSize(Math.max(getMinimumHeight(), needed + getPaddingTop() + getPaddingBottom()), height));
+        }
+        @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+            if (!stacked) { super.onLayout(changed, left, top, right, bottom); return; }
+            View leading = getChildAt(0) == words ? null : getChildAt(0);
+            View trailing = getChildAt(getChildCount() - 1) == amount ? null : getChildAt(getChildCount() - 1);
+            int x = getPaddingLeft() + (leading == null ? 0 : ui.dp(48));
+            int y = getPaddingTop();
+            words.layout(x, y, x + words.getMeasuredWidth(), y + words.getMeasuredHeight());
+            y += words.getMeasuredHeight() + ui.dp(6);
+            amount.layout(x, y, x + amount.getMeasuredWidth(), y + amount.getMeasuredHeight());
+            if (leading != null) { int center = (getHeight() - leading.getMeasuredHeight()) / 2;
+                leading.layout(getPaddingLeft(), center, getPaddingLeft() + leading.getMeasuredWidth(), center + leading.getMeasuredHeight()); }
+            if (trailing != null) { int edge = getWidth() - getPaddingRight(), center = (getHeight() - trailing.getMeasuredHeight()) / 2;
+                trailing.layout(edge - trailing.getMeasuredWidth(), center, edge, center + trailing.getMeasuredHeight()); }
+        }
     }
     private void addMetric(TelemetryHistory.Reading metric) {
         Group group = groups.get(metric.group);
         if (group == null) {
-            LinearLayout wrapper = vertical(), body = ui.groupCard();
-            TextView title = ui.text(metric.group, 11, false); title.setTypeface(ui.semibold()); title.setTextColor(ui.muted);
-            title.setLetterSpacing(0.08f); title.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
-            title.setMinHeight(ui.dp(48)); title.setPadding(ui.dp(12), 0, ui.dp(12), 0);
-            // A small dark pill drawn inside the full 48dp touch target.
+            LinearLayout wrapper = ui.groupCard(), body = vertical();
+            wrapper.setPadding(ui.dp(14), ui.dp(2), ui.dp(14), ui.dp(2));
+            TextView title = ui.text(metric.group, 17, true); title.setTextColor(ui.text);
+            title.setGravity(Gravity.CENTER_VERTICAL | Gravity.START);
+            title.setMinHeight(ui.dp(60)); title.setPadding(0, ui.dp(10), 0, ui.dp(10));
+            title.setCompoundDrawablePadding(ui.dp(12));
             title.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 30)),
-                    new InsetDrawable(ui.shape(ui.surface, 12, 0), 0, ui.dp(5), 0, ui.dp(5)), null));
+                    null, ui.shape(Color.WHITE, 12, 0)));
             title.setFocusable(true); title.setClickable(true);
             if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
-            boolean expanded = preferences.getBoolean("stats_group_" + metric.group, metric.group.equals("Battery") || metric.group.equals("Ride"));
+            boolean expanded = preferences.getBoolean("stats_group_" + metric.group, false);
             group = new Group(metric.group, wrapper, body, title, expanded); final Group created = group;
             title.setOnClickListener(v -> { created.expanded = !created.expanded; preferences.edit().putBoolean("stats_group_" + created.name, created.expanded).apply(); applyFilter(); });
-            wrapper.addView(title, new LinearLayout.LayoutParams(-1, -2)); wrapper.addView(body);
+            wrapper.addView(title, new LinearLayout.LayoutParams(-1, -2)); wrapper.addView(body, new LinearLayout.LayoutParams(-1, -2));
             groups.put(metric.group, group); readingsSection.addView(wrapper);
         }
         // The divider sits above its row; applyFilter hides it for the first visible row of a group.
         View divider = new View(host.activity()); divider.setBackgroundColor(ui.raised); divider.setTag(metric.key);
         group.body.addView(divider, new LinearLayout.LayoutParams(-1, ui.dp(1)));
-        LinearLayout row = new LinearLayout(host.activity()); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
+        ReadingRow row = new ReadingRow(60); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, ui.dp(dense ? 4 : 8), 0, ui.dp(dense ? 4 : 8)); row.setMinimumHeight(ui.dp(dense ? 48 : 56));
-        LinearLayout words = vertical(); String name = isKnownDriveMode(metric.key) ? "Drive mode" : metric.label;
+        LinearLayout words = vertical(); row.words = words; String name = isKnownDriveMode(metric.key) ? "Drive mode" : metric.label;
         TextView label = ui.text(name, dense ? 13 : 14, false); words.addView(label);
         TextView source = ui.caption(""); source.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11 * ui.textScale); source.setPadding(0, ui.dp(2), 0, 0); words.addView(source);
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView amount = ui.text("Not reported", dense ? 13 : 14, true); amount.setGravity(Gravity.END); amount.setMaxWidth(ui.dp(150));
+        TextView amount = ui.text("Not reported", dense ? 13 : 14, true); amount.setGravity(Gravity.END); row.amount = amount;
         LinearLayout.LayoutParams amountParams = new LinearLayout.LayoutParams(-2, -2); amountParams.leftMargin = ui.dp(12); row.addView(amount, amountParams);
         TextView star = ui.text("☆", 17, false); star.setGravity(Gravity.CENTER); star.setFocusable(true); star.setClickable(true);
         star.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.orange, 40)), null, ui.shape(Color.WHITE, 24, 0)));
@@ -428,13 +426,12 @@ public final class StatsScreen implements AppScreen {
     }
     private void styleFavouritesFilter() {
         boolean on = favouritesOnly;
-        SpannableStringBuilder label = new SpannableStringBuilder(on ? "★" : "☆");
-        label.setSpan(new ForegroundColorSpan(on ? ui.orange : ui.muted), 0, 1, Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
-        label.append("  Favourites");
-        filterButton.setText(label); filterButton.setTextColor(on ? ui.orange : ui.text); filterButton.setSelected(on);
-        Drawable pill = ui.shape(ui.surface, 100, on ? Ui.withAlpha(ui.orange, 120) : 0);
-        filterButton.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.orange, 40)),
-                new InsetDrawable(pill, 0, ui.dp(5), 0, ui.dp(5)), null));
+        filterButton.setText("Favourites"); filterButton.setTextColor(on ? ui.orange : ui.text); filterButton.setSelected(on);
+        Drawable glyph = new StatsGlyph(true, false, on ? ui.orange : ui.muted);
+        glyph.setBounds(0, 0, ui.dp(20), ui.dp(20));
+        filterButton.setCompoundDrawablesRelative(glyph, null, null, null); filterButton.setCompoundDrawablePadding(ui.dp(8));
+        Drawable pill = ui.shape(ui.surface, 14, on ? Ui.withAlpha(ui.orange, 160) : ui.outline);
+        filterButton.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.orange, 40)), pill, null));
         if (Build.VERSION.SDK_INT >= 30) filterButton.setStateDescription(on ? "On" : "Off");
     }
     private void applyFilter() {
@@ -461,7 +458,9 @@ public final class StatsScreen implements AppScreen {
                     shownAbove |= rowShown;
                 }
             }
-            group.title.setText(group.name.toUpperCase(Locale.ROOT) + (open ? "  ▾" : "  ▸"));
+            group.title.setText(group.name);
+            Drawable arrow = new StatsGlyph(false, open, ui.text); arrow.setBounds(0, 0, ui.dp(26), ui.dp(26));
+            group.title.setCompoundDrawablesRelative(null, null, arrow, null);
             group.title.setContentDescription(group.name + " readings");
             if (Build.VERSION.SDK_INT >= 30) group.title.setStateDescription(open ? "Expanded" : "Collapsed");
             else group.title.setContentDescription(group.name + " readings, " + (open ? "expanded" : "collapsed"));
@@ -604,18 +603,18 @@ public final class StatsScreen implements AppScreen {
         }
     }
     private ValueRow valueRow(String key, String label, String icon, boolean live) {
-        LinearLayout row = new LinearLayout(host.activity()); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
+        ReadingRow row = new ReadingRow(icon == null ? 12 : 60); row.setOrientation(LinearLayout.HORIZONTAL); row.setGravity(Gravity.CENTER_VERTICAL);
         row.setPadding(0, ui.dp(dense ? 6 : 8), 0, ui.dp(dense ? 6 : 8)); row.setMinimumHeight(ui.dp(dense ? 48 : 56));
         if (icon != null) {
             LinearLayout.LayoutParams square = new LinearLayout.LayoutParams(ui.dp(36), ui.dp(36)); square.rightMargin = ui.dp(12);
             row.addView(ui.iconSquare(icon, live ? ui.accent : ui.dim), square);
         }
-        LinearLayout words = vertical();
+        LinearLayout words = vertical(); row.words = words;
         TextView name = ui.text(label, dense ? 13.5f : 14.5f, false); words.addView(name);
         TextView time = ui.caption(""); time.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11 * ui.textScale); time.setPadding(0, ui.dp(2), 0, 0);
         time.setVisibility(View.GONE); words.addView(time);
         row.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        TextView amount = ui.text("", dense ? 13.5f : 14.5f, true); amount.setGravity(Gravity.END); amount.setMaxWidth(ui.dp(160));
+        TextView amount = ui.text("", dense ? 13.5f : 14.5f, true); amount.setGravity(Gravity.END); row.amount = amount;
         LinearLayout.LayoutParams amountParams = new LinearLayout.LayoutParams(-2, -2); amountParams.leftMargin = ui.dp(12); row.addView(amount, amountParams);
         row.setFocusable(true); row.setClickable(true);
         row.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 26)), null, ui.shape(Color.WHITE, 10, 0)));
@@ -637,17 +636,42 @@ public final class StatsScreen implements AppScreen {
     }
     private void refreshChart() {
         boolean imperial = !"km".equals(preferences.getString("units", "mi"));
-        String unit = chartKey.equals("voltage_v") ? "V" : chartKey.equals("speed_kmh") ? imperial ? "mph" : "km/h" : "W";
-        int color = chartKey.equals("voltage_v") ? ui.blue : chartKey.equals("speed_kmh") ? ui.orange : ui.accent;
-        chartTitle.setText(chartKey.equals("voltage_v") ? "Observed battery voltage" : chartKey.equals("speed_kmh") ? "Measured scooter speed" : "Measured signed battery power");
         long offset = System.currentTimeMillis() - SystemClock.elapsedRealtime();
-        List<Ui.Point> values = new ArrayList<Ui.Point>();
-        for (Ui.Point point : service.trend(chartKey)) values.add(new Ui.Point(point.millis + offset,
-                chartKey.equals("speed_kmh") && imperial ? point.value / RideStore.KM_PER_MILE : point.value));
-        chart.set(values, unit, service.readingFresh(chartKey) ? color : ui.muted, "Connect for measured " + unit + " readings");
-        livePower.setText(chartKey.equals("power_w") ? "Signed power. Confirm current direction in Rides to label draw and regeneration."
-                : chartKey.equals("voltage_v") ? "Battery voltage under the current load."
-                : "Speed reported by the scooter.");
+        Map<String, TelemetryHistory.Reading> readings = service.displayReadings();
+        for (Map.Entry<String, Ui.ChartView> entry : charts.entrySet()) {
+            String key = entry.getKey();
+            String unit = key.equals("voltage_v") ? "V" : key.equals("speed_kmh") ? imperial ? "mph" : "km/h" : "W";
+            int color = key.equals("voltage_v") ? ui.blue : key.equals("speed_kmh") ? ui.orange : ui.accent;
+            List<Ui.Point> values = new ArrayList<>();
+            for (Ui.Point point : service.trend(key)) values.add(new Ui.Point(point.millis + offset,
+                    key.equals("speed_kmh") && imperial ? point.value / RideStore.KM_PER_MILE : point.value, point.gapBefore));
+            boolean fresh = service.readingFresh(key);
+            entry.getValue().set(values, unit, fresh ? color : ui.muted, "Connect for measured " + unit + " readings");
+            TelemetryHistory.Reading reading = readings.get(key);
+            TextView value = chartValues.get(key);
+            value.setText(reading == null || reading.value == null ? "No reading yet" : display(reading)
+                    + (reading.live ? "" : " · Last seen"));
+            value.setTextColor(fresh ? color : ui.muted);
+        }
+    }
+    /** Bounded vector glyphs keep the filter and disclosure clear at any text size. */
+    private static final class StatsGlyph extends Drawable {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final boolean filter, open;
+        StatsGlyph(boolean filter, boolean open, int color) { this.filter = filter; this.open = open; paint.setColor(color); }
+        @Override public void draw(Canvas canvas) {
+            canvas.save(); canvas.translate(getBounds().left, getBounds().top);
+            canvas.scale(getBounds().width() / 24f, getBounds().height() / 24f);
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(2); paint.setStrokeCap(Paint.Cap.ROUND); paint.setStrokeJoin(Paint.Join.ROUND);
+            Path path = new Path();
+            if (filter) { path.moveTo(3, 4); path.lineTo(21, 4); path.lineTo(14, 12); path.lineTo(14, 19); path.lineTo(10, 21); path.lineTo(10, 12); path.close(); }
+            else if (open) { path.moveTo(6, 9); path.lineTo(12, 15); path.lineTo(18, 9); }
+            else { path.moveTo(9, 6); path.lineTo(15, 12); path.lineTo(9, 18); }
+            canvas.drawPath(path, paint); canvas.restore();
+        }
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(android.graphics.ColorFilter filter) { paint.setColorFilter(filter); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
     }
     private void showMetricDetails(String key) {
         TelemetryHistory.Reading reading = service.displayReadings().get(key);
@@ -660,7 +684,10 @@ public final class StatsScreen implements AppScreen {
                 .setNeutralButton(favourites.contains(key) ? "Remove favourite" : "Add favourite", (d, which) -> toggleFavourite(key))
                 .setPositiveButton("Close", null).create(); metricDialog.show();
     }
+    void resetScroll() { sectionScroll.scrollTo(0, 0); if (readingsScroll != null) readingsScroll.scrollTo(0, 0); clearSavedScroll(); }
+    static void clearSavedScroll() { savedSectionScroll = savedReadingsScroll = 0; }
     @Override public void close() {
+        sectionTabs.finishMotion();
         if (metricDialog != null) metricDialog.dismiss();
         savedSectionScroll = wide ? sectionScroll.getScrollY() : 0;
         savedReadingsScroll = wide ? readingsScroll.getScrollY() : 0;
