@@ -31,6 +31,8 @@ public final class ChartScaleTest {
             ChartScale.Range range = ChartScale.range(pair[0], pair[1], true, 31, 52);
             valid(range); equal(0, range.min); require(range.max >= 52, "Grounded axis hid its maximum");
         }
+        equal(60, ChartScale.range("voltage_v", "V", true, 49, 52).max);
+        equal(600, ChartScale.range("power_w", "W", true, -300, 550).max);
         for (String unit : new String[] {"°C", "°F"}) {
             ChartScale.Range cold = ChartScale.range("temperature_c", unit, true, -30, -10);
             require(cold.min <= -30 && cold.max == 0, "Cold temperature should retain zero and negative values");

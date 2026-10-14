@@ -44,6 +44,7 @@ import local.navee.offlinelock.MainActivity;
 import local.navee.offlinelock.ScooterProfiles;
 import local.navee.offlinelock.ScooterService;
 import local.navee.offlinelock.TelemetryHistory;
+import local.navee.offlinelock.Ui;
 
 /**
  * Isolated native measurement regressions for arbitrary window sizes and OEM fold callbacks.
@@ -74,7 +75,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().containsKey("odometer_km"), "Cached fixture did not load");
             stopUiPulse(); settle();
             String mode = arguments.getString("mode", "all");
-            if (mode.equals("followup")) {
+            if (mode.equals("chart")) {
+                verifyChartAxes();
+            } else if (mode.equals("followup")) {
                 verifyDashboardFollowup();
             } else if (mode.equals("gauge")) {
                 verifyGaugeContent();
@@ -123,6 +126,75 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             }
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
         }
+    }
+    private void verifyChartAxes() throws Exception {
+        main(() -> {
+            Ui ui = new Ui(activity, true, Float.parseFloat(arguments.getString("text_scale", "1")));
+            Ui.ChartView probe = ui.new ChartView(); probe.setHistoryMode(true);
+            long start = System.currentTimeMillis() - 3600000;
+            List<Ui.Point> measured = Arrays.asList(new Ui.Point(start, 99), new Ui.Point(start + 600000, 99.2),
+                    new Ui.Point(start + 1200000, 99.6, true), new Ui.Point(start + 3600000, 100));
+            probe.setAxis("battery_health_percent", false); probe.set(measured, "%", ui.accent, "No data");
+            require(((Number)field(probe, "max")).doubleValue() == 100, "Relative health escaped 100 percent");
+            int narrowCount = 0, wideCount = 0;
+            for (int width : new int[] {168, 300, 620}) {
+                probe.measure(View.MeasureSpec.makeMeasureSpec(ui.dp(width), View.MeasureSpec.EXACTLY),
+                        View.MeasureSpec.makeMeasureSpec(ui.dp(230), View.MeasureSpec.EXACTLY));
+                probe.layout(0, 0, ui.dp(width), ui.dp(230));
+                Bitmap bitmap = Bitmap.createBitmap(probe.getWidth(), probe.getHeight(), Bitmap.Config.ARGB_8888);
+                try { probe.draw(new android.graphics.Canvas(bitmap)); } finally { bitmap.recycle(); }
+                List<?> labels = (List<?>)field(probe, "timeLabels");
+                float[] starts = (float[])field(probe, "timeLabelStarts"), widths = (float[])field(probe, "timeLabelWidths");
+                float plotWidth = ((Number)field(probe, "right")).floatValue() - ((Number)field(probe, "left")).floatValue();
+                require(labels.size() >= (width == 168 && ui.textScale > 1 ? 1 : 2) && labels.size() <= 6,
+                        "History width lost its fitting time ticks: " + width);
+                for (int i = 0; i < labels.size(); i++) {
+                    require(starts[i] >= 0 && starts[i] + widths[i] <= plotWidth + .01f, "Time label escaped chart");
+                    if (i > 0) require(starts[i] >= starts[i-1] + widths[i-1] + ui.dp(12) - .01f, "Time labels overlap");
+                }
+                if (width == 168) narrowCount = labels.size(); if (width == 620) wideCount = labels.size();
+            }
+            require(wideCount > narrowCount && wideCount >= 4, "History labels did not use wider space");
+            probe.setAxis("power_w", true); probe.set(Arrays.asList(new Ui.Point(start, -300), new Ui.Point(start+3600000, 850)), "W", ui.accent, "No data");
+            double minimum = ((Number)field(probe, "min")).doubleValue(), maximum = ((Number)field(probe, "max")).doubleValue();
+            require(minimum == -maximum && maximum >= 850, "Absolute power is not centered around zero");
+            require(Boolean.TRUE.equals(field(probe, "absoluteAxis")), "Refreshing samples reset absolute axis");
+            probe.setAxis("voltage_v", true); probe.set(Arrays.asList(new Ui.Point(start, 49), new Ui.Point(start+3600000, 51)), "V", ui.accent, "No data");
+            require(((Number)field(probe, "min")).doubleValue() == 0 && ((Number)field(probe, "max")).doubleValue() >= 51,
+                    "Absolute voltage did not stay grounded");
+            // Preserve both explicit gaps and invalid-point gaps, while inspecting the unmodified measurement.
+            probe.setAxis("battery_percent", true);
+            probe.set(Arrays.asList(new Ui.Point(start+3600000, 120), new Ui.Point(start, 97), null,
+                    new Ui.Point(start+600000, 98, true), new Ui.Point(start+1200000, Double.NaN), new Ui.Point(start+1800000, 99)), "%", ui.accent, "No data");
+            List<?> retained = (List<?>)field(probe, "points");
+            require(probe.pointCount() == 4 && ((Ui.Point)retained.get(1)).gapBefore && ((Ui.Point)retained.get(2)).gapBefore,
+                    "Scale changes lost measured samples or gaps");
+            float x = ((Number)field(probe, "right")).floatValue(); long now = SystemClock.uptimeMillis();
+            android.view.MotionEvent down = android.view.MotionEvent.obtain(now, now, android.view.MotionEvent.ACTION_DOWN, x, ui.dp(100), 0);
+            android.view.MotionEvent up = android.view.MotionEvent.obtain(now, now+1, android.view.MotionEvent.ACTION_UP, x, ui.dp(100), 0);
+            try { probe.onTouchEvent(down); probe.onTouchEvent(up); } finally { down.recycle(); up.recycle(); }
+            require(probe.getContentDescription().toString().startsWith("120 %"), "Physical bounds changed the inspected raw reading");
+            require(((Number)invoke(probe, "y", new Class<?>[] {double.class}, 120d)).floatValue() == ((Number)field(probe, "top")).floatValue(),
+                    "Out-of-domain percentage drew outside the plot");
+            probe.set(Collections.emptyList(), "%", ui.accent, "No measured data");
+            require(probe.pointCount() == 0 && probe.getContentDescription().toString().equals("No measured data"), "Empty chart retained old samples");
+            ScrollView scroll = new ScrollView(activity); LinearLayout content = new LinearLayout(activity);
+            content.setOrientation(LinearLayout.VERTICAL); content.setPadding(ui.dp(16), ui.dp(8), ui.dp(16), ui.dp(16)); content.setBackgroundColor(ui.bg);
+            scroll.addView(content); activity.setContentView(scroll);
+            String[] titles = {"Relative battery health · capped at 100%", "Absolute battery power · centered at zero", "Absolute pack voltage · grounded at zero"};
+            String[] metrics = {"battery_health_percent", "power_w", "voltage_v"}, units = {"%", "W", "V"};
+            for (int chartIndex = 0; chartIndex < 3; chartIndex++) {
+                TextView title = new TextView(activity); title.setText(titles[chartIndex]); title.setTextColor(ui.text); title.setTextSize(16); content.addView(title);
+                Ui.ChartView chart = ui.new ChartView(); chart.setHistoryMode(true); chart.setAxis(metrics[chartIndex], chartIndex > 0);
+                ArrayList<Ui.Point> values = new ArrayList<>();
+                for (int i = 0; i <= 20; i++) values.add(new Ui.Point(start + i*180000,
+                        chartIndex == 0 ? 99 + i*.05 : chartIndex == 1 ? Math.sin(i*.5)*450+100 : 48+Math.cos(i*.25)*2, i == 9));
+                chart.set(values, units[chartIndex], ui.accent, "No data"); content.addView(chart);
+            }
+        });
+        settle(); screenshot("chart-axes");
+        check("Relative percentages stay within 0–100; absolute signed power centers on zero and voltage grounds at zero; refreshed settings, raw touch values and explicit/invalid gaps are preserved");
+        check("Localized history timestamps adapt to 168/300/620dp without overlap or clipping; wide charts show intermediate times and tiny enlarged-text charts retain one readable endpoint");
     }
     private void admit() {
         String hardware = Build.HARDWARE.toLowerCase(Locale.ROOT);

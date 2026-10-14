@@ -51,13 +51,14 @@ public final class ChartScale {
         if (min == max) max = floor;
         return new Range(min, max);
     }
-    /** Round outward to a readable 1/2/2.5/5/10 magnitude without overflowing. */
+    /** Round outward to readable bounds without wasting half a voltage/power plot. */
     private static double ceiling(double value) {
         if (value <= 0) return 1;
         double magnitude = Math.pow(10, Math.floor(Math.log10(value)));
         if (magnitude == 0) return value;
         double scaled = value / magnitude;
-        double nice = scaled <= 1 ? 1 : scaled <= 2 ? 2 : scaled <= 2.5 ? 2.5 : scaled <= 5 ? 5 : 10;
+        double nice = scaled <= 1 ? 1 : scaled <= 1.5 ? 1.5 : scaled <= 2 ? 2 : scaled <= 2.5 ? 2.5
+                : scaled <= 3 ? 3 : scaled <= 4 ? 4 : scaled <= 5 ? 5 : scaled <= 6 ? 6 : scaled <= 8 ? 8 : 10;
         return finite(nice * magnitude);
     }
     private static double finite(double value) {
