@@ -344,7 +344,23 @@ public final class DeveloperSettingsValidation extends Instrumentation {
     private Object control(String key){for(Object row:(List<?>)field(field(activity,"screen"),"rows"))if(((ScooterCommands.Feature)field(row,"feature")).key.equals(key))return row;throw new IllegalStateException("Missing control "+key);}
     @SuppressWarnings("unchecked") private List<TextView> selectorChoices(SegmentedSelector selector){return (List<TextView>)field(field(selector,"track"),"choices");}
     private int selected(SegmentedSelector selector){return ((Number)field(field(selector,"track"),"selected")).intValue();}
-    private void assertChoiceTargets(SegmentedSelector selector){for(TextView choice:selectorChoices(selector)){require(choice.getWidth()>=activity.ui().dp(48)&&choice.getHeight()>=activity.ui().dp(48),"Choice target smaller than 48dp");require(choice.getPaint().measureText(choice.getText().toString())<=choice.getWidth()-choice.getCompoundPaddingLeft()-choice.getCompoundPaddingRight()+1,"Choice text clipped");AccessibilityNodeInfo node=choice.createAccessibilityNodeInfo();require(node.isCheckable()&&node.isChecked()==choice.isSelected(),"Incorrect choice accessibility state");node.recycle();}}
+    private void assertChoiceTargets(SegmentedSelector selector){
+        boolean wraps=(boolean)field(field(selector,"track"),"wrapChoices");
+        if(wraps)require(selector.getScrollX()==0&&((View)field(selector,"track")).getWidth()<=selector.getWidth(),"Inline pattern track needs horizontal scrolling");
+        for(TextView choice:selectorChoices(selector)){
+            require(choice.getWidth()>=activity.ui().dp(48)&&choice.getHeight()>=activity.ui().dp(48),"Choice target smaller than 48dp");
+            android.text.Layout layout=choice.getLayout();require(layout!=null&&layout.getLineEnd(layout.getLineCount()-1)==choice.length(),"Choice label lost text");
+            int width=choice.getWidth()-choice.getCompoundPaddingLeft()-choice.getCompoundPaddingRight();
+            for(int line=0;line<layout.getLineCount();line++)require(layout.getLineWidth(line)<=width+1&&layout.getEllipsisCount(line)==0,"Choice line clipped");
+            require(layout.getHeight()<=choice.getHeight()-choice.getCompoundPaddingTop()-choice.getCompoundPaddingBottom(),"Choice label clipped vertically");
+            if(wraps){
+                require(choice.getLeft()>=0&&choice.getRight()<=selector.getWidth()&&choice.getTop()>=0&&choice.getBottom()<=selector.getHeight(),"Pattern choice hidden outside track");
+                require(choice.getCompoundPaddingLeft()>=activity.ui().dp(8)&&choice.getCompoundPaddingRight()>=activity.ui().dp(8),"Pattern label loses breathing room");
+                for(int line=0;line<layout.getLineCount()-1;line++){int end=layout.getLineEnd(line);require(end==0||Character.isWhitespace(choice.getText().charAt(end-1))||Character.isWhitespace(choice.getText().charAt(end)),"Pattern wraps mid-word");}
+            }
+            AccessibilityNodeInfo node=choice.createAccessibilityNodeInfo();require(node.isCheckable()&&node.isChecked()==choice.isSelected(),"Incorrect choice accessibility state");node.recycle();
+        }
+    }
     private Object pending(String key,int value){try{Class<?> type=Class.forName("local.navee.offlinelock.BleController$Mutation");java.lang.reflect.Constructor<?> constructor=type.getDeclaredConstructor(String.class,int.class,int.class,long.class);constructor.setAccessible(true);return constructor.newInstance(key,0,value,0L);}catch(Exception e){throw new IllegalStateException(e);}}
     private void setField(Object target,String name,Object value){try{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);f.set(target,value);}catch(Exception e){throw new IllegalStateException(e);}}
     /** Native window render avoids unrelated queued Android toast windows obscuring the control. */
