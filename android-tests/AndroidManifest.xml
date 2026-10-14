@@ -11,10 +11,15 @@
   <instrumentation android:name="local.navee.offlinelock.tests.SearchFocusValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator search keyboard validation" />
   <instrumentation android:name="local.navee.offlinelock.MapTilesValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator map transport validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.DashboardSlotsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator dashboard layout slot validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.DashboardTransferValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated portable dashboard import and export validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ResponsiveDashboardValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated responsive dashboard validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.DeveloperSettingsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated developer preview and preferences validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.LiveStatsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated Live Stats validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.RidesAnalysisValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated unified ride analysis validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.BatteryWidgetValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated battery widget presentation validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ChargeCaptureValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge capture validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.AppDataBackupValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated encrypted full app backup validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.AppDataMaintenanceValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated app data maintenance lifecycle validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.BackupUiValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated app backup entry-point UI validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.FullBackupJourneyValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator clear-storage backup journey" />
 </manifest>

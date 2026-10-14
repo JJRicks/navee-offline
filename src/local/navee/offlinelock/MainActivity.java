@@ -63,7 +63,7 @@ import org.json.JSONObject;
 /** Native adaptive shell. The foreground service owns Bluetooth and recordings. */
 public final class MainActivity extends Activity implements ScreenHost {
     private static final int BLUETOOTH_PERMISSION=101, NOTIFICATION_PERMISSION=102, ENABLE_BLUETOOTH=103,
-            RIDE_LOCATION_PERMISSION=104, IMPORT_OWNER=201, SAVE_DOCUMENT=202;
+            RIDE_LOCATION_PERMISSION=104, IMPORT_OWNER=201, SAVE_DOCUMENT=202, IMPORT_LAYOUTS=203;
     private static final long BODY_REFRESH_MS=1000;
     private static final long MORE_RETENTION_MS=60_000;
     private static final String MORE_AWAY_AT="more_away_elapsed", MORE_AWAY_BOOT="more_away_boot";
@@ -96,6 +96,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String selectedPage="home",scrollPage="home";
     private boolean bound,binding,resumed,destroyed,pendingConnect,pendingScan,expanded,rebuilding,applyingOwnerImport,importWaitNotified,bodyRefreshScheduled;
     private long lastBodyRefreshMs;
+    private boolean startupRedirect, enteringMaintenance;
     private int topInset,bottomInset,leftInset,rightInset;
     private AlertDialog scanDialog, controlDialog;
     private AlertDialog quickMenuDialog;
@@ -127,7 +128,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     };
     private final ServiceConnection serviceConnection=new ServiceConnection(){
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
-            if(destroyed)return;
+            if(destroyed || enteringMaintenance || startupRedirect)return;
             scooterService=((ScooterService.LocalBinder)binder).service();bound=true;binding=false;
             scooterService.listen(serviceChanged);scooterService.visible(resumed);
             if(resumed){maybeApplyOwnerImport();if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}
@@ -138,6 +139,24 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
     };
     @Override public void onCreate(Bundle saved){
+        if (DataMaintenance.active()) {
+            startupRedirect = true; super.onCreate(saved);
+            startActivity(new Intent(this, BackupActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
+            finish(); return;
+        }
+        if (!DataMaintenance.readyForStartup(this)) {
+            startupRedirect = true; super.onCreate(saved);
+            TextView opening = new TextView(this); opening.setText("Opening your saved data…");
+            opening.setGravity(Gravity.CENTER); setContentView(opening);
+            new Thread(() -> {
+                try { DataMaintenance.ensureRecovered(this); runOnUiThread(() -> {if(!isDestroyed())recreate();}); }
+                catch (java.io.IOException failure) { runOnUiThread(() -> {
+                    if(isDestroyed())return;
+                    startActivity(new Intent(this,BackupActivity.class).putExtra("recovery",true));finish();
+                }); }
+            },"Volt-data-recovery").start();
+            return;
+        }
         preferences=getSharedPreferences("app_settings",MODE_PRIVATE);
         setTheme(darkTheme()?R.style.VoltDark:R.style.VoltLight);
         super.onCreate(saved);
@@ -161,7 +180,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         rebuild();
     }
     @Override public void onResume(){
-        super.onResume();resumed=true;ScooterService.setUiVisible(true);fold.start();
+        super.onResume();if(startupRedirect || enteringMaintenance)return;resumed=true;ScooterService.setUiVisible(true);fold.start();
         if(selectedPage.equals("more")){boolean expired=expireMoreSection(true);markMoreActive();if(expired)rebuild();}
         if(selectedPage.equals("stats")){boolean expired=expireStatsSection(true);markStatsActive();if(expired)rebuild();}
         if(hasBluetoothPermission()){ensureService();if(bound&&scooterService!=null)startService(new Intent(this,ScooterService.class));}
@@ -170,6 +189,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         finishRidePermission();
     }
     @Override public void onPause(){
+        if(startupRedirect || enteringMaintenance){super.onPause();return;}
         if(selectedPage.equals("more"))markMoreAway();
         if(selectedPage.equals("stats"))markStatsAway();
         resumed=false;if(lockControl!=null)lockControl.stopMotion();ScooterService.setUiVisible(false);captureScroll();fold.stop();handler.removeCallbacks(pulse);cancelDeferredBodyRefresh();
@@ -177,6 +197,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         super.onPause();
     }
     @Override public void onDestroy(){
+        if(startupRedirect){destroyed=true;super.onDestroy();return;}
         if(Build.VERSION.SDK_INT>=33&&systemBack!=null)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(systemBack);
         destroyed=true;closeQuickMenu();pendingRideLocation=null;if(controlDialog!=null)controlDialog.dismiss();bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
         if(screen!=null)screen.close();if(scanDialog!=null)scanDialog.dismiss();
@@ -185,6 +206,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         scooterService=null;bound=binding=false;super.onDestroy();
     }
     @Override public void onSaveInstanceState(Bundle saved){
+        if(startupRedirect || enteringMaintenance){super.onSaveInstanceState(saved);return;}
         captureScroll();saved.putString("page",selectedPage);saved.putBoolean("pending_connect",pendingConnect);saved.putBoolean("pending_scan",pendingScan);
         for(String page:pages)saved.putInt("scroll_"+page,scrollPositions.containsKey(page)?scrollPositions.get(page):0);
         super.onSaveInstanceState(saved);
@@ -196,6 +218,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onBackPressed(){navigateBack();}
     private void navigateBack(){
+        if(startupRedirect || enteringMaintenance)return;
         if(screen instanceof OnboardingScreen){if(!((OnboardingScreen)screen).back())finish();return;}
         if(screen instanceof DashboardScreen&&((DashboardScreen)screen).back())return;
         if(screen instanceof ControlsScreen&&((ControlsScreen)screen).back())return;
@@ -205,13 +228,13 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onConfigurationChanged(Configuration next){super.onConfigurationChanged(next);rebuild();}
     private final Runnable pulse=new Runnable(){@Override public void run(){
-        if(!resumed||destroyed)return;maybeApplyOwnerImport();automaticRefresh();maybeLaunchSave();handler.postDelayed(this,1000);
+        if(!resumed||destroyed||enteringMaintenance)return;maybeApplyOwnerImport();automaticRefresh();maybeLaunchSave();handler.postDelayed(this,1000);
     }};
     private boolean darkTheme(){String theme=preferences.getString("theme","dark");return theme.equals("dark")||(theme.equals("system")&&(getResources().getConfiguration().uiMode&Configuration.UI_MODE_NIGHT_MASK)==Configuration.UI_MODE_NIGHT_YES);}
     private boolean knownPage(String value){for(String page:pages)if(page.equals(value))return true;return false;}
     private Context dialogContext(){return new ContextThemeWrapper(this,design.dark?R.style.VoltDialog:R.style.VoltDialogLight);}
     private void ensureService(){
-        if(bound||binding||!hasBluetoothPermission()||destroyed)return;
+        if(bound||binding||!hasBluetoothPermission()||destroyed||DataMaintenance.active()||enteringMaintenance)return;
         try{
             Intent intent=new Intent(this,ScooterService.class);
             if(Build.VERSION.SDK_INT>=26)startForegroundService(intent);else startService(intent);
@@ -224,7 +247,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override public ScooterService service(){return scooterService;}
     @Override public void toast(String text){if(text!=null&&!text.isEmpty())Toast.makeText(this,text,Toast.LENGTH_LONG).show();}
     @Override public void redraw(){
-        if(destroyed||design==null)return;
+        if(destroyed||design==null||enteringMaintenance||startupRedirect)return;
         if(Looper.myLooper()!=Looper.getMainLooper()){handler.post(this::redraw);return;}
         cancelDeferredBodyRefresh();updateHeader();refreshBodyNow();
     }
@@ -258,6 +281,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(previous!=null){if(root!=before)Motion.crossfade(root,previous,direction,pageHeader,scroll);else previous.recycle();}
     }
     @Override public void rebuild(){
+        if(enteringMaintenance||startupRedirect||DataMaintenance.active())return;
         if(destroyed||rebuilding)return;handler.removeCallbacks(settingsRebuild);rebuilding=true;
         displayedSimulation = scooterService != null && scooterService.simulating();
         closeQuickMenu();
@@ -1592,6 +1616,70 @@ public final class MainActivity extends Activity implements ScreenHost {
             LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)first.getLayoutParams();p.width=Math.max(0,firstWidth);p.weight=0;LinearLayout.LayoutParams g=(LinearLayout.LayoutParams)gutter.getLayoutParams();g.width=gap;LinearLayout.LayoutParams s=(LinearLayout.LayoutParams)second.getLayoutParams();s.width=Math.max(0,size-firstWidth-gap);s.weight=0;super.onMeasure(width,height);
         }
     }
+    @Override public void exportDashboardLayouts(){
+        if(scooterService==null||scooterService.profiles.active()==null){toast("Choose a scooter first.");return;}
+        // Flush edits before creating a separate dashboard reader.
+        if(screen instanceof DashboardScreen){screen.close();screen=null;rebuild();}
+        try{DashboardConfig config=new DashboardConfig(preferences,scooterService.profiles.active().id);
+            saveText("volt-dashboards.json","application/json",config.exportLayouts());
+        }catch(Exception error){toast("A saved layout could not be exported. Check the saved slots before trying again.");}
+    }
+    @Override public void importDashboardLayouts(){
+        if(scooterService==null||scooterService.profiles.active()==null){toast("Choose a scooter first.");return;}
+        Intent picker=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");
+        picker.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain","application/octet-stream"});
+        try{startActivityForResult(picker,IMPORT_LAYOUTS);}catch(Exception missing){toast("A document picker could not open.");}
+    }
+    private void confirmDashboardImport(String text,DashboardConfig.LayoutTransfer info){
+        if(destroyed||enteringMaintenance||scooterService==null||scooterService.profiles.active()==null)return;
+        String profileId=scooterService.profiles.active().id;
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Replace dashboard layouts?")
+                .setMessage("Import "+info.widgetCount+" widgets and "+info.savedSlotCount+" saved slots for "+scooterService.profiles.active().name
+                    +"? This replaces this scooter’s current dashboard, all three slots and the column preference, including widget options. Other scooters, readings and rides stay as they are.")
+                .setNegativeButton("Cancel",null).setPositiveButton("Import layouts",(d,n)->{
+                    if(destroyed||enteringMaintenance||DataMaintenance.active())return;
+                    if(scooterService==null||scooterService.profiles.active()==null||!profileId.equals(scooterService.profiles.active().id)){toast("The selected scooter changed. Import again.");return;}
+                    if(screen!=null){screen.close();screen=null;}
+                    boolean restored=new DashboardConfig(preferences,profileId).importLayouts(text);
+                    rebuild();toast(restored?"Dashboards imported.":"The dashboards could not be imported.");
+                }).create();controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
+    }
+    @Override public void fullBackup(boolean restore){
+        if(enteringMaintenance||destroyed)return;
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(restore?"Restore all app data?":"Back up all app data?")
+                .setMessage((restore?"Restore a password-protected Volt backup. You’ll inspect it before replacing any data."
+                    :"Include every scooter’s setup keys, readings, history, rides and routes, charge recordings, preferences and dashboard layouts in a password-protected file.")
+                    +"\n\nVolt will disconnect and pause until you close and reopen it. Finish any recordings or exports first. Android permissions and Shizuku authorization are not included.")
+                .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->beginFullBackup(restore)).create();
+        controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
+    }
+    private void beginFullBackup(boolean restore){
+        if(enteringMaintenance||destroyed)return;
+        if(binding&&!bound){toast("Wait for the local workspace to finish opening.");return;}
+        if(!preparingExports.isEmpty()||documents.contains("path")||applyingOwnerImport||pendingOwnerFile().exists()||new File(getFilesDir(),"pending-owner-import.tmp").exists()){
+            toast("Finish the current import or export first.");return;
+        }
+        ShizukuCaptureClient capture=ShizukuCaptureClient.get(this);
+        if(capture.busy||capture.pendingCleanup()){toast("Finish setup capture and its cleanup before using a full backup.");return;}
+        if(scooterService==null)scooterService=ScooterService.currentForMaintenance();
+        String unavailable=scooterService==null?null:scooterService.dataMaintenanceUnavailable();
+        if(unavailable!=null){toast(unavailable);return;}
+        enteringMaintenance=true;resumed=false;pendingConnect=pendingScan=false;
+        closeQuickMenu();if(scanDialog!=null)scanDialog.dismiss();if(controlDialog!=null)controlDialog.dismiss();
+        if(screen!=null){screen.close();screen=null;}onboarding=null;
+        preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
+        handler.removeCallbacksAndMessages(null);fold.stop();
+        if(scooterService!=null)scooterService.unlisten(serviceChanged);
+        TextView wait=design.text("Preparing your app data…",20,true);wait.setGravity(Gravity.CENTER);wait.setBackgroundColor(design.bg);setContentView(wait);
+        java.util.function.Consumer<String> prepared=error->{
+            if(!DataMaintenance.active())DataMaintenance.enter();
+            Intent transfer=new Intent(this,BackupActivity.class).putExtra("restore",restore);
+            if(error!=null)transfer.putExtra("preparation_error",error);
+            startActivity(transfer);stopService(new Intent(this,ScooterService.class));finish();
+        };
+        if(scooterService==null){DataMaintenance.enter();prepared.accept(null);}
+        else scooterService.prepareDataMaintenance(prepared);
+    }
     @Override public void importOwner(){
         if(pendingOwnerFile().exists()){maybeApplyOwnerImport();if(pendingOwnerFile().exists())toast("Your selected owner setup is waiting for the current operation to finish.");return;}
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain","application/octet-stream"});startActivityForResult(intent,IMPORT_OWNER);
@@ -1623,6 +1711,15 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         if(request==ENABLE_BLUETOOTH){if(result==RESULT_OK){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}else pendingConnect=pendingScan=false;return;}
         if(request==SAVE_DOCUMENT){File staging=new File(documents.getString("path",new File(getFilesDir(),"missing-export").getAbsolutePath()));if(result!=RESULT_OK||data==null||data.getData()==null){staging.delete();documents.edit().clear().apply();return;}Uri destination=data.getData();new Thread(()->{try(InputStream in=new FileInputStream(staging);OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null)throw new java.io.IOException();copy(in,out);handler.post(()->toast("Saved."));}catch(Exception e){handler.post(()->toast("The export could not be saved."));}finally{staging.delete();documents.edit().clear().commit();}},"Navee-save").start();return;}
+        if(request==IMPORT_LAYOUTS&&result==RESULT_OK&&data!=null&&data.getData()!=null){
+            Uri uri=data.getData();
+            new Thread(()->{try(InputStream in=getContentResolver().openInputStream(uri)){
+                if(in==null)throw new java.io.IOException();
+                String text=readLimited(in); DashboardConfig.LayoutTransfer info=DashboardConfig.inspectLayouts(text);
+                handler.post(()->confirmDashboardImport(text,info));
+            }catch(Exception error){handler.post(()->toast("This is not a supported dashboard backup. No layouts were changed."));}},"Volt-layout-import").start();
+            return;
+        }
         if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));maybeApplyOwnerImport();}catch(Exception e){toast(e instanceof IllegalArgumentException?e.getMessage():"The setup file could not be read.");if(onboarding!=null)onboarding.onOwnerImported(false);}}
     }
     /** Only the normalized owner setup is staged, never raw Bluetooth capture logs. */

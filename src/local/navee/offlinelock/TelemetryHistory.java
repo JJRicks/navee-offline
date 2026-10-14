@@ -112,6 +112,7 @@ public final class TelemetryHistory {
     private final Map<String, Long> sessions = new HashMap<>();
     private volatile String status = "Stored on this phone";
     private volatile boolean closed;
+    private volatile boolean closeComplete;
     private long lastMaintenance;
 
     public TelemetryHistory(Context context) {
@@ -723,8 +724,18 @@ public final class TelemetryHistory {
     public synchronized void close() {
         if (closed) return;
         closed = true;
-        worker.execute(helper::close);
+        worker.execute(() -> { helper.close(); closeComplete = true; });
         worker.shutdown();
+    }
+
+    /** Drain previously accepted reads/writes and close SQLite before copying or replacing it.
+     * Called off the main thread; callbacks already posted to the UI must separately be gated. */
+    public boolean closeAndAwait(long timeoutMillis) throws InterruptedException {
+        if (Looper.myLooper() == Looper.getMainLooper())
+            throw new IllegalStateException("History shutdown must not block the main thread");
+        close();
+        return worker.awaitTermination(Math.max(0, timeoutMillis), java.util.concurrent.TimeUnit.MILLISECONDS)
+                && closeComplete;
     }
 
     private static final class Database extends SQLiteOpenHelper {

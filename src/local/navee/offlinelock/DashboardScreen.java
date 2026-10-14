@@ -5022,6 +5022,14 @@ public final class DashboardScreen implements AppScreen {
         savedHint.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(10));
         content.addView(savedHint);
         for (int i = 0; i < DashboardConfig.SLOT_COUNT; i++) addLayoutSlot(content, i);
+        LinearLayout transfers = row();
+        View export = toolButton("Export", "download", () -> { dismiss(); host.exportDashboardLayouts(); });
+        View importButton = toolButton("Import", "restore", () -> { dismiss(); host.importDashboardLayouts(); });
+        LinearLayout.LayoutParams exportSpace = new LinearLayout.LayoutParams(0, -2, 1);
+        exportSpace.setMarginEnd(ui.dp(10));
+        transfers.addView(export, exportSpace);
+        transfers.addView(importButton, new LinearLayout.LayoutParams(0, -2, 1));
+        content.addView(transfers);
         content.addView(sheetLabel("Default layout"));
         LinearLayout restore = row();
         restore.setGravity(Gravity.CENTER_VERTICAL);

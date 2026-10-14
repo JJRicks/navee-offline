@@ -33,6 +33,9 @@
             android:multiprocess="false" android:enabled="true" android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity android:name=".ShizukuSetupActivity" android:exported="false" android:resizeableActivity="true" />
+        <activity android:name=".BackupActivity" android:exported="false" android:resizeableActivity="true"
+            android:windowSoftInputMode="adjustResize"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
         <uses-library android:name="androidx.window.extensions" android:required="false" />
         <service android:name=".ScooterService" android:exported="false" android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice|location" />
