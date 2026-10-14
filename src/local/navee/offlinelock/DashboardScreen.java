@@ -1072,6 +1072,85 @@ public final class DashboardScreen implements AppScreen {
         }
     }
 
+    /** Fit from the available width, never from a previous WRAP_CONTENT height. */
+    private final class FittedValue extends TextView {
+        final int minimumSp, maximumSp, targetLines;
+        int fittedWidth = -1;
+        String fittedText;
+        float fittedPixels;
+        int heightBudget = Integer.MAX_VALUE;
+        int sharedMaximumSp = Integer.MAX_VALUE;
+
+        FittedValue(String text, int minimum, int maximum, int lines) {
+            super(host.activity());
+            minimumSp = (int) Math.ceil(minimum * ui.textScale);
+            maximumSp = Math.max(minimumSp, Math.round(maximum * ui.textScale));
+            targetLines = lines;
+            setText(text);
+            setTextColor(ui.text);
+            setTypeface(ui.bold());
+            setIncludeFontPadding(false);
+            setLineSpacing(ui.dp(3), 1);
+            setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, maximumSp);
+            // At the readable floor, long custom text wraps into the card's
+            // scroller instead of disappearing behind a maximum-line limit.
+        }
+
+        void fitHeight(int pixels) {
+            int next = Math.max(1, pixels);
+            if (heightBudget == next) return;
+            heightBudget = next;
+            fittedWidth = -1;
+            requestLayout();
+        }
+
+        void capAt(int sizeSp) {
+            if (sharedMaximumSp == sizeSp) return;
+            sharedMaximumSp = sizeSp;
+            fittedWidth = -1;
+        }
+
+        @Override
+        protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec)
+                    - getCompoundPaddingLeft() - getCompoundPaddingRight();
+            String text = getText().toString();
+            float density = getResources().getDisplayMetrics().scaledDensity;
+            if (width != fittedWidth || !text.equals(fittedText)) {
+                fittedWidth = width;
+                fittedText = text;
+                int ceiling = Math.min(maximumSp, sharedMaximumSp);
+                fittedPixels = ceiling * density;
+                if (width > 0 && MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED) {
+                    android.text.TextPaint paint = new android.text.TextPaint(getPaint());
+                    for (int size = ceiling; size >= minimumSp; size--) {
+                        fittedPixels = size * density;
+                        paint.setTextSize(fittedPixels);
+                        android.text.StaticLayout layout = android.text.StaticLayout.Builder
+                                .obtain(text, 0, text.length(), paint, width)
+                                .setIncludePad(getIncludeFontPadding())
+                                .setLineSpacing(getLineSpacingExtra(), getLineSpacingMultiplier())
+                                .setBreakStrategy(getBreakStrategy())
+                                .setHyphenationFrequency(getHyphenationFrequency())
+                                .setTextDirection(android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR)
+                                .build();
+                        int count = layout.getLineCount();
+                        boolean fits = count <= targetLines && layout.getHeight() <= heightBudget
+                                && (count == 0 || layout.getLineEnd(count - 1) == text.length());
+                        for (int line = 0; fits && line < count; line++)
+                            fits = layout.getLineMax(line) <= width;
+                        if (fits) break;
+                    }
+                }
+            }
+            if (getTextSize() != fittedPixels)
+                setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fittedPixels);
+            super.onMeasure(widthSpec, heightSpec);
+        }
+    }
+
+
     /** Compact, labeled metric cards shared by charging and the reading-list widget. */
     private final class InfoCell extends LinearLayout {
         final TextView label, value;
@@ -1085,14 +1164,11 @@ public final class DashboardScreen implements AppScreen {
             label.setCompoundDrawablesRelative(glyphDrawable(icon, ui.muted, 15), null, null, null);
             label.setCompoundDrawablePadding(ui.dp(5));
             addView(label, new LinearLayout.LayoutParams(-1, -2));
-            value = ui.text("—", 26, true);
+            value = new FittedValue("—", 12, 26, 2);
             value.setIncludeFontPadding(true);
             value.setGravity(Gravity.CENTER_VERTICAL);
-            value.setMaxLines(2);
-            value.setAutoSizeTextTypeUniformWithConfiguration(
-                    Math.max(12, Math.round(12 * ui.textScale)), Math.max(13, Math.round(26 * ui.textScale)),
-                    1, android.util.TypedValue.COMPLEX_UNIT_SP);
-            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, ui.dp(48 * ui.textScale));
+            value.setMinHeight(ui.dp(48 * ui.textScale));
+            LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
             p.topMargin = ui.dp(2);
             addView(value, p);
         }
@@ -2034,84 +2110,6 @@ public final class DashboardScreen implements AppScreen {
                 p.weight = weight;
                 p.leftMargin = margin;
                 v.setLayoutParams(p);
-            }
-        }
-
-        /** Fit from the available width, never from a previous WRAP_CONTENT height. */
-        private final class FittedValue extends TextView {
-            final int minimumSp, maximumSp, targetLines;
-            int fittedWidth = -1;
-            String fittedText;
-            float fittedPixels;
-            int heightBudget = Integer.MAX_VALUE;
-            int sharedMaximumSp = Integer.MAX_VALUE;
-
-            FittedValue(String text, int minimum, int maximum, int lines) {
-                super(host.activity());
-                minimumSp = (int) Math.ceil(minimum * ui.textScale);
-                maximumSp = Math.max(minimumSp, Math.round(maximum * ui.textScale));
-                targetLines = lines;
-                setText(text);
-                setTextColor(ui.text);
-                setTypeface(ui.bold());
-                setIncludeFontPadding(false);
-                setLineSpacing(ui.dp(3), 1);
-                setTextDirection(View.TEXT_DIRECTION_FIRST_STRONG);
-                setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, maximumSp);
-                // At the readable floor, long custom text wraps into the card's
-                // scroller instead of disappearing behind a maximum-line limit.
-            }
-
-            void fitHeight(int pixels) {
-                int next = Math.max(1, pixels);
-                if (heightBudget == next) return;
-                heightBudget = next;
-                fittedWidth = -1;
-                requestLayout();
-            }
-
-            void capAt(int sizeSp) {
-                if (sharedMaximumSp == sizeSp) return;
-                sharedMaximumSp = sizeSp;
-                fittedWidth = -1;
-            }
-
-            @Override
-            protected void onMeasure(int widthSpec, int heightSpec) {
-                int width = MeasureSpec.getSize(widthSpec)
-                        - getCompoundPaddingLeft() - getCompoundPaddingRight();
-                String text = getText().toString();
-                float density = getResources().getDisplayMetrics().scaledDensity;
-                if (width != fittedWidth || !text.equals(fittedText)) {
-                    fittedWidth = width;
-                    fittedText = text;
-                    int ceiling = Math.min(maximumSp, sharedMaximumSp);
-                    fittedPixels = ceiling * density;
-                    if (width > 0 && MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED) {
-                        android.text.TextPaint paint = new android.text.TextPaint(getPaint());
-                        for (int size = ceiling; size >= minimumSp; size--) {
-                            fittedPixels = size * density;
-                            paint.setTextSize(fittedPixels);
-                            android.text.StaticLayout layout = android.text.StaticLayout.Builder
-                                    .obtain(text, 0, text.length(), paint, width)
-                                    .setIncludePad(getIncludeFontPadding())
-                                    .setLineSpacing(getLineSpacingExtra(), getLineSpacingMultiplier())
-                                    .setBreakStrategy(getBreakStrategy())
-                                    .setHyphenationFrequency(getHyphenationFrequency())
-                                    .setTextDirection(android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR)
-                                    .build();
-                            int count = layout.getLineCount();
-                            boolean fits = count <= targetLines && layout.getHeight() <= heightBudget
-                                    && (count == 0 || layout.getLineEnd(count - 1) == text.length());
-                            for (int line = 0; fits && line < count; line++)
-                                fits = layout.getLineMax(line) <= width;
-                            if (fits) break;
-                        }
-                    }
-                }
-                if (getTextSize() != fittedPixels)
-                    setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fittedPixels);
-                super.onMeasure(widthSpec, heightSpec);
             }
         }
 
