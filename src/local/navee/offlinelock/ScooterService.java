@@ -210,11 +210,8 @@ public final class ScooterService extends Service {
             android.widget.Toast.makeText(
                             this, "Finishing the previous ride", android.widget.Toast.LENGTH_SHORT)
                     .show();
-            return;}if(rides==null||!ble.ready())return;try{rides.start(profiles.active().id,label,System.currentTimeMillis(),SystemClock.elapsedRealtime());RideStore.CurrentDirection direction;try{
-                direction =
-                        RideStore.CurrentDirection.valueOf(
-                                settings.getString("current_direction", "UNCONFIRMED"));
-            }catch(Exception e){direction=RideStore.CurrentDirection.UNCONFIRMED;}rides.setCurrentDirection(direction);invalidateCapacityEstimate();recordingError=null;gapMarked=false;samples=0;applyWorkPolicy(false);ble.refresh(false);}catch(IOException|IllegalStateException e){android.widget.Toast.makeText(this,e.getMessage(),android.widget.Toast.LENGTH_LONG).show();}}
+            return;}if(rides==null||!ble.ready()||isRecording())return;try{rides.setCurrentDirection(RideStore.CurrentDirection.POSITIVE_IS_DRAW);
+            rides.start(profiles.active().id,label,System.currentTimeMillis(),SystemClock.elapsedRealtime());invalidateCapacityEstimate();recordingError=null;gapMarked=false;samples=0;applyWorkPolicy(false);ble.refresh(false);}catch(IOException|IllegalStateException e){android.widget.Toast.makeText(this,e.getMessage(),android.widget.Toast.LENGTH_LONG).show();}}
     public void stopRide(){if(!isRecording())return;try{rides.stop(System.currentTimeMillis(),SystemClock.elapsedRealtime());invalidateCapacityEstimate();recordingError=null;}catch(IOException e){
             recordingError =
                     "Recording could not be saved. Free some phone storage, then try Stop again.";

@@ -793,6 +793,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout display = group();
         Row text = row(display, "text", "Text size", null, this::textSize);
         valueRefreshers.add(() -> text.value(Math.round(settings().getFloat("text_scale", 1f) * 100) + "%"));
+        row(display, "map", "Map settings", "Basemap and tile provider", () -> MapPreferences.show(host));
         label("Connection & recording");
         LinearLayout connection = group();
         Row rate = row(connection, "clock", "Telemetry refresh", null, this::telemetryRate);

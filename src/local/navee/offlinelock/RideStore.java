@@ -58,17 +58,18 @@ public final class RideStore {
     }
 
     public static final class Point {
-        public final long wallMs, elapsedMs;
+        public final long wallMs, monotonicMs, elapsedMs;
+        public final int segment;
         public final Double voltageV, powerW, speedKmh, batteryPercent, odometerKm;
-        private Point(long wallMs, long elapsedMs, Double voltageV, Double powerW,
+        private Point(long wallMs, long monotonicMs, long elapsedMs, int segment, Double voltageV, Double powerW,
                 Double speedKmh, Double batteryPercent, Double odometerKm) {
-            this.wallMs = wallMs; this.elapsedMs = elapsedMs;
+            this.wallMs = wallMs; this.monotonicMs = monotonicMs; this.elapsedMs = elapsedMs; this.segment = segment;
             this.voltageV = voltageV; this.powerW = powerW; this.speedKmh = speedKmh;
             this.batteryPercent = batteryPercent; this.odometerKm = odometerKm;
         }
         public Map<String, Object> fields() {
             LinkedHashMap<String, Object> result = new LinkedHashMap<String, Object>();
-            result.put("wallMs", wallMs); result.put("elapsedMs", elapsedMs);
+            result.put("wallMs", wallMs); result.put("monotonicMs", monotonicMs); result.put("elapsedMs", elapsedMs); result.put("segment", segment);
             result.put("voltageV", voltageV); result.put("powerW", powerW);
             result.put("speedKmh", speedKmh); result.put("batteryPercent", batteryPercent);
             result.put("odometerKm", odometerKm); return Collections.unmodifiableMap(result);
@@ -327,6 +328,18 @@ public final class RideStore {
         active.notes = clean;
     }
 
+    /** Append-only rename: original measurements and their clock/energy interpretation stay intact. */
+    public synchronized void rename(String id, String name) throws IOException {
+        String clean = trim(name == null ? "" : name.trim(), 200);
+        if (clean.isEmpty()) throw new IllegalArgumentException("A ride needs a name");
+        Accumulator ride = active != null && active.id.equals(id) ? active : read(file(id));
+        if (ride == null) throw new IOException("Ride does not exist");
+        repairTail(file(id));
+        append(file(id), row("RENAME", ride.lastWall, ride.lastMono, "", "", "", "", "", "", "", "", "", clean));
+        ride.label = clean;
+        summaryCache.remove(id); analysisCache.remove(id);
+    }
+
     public synchronized String activeId() { return active == null ? null : active.id; }
     public synchronized Summary activeSummary() { return active == null ? null : new Summary(active); }
     public synchronized Summary get(String id) throws IOException {
@@ -436,7 +449,8 @@ public final class RideStore {
     }
 
     private static final class Accumulator {
-        final String id, scooterId, label;
+        final String id, scooterId;
+        String label;
         String notes = "";
         final long startWall;
         long lastWall, lastMono, elapsed, electricalMs, speedMs, movingMs, stationaryMs;
@@ -517,7 +531,7 @@ public final class RideStore {
             }
             if (dt > MAX_INTEGRATION_INTERVAL_MS && samples > 0) gaps++;
             previousPower = power; previousSpeed = speed; samples++;
-            Point point = new Point(wall, elapsed, voltage, power, speed, soc, odo);
+            Point point = new Point(wall, mono, elapsed, (int)Math.min(Integer.MAX_VALUE, gaps), voltage, power, speed, soc, odo);
             lastPoint = point;
             if ((samples - 1) % pointStride == 0) {
                 if (points.size() >= MAX_TREND_POINTS) {
@@ -565,6 +579,8 @@ public final class RideStore {
                     if ("START".equals(event) && a == null) {
                         a = new Accumulator(id, r.get(6), r.get(8), wall, mono);
                         a.direction = direction(r.get(13));
+                    } else if (a != null && "RENAME".equals(event)) {
+                        a.label = trim(r.get(14), 200);
                     } else if (a != null && !a.stopped) {
                         if ("BEGIN".equals(event)) {
                             pending = new LinkedHashMap<String, Sample>(); pendingFrame = r.get(5);
