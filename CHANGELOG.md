@@ -1,8 +1,20 @@
 # Changelog
 
-## Unreleased
+## 0.9.0 — 2026-10-13
 
-- Home's Layout sheet has three named save slots per scooter. Each keeps the widget list and options, column choice, and folded/unfolded arrangements together. Restore defaults and current edits preserve the saved slots; replacing or restoring a slot asks for confirmation.
+### Dashboard and setup
+
+- Home's Layout sheet has three named save slots per scooter. Each keeps the widget list and options, column choice, and folded/unfolded arrangements together. Restore defaults and current edits preserve the saved slots; replacing or restoring a slot asks for confirmation. Restoring a slot also restores the phone's shared column choice without replacing other scooters' widgets.
+- **First run, unfolded:** on foldables' inner screens and other wide screens, the numbered setup steps show a step list beside the current step: the scooter, how long setup takes and each step marked done, current, to do or not needed. On a book-posture hinge the split falls on the fold. Welcome, the path choice and the finish screen stay single-column.
+- Optional **Use Shizuku on this phone** owner capture on Android 11+, using shell-backed Shizuku 13+. Debugging permission, capture consent and importing the result are separate steps. The captured identity stays in memory until import.
+- A **Chrome/USB testing preview** at [pairscooter.jjricks.com](https://pairscooter.jjricks.com/) guides computer users through USB authorization, a short capture, and saving their private setup. The dedicated origin keeps its USB permission and recovery state separate from the rest of the website. Capture processing stays in the browser; there is no account sign-in or capture upload service.
+- Both new helpers restore logging and stop NAVEE before making a captured result available. Bounded commands, a shared session lock and interruption recovery protect cleanup. The browser forgets USB permission after safely completed sessions where the browser supports it. Existing computer capture, backup import and manual identity entry remain available.
+
+### Upgrade and limits
+
+Install over the preceding official APK to keep profiles, dashboards, saved slots and recordings. Initial capture still requires Android debugging access and an already signed-in, owner-bound NAVEE app. Everyday Bluetooth control remains local.
+
+The browser helper remains a testing preview in this app release. A successful real-scooter capture through either new helper is still awaiting validation; the available phone checks were performed with the scooter out of range. Browser capture supports the main personal Android user only. See VERIFICATION.txt and the setup documentation for test scope and recovery limitations. Existing experimental battery and phone-sensor estimates retain their limitations.
 
 ## 0.8.0 — 2026-10-13
 
@@ -17,7 +29,6 @@ A full visual redesign of every screen. Bluetooth, commands, storage, exports an
 ### Screens
 
 - **First run:** a step-by-step onboarding replaces the first-time setup guide's wall of text: choose capture, backup file or 12-character identity; a checklist; USB debugging; running the capture helper (with Copy); import; Nearby devices; connecting; done. The tab bar stays hidden until it is finished. **More › My scooters › Run setup again** reopens it.
-- **First run, unfolded:** on foldables' inner screens and other wide screens, the numbered setup steps show a step list beside the current step: the scooter, how long setup takes and each step marked done, current, to do or not needed. On a book-posture hinge the split falls on the fold. Welcome, the path choice and the finish screen stay single-column.
 - **Home:** one header with the connection line, scooter name and edit pencil. The lock is a full-width bar: tap anywhere on it or slide it (locked: knob on the right; unlocked: red knob on the left). Ride recording is its own card. The battery overview is a tall red cell; while charging, a charging card with the scooter photo, a progress line to the charge limit, time remaining and battery-side power appears above the widgets. All widgets, sheets and edit controls are restyled.
 - **Scooter:** one scrolling page grouped into Ride, Battery, Lights, Dashboard & sound, Security and Profile, with search. Top speed is a red card with the scooter's four choices shown in your units (the scooter still receives km/h). Choices open a sheet that waits for the scooter's confirmation. Line and star lights have their own page.
 - **Stats:** red section tabs, battery overview with favourites, readings with tappable favourite stars, charts and diagnostics.

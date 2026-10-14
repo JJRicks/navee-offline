@@ -1,4 +1,50 @@
-UNRELEASED — DASHBOARD LAYOUT SLOTS
+NAVEE OFFLINE 0.9.0 — RELEASE VALIDATION
+October 13, 2026
+
+Includes reviewed and merged PRs #7–10: wide-screen onboarding, three saved
+layout slots, browser USB setup and on-device Shizuku owner capture. Product
+source matches merged main 66ab6cf; release preparation changes only the
+manifest version (0.9.0, code 20) and documentation.
+
+Release-candidate checks:
+
+- All eleven core Java suites passed 24,971 checks. The real shell-guard suite
+  passed all 11 tests; the browser suite passed all 56 tests and the web build.
+  The reviewed browser tests also passed on Debian Linux with dash before merge.
+- Production and separate instrumentation APK builds passed. Known Java 8
+  target and JDK native-access warnings remain; no new build failure occurred.
+- The final 0.9.0 APK passed 45 native check groups on isolated Android 16:
+  LaunchValidation denied/granted (8 each), UiOrganizationValidation at 411 dp
+  and 686 dp (11 each), and DashboardSlotsValidation (7 groups, 220 assertions).
+  Coverage includes all tabs, themes, 140% text, recreation, menu retention,
+  synthetic local routes, and saved-slot validation/persistence/isolation.
+  Representative compact/expanded native screenshots were inspected. The
+  emulator used disposable data, map requests disabled, and zero scooter writes.
+- Signed release APK passes v2/v3 signature and 16 KiB alignment verification.
+  Its certificate matches the downloaded, checksum-verified v0.8.0 release.
+  Version/name/package and exclusion of validation/test code were checked.
+
+Hardware and review boundaries:
+
+- The combined pre-release build installed in place and opened on the Pixel,
+  retaining the scooter profile, dashboard and cached readings. This was the
+  merged product code still labeled 0.8.0/code 19, not the final 0.9.0 APK.
+- Previous Pixel checks exercised separately approved Shizuku and browser USB
+  setup with the scooter out of range, including bounded timeout/restoration.
+  Successful real-scooter capture/import through either new helper remains
+  unverified. Browser setup remains a testing preview; existing desktop capture,
+  backup import and manual identity entry remain available.
+- No new live scooter command, ride, Samsung, outdoor sensor or battery-capacity
+  validation is claimed. Prior incomplete broad Dashboard/SearchFocus suites
+  below retain their stated limits; focused passes do not replace them.
+- Claude independently reviewed the feature heads and their feedback fixes.
+  The checks connector returned HTTP 404 during release preparation. Local
+  validation is reported separately; no new remote CI pass is claimed.
+
+Release APK SHA-256:
+8d801c87a8d90c14c56b640f4618fefd8cc56e3cdac93ec011c579a6a8d5c580
+
+DASHBOARD LAYOUT SLOTS — PRE-RELEASE VALIDATION
 October 13, 2026
 
 Three named per-scooter slots save/restore all stored column layouts and full
@@ -880,5 +926,5 @@ README.txt: app usage, recording interpretation and local builds.
 navee-offline-home.png: final native Home View render with fresh real readings.
 
 
-DISTRIBUTED APK SHA-256
+HISTORICAL APK SHA-256 (ORIGINAL VERIFICATION ARTIFACT)
 31133eb85e9d806ff6e55732791d2cad7247ffded309fb7c70c691543888a353

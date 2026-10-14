@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.8.0
+NAVEE OFFLINE — VERSION 0.9.0
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,6 +11,16 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
+
+0.9.0 adds three named dashboard save slots per scooter, keeping widget options
+and the folded/unfolded arrangements together. Setup gains a step list beside
+the current step on wide screens, an optional Shizuku route on Android 11+,
+and a Chrome/USB testing preview at https://pairscooter.jjricks.com/.
+The new helpers ask separately for debugging access, capture and import/save.
+Successful real-scooter capture through these helpers still awaits validation;
+the available phone checks were performed with the scooter out of range.
+Install over the previous official APK to retain profiles, dashboards and rides.
+See VERIFICATION.txt for the tested scope and remaining hardware checks.
 
 0.8.0 introduces the Volt design across Home, Stats, Scooter, Rides and More,
 with rounded cards, Saira type, a red accent, and a floating tab bar. Guided
@@ -84,8 +94,28 @@ FIRST SETUP FOR ANOTHER OWNER OR PHONE
 
 Each person needs the Bluetooth identity for their own owner account/scooter.
 It is a six-byte, 12-hex-character Bluetooth owner identity, not a NAVEE password
-or cloud access token. ADB is required for the initial capture with the current
-onboarding method; everyday use needs no computer or ADB.
+or cloud access token. Initial capture needs Android debugging access, using
+one of these routes:
+
+- The existing computer ADB/Python helper described below.
+- Use Shizuku on this phone: Android 11+ with shell-backed Shizuku 13+, started
+  using wireless debugging. Granting Shizuku access is separate from consenting
+  to capture and importing the result. Root-backed Shizuku is not supported.
+- The Chrome/USB testing preview at https://pairscooter.jjricks.com/, opened in
+  desktop Chrome or Edge with a USB data cable. Phone selection, capture, and
+  saving the private setup are separate approvals. It supports the main personal
+  Android user only, not work profiles or secondary users.
+
+NAVEE must already be signed in and bound to the nearby, safely parked scooter.
+The new helpers temporarily restart NAVEE and enable logging, capture only a
+fresh validated owner message, then restore the prior logging setting and stop
+NAVEE before offering the result. Capture stays local; no credentials are sent
+to a setup server. Neither helper adds NAVEE or Google account sign-in here.
+Do not run multiple capture helpers at once. Recovery and supported-device
+limits are documented in setup/SHIZUKU.md and setup/web/README.md. A successful
+real-scooter capture through either new helper still awaits validation.
+
+Everyday use needs no computer, Shizuku or ADB.
 
 More provides a tutorial, validated text/file import, separate local scooter
 profiles and private owner-backup export. The earlier app's saved profile

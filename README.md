@@ -2,16 +2,17 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.8.0**. Independent project; not affiliated with NAVEE.
+Current application version: **0.9.0**. Independent project; not affiliated with NAVEE.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
 
-Version 0.8.0 introduces the Volt design: rounded cards, bundled Saira typography,
-a red accent, a floating tab bar, and a guided first-run setup. Expanded screens
-use side-by-side settings, readings and ride details. Existing profiles,
-dashboards and recordings are retained; first-time owner capture still needs ADB.
+Version 0.9.0 adds three dashboard save slots, a step list beside setup on wide
+screens, and two optional owner-setup routes: Shizuku on the phone and a
+Chrome/USB testing preview. The Volt design and existing profiles, dashboards,
+and recordings are retained. First-time capture still uses Android debugging
+access with explicit consent; everyday scooter use needs no setup helper.
 
 - **Home:** an editable dashboard for each scooter, with automatic connection, a large lock switch, battery overview, charts, and shortcuts.
 - **Scooter:** compact grouped settings for riding, battery, lights, dashboard/sounds, and security. Rename your scooter here or use its widget's pencil while editing Home.
@@ -139,9 +140,9 @@ Each owner needs their own Bluetooth owner identity from their already-bound NAV
 
 The Shizuku route guides installation/start, explicit permission for broad debugging access, capture consent, and a separate import confirmation. It accepts shell-backed Shizuku 13+ only, reads fresh authentication frames from NAVEE's verified Android UID, restores the previous logging setting and stops NAVEE before making the identity available. The identity remains in memory until an explicit import; it is not uploaded or copied to Downloads. A detached safety guard and non-secret cleanup journal handle interruption. See [setup/SHIZUKU.md](setup/SHIZUKU.md) for its permissions, lifecycle and limitations. Never run the legacy computer capture helper simultaneously with another capture method.
 
-The Chrome/USB helper is a testing preview, not a general release. A successful real browser capture with a nearby scooter is still awaiting validation. A developer can also run the static helper locally using the linked instructions, or use the existing desktop helper. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
+The Chrome/USB helper remains a testing preview in this app release. A successful real-scooter capture through either new helper is still awaiting validation; the available phone checks were performed with the scooter out of range. A developer can also run the static helper locally using the linked instructions, or use the existing desktop helper. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
 
-On first launch the app opens a step-by-step setup: choose Chrome/USB capture, Shizuku, the desktop helper, import a backup file or enter a 12-character identity, then follow the selected route through capture, import, Nearby devices and connecting. The tab bar appears once it is finished. **More → My scooters → Run setup again** reopens it.
+On first launch the app opens a step-by-step setup: choose the desktop helper, Shizuku, the Chrome/USB preview, import a backup file or enter a 12-character identity, then follow the selected route through capture, import, Nearby devices and connecting. On wide and unfolded screens, a step list appears beside the current numbered step. The tab bar appears once setup is finished. **More → My scooters → Run setup again** reopens it. These helpers use NAVEE already signed in on the phone; they add no NAVEE or Google account sign-in to this app or the setup website.
 
 See [SETUP.txt](SETUP.txt) for the capture helper and private backup/import instructions, and [README.txt](README.txt) for detailed app behavior and recording interpretation.
 

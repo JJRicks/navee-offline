@@ -1,5 +1,5 @@
 NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.8.0
+Current version: 0.9.0
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -7,9 +7,27 @@ The app talks directly to the scooter over Bluetooth. Optional map tiles use
 internet; authentication, controls and recording require no server. First-time
 owner setup is covered in SETUP.txt.
 
-0.8.0 adds the Volt visual design, guided setup and expanded-screen panes.
+0.9.0 adds three named dashboard save slots, a wide-screen setup step list,
+optional Shizuku capture on Android 11+, and a Chrome/USB owner-setup preview.
 It adds no new scooter command or telemetry field; earlier physical checks
-below retain their original scope. New owner capture still requires ADB.
+below retain their original scope. First capture still needs Android debugging
+access, while normal Bluetooth use needs no computer or setup helper.
+
+NEW OWNER-SETUP ROUTES: VALIDATION LIMITS
+
+The existing computer ADB/Python helper, backup import and manual identity entry
+remain available. The optional Shizuku route requires shell-backed Shizuku 13+;
+the browser preview runs in desktop Chrome or Edge with a USB data cable at
+https://pairscooter.jjricks.com/ and supports the main personal Android user.
+Both require an already signed-in NAVEE app, the owner's bound scooter nearby,
+and explicit debugging and capture consent. Import/save is another deliberate
+action. Capture processing stays local and introduces no account-login service.
+
+Both new paths include bounded capture, logging restoration, session locking
+and interruption recovery. The browser route remains a testing preview.
+Successful real-scooter capture through either new helper is still unverified;
+phone checks so far used an out-of-range scooter. Existing parked write/readback
+checks below do not establish that new setup capture succeeds on hardware.
 
 EARLIER CONFIRMED WRITES AND FRESH READBACK
 
