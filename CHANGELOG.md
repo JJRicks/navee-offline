@@ -1,11 +1,17 @@
 # Changelog
 
-## Unreleased
+## 1.0.0 — 2026-10-14
 
 - Use singular chart windows (1 minute/hour/day) and consistent Odo. abbreviation.
 - Fit Trip overview, Readings and Charging values to short-card height, trimming noninteractive padding before reducing values within their existing readable limits. Keep scrolling when all readings cannot fit, and preserve saved card dimensions.
 - Keep the first connection/disconnect haptics immediate while suppressing rapid repeats for five seconds after each drop. Preserve the quiet period across focus changes, and never replay suppressed events or delay Bluetooth.
 - Include reproducible emulator-only Quick access and connection haptic regression checks in the repository, including dialog focus, preferences, guarded actions and lifecycle cancellation.
+
+- Add a shared Basemap switch below ride maps and in map settings. Online tiles start off for new setups; first use explains the tile provider connection and requires consent. Preserve an existing explicit choice and keep recorded routes usable without tiles.
+- Introduce the Volt project homepage and refresh the pairing site's independent-project notice.
+- Simplify the README with quick installation steps and move detailed setup/build guidance into dedicated docs. Add clearer privacy, support, contribution and third-party notices.
+
+Install over the previous project APK to preserve setup, dashboards and recordings. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE. Experimental estimates, physical-device testing limits and preview setup-helper limits remain documented in VERIFICATION.txt.
 
 ## 0.13.0 — 2026-10-14
 

@@ -1,3 +1,53 @@
+VOLT 1.0.0 PROJECT RELEASE (versionCode 27)
+October 14, 2026
+
+- Merged independently reviewed PRs #31, #32, #33, #34 and #35. The release
+  metadata follows combined reviewed tree d134d8149df2f7ecf7326e1da2e18ff2ae8b9ce3.
+  App source and resources are unchanged from that tree; the manifest version
+  is 1.0.0/code 27, and documentation/homepage version labels are refreshed.
+- All 23 core suites passed: 54,182 assertions/checks. The owner-capture cleanup
+  suite passed all 11 tests. Pinned Shizuku dependencies were verified locally.
+- Production-signed app and separate native validation runner built successfully.
+  APK signature and 16 KiB alignment checks passed. Version, Volt label and
+  non-debuggable status were verified. The signing certificate matches 0.13.0:
+  af13dcc47935f6dfcbbc1684cdcd2ece1e2b79372a2092b4d013166580e512eb.
+  Existing Java 8 source/target, deprecated/unchecked API and SDK native-library
+  warnings remain; no new build failure was observed.
+- Production-APK native launch checks passed with Bluetooth permissions denied
+  and granted (8 checks each). Seven targeted dashboard cases passed at narrow,
+  regular and unfolded widths, including 140% system font and editor controls.
+  Inspected screenshots show readable compact values; stable live cards produce
+  no extra layout passes.
+- Native ride/map checks passed 181 assertions each at 344x882dp dark, 725x604dp
+  dark and 360x800dp light with 140% system font (543 total). These include
+  consent, shared Basemap state, full-detail chart inspection and ride-name focus.
+- Quick access haptics passed 55 assertions; foreground connection haptics
+  passed 83, with no cleanup errors. These verify dispatch/lifecycle behavior,
+  not physical vibration feel. All native fixtures used an isolated emulator.
+- Upgraded the owner's Pixel 10 Pro Fold over USB from 0.13.0 to 1.0.0 in place.
+  The installed APK hash matches the packaged build, MainActivity resumed,
+  and the existing scooter identity, dashboard and cached readings were visible.
+  App storage was not cleared; no validation runner was installed on the phone.
+- Basemap is now off for an absent preference. An existing explicit choice is
+  preserved. The earlier default-on statements below document prior branches,
+  not the behavior of this release.
+- Website preflight: 56 pairing-helper tests, 27 deployment/rollback checks and
+  15 recovery audit checks passed. Six-width browser checks passed for the setup
+  helper and homepage, including homepage reduced-motion/no-JavaScript behavior.
+- Repository visibility remains private. The manufacturer photo is still a
+  placeholder; public distribution and historical asset copies remain separate
+  readiness work. The existing bounded privacy audit is recorded below.
+- These are synthetic/emulator and retained-data upgrade checks. A nearby scooter
+  control/readback or successful real capture was not repeated for this release.
+  Physical haptic feel, all foldable devices and experimental battery/sensor
+  estimates remain subject to the field-validation limits recorded below.
+
+Release APK SHA-256:
+09442e8c1ad2cce9c9472d7843988dd35d3f94bd1d5a093de6342265535f9ec4
+Evidence: work/release-1.0.0 in the owner's workspace. Release assets are built
+from the tagged tracked source; downloaded-asset checks and deployment results
+are retained with that evidence outside the source archive.
+
 BASEMAP OPT-IN (unreleased)
 October 14, 2026
 
