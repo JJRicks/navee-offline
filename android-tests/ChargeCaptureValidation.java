@@ -37,6 +37,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
             main(()->{ScooterProfiles profiles=new ScooterProfiles(getTargetContext());ScooterProfiles.Profile p=profiles.create("Synthetic charge fixture","000000000000",0);p.serial="X2538-SYNTHETIC";profiles.update(p);profile=p.id;});
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(()->activity.service()!=null,"Service missing");service=activity.service();await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Charge model load did not finish");
+            verifyDefaultChargeEstimate();
             main(()->{invoke(activity,"select",new Class<?>[]{String.class},"more");invoke(field(activity,"screen"),"selectSection",new Class<?>[]{String.class},"Developer");});settle();
             main(()->{
                 View selector=root().findViewWithTag("charge-charger-selector");require(selector!=null,"Charger selector missing");
@@ -134,6 +135,42 @@ public final class ChargeCaptureValidation extends Instrumentation {
             result.putString("result","PASS");
         }catch(Throwable error){result.putString("result","FAIL");result.putString("error",error.toString());error.printStackTrace();try{if(activity!=null)screenshot("failure");}catch(Throwable ignored){}}
         finally{result.putInt("assertions",checks);result.putBoolean("real_bluetooth_capture_tested",false);if(activity!=null)main(()->{activity.finish();getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});finish("PASS".equals(result.getString("result"))?0:1,result);}
+    }
+    /** Model defaults work before any user recording, manual charger selection or developer setup. */
+    private void verifyDefaultChargeEstimate(){
+        main(()->{
+            require(files().length==0&&service.chargeCharger()==null,"Default estimate fixture already has owner training/setup");
+            Map<String,TelemetryHistory.Reading> readings=new LinkedHashMap<>();
+            String[] keys={"charging_state","voltage_v","current_a","battery_percent","rated_capacity_ah","charge_limit_percent"};
+            double[] numbers={1,54,-110d/54,99,15.3,100};
+            for(int i=0;i<keys.length;i++)readings.put(keys[i],new TelemetryHistory.Reading(keys[i],keys[i],"Battery","fixture","",numbers[i],1000,true));
+            ScooterProfiles.Profile active=service.profiles.active();String serial=active.serial;
+            Object snapshot=field(service,"chargeSnapshot");
+            try{
+                settings().edit().putBoolean("developer_options",false).commit();setField(service,"chargeSnapshot",null);
+                ChargingEstimate.Result estimate=service.chargingEstimate(readings);
+                require(estimate.referenceToFull&&estimate.referenceToLimit&&!estimate.learnedToFull&&estimate.learnedSessions==0,
+                        "Fresh UT5 MAX needs recordings, manual selection or developer options for its default estimate");
+                require(estimate.remainingMinutesToFull>20&&estimate.remainingMinutesToFull<30,"UT5 MAX default missed its long 99% finish");
+                readings.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-48d/54,1000,true));
+                ChargingEstimate.Result taper=service.chargingEstimate(readings);
+                require(taper.referenceToFull&&taper.remainingMinutesToFull>2&&taper.remainingMinutesToFull<9,
+                        "Default taper does not progress while SOC stays at 99%");
+                active.serial="X9999-SYNTHETIC";
+                ChargingEstimate.Result unknown=service.chargingEstimate(readings);
+                require(!unknown.referenceToFull&&!unknown.learnedToFull,"Unknown scooter inherited the UT5 MAX reference");
+                active.serial=serial;
+                settings().edit().putString("charge_charger_"+profile,"HIGH_SPEED").commit();
+                require(!service.chargingEstimate(readings).referenceToFull,"Explicit high-speed charger used stock reference");
+                settings().edit().remove("charge_charger_"+profile).commit();
+                readings.put("current_a",readings.get("current_a").stale());
+                require(service.chargingEstimate(readings).remainingMinutesToFull==null,"Model default bypassed stale-data gate");
+                require(files().length==0&&!service.isChargeRecording(),"Default estimate created a charge recording");
+            }finally{
+                active.serial=serial;setField(service,"chargeSnapshot",snapshot);
+                settings().edit().remove("charge_charger_"+profile).putBoolean("developer_options",true).commit();
+            }
+        });
     }
     /** Fault injection stays below the real-start gate: no adapter or GATT is enabled. */
     private void verifyRecoveryTransitions(){

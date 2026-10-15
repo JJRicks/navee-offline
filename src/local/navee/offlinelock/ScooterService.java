@@ -391,14 +391,15 @@ public final class ScooterService extends Service {
         TelemetryHistory.Reading reading=readings.get(key);
         return new ChargingEstimate.Value(reading==null?null:reading.number,reading!=null&&reading.live,reading==null?0:reading.capturedWallMs);
     }
-    /** Always retains the existing fresh/paired gate before consulting this profile's selected charger. */
+    /** Fresh paired data first; recognized models get defaults without requiring capture setup. */
     public ChargingEstimate.Result chargingEstimate(Map<String,TelemetryHistory.Reading> readings){
-        ChargingEstimate.Value soc=chargingValue(readings,"battery_percent");
+        ChargingEstimate.Value soc=chargingValue(readings,"battery_percent"),rated=chargingValue(readings,"rated_capacity_ah");
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(chargingValue(readings,"charging_state"),chargingValue(readings,"voltage_v"),
-                chargingValue(readings,"current_a"),soc,chargingValue(readings,"rated_capacity_ah"),chargingValue(readings,"charge_limit_percent"));
+                chargingValue(readings,"current_a"),soc,rated,chargingValue(readings,"charge_limit_percent"));
         ChargeSessionStore.Charger charger=chargeCharger();
         ChargeSessionStore.Curve curve=simulating()||chargeSnapshot==null||charger==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
-        return ChargingEstimate.withObservedCurve(baseline,soc,curve);
+        ScooterProfiles.Profile profile=profiles.active();
+        return ChargingEstimate.forScooter(baseline,soc,rated,profile==null?-1:profile.pid(),charger,curve);
     }
 
     public boolean isRecording(){return rides!=null&&rides.activeId()!=null;}

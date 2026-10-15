@@ -12,7 +12,7 @@ sources=()
 for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore PhoneRideStore DashboardLayout BatteryCapacityEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog; do
     sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
 done
-sources+=("$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$TEST_DIR/CompletedChargeEstimateTest.java")
+sources+=("$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockChargeReference.java" "$TEST_DIR/CompletedChargeEstimateTest.java" "$TEST_DIR/StockChargeReferenceTest.java")
 # Compile the actual Android coordinator against test-only binding and preferences APIs.
 # These stubs are confined to this test output and never enter the Android build.
 for source in "$TEST_DIR"/shizuku-stubs/android/content/*.java \
@@ -29,4 +29,5 @@ for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore Pho
 done
 
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.CompletedChargeEstimateTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ShizukuCaptureClientTest
