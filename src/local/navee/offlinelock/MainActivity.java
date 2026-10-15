@@ -1496,7 +1496,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         String evidence=ble==null?null:ble.commandResults().get(key);
         if(evidence==null||evidence.equals("Confirmed")||evidence.startsWith("Setting confirmed")||evidence.startsWith("Accepted; no clock"))return null;
         long at=ble.commandResultTime(key);
-        if(at>0&&ble.ready()&&System.currentTimeMillis()-ble.statusAge()>at+RESULT_CHIP_MS)return null;
+        // Saved results from earlier launches feed Command evidence only; chips are for this session's changes.
+        if(at<=0)return null;
+        if(ble.ready()&&System.currentTimeMillis()-ble.statusAge()>at+RESULT_CHIP_MS)return null;
         return evidence.startsWith("Rejected")?"Rejected":"Not confirmed";
     }
     private LinearLayout.LayoutParams rowSpinnerSize(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(design.dp(20),design.dp(20));p.setMarginStart(design.dp(10));return p;}

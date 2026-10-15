@@ -778,7 +778,7 @@ public final class ScooterService extends Service {
         Double reference = advertisedWh != null && Double.isFinite(advertisedWh) && advertisedWh > 0 ? advertisedWh : null;
         if (destroyed || rides == null || profile.isEmpty()) {
             callback.accept(BatteryCapacityEstimate.unavailable(profile, reference, days,
-                    profile.isEmpty() ? "Choose a scooter to analyze recorded rides" : "Ride storage is unavailable"));
+                    profile.isEmpty() ? "No scooter set up" : "Ride storage unavailable"));
             return;
         }
         String key = profile + ":" + days + ":" + reference;
