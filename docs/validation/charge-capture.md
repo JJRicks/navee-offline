@@ -1,5 +1,10 @@
 # Charger-specific recording and estimates
 
+> Current behavior: Volt 1.0.1 adds bounded reconnect/resume and persistent diagnostics.
+> See [charge recovery](charge-recovery.md). The dated sections below describe the
+> original implementation and its validation; their immediate-disconnect behavior
+> is historical.
+
 Validated October 14, 2026. This change is stacked on
 `codex/preferences-and-charge-labels` (`abc0dba4d8bc77c26a67ea5e146c8f6be7f9fa78`).
 

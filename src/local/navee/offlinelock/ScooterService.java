@@ -49,6 +49,7 @@ public final class ScooterService extends Service {
     private ChargeSessionStore.Snapshot chargeSnapshot;
     private boolean chargeModelLoading, chargeUpdating, chargeExporting;
     private long chargeEndingMono;
+    private ChargeRecoveryPolicy chargeRecovery;
     private String chargeStatus = "No charge recording yet";
     private final ExecutorService chargeWorker = Executors.newSingleThreadExecutor(r -> new Thread(r,"charge-curve-analysis"));
     private PhoneRideRecorder phoneRecorder;private boolean phoneLocationForeground;private int phoneSavingCount;private String phoneFinalStatus;
@@ -99,14 +100,16 @@ public final class ScooterService extends Service {
     }
     @Override public int onStartCommand(Intent intent,int flags,int startId){
         if (destroyed || DataMaintenance.active()) { stopSelf(); return START_NOT_STICKY; }
-        if(!ble.permissions()){stopIdleWork();return START_NOT_STICKY;}
+        if(!ble.permissions()){finishChargeCapture(ChargeSessionStore.Stop.PERMISSION_LOST);stopIdleWork();return START_NOT_STICKY;}
         // A queued startForegroundService still needs to fulfill Android's startup contract.
         // Current visibility is checked immediately afterwards, before any BLE work starts.
-        startForegroundNotice(true);applyVisibility(uiVisible);String action=intent==null?null:intent.getAction();
+        String action=intent==null?null:intent.getAction();
+        boolean stopAction="STOP_RECORDING".equals(action)||"STOP_CHARGE_RECORDING".equals(action)||"DISCONNECT".equals(action);
+        startForegroundNotice(true);applyVisibility(uiVisible,!stopAction);
         if("STOP_RECORDING".equals(action))stopRide();
         else if("STOP_CHARGE_RECORDING".equals(action))stopChargeRecording();
         else if("DISCONNECT".equals(action)){ble.disconnect();if(!isRecording()&&!isChargeRecording()&&!phoneSaving()&&!visible){stopIdleWork();return START_NOT_STICKY;}}
-        applyWorkPolicy(!"DISCONNECT".equals(action)||isRecording());return isRecording()?START_STICKY:START_NOT_STICKY;
+        applyWorkPolicy(!stopAction||isRecording());return isRecording()?START_STICKY:START_NOT_STICKY;
     }
     @Override public IBinder onBind(Intent intent){return guardedLifecycle?null:binder;}
     public void listen(Runnable listener){listeners.add(listener);}public void unlisten(Runnable listener){listeners.remove(listener);}
@@ -243,7 +246,9 @@ public final class ScooterService extends Service {
         if(unavailable!=null||charger==null){chargeStatus=unavailable==null?"Choose the attached charger":unavailable;changed();return false;}
         long mono=SystemClock.elapsedRealtime(),wall=System.currentTimeMillis();
         try{
-            chargeStore.start(activeProfileId(),charger,wall,mono);chargeEndingMono=0;setChargeChargerForCapture(charger);
+            chargeStore.start(activeProfileId(),charger,wall,mono);chargeEndingMono=0;
+            chargeRecovery=new ChargeRecoveryPolicy(activeProfileId(),ble.currentTransportSerial(),mono,ble.intentionalDisconnectSequence());
+            ble.recordDiagnostic(ConnectionEventLog.Reason.CHARGE_STARTED,-1);setChargeChargerForCapture(charger);
             chargeStore.sample(chargeFrame(mono,wall));chargeStatus="Charge recording started";
             cancelBackgroundDeadline();applyWorkPolicy(false);updateNotification();changed();return isChargeRecording();
         }catch(IOException|IllegalStateException failure){chargeStatus="Could not start charge recording";finishChargeCapture(ChargeSessionStore.Stop.ERROR);changed();return false;}
@@ -252,6 +257,8 @@ public final class ScooterService extends Service {
     public void stopChargeRecording(){finishChargeCapture(ChargeSessionStore.Stop.STOPPED);}
     public String chargeCaptureStatus(){
         if(!isChargeRecording())return chargeStatus;
+        if(chargeRecovery!=null&&chargeRecovery.recovering())
+            return "Reconnecting to scooter · "+Math.max(1,(chargeRecovery.remainingMs(SystemClock.elapsedRealtime())+999)/1000)+"s remaining · gap will be marked";
         return (chargeStore.charger()==ChargeSessionStore.Charger.STOCK?"Stock charger":"High-speed charger")+" · "+chargeStore.sampleCount()+" local samples";
     }
     public String chargeLearningSummary(){
@@ -313,9 +320,19 @@ public final class ScooterService extends Service {
             ChargeSessionStore.Stop stop=null;
             if(simulating()||!settings.getBoolean("developer_options",false))stop=ChargeSessionStore.Stop.STOPPED;
             else if(!Objects.equals(chargeStore.profile(),activeProfileId()))stop=ChargeSessionStore.Stop.PROFILE_CHANGED;
-            else if(!ble.connected())stop=ChargeSessionStore.Stop.DISCONNECTED;
+            else if(ble.connected()&&(ble.profile()==null||!Objects.equals(chargeStore.profile(),ble.profile().id)))stop=ChargeSessionStore.Stop.PROFILE_CHANGED;
+            else if(chargeRecovery==null)stop=ChargeSessionStore.Stop.CONNECTION_FAILED;
             else{
                 ChargeSessionStore.Frame frame=chargeFrame(mono,wall);
+                ScooterProfiles.Profile active=profiles.active();
+                ChargeRecoveryPolicy.Result recovery=chargeRecovery.evaluate(mono,activeProfileId(),active==null?"":active.serial,
+                        ble.intentionalDisconnectSequence(),ble.permissions(),ble.bluetoothEnabled(),ble.connected(),ble.ready(),
+                        ble.recoverableConnectionLoss(),ble.currentTransportSerial(),frame);
+                if(!applyChargeRecoveryResult(recovery)){
+                    if(isChargeRecording()&&!chargeRecovery.recovering()&&(mono<chargeStore.lastFreshMono()||mono-chargeStore.lastFreshMono()>30000))
+                        finishChargeCapture(ChargeSessionStore.Stop.READINGS_STOPPED);
+                    return;
+                }
                 boolean completed=frame.usableCompletion()&&chargeStore.sampleCompletion(frame);
                 if(!isChargeRecording()){chargeStatus="Charge recording reached its storage or time limit";refreshChargeCurves();applyWorkPolicy(false);return;}
                 if(completed)stop=ChargeSessionStore.Stop.COMPLETE;
@@ -339,13 +356,34 @@ public final class ScooterService extends Service {
         }catch(IOException failure){finishChargeCapture(ChargeSessionStore.Stop.ERROR);}
         finally{chargeUpdating=false;}
     }
+    /** Apply a policy transition without changing ownership of the one active journal. */
+    private boolean applyChargeRecoveryResult(ChargeRecoveryPolicy.Result recovery){
+        if(recovery.stop!=null){finishChargeCapture(recovery.stop);return false;}
+        if(recovery.beganRecovery){
+            chargeStore.markGap();chargeEndingMono=0;
+            ble.recordDiagnostic(ConnectionEventLog.Reason.CHARGE_RECOVERY_STARTED,-1);
+            updateRecordingWakeLock();updateNotification();
+        }
+        if(recovery.resumed){
+            ble.recordDiagnostic(ConnectionEventLog.Reason.CHARGE_RECOVERY_RESUMED,-1);
+            updateNotification();
+        }
+        return recovery.record;
+    }
     private void finishChargeCapture(ChargeSessionStore.Stop reason){
         if(!isChargeRecording())return;
-        chargeEndingMono=0;
+        boolean recovering=chargeRecovery!=null&&chargeRecovery.recovering();
+        chargeEndingMono=0;chargeRecovery=null;
+        ble.recordDiagnostic(reason==ChargeSessionStore.Stop.RECOVERY_TIMEOUT?ConnectionEventLog.Reason.CHARGE_RECOVERY_TIMEOUT
+                :reason==ChargeSessionStore.Stop.IDENTITY_CHANGED||reason==ChargeSessionStore.Stop.PROFILE_CHANGED?ConnectionEventLog.Reason.CHARGE_WRONG_SCOOTER
+                :recovering?ConnectionEventLog.Reason.CHARGE_RECOVERY_CANCELLED:ConnectionEventLog.Reason.CHARGE_STOPPED,-1);
         try{chargeStore.stop(reason);chargeStatus=reason==ChargeSessionStore.Stop.COMPLETE?"Charge recording saved · battery reached 100%"
                 :reason==ChargeSessionStore.Stop.STOPPED?"Charge recording saved":reason==ChargeSessionStore.Stop.ERROR?"Charge recording stopped after a storage error"
                 :"Charge recording stopped · "+reason.name().toLowerCase(Locale.ROOT).replace('_',' ');}
         catch(IOException failure){chargeStatus="Recording stopped; charge file could not be finalized";}
+        // Recovery owns the reconnect attempt. Stop/timeout cancels it even when the UI or
+        // ordinary background connection preference would otherwise keep retrying.
+        if(recovering)ble.suspend();
         if(wakeLock!=null&&wakeLock.isHeld()&&!isRecording()&&!phoneSaving())wakeLock.release();
         if(!destroyed){refreshChargeCurves();applyWorkPolicy(false);updateNotification();}
     }
@@ -391,7 +429,8 @@ public final class ScooterService extends Service {
                 || backgroundDeadlineMs > SystemClock.elapsedRealtime();
     }
     public void visible(boolean value){setUiVisible(value);if(running!=this)applyVisibility(value);}
-    private void applyVisibility(boolean value){
+    private void applyVisibility(boolean value){applyVisibility(value,true);}
+    private void applyVisibility(boolean value,boolean connectOnShow){
         if(destroyed)return;boolean wasVisible=visible;visible=value;
         if(value)cancelBackgroundDeadline();
         else if(wasVisible){
@@ -399,7 +438,7 @@ public final class ScooterService extends Service {
                 backgroundDeadlineMs=SystemClock.elapsedRealtime()+10000;handler.removeCallbacks(backgroundStop);handler.postDelayed(backgroundStop,10000);
             }else cancelBackgroundDeadline();
         }
-        applyWorkPolicy(value&&!wasVisible);
+        applyWorkPolicy(connectOnShow&&value&&!wasVisible);
     }
     private void cancelBackgroundDeadline(){backgroundDeadlineMs=0;handler.removeCallbacks(backgroundStop);}
 
@@ -1023,7 +1062,7 @@ public final class ScooterService extends Service {
                         open,
                         PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);
         String title =
-                isChargeRecording() ? "Charge recording is active" : phoneSaving()
+                isChargeRecording() ? (chargeRecovery!=null&&chargeRecovery.recovering()?"Charge recording · reconnecting":"Charge recording is active") : phoneSaving()
                         ? "Saving ride"
                         : isRecording()
                                 ? (recordingError == null
@@ -1072,6 +1111,23 @@ public final class ScooterService extends Service {
             o.put("connected", ble.ready());
             o.put("connection", ble.state().name());
             o.put("mtu", ble.mtu());
+            o.put("connection_events_loaded", ble.diagnosticEventsLoaded());
+            o.put("connection_events_storage_healthy", ble.diagnosticStorageHealthy());
+            JSONArray connectionEvents = new JSONArray();
+            for (ConnectionEventLog.Record event : ble.diagnosticEvents()) {
+                JSONObject item = new JSONObject();
+                item.put("wall_ms", event.wallMs);
+                item.put("elapsed_ms", event.elapsedMs);
+                item.put("reason", event.reason.name());
+                item.put("status_code", event.statusCode < 0 ? JSONObject.NULL : event.statusCode);
+                item.put("phase", event.phase.name());
+                item.put("ui_visible", event.visible);
+                item.put("recording", event.recording);
+                item.put("status_age_ms", event.statusAgeMs < 0 ? JSONObject.NULL : event.statusAgeMs);
+                item.put("frame_age_ms", event.frameAgeMs < 0 ? JSONObject.NULL : event.frameAgeMs);
+                connectionEvents.put(item);
+            }
+            o.put("connection_events", connectionEvents);
             JSONArray fields=new JSONArray();long now=SystemClock.elapsedRealtime();for(Telemetry.Metric m:ble.telemetry.metrics()){JSONObject f=new JSONObject();
                 f.put("group", m.group);
                 f.put("key", m.key);

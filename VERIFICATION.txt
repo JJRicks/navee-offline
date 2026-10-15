@@ -1,3 +1,32 @@
+CHARGE RECOVERY AND CONNECTION DIAGNOSTICS (1.0.1, versionCode 28)
+October 15, 2026
+
+- All 25 core suites passed: 54,258 assertions/checks, including 31 recovery
+  policy checks, 90 charge-journal checks and 42 persistent-event-log checks.
+  The owner-capture cleanup suite passed all 11 tests.
+- The production-signed candidate and separate native validation runner built
+  successfully. APK signature and 16 KiB alignment checks passed. Existing
+  Java 8 source/target and deprecated/unchecked API warnings remain.
+- Native charge checks passed 118 assertions each at 344x882dp dark/default font
+  and 725x604dp light/140% font (236 total), on an isolated emulator. Coverage
+  includes screen-off retention beyond the normal idle cutoff, notification Stop,
+  recording wake-lock renewal, bounded recovery, fresh-data gating, gaps,
+  cancellation, process-end handling and diagnostic-export privacy.
+- Recovery tests inject connection state into the real service with physical
+  Bluetooth disabled. The test runner was not installed on the owner's phone.
+  No successful physical reconnect or full overnight charge has yet validated
+  this version. Earlier phone evidence established two native link timeouts;
+  their underlying radio/controller cause remains unproven.
+- The bounded event journal is device-local, asynchronous, excluded from portable
+  backups, and included only in manually exported diagnostics. Tests cover
+  restart persistence, storage failures, corrupt/oversized files, rotation and
+  service-writer handoff without accepting arbitrary credential-bearing text.
+- Homepage build and whitespace checks passed. Pairing-helper code is unchanged.
+
+Evidence: work/charge-disconnect-2026-10-15 in the owner's workspace. Release
+packaging, downloaded-asset verification and retained-data phone upgrade results
+are recorded separately when performed.
+
 VOLT 1.0.0 PROJECT RELEASE (versionCode 27)
 October 14, 2026
 
