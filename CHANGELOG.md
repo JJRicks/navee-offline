@@ -2,8 +2,8 @@
 
 ## Unreleased
 
-- New default Home for fresh installs, new scooter profiles and **Restore default widgets**: Lock bar, Scooter overview, Reading tiles, Setting tiles and Ride recorder. Existing dashboards and saved slots are unchanged.
-- Add four widgets: **Lock bar** (one-row lock with Connect), **Scooter overview** (charge, range, photo, charge bar and readings), **Reading tiles** and **Setting tiles** (one to four small cards). Every earlier widget stays available in Add widget, and the All widgets example includes the new ones.
+- New default Home for fresh installs, new scooter profiles and **Restore default widgets**: Scooter overview, Lock bar directly beneath it, Reading tiles, Setting tiles and Ride recorder. Existing dashboards and saved slots are unchanged.
+- Add four widgets: **Lock bar** (one-row lock with Connect; connected, the slider is the card), **Scooter overview** (charge, range, photo, charge bar and readings), **Reading tiles** and **Setting tiles** (one to four small cards). Every earlier widget stays available in Add widget, and the All widgets example includes the new ones.
 - The Home status line now shows the last-seen time (newer of the last connection and the newest reading); the separate "Last seen" line under the header is gone.
 - While editing Home, card content dims behind solid, high-contrast editor handles. The change animates in a short staggered fade (handles first when leaving), reverses smoothly if toggled mid-way and applies instantly with system animations off. A card being moved or resized returns to full opacity until it is dropped.
 

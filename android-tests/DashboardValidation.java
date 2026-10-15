@@ -59,7 +59,7 @@ import local.navee.offlinelock.TelemetryHistory;
 public final class DashboardValidation extends Instrumentation {
     private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
     private static final String[] DESTINATIONS = {"Home", "Scooter", "Live Stats", "Rides", "More"};
-    private static final String[] DEFAULT_TYPES = {"lockbar", "overview", "tiles", "shortcuts", "ride"};
+    private static final String[] DEFAULT_TYPES = {"overview", "lockbar", "tiles", "shortcuts", "ride"};
     /** Lock and Lock bar are mutually exclusive; the default's Lock bar keeps the palette from adding Lock. */
     private static final int HOME_TYPE_COUNT = DashboardConfig.TYPES.length - 1;
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
@@ -620,6 +620,15 @@ public final class DashboardValidation extends Instrumentation {
             require(connect.getHeight() >= activity.ui().dp(48) - 1, "Lock bar Connect lost its 48 dp touch target");
             require(((View)lockBar).getHeight() <= Math.round(((Number)invoke(grid(), "rowHeight")).floatValue()) + 1,
                     "Default Lock bar grew beyond one grid row");
+            // Frameless: no widget card or padding; the offline row is the card and fills the cell.
+            require(dashboard().isEditing() || ((View)lockBar).getBackground() == null,
+                    "Lock bar kept the widget card chrome around its own card");
+            View row = ((ViewGroup)lockBody).getChildAt(0);
+            Rect rowBox = relativeBounds(row, (View)lockBar);
+            require(dashboard().isEditing() || (rowBox.left <= 1 && rowBox.top <= 1
+                            && Math.abs(rowBox.width() - ((View)lockBar).getWidth()) <= 1
+                            && Math.abs(rowBox.height() - ((View)lockBar).getHeight()) <= 1),
+                    "Offline Lock bar row does not fill its frameless cell: " + rowBox);
 
             String overview = bodyText(tile("overview")).toLowerCase(Locale.ROOT);
             require(overview.contains("73") && overview.contains("%"), "Scooter overview lacks its cached percentage");
@@ -632,8 +641,8 @@ public final class DashboardValidation extends Instrumentation {
             require(readings.contains("98"), "Reading tiles did not render the cached health value: " + readings);
 
             String settings = bodyText(tile("shortcuts")).toLowerCase(Locale.ROOT);
-            require(settings.contains("top speed") && settings.contains("scheduled charging"),
-                    "Setting tiles lack their default Top speed and Scheduled charging tiles: " + settings);
+            require(settings.contains("top speed") && settings.contains("charge schedule"),
+                    "Setting tiles lack their default Top speed and Charge schedule tiles: " + settings);
 
             for (String type : new String[] {"lockbar", "overview", "tiles", "shortcuts"}) {
                 Object tile = tile(type);
@@ -1003,9 +1012,9 @@ public final class DashboardValidation extends Instrumentation {
                 String type = widgetById(entry.getKey()).type;
                 require(sameCell(a.cell, b.cell) && a.outer.equals(b.outer),
                         type + ": entering Edit changed the card's position or size");
-                // Reading and setting tiles are frameless: Edit deliberately adds the widget card's
+                // Reading/setting tiles and the Lock bar are frameless: Edit deliberately adds the widget card's
                 // padding around them so the handles read as one widget. Every other type stays put.
-                if (type.equals("tiles") || type.equals("shortcuts")) continue;
+                if (type.equals("tiles") || type.equals("shortcuts") || type.equals("lockbar")) continue;
                 require(a.body.equals(b.body) && a.heading.equals(b.heading) && a.footer.equals(b.footer),
                         type + ": editing controls changed the content, heading or footer geometry");
                 require(a.textBounds.equals(b.textBounds) && a.textSizes.equals(b.textSizes),

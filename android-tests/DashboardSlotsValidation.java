@@ -393,10 +393,13 @@ public final class DashboardSlotsValidation extends Instrumentation {
             ArrayList<DashboardLayout.Cell> captured = new ArrayList<>();
             for (int i = 0; i < defaultCount; i++)
                 captured.add(fresh.widgets.get(i).layouts.get(columns).copy());
-            // The lock bar is always the first, top-left card so Connect needs no scrolling.
-            DashboardLayout.Cell lockBar = captured.get(0);
-            require(fresh.widgets.get(0).type.equals("lockbar") && lockBar.x == 0 && lockBar.y == 0,
-                    "Lock bar is not the top-left default card at " + columns + " columns");
+            // The overview is the first, top-left card and the lock bar sits directly under it.
+            DashboardLayout.Cell overviewCell = captured.get(0), lockBar = captured.get(1);
+            require(fresh.widgets.get(0).type.equals("overview") && overviewCell.x == 0 && overviewCell.y == 0,
+                    "Scooter overview is not the top-left default card at " + columns + " columns");
+            require(fresh.widgets.get(1).type.equals("lockbar") && lockBar.x == 0
+                            && lockBar.y == overviewCell.y + overviewCell.h && lockBar.h == 1,
+                    "Lock bar is not directly under the overview at " + columns + " columns");
             int occupied = 0;
             for (int i = 0; i < defaultCount; i++) occupied += captured.get(i).w * captured.get(i).h;
             int end = 0;
@@ -434,7 +437,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                         && preferences.getInt("dashboard_columns", -1) == 5,
                 "Fallback sizing rewrote the captured five-column layout or preference");
         require(preferences.edit().clear().commit(), "Could not reset isolated default fixture");
-        checks.add("Five-widget Home default (lock bar, battery overview, reading tiles, setting tiles, recorder) options/1–6-column layouts and fresh IDs match; lock bar stays top-left; five-column defaults preserve upgrades, Adaptive choices, other profiles and slots");
+        checks.add("Five-widget Home default (scooter overview, lock bar beneath it, reading tiles, setting tiles, recorder) options/1–6-column layouts and fresh IDs match; overview stays top-left with the lock bar directly under it; five-column defaults preserve upgrades, Adaptive choices, other profiles and slots");
     }
 
     /** Golden sanitized release default, independent of the production default factory. */
@@ -442,8 +445,8 @@ public final class DashboardSlotsValidation extends Instrumentation {
             java.util.function.BiConsumer<Boolean, String> check) {
         try {
             JSONArray expected = new JSONArray(
-                    "[{\"type\":\"lockbar\",\"title\":\"Lock bar\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":false,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,0,1,1],\"2\":[0,0,2,1],\"3\":[0,0,3,1],\"4\":[0,0,4,1],\"5\":[0,0,5,1],\"6\":[0,0,3,1]}}"
-                    + ",{\"type\":\"overview\",\"title\":\"Scooter overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,1,1,4],\"2\":[0,1,2,4],\"3\":[0,1,3,4],\"4\":[0,1,4,4],\"5\":[0,1,5,4],\"6\":[0,1,3,4]}}"
+                    "[{\"type\":\"overview\",\"title\":\"Scooter overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,0,1,4],\"2\":[0,0,2,4],\"3\":[0,0,3,4],\"4\":[0,0,4,4],\"5\":[0,0,5,4],\"6\":[0,0,3,4]}}"
+                    + ",{\"type\":\"lockbar\",\"title\":\"Lock bar\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":false,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,4,1,1],\"2\":[0,4,2,1],\"3\":[0,4,3,1],\"4\":[0,4,4,1],\"5\":[0,4,5,1],\"6\":[0,4,3,1]}}"
                     + ",{\"type\":\"tiles\",\"title\":\"Reading tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"power_w\",\"temperature_c\",\"battery_health_percent\"],\"layouts\":{\"1\":[0,5,1,2],\"2\":[0,5,2,2],\"3\":[0,5,3,2],\"4\":[0,5,4,2],\"5\":[0,5,5,2],\"6\":[3,0,3,2]}}"
                     + ",{\"type\":\"shortcuts\",\"title\":\"Setting tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,7,1,1],\"2\":[0,7,2,1],\"3\":[0,7,3,1],\"4\":[0,7,4,1],\"5\":[0,7,5,1],\"6\":[3,2,3,1]}}"
                     + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,1],\"2\":[0,8,2,1],\"3\":[0,8,3,1],\"4\":[0,8,4,1],\"5\":[0,8,5,1],\"6\":[3,3,3,1]}}]");
@@ -680,17 +683,18 @@ public final class DashboardSlotsValidation extends Instrumentation {
     private void sixColumnPersistence() throws Exception {
         DashboardConfig config = new DashboardConfig(preferences, "six-columns");
         config.layout(6, null);
-        DashboardConfig.Widget lock = config.widgets.get(0), overview = config.widgets.get(1);
+        DashboardConfig.Widget overview = config.widgets.get(0), lock = config.widgets.get(1);
         DashboardConfig.Widget tiles = config.widgets.get(2);
         require(lock.type.equals("lockbar") && overview.type.equals("overview") && tiles.type.equals("tiles"),
                 "Unexpected default widget order");
-        require(lock.layouts.get(6).x == 0 && lock.layouts.get(6).y == 0 && lock.layouts.get(6).w == 3
-                        && overview.layouts.get(6).x == 0 && overview.layouts.get(6).y == 1 && overview.layouts.get(6).w == 3
+        require(overview.layouts.get(6).x == 0 && overview.layouts.get(6).y == 0 && overview.layouts.get(6).w == 3
+                        && lock.layouts.get(6).x == 0 && lock.layouts.get(6).y == 4 && lock.layouts.get(6).w == 3
                         && tiles.layouts.get(6).x == 3 && tiles.layouts.get(6).y == 0 && tiles.layouts.get(6).w == 3,
-                "Six-column defaults lost the two-column lock/overview beside tiles arrangement");
-        require(lock.layouts.get(4).x == 0 && lock.layouts.get(4).w == 4 && lock.layouts.get(4).h == 1
-                        && overview.layouts.get(4).x == 0 && overview.layouts.get(4).y == 1
-                        && overview.layouts.get(4).w == 4 && overview.layouts.get(4).h == 4,
+                "Six-column defaults lost the two-column overview/lock beside tiles arrangement");
+        require(overview.layouts.get(4).x == 0 && overview.layouts.get(4).y == 0
+                        && overview.layouts.get(4).w == 4 && overview.layouts.get(4).h == 4
+                        && lock.layouts.get(4).x == 0 && lock.layouts.get(4).y == 4
+                        && lock.layouts.get(4).w == 4 && lock.layouts.get(4).h == 1,
                 "Adding six-column defaults changed the four-column full-width stack");
         require(lock.minimumHeight() == 1, "Lock bar must fit one grid row with Disconnect enabled");
         lock.showDisconnect = false;
@@ -704,7 +708,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
         config.reset();
         DashboardConfig reopened = new DashboardConfig(preferences, "six-columns");
         require(reopened.restoreSlot(1), "Six-column slot could not be restored after recreation");
-        require(signature(reopened).equals(expected) && !reopened.widgets.get(0).showDisconnect,
+        require(signature(reopened).equals(expected) && !reopened.widgets.get(1).showDisconnect,
                 "Six-column restore lost the saved disconnect preference or widget geometry");
         require(preferences.getInt("dashboard_columns", -1) == 6,
                 "Six-column preference did not survive restore");
@@ -712,14 +716,14 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(signature(new DashboardConfig(preferences, "six-columns")).equals(expected),
                 "Six-column geometry or disconnect preference changed on save/recreation");
         java.util.List<DashboardLayout.Cell> restoredSix = reopened.layout(6, null);
-        require(restoredSix.get(0).h == 1 && restoredSix.get(1).h == 3,
+        require(restoredSix.get(1).h == 1 && restoredSix.get(0).h == 3,
                 "Restoring no longer keeps the one-row lock bar and compact saved overview height");
         require(preferences.getString(slotKey("six-columns", 1), "").equals(saved),
                 "Restoring or saving the current layout rewrote its saved snapshot");
         require(reopened.saveSlot(2, "Five-column split", 5) && reopened.restoreSlot(2)
                         && preferences.getInt("dashboard_columns", -1) == 5,
                 "Five-column preference could not round-trip");
-        checks.add("Explicit five/six-column slots preserve every layout and Disconnect=false; default six columns place lock bar/overview beside tiles without changing the 1–4 stack");
+        checks.add("Explicit five/six-column slots preserve every layout and Disconnect=false; default six columns place overview/lock bar beside tiles without changing the 1–4 stack");
     }
 
     /**
@@ -732,13 +736,14 @@ public final class DashboardSlotsValidation extends Instrumentation {
         int previousColumns = preferences.getInt("dashboard_columns", -1);
         DashboardConfig config = new DashboardConfig(preferences, "classic-lock");
         config.layout(6, null);
-        DashboardConfig.Widget bar = config.widgets.get(0), lock = new DashboardConfig.Widget("lock");
+        int at = 1;
+        DashboardConfig.Widget bar = config.widgets.get(at), lock = new DashboardConfig.Widget("lock");
         require(bar.type.equals("lockbar"), "Unexpected default widget order");
         for (java.util.Map.Entry<Integer, DashboardLayout.Cell> entry : bar.layouts.entrySet()) {
             DashboardLayout.Cell from = entry.getValue();
             lock.layouts.put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
         }
-        config.widgets.set(0, lock);
+        config.widgets.set(at, lock);
         for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++)
             if (lock.layouts.containsKey(columns)) config.layout(columns, lock.id);
         require(lock.showDisconnect && lock.minimumHeight() == 4, "Lock with Disconnect must reserve room for its action button");
@@ -750,10 +755,10 @@ public final class DashboardSlotsValidation extends Instrumentation {
         config.reset();
         DashboardConfig reopened = new DashboardConfig(preferences, "classic-lock");
         require(reopened.restoreSlot(1), "Classic Lock slot could not be restored after recreation");
-        require(signature(reopened).equals(expected) && reopened.widgets.get(0).type.equals("lock")
-                        && !reopened.widgets.get(0).showDisconnect,
+        require(signature(reopened).equals(expected) && reopened.widgets.get(at).type.equals("lock")
+                        && !reopened.widgets.get(at).showDisconnect,
                 "Classic Lock restore lost the saved disconnect preference or widget geometry");
-        require(reopened.layout(6, null).get(0).h == 3,
+        require(reopened.layout(6, null).get(at).h == 3,
                 "Restoring Disconnect=false no longer permits its compact saved lock height");
         if (previousColumns < 0) preferences.edit().remove("dashboard_columns").commit();
         else preferences.edit().putInt("dashboard_columns", previousColumns).commit();

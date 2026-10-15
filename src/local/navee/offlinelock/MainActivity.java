@@ -485,10 +485,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         connectionAction.setMaxLines(1);
         connectionAction.setPadding(design.dp(16),0,design.dp(16),0);
         connectionAction.setMinWidth(design.dp(48));
+        connectionAction.setBackground(compactPill(connectionAction.getBackground()));
         LinearLayout content=new CompactLockRow(offline,offlineTitle,connectionAction);
+        // The row fills its frameless cell: connected, the slider is the whole card; offline,
+        // the row draws its own card. Every control keeps the full cell height as its touch target.
         content.addView(offline,new LinearLayout.LayoutParams(0,-2,1));
-        content.addView(lockControl,new LinearLayout.LayoutParams(0,design.dp(48),1));
-        LinearLayout.LayoutParams action=new LinearLayout.LayoutParams(-2,design.dp(48));action.setMarginStart(design.dp(10));
+        content.addView(lockControl,new LinearLayout.LayoutParams(0,-1,1));
+        LinearLayout.LayoutParams action=new LinearLayout.LayoutParams(-2,-1);action.setMarginStart(design.dp(10));
         content.addView(connectionAction,action);
         return registerDashboardLock(content);
     }
@@ -502,6 +505,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final android.text.method.TransformationMethod words;
         private final android.graphics.drawable.Drawable glyph;
         private boolean iconOnly;
+        private final Paint card=new Paint(Paint.ANTI_ALIAS_FLAG);
+        private final RectF bounds=new RectF();
         CompactLockRow(View status,TextView title,TextView action){
             super(MainActivity.this);this.status=status;this.title=title;this.action=action;
             setOrientation(HORIZONTAL);setGravity(Gravity.CENTER_VERTICAL);setMinimumHeight(design.dp(48));
@@ -519,7 +524,18 @@ public final class MainActivity extends Activity implements ScreenHost {
             };
             glyph.setBounds(0,0,design.dp(20),design.dp(20));
         }
+        /** Offline or connecting, the row is its own surface card; connected, the slider is. */
+        @Override protected void dispatchDraw(Canvas canvas){
+            if(status.getVisibility()!=GONE){
+                card.setColor(design.surface);bounds.set(0,0,getWidth(),getHeight());
+                float r=Math.min(design.dp(20),getHeight()/2f);canvas.drawRoundRect(bounds,r,r,card);
+            }
+            super.dispatchDraw(canvas);
+        }
         @Override protected void onMeasure(int widthSpec,int heightSpec){
+            // Offline content sits the same inset from the sides as the 40 dp square and pill from top and bottom.
+            int side=status.getVisibility()!=GONE?design.dp(COMPACT_LOCK_INSET):0;
+            if(getPaddingLeft()!=side||getPaddingRight()!=side)setPadding(side,0,side,0);
             int width=MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
             boolean icon=false;
             if(MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED&&action.getVisibility()!=GONE){
@@ -546,6 +562,12 @@ public final class MainActivity extends Activity implements ScreenHost {
                 action.setTooltipText(action.getContentDescription());
             super.onMeasure(widthSpec,heightSpec);
         }
+    }
+    /** Lock bar inset (dp) between its cell edge and the visible offline content or button pill. */
+    private static final int COMPACT_LOCK_INSET=7;
+    /** A Lock bar button's pill, inset top and bottom inside its full-height touch target. */
+    private android.graphics.drawable.Drawable compactPill(android.graphics.drawable.Drawable fill){
+        return new android.graphics.drawable.InsetDrawable(fill,0,design.dp(COMPACT_LOCK_INSET),0,design.dp(COMPACT_LOCK_INSET));
     }
     /** Offline lock bar status: drops its icon square before it would cut the state short. */
     private final class CompactLockStatus extends LinearLayout {
@@ -903,9 +925,10 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(!action.contentEquals(connectionAction.getText())){
                 connectionAction.setText(action);
                 connectionAction.setTextColor(busy?design.text:design.onAccent);
-                connectionAction.setBackground(new android.graphics.drawable.RippleDrawable(
+                android.graphics.drawable.Drawable fill=new android.graphics.drawable.RippleDrawable(
                         ColorStateList.valueOf(Ui.withAlpha(busy?design.accent:android.graphics.Color.WHITE,35)),
-                        design.shape(busy?design.raised:design.accent,14,busy?design.outline:0),null));
+                        design.shape(busy?design.raised:design.accent,14,busy?design.outline:0),null);
+                connectionAction.setBackground(compactLock?compactPill(fill):fill);
             }
             final BleController bleRef=ble;
             connectionAction.setOnClickListener(v->{if(busy){if(bleRef!=null)bleRef.disconnect();redraw();}else connect();});
@@ -921,7 +944,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final RectF track=new RectF();
         private Boolean value;
         private boolean available,dragging,dragSide;
-        /** Lock bar: draw the state word above the action inside the switch. */
+        /** Lock bar: draw only the state word, vertically centred inside the switch. */
         boolean compact;
         /** When the rider last asked for a lock change; the scooter's confirmation then gets a haptic. */
         private long requestedAt;
@@ -936,7 +959,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             value=locked;available=enabled;setEnabled(enabled);
             if(!enabled&&dragging){dragging=false;setPressed(false);releaseParent();settle(hadState&&locked!=null);}
             else if(changed&&!dragging)settle(hadState&&locked!=null);
-            setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+", tap to "+(locked?"unlock":"lock"));
+            setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+". Double-tap or slide to "+(locked?"unlock":"lock"));
             if(Build.VERSION.SDK_INT>=30)setStateDescription(locked==null?"Unavailable":locked?"Locked":"Unlocked");
             invalidate();
         }
@@ -964,29 +987,29 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);releaseParent();if(dragged)apply(target);else performClick();settle(true);return true;}
             if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);releaseParent();settle(true);return true;}return true;
         }
-        /** State word over the action, centred in the text lane; false when the lane is too short. */
-        private boolean drawStacked(Canvas canvas,String state,String action,float left,float right,float h){
+        /** The state word alone, centred on the bar's height; false when it cannot fit the lane. */
+        private boolean drawState(Canvas canvas,String state,float left,float right,float h){
             int alpha=words.getAlpha();
             android.text.TextPaint head=new android.text.TextPaint(words);
             head.setTypeface(design.semibold());head.setTextSize(design.sp(15));
+            if(head.measureText(state)>right-left)head.setTextSize(design.sp(13));
+            Paint.FontMetrics metrics=head.getFontMetrics();
+            if(metrics.descent-metrics.ascent>h||head.measureText(state)>right-left)return false;
             head.setColor(!available?design.dim:Boolean.FALSE.equals(value)?design.danger:design.text);head.setAlpha(alpha);
-            Paint.FontMetrics top=head.getFontMetrics();
-            words.setTextSize(design.sp(12));words.getFontMetrics(wordMetrics);
-            float first=top.descent-top.ascent,second=action.isEmpty()?0:wordMetrics.descent-wordMetrics.ascent;
-            if(first+second>h-design.dp(2)||head.measureText(state)>right-left){words.setTextSize(design.sp(13));words.getFontMetrics(wordMetrics);return false;}
-            float y=(h-first-second)/2-top.ascent;
-            canvas.drawText(state,(left+right)/2,y,head);
-            if(!action.isEmpty()&&words.measureText(action)<=right-left)canvas.drawText(action,(left+right)/2,y+top.descent-wordMetrics.ascent,words);
+            canvas.drawText(state,(left+right)/2,h/2-(metrics.ascent+metrics.descent)/2,head);
             return true;
         }
         /** Locked: white knob on the right. Unlocked: red knob on the left. Tap anywhere or slide to change. */
         @Override protected void onDraw(Canvas canvas){
             super.onDraw(canvas);float x=0,y=0,w=getWidth(),h=getHeight();if(w<=0||h<=0)return;
             boolean locked=Boolean.TRUE.equals(value),unlocked=Boolean.FALSE.equals(value);
-            track.set(x+design.dp(1),y+design.dp(1),x+w-design.dp(1),y+h-design.dp(1));float r=track.height()/2;
+            // Lock bar: the slider is the card, so it reaches the cell edges with the cards' 20 dp corners.
+            float edge=compact?design.dp(1)/2f:design.dp(1);
+            track.set(x+edge,y+edge,x+w-edge,y+h-edge);float r=compact?Math.min(design.dp(20),track.height()/2):track.height()/2;
             paint.setShader(null);paint.setStyle(Paint.Style.FILL);
+            if(compact){paint.setColor(design.surface);canvas.drawRoundRect(track,r,r,paint);}
             if(unlocked&&available){paint.setShader(new android.graphics.LinearGradient(track.left,0,track.right,0,Ui.withAlpha(design.accent,82),Ui.withAlpha(design.accent,20),android.graphics.Shader.TileMode.CLAMP));}
-            else paint.setColor(design.dark?design.bg:design.raised);
+            else paint.setColor(compact?design.surface:design.dark?design.bg:design.raised);
             canvas.drawRoundRect(track,r,r,paint);paint.setShader(null);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(1));paint.setColor(unlocked&&available?Ui.withAlpha(design.accent,110):design.raised);canvas.drawRoundRect(track,r,r,paint);paint.setStyle(Paint.Style.FILL);
             float knob=h/2-design.dp(5);
@@ -1012,7 +1035,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             // Its accessibility label always keeps the full tap/slide action text.
             String fitted=words.measureText(label)<=textWidth?label:"";
             words.setTextAlign(Paint.Align.CENTER);words.getFontMetrics(wordMetrics);
-            if(compact&&value!=null&&drawStacked(canvas,locked?"Locked":"Unlocked",fitted,textLeft,textRight,h))return;
+            if(compact&&value!=null){drawState(canvas,locked?"Locked":"Unlocked",textLeft,textRight,h);return;}
             canvas.drawText(fitted,(textLeft+textRight)/2,h/2-(wordMetrics.ascent+wordMetrics.descent)/2,words);
         }
     }

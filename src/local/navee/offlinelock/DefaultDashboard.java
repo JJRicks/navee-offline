@@ -11,14 +11,15 @@ final class DefaultDashboard {
 
     static ArrayList<DashboardConfig.Widget> create() {
         ArrayList<DashboardConfig.Widget> result = new ArrayList<>();
-        // One full-width stack on phones; two columns on wide six-column grids.
-        DashboardConfig.Widget lock = add(result, "lockbar", "Lock bar",
-                "power_w", 86400000L, stack(0, 1, 0, 0, 3, 1));
-        lock.showDisconnect = false;
+        // One full-width stack on phones (overview, lock bar beneath it, tiles, shortcuts, ride);
+        // two columns on wide six-column grids.
         DashboardConfig.Widget overview = add(result, "overview", "Scooter overview",
-                "power_w", 86400000L, stack(1, 4, 0, 1, 3, 4));
+                "power_w", 86400000L, stack(0, 4, 0, 0, 3, 4));
         overview.keys.clear();
         overview.keys.addAll(Arrays.asList("odometer_km", "driving_mode"));
+        DashboardConfig.Widget lock = add(result, "lockbar", "Lock bar",
+                "power_w", 86400000L, stack(4, 1, 0, 4, 3, 1));
+        lock.showDisconnect = false;
         DashboardConfig.Widget readings = add(result, "tiles", "Reading tiles",
                 "power_w", 86400000L, stack(5, 2, 3, 0, 3, 2));
         readings.keys.clear();

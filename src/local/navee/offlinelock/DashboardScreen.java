@@ -1780,9 +1780,12 @@ public final class DashboardScreen implements AppScreen {
                 || type.equals("shortcuts");
     }
 
-    /** Separate small cards with no outer card while not editing. */
+    /**
+     * Separate small cards with no outer card while not editing. The Lock bar is its own card:
+     * the slider fills the cell when connected and the offline row draws its own surface.
+     */
     private static boolean frameless(String type) {
-        return type.equals("tiles") || type.equals("shortcuts");
+        return type.equals("tiles") || type.equals("shortcuts") || type.equals("lockbar");
     }
 
     /** One lock control per dashboard: the full lock card or the lock bar. */
@@ -2081,9 +2084,11 @@ public final class DashboardScreen implements AppScreen {
             switch (widget.type) {
                 case "lock":
                 case "lockbar":
-                    body.addView(widget.type.equals("lockbar")
-                            ? actions.lock(widget.showDisconnect, true)
-                            : actions.lock(widget.showDisconnect));
+                    if (widget.type.equals("lockbar"))
+                        // The row fills the frameless cell, so the slider is the whole card.
+                        body.addView(actions.lock(widget.showDisconnect, true),
+                                new LinearLayout.LayoutParams(-1, -1));
+                    else body.addView(actions.lock(widget.showDisconnect));
                     break;
                 case "overview":
                     overview = new OverviewCard(limited(widget.keys, 0));
@@ -2894,9 +2899,10 @@ public final class DashboardScreen implements AppScreen {
                     LinearLayout head = column();
                     GlyphView icon = new GlyphView(readingIcon(key), ui.muted);
                     head.addView(icon, new LinearLayout.LayoutParams(ui.dp(18), ui.dp(18)));
-                    TextView name = readingCaption(key);
+                    DashboardCaption name = readingCaption(key);
                     name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
-                    name.setMaxLines(1);
+                    // One line: "Battery power" becomes "Power" rather than being cut to "Battery".
+                    name.fitOneLine();
                     name.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
                     head.addView(name, new LinearLayout.LayoutParams(-1, -2));
                     cell.addView(head, new LinearLayout.LayoutParams(-1, -2));
@@ -3085,12 +3091,7 @@ public final class DashboardScreen implements AppScreen {
             int pad = narrowQuick ? 10 : widget.type.equals("battery") ? 16
                     : MeasureSpec.getSize(widthSpec) < ui.dp(144) ? 16 : 28;
             int vertical = compactRecorder ? 2 : narrowQuick ? 5 : widget.type.equals("battery") ? 8 : 12;
-            if (widget.type.equals("lockbar")) {
-                // A one-row card: 48 dp controls with 3 dp above and below. Below 104 dp the
-                // side padding shrinks so the icon-only Connect button still fits.
-                pad = MeasureSpec.getSize(widthSpec) < ui.dp(104) ? 8 : 24;
-                vertical = 3;
-            } else if (frameless(widget.type)) {
+            if (frameless(widget.type)) {
                 // The tiles are the cards; editing adds a thin frame of the widget card around them.
                 // A one-row card (54 dp at 1.0 text scale) keeps 48 dp for its tiles: 3 dp above and below.
                 boolean oneRow = MeasureSpec.getSize(heightSpec) < ui.dp(86 * ui.textScale);
