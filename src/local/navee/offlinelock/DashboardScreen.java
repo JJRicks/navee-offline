@@ -1131,20 +1131,18 @@ public final class DashboardScreen implements AppScreen {
                 int ceiling = Math.min(maximumSp, sharedMaximumSp);
                 fittedPixels = ceiling * density;
                 if (width > 0 && MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED) {
-                    android.text.TextPaint paint = new android.text.TextPaint(getPaint());
                     for (int size = ceiling; size >= minimumSp; size--) {
                         fittedPixels = size * density;
-                        paint.setTextSize(fittedPixels);
-                        android.text.StaticLayout layout = android.text.StaticLayout.Builder
-                                .obtain(text, 0, text.length(), paint, width)
-                                .setIncludePad(getIncludeFontPadding())
-                                .setLineSpacing(getLineSpacingExtra(), getLineSpacingMultiplier())
-                                .setBreakStrategy(getBreakStrategy())
-                                .setHyphenationFrequency(getHyphenationFrequency())
-                                .setTextDirection(android.text.TextDirectionHeuristics.FIRSTSTRONG_LTR)
-                                .build();
-                        int count = layout.getLineCount();
-                        boolean fits = count <= targetLines && layout.getHeight() <= heightBudget
+                        setTextSize(android.util.TypedValue.COMPLEX_UNIT_PX, fittedPixels);
+                        // Probe this TextView's actual layout, including styled units,
+                        // font padding and platform fallback-line spacing. A separate
+                        // StaticLayout can be a few pixels shorter than BoringLayout.
+                        // An unconstrained height also avoids mistaking clipping for fit.
+                        super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                        android.text.Layout layout = getLayout();
+                        int count = layout == null ? 0 : layout.getLineCount();
+                        boolean fits = layout != null && count <= targetLines
+                                && getMeasuredHeight() <= heightBudget
                                 && (count == 0 || layout.getLineEnd(count - 1) == text.length());
                         for (int line = 0; fits && line < count; line++)
                             fits = layout.getLineMax(line) <= width;
