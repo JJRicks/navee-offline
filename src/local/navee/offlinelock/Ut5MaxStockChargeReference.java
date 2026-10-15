@@ -40,19 +40,23 @@ public final class Ut5MaxStockChargeReference {
 
     /** Null means the reference does not apply; the original live estimate remains available. */
     public static Double estimate(double soc, double target, double ratedAh, double amps, double watts) {
+        return estimate(soc,target,ratedAh,amps,watts,false);
+    }
+
+    /** Wider bounds are only for an already admitted, fresh runtime estimate's brief grace. */
+    static Double estimate(double soc, double target, double ratedAh, double amps, double watts, boolean edgeGrace) {
         if (!finiteRange(soc,0,100) || !finiteRange(target,0,100) || target <= soc
                 || !Double.isFinite(ratedAh) || ratedAh <= 0 || !Double.isFinite(amps) || amps < ChargingEstimate.MINIMUM_ETA_CURRENT_A
-                || !Double.isFinite(watts) || watts < 1) return null;
+                || !powerCompatible(soc,watts,edgeGrace?.20:.15)) return null;
         // Model recognition does not identify a charger. These broad observed-power bounds are
         // only a plausibility gate, including the lower-SOC captures (~95 W) and late bulk (~121 W).
         double currentRemaining;
         if (soc < FIRST_SOC) {
-            if (watts < 95*.85 || watts > 121.5*1.15 || target <= FIRST_SOC) return null;
+            if (target <= FIRST_SOC) return null;
             currentRemaining = ratedAh*((FIRST_SOC-soc)/100d)/amps*60 + REMAINING[0];
         } else {
             if (soc != Math.floor(soc)) return null;
             int index = (int)soc-FIRST_SOC;
-            if (index < 0 || index >= LOW_WATTS.length || watts < LOW_WATTS[index]*.85 || watts > HIGH_WATTS[index]*1.15) return null;
             if (soc < 99) {
                 // Use the same first-arrival boundary as the bulk-stage anchor and cutoff
                 // calculation. A midpoint here would cause an artificial jump upon reaching
@@ -70,6 +74,15 @@ public final class Ut5MaxStockChargeReference {
         }
         double result = currentRemaining-boundaryRemaining(target);
         return Double.isFinite(result) ? Math.max(0,result) : null;
+    }
+
+    static boolean powerCompatible(double soc,double watts,double tolerance) {
+        if (!finiteRange(soc,0,99.999) || !Double.isFinite(watts) || watts < 1) return false;
+        if (soc < FIRST_SOC) return watts >= 95*(1-tolerance) && watts <= 121.5*(1+tolerance);
+        if (soc != Math.floor(soc)) return false;
+        int index=(int)soc-FIRST_SOC;
+        return index>=0 && index<LOW_WATTS.length && watts>=LOW_WATTS[index]*(1-tolerance)
+                && watts<=HIGH_WATTS[index]*(1+tolerance);
     }
 
     private static double boundaryRemaining(double target) {

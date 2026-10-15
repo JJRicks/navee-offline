@@ -925,7 +925,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final EditText search;
         private final LinearLayout lightsHeader,banner;
         private final View lightsNote,zonesRow;
-        private final SettingLine clockLine;
+        private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
         /** Two-column panes on wide screens; both null on a phone. */
         private final LinearLayout leftPane,rightPane;
@@ -985,6 +985,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             clockButton=pill("Sync",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clockButton.setContentDescription("Sync scooter clock");
             LinearLayout.LayoutParams clockParams=new LinearLayout.LayoutParams(-2,-2);clockParams.leftMargin=design.dp(10);clockLine.line.addView(clockButton,clockParams);
             addRow("Battery",clockLine.card);extras.put(clockLine.card,new String[]{"Battery","sync scooter clock scheduled charging time timezone"});
+            chargerLine=new SettingLine("battery","Charger for estimates",null);chargerLine.chevron(MainActivity.this::showChargerEstimateChoice);
+            chargerLine.line.setTag("estimate-charger-setting");chargerLine.value.setTag("estimate-charger-value");
+            addRow("Battery",chargerLine.card);extras.put(chargerLine.card,new String[]{"Battery","charger for estimates stock high speed charging time remaining"});
             SettingLine security=new SettingLine("shield","PIN & proximity unlock",null);security.chevron(()->openMoreSection("Security"));
             addRow("Security",security.card);extras.put(security.card,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
             SettingLine identity=new SettingLine("pencil","Scooter name",null);identity.chevron(MainActivity.this::renameScooter);nameValue=identity.value;
@@ -1077,6 +1080,11 @@ public final class MainActivity extends Activity implements ScreenHost {
             clockLine.setSub(clock);
             zonesValue.setText(zonesSummary());
             ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();nameValue.setText(profile==null?"Not set":profile.name);
+            boolean chargerEditable=profile!=null&&!scooterService.isChargeRecording();
+            chargerLine.line.setEnabled(chargerEditable);chargerLine.name.setTextColor(chargerEditable?design.text:design.muted);
+            ChargeSessionStore.Charger charger=scooterService==null?null:scooterService.chargeCharger();
+            chargerLine.value.setText(charger==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":charger==null?"Stock (default)":"Stock");
+            chargerLine.setSub(scooterService!=null&&scooterService.isChargeRecording()?"Stop charge recording to change":null);
             if(choiceSheet!=null)choiceSheet.refresh();
         }
     }
@@ -1537,6 +1545,28 @@ public final class MainActivity extends Activity implements ScreenHost {
         dialog.show();
         if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
         return dialog;
+    }
+    /** Local per-scooter estimate preference: never sends a charger command or starts capture. */
+    private void showChargerEstimateChoice(){
+        if(scooterService==null||scooterService.profiles.active()==null||scooterService.isChargeRecording())return;
+        String profile=scooterService.profiles.active().id;
+        final AlertDialog[] sheet=new AlertDialog[1];
+        LinearLayout content=sheetContent("Charger for estimates",
+                "Choose the charger you use; Volt does not detect it. This changes estimates only, and is saved for this scooter.",
+                ()->{if(sheet[0]!=null)sheet[0].dismiss();});
+        SegmentedSelector selector=new SegmentedSelector(design,"Charger for estimates",new String[]{"Stock","High-speed"},choice->{
+            if(scooterService==null||scooterService.profiles.active()==null||!profile.equals(scooterService.profiles.active().id)){
+                if(sheet[0]!=null)sheet[0].dismiss();return;
+            }
+            if(scooterService.setChargeCharger(choice==0?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED)){
+                if(sheet[0]!=null)sheet[0].dismiss();redraw();
+            }else toast("Stop charge recording before changing the charger.");
+        });
+        selector.setTag("estimate-charger-selector");selector.select(scooterService.chargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED?1:0,false);
+        content.addView(selector,new LinearLayout.LayoutParams(-1,-2));
+        TextView explanation=design.caption("Stock enables the experimental UT5 MAX reference when readings match. High-speed uses live-rate or compatible learned estimates.");
+        explanation.setPadding(0,design.dp(12),0,design.dp(4));content.addView(explanation);
+        controlDialog=showSheet(content);sheet[0]=controlDialog;
     }
     private void editFeature(ScooterCommands.Feature feature){
         if(feature.type==ScooterCommands.Type.TIME){showChargingTime();return;}

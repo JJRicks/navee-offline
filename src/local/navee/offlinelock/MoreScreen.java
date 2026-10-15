@@ -1451,7 +1451,7 @@ public final class MoreScreen implements AppScreen {
         });chargeCaptureRow.view.setTag("charge-capture-action");
         chargeCaptureStatus=footnote("");chargeCaptureStatus.setTag("charge-capture-status");
         chargeLearningStatus=footnote("");chargeLearningStatus.setTag("charge-learning-status");
-        footnote("Choose the charger currently attached. Estimates need two usable recordings covering the remaining percentage range and compatible live power at the current battery level. Each needs at least 10 complete percentage intervals. Missing or incompatible data keeps the current-rate estimate; the app does not identify chargers.");
+        footnote("UT5 MAX stock estimates work without recording. One continuous charge reaching 100% can refine its observed finishing range provisionally; other learned ranges need two usable recordings. Each needs at least 10 complete percentage intervals and compatible live power. Missing evidence keeps the applicable default. Charger choice is also in Scooter → Battery; it is never detected automatically.");
         LinearLayout chargeData=group();
         exportChargeRow=row(chargeData,"download","Export charge recordings", "JSON · this scooter",()->{
             ScooterService s=service();if(s==null)return;
@@ -1509,6 +1509,8 @@ public final class MoreScreen implements AppScreen {
         }
         if(chargeCaptureRow!=null){
             boolean capturing=s!=null&&s.isChargeRecording();
+            chosenCharger=s!=null&&s.chargeCharger()!=null?s.chargeCharger():ChargeSessionStore.Charger.STOCK;
+            chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
             String unavailable=s==null?"Connect your scooter first":s.chargeCaptureUnavailable();
             chargeCaptureRow.title.setText(capturing?"Stop charge recording":"Record this charge");
             chargeCaptureRow.enabled(enabled&&s!=null&&(capturing||unavailable==null));

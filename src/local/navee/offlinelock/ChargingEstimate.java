@@ -128,7 +128,14 @@ public final class ChargingEstimate {
      */
     public static Result forScooter(Result baseline, Value soc, Value ratedAh, int productId,
             ChargeSessionStore.Charger selectedCharger, ChargeSessionStore.Curve personal) {
-        Result prior=withStockReference(baseline,soc,ratedAh,productId,selectedCharger);
+        return forScooter(baseline,soc,ratedAh,productId,selectedCharger,personal,null,null,0,0);
+    }
+
+    /** Stateful tolerance is scoped to one authenticated connection and charger preference. */
+    public static Result forScooter(Result baseline, Value soc, Value ratedAh, int productId,
+            ChargeSessionStore.Charger selectedCharger, ChargeSessionStore.Curve personal,
+            StockChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
+        Result prior=withStockReference(baseline,soc,ratedAh,productId,selectedCharger,gate,scope,frameMs,nowMs);
         if (personal==null || selectedCharger==null || personal.charger!=selectedCharger) return prior;
         Result learned=withObservedCurve(baseline,soc,personal);
         if (learned==null || !learned.learnedToFull&&!learned.learnedToLimit) return prior;
@@ -149,13 +156,17 @@ public final class ChargingEstimate {
     }
 
     private static Result withStockReference(Result baseline, Value soc, Value ratedAh, int productId,
-            ChargeSessionStore.Charger selectedCharger) {
+            ChargeSessionStore.Charger selectedCharger, StockChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
         if (baseline==null || !baseline.charging || baseline.inputWatts==null || baseline.inputAmps==null
                 || baseline.remainingMinutesToFull==null || productId!=Ut5MaxStockChargeReference.PRODUCT_ID
-                || selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED || !valid(soc) || !valid(ratedAh)) return baseline;
-        Double full=Ut5MaxStockChargeReference.estimate(soc.number,100,ratedAh.number,baseline.inputAmps,baseline.inputWatts);
+                || selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED || !valid(soc) || !valid(ratedAh)) {
+            if(gate!=null)gate.reset(); return baseline;
+        }
+        String context=scope==null||scope.isEmpty()?null:scope+":"+productId+":"+selectedCharger;
+        if(gate!=null&&!gate.accepts(context,soc.number,baseline.inputWatts,frameMs,nowMs))return baseline;
+        Double full=Ut5MaxStockChargeReference.estimate(soc.number,100,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
         Double limit=baseline.targetPercent==null?null:Ut5MaxStockChargeReference.estimate(
-                soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts);
+                soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
         if(full==null&&limit==null)return baseline;
         String status="Experimental UT5 MAX stock-charger estimate based on an observed charge; live power is compatible. ";
         if(soc.number<89)status+="Bulk time uses rated Ah and current charging rate. ";

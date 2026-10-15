@@ -38,6 +38,8 @@ public final class ChargeCaptureValidation extends Instrumentation {
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(()->activity.service()!=null,"Service missing");service=activity.service();await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Charge model load did not finish");
             verifyDefaultChargeEstimate();
+            verifyReferenceLifecycle();
+            verifyOrdinaryChargerChoice();
             main(()->{invoke(activity,"select",new Class<?>[]{String.class},"more");invoke(field(activity,"screen"),"selectSection",new Class<?>[]{String.class},"Developer");});settle();
             main(()->{
                 View selector=root().findViewWithTag("charge-charger-selector");require(selector!=null,"Charger selector missing");
@@ -171,6 +173,75 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 settings().edit().remove("charge_charger_"+profile).putBoolean("developer_options",true).commit();
             }
         });
+    }
+    /** The real service must discard temporary power tolerance at lifecycle boundaries. */
+    private void verifyReferenceLifecycle(){
+        main(()->{
+            StockChargeReferenceGate gate=(StockChargeReferenceGate)field(service,"stockChargeReferenceGate");
+            require(gate.accepts("fixture",95,95,100,100),"Reference gate fixture did not enter");
+            invoke(service,"changed",new Class<?>[]{});
+            require(!gate.accepts("fixture",95,94.5,101,101),"Disconnected service retained reference grace without a widget refresh");
+            require(gate.accepts("fixture",95,95,102,102),"Reference fixture could not re-enter");
+            require(service.setChargeCharger(ChargeSessionStore.Charger.HIGH_SPEED),"Charger change fixture failed");
+            require(!gate.accepts("fixture",95,94.5,103,103),"Changing charger retained reference grace");
+            require(gate.accepts("fixture",95,95,104,104),"Reference fixture could not re-enter");
+            settings().edit().remove("charge_charger_"+profile).commit();
+            require(!gate.accepts("fixture",95,94.5,105,105),"Preference restore retained reference grace");
+            require(gate.accepts("fixture",95,95,106,106),"Reference fixture could not re-enter");
+            require(service.setSimulation(true),"Simulation fixture could not start");
+            require(!gate.accepts("fixture",95,94.5,107,107),"Simulation inherited real reference grace");
+            require(service.setSimulation(false),"Simulation fixture could not stop");
+            require(!gate.accepts("fixture",95,94.5,108,108),"Exiting simulation retained reference grace");
+        });
+    }
+    /** Ordinary preferences work offline without enabling capture or Developer options. */
+    private void verifyOrdinaryChargerChoice()throws Exception{
+        main(()->{
+            settings().edit().putBoolean("developer_options",false).commit();
+            invoke(activity,"select",new Class<?>[]{String.class},"controls");
+            View row=root().findViewWithTag("estimate-charger-setting");
+            require(row!=null&&row.isEnabled(),"Ordinary charger setting missing or requires connection/developer mode");
+            require(((TextView)root().findViewWithTag("estimate-charger-value")).getText().toString().equals("Stock (default)"),"Default stock reference is not explained by its setting");
+            row.performClick();
+        });settle();screenshot("charger-choice");
+        main(()->{
+            chooseEstimateCharger(1);
+            require(service.chargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,"Normal-user high-speed selection did not persist");
+            require(settings().getString("charge_charger_"+profile,"").equals("HIGH_SPEED"),"Normal charger selection was not per-profile");
+            require(!settings().getBoolean("developer_options",false),"Charger setting enabled Developer options");
+            root().findViewWithTag("estimate-charger-setting").performClick();chooseEstimateCharger(0);
+            require(service.chargeCharger()==ChargeSessionStore.Charger.STOCK,"Normal-user stock selection did not restore preference");
+            require(files().length==0&&!service.isChargeRecording()&&service.ble.pending()==null,"Charger preference started capture or sent a scooter command");
+            // A sheet opened before a profile switch must not write the new scooter's preference.
+            root().findViewWithTag("estimate-charger-setting").performClick();
+            service.profiles.create("Charger preference fixture","222222222222",0);
+            chooseEstimateCharger(1);
+            require(service.chargeCharger()==null,"Old charger sheet changed a newly selected scooter");
+            service.profiles.select(profile);
+            require(service.chargeCharger()==ChargeSessionStore.Charger.STOCK,"Profile switch lost original charger preference");
+            // Low-level synthetic journal only: the ordinary UI obeys the existing capture guard.
+            setField(service,"chargeUpdating",true);seedActive(profile);
+            invoke(field(activity,"screen"),"refresh",new Class<?>[]{});
+            require(!root().findViewWithTag("estimate-charger-setting").isEnabled(),"Normal charger preference remained enabled during capture");
+            invoke(activity,"showChargerEstimateChoice",new Class<?>[]{});
+            android.app.AlertDialog dialog=(android.app.AlertDialog)field(activity,"controlDialog");
+            require(dialog==null||!dialog.isShowing(),"Charger sheet bypassed active-capture guard");
+            service.stopChargeRecording();setField(service,"chargeUpdating",false);
+            settings().edit().remove("charge_charger_"+profile).putBoolean("developer_options",true).commit();
+        });
+        await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Preference guard model reload did not finish");
+        AtomicReference<Boolean> cleared=new AtomicReference<>(false);
+        main(()->require(service.clearChargeRecordings(()->cleared.set(true)),"Could not clean synthetic preference guard journal"));
+        await(cleared::get,"Preference guard journal cleanup did not finish");
+        require(files().length==0,"Preference test left a journal for later tests");
+    }
+    private void chooseEstimateCharger(int index){
+        android.app.AlertDialog dialog=(android.app.AlertDialog)field(activity,"controlDialog");
+        require(dialog!=null&&dialog.isShowing(),"Charger preference sheet missing");
+        View selector=dialog.getWindow().getDecorView().findViewWithTag("estimate-charger-selector");
+        require(selector!=null,"Charger preference choices missing");
+        @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
+        choices.get(index).performClick();
     }
     /** Fault injection stays below the real-start gate: no adapter or GATT is enabled. */
     private void verifyRecoveryTransitions(){

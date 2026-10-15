@@ -34,6 +34,9 @@ metadata are absent.
 - A recognized UT5 MAX with no charger selection, or a Stock selection, uses the
   reference only when measured power is plausible. Explicit High-speed selection
   disables this default; unknown models retain the live current-rate estimate.
+  The manual choice is available under **Scooter → Battery → Charger for estimates**
+  without Developer options, including offline; it is saved per scooter and
+  cannot change during an active capture. It sends no scooter command.
 - Below 89%, bulk duration uses the reported rated Ah, missing percentage and
   live charging amps up to 89%, followed by the observed 89–100% finish. The
   roughly 38–88% portion has no captured charge evidence here and is modeled,
@@ -49,6 +52,15 @@ metadata are absent.
   the long 99% plateau, approximately one-minute power knots locate the
   approximate taper stage. Nearly identical early-99% power occurs for several
   minutes, so those matching stages give an average rather than exact progress.
+- On a live authenticated connection, brief power fluctuations at a matching
+  boundary do not immediately switch back to the live-rate formula. Entry still
+  requires the usual 15% envelope; an already matching reference may remain
+  within 20% for at most two distinct out-of-band electrical frames and less
+  than 15 seconds. The third miss, time limit or wider mismatch returns to a
+  freshly calculated fallback. Repeated widget refreshes of the same frame do
+  not count as extra misses. No ETA or old electrical reading is held over.
+  Disconnects, stale/non-charging data, simulation, profile/charger changes and
+  backward clocks clear the allowance. Stateless calculations use strict bounds.
 - A lower cutoff includes only time up to that target. Cutoffs at or below 89%
   keep the rated-Ah/current estimate; higher cutoffs subtract the recorded
   remaining duration at that boundary. Unknown cutoffs remain unknown.
@@ -128,6 +140,11 @@ replay/behavior checks, not an independent prediction trial.
 Boundary checks verify continuity as bulk reaches 89% and nondecreasing time
 for later cutoffs, including fractional targets around that transition.
 
+`StockChargeReferenceGateTest` exercises the reported 95/94.5 W and 93/92.5 W
+boundary fluctuations, repeated redraws, distinct-frame and elapsed-time expiry,
+large mismatches, context/clock resets and stale/non-charging input rejection.
+Source flags and lower/unknown cutoffs remain independent of the runtime gate.
+
 Negative cases cover stale/zero electrical data, incompatible live power,
 unobserved SOC, lower/unknown cutoffs, incomplete stops, missing 100%, gaps,
 clock jumps, SOC rollback/skips, insufficient SOC span, ambiguous power rebounds,
@@ -136,10 +153,15 @@ retention and recovery tests remain in the full pure-Java suite. An adjacent
 regression also verifies that a learned full-charge ETA with unknown cutoff
 preserves null rather than throwing during numeric unboxing.
 
-Local verification passed all 27 pure-Java suites (60,676 checks/assertions),
-the app and instrumentation builds, and 126 native charge-capture assertions
-on a disposable 344dp emulator. The service fixture verifies first-use default
+Local verification passed all 28 pure-Java suites (60,819 checks/assertions),
+the app and instrumentation builds, and 160 native charge-capture assertions
+on each of two disposable emulator configurations: 344dp dark/default font and
+725dp light/1.4× font. The service fixture verifies first-use default
 estimates with no recordings, manual charger selection or Developer setup,
 taper progression, unknown-model/High-speed fallback and stale-data rejection.
+It also verifies runtime-gate resets on disconnect, charger/preference changes
+and simulation, plus ordinary charger selection, per-profile isolation and
+capture guards without any scooter commands. Both selector sheets were visually
+checked for fit and legibility.
 Bluetooth remains disabled in this fixture; no physical charging session or
 future-charge prediction accuracy was tested.
