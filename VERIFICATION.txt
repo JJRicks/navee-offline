@@ -1,3 +1,30 @@
+PR28 NARROW-CARD REVIEW FOLLOW-UP
+October 14, 2026
+
+Reproduced Claude's mid-word captions at the newly allowed five-column card
+minimum, plus clipped right-edge editor dots. The stricter all-widget fixture
+also exposed fragmented recorder text at 320dp and short-card editor/Resize
+overlap. These are corrected without rewriting saved positions or sizes.
+
+- My Scooter gives text the full card before abbreviating: the photo is hidden
+  when it cannot leave a readable column. Captions retain a fixed readable size
+  and choose whole-word normal, short, then icon-only labels, keeping full names
+  for screen readers and long press. The original image/labels return on widening.
+- Reading/charging tiles, metric/chart subtitles and trip captions share the same
+  fitting. Dynamic chart windows and charge-target captions survive remeasurement.
+- Narrow recorder actions use named icons; smallest cards stack independent
+  record/Rides targets. Short editor bars reuse their named Edit/Duplicate/Remove
+  menu when four buttons would overlap Resize. Right-edge grid dots are restored.
+- App/runner build, signature and alignment passed. Core 22 suites/53,978 checks
+  passed. Native minimum-span+height fixtures passed for all 15 widget types at
+  320/344/360/390dp and 344dp with 140% system font, plus 725dp all-widget/edit cases
+  and 320/344dp editor-action regressions (9 cases total).
+  Checks cover unbroken words, caption/accessibility tier restoration, changing
+  labels, unchanged edit/non-edit dimensions, target nonoverlap and compact menu
+  actions with undo. The reviewed e625b77 build fails the new narrow fixture.
+- Evidence: work/pr28-feedback in the owner workspace. Disposable-signature
+  emulator builds only; no owner phone update or real scooter traffic.
+
 UNRELEASED VOLT UI VALIDATION
 October 14, 2026
 

@@ -77,6 +77,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             String mode = arguments.getString("mode", "all");
             if (mode.equals("example")) {
                 verifyAllWidgetsExample();
+            } else if (mode.equals("narrow")) {
+                verifyMinimumWidthContents();
             } else if (mode.equals("chart")) {
                 verifyChartAxes();
             } else if (mode.equals("followup")) {
@@ -358,7 +360,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             double rawSchedule = (schedule.getTimeInMillis() + java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis())) / 1000d;
             reading(values, "scheduled_charge_time_raw", "Fixture schedule", "", rawSchedule, wall);
             TelemetryHistory store = new TelemetryHistory(getTargetContext()); history.set(store);
-            if (arguments.getString("mode", "all").equals("example")) {
+            if (Arrays.asList("example", "narrow").contains(arguments.getString("mode", "all"))) {
                 // Fixture-only samples make the example's extra cards legible without a
                 // real scooter, synthetic rides, or changes to production example data.
                 reading(values, "speed_kmh", "18.4 km/h", "km/h", 18.4d, wall);
@@ -1260,6 +1262,201 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             config.save(); invoke(dashboard(), "render");
         }); settleMotion();
     }
+    /** Inspect the actual smallest five-column cells, rather than comfortable default spans. */
+    private void verifyMinimumWidthContents() throws Exception {
+        main(() -> settings().edit().putInt("dashboard_columns", 5).commit());
+        seedEveryWidget();
+        main(() -> {
+            require(((Number)field(grid(), "columns")).intValue() == 5,
+                    "Narrow fixture must retain its requested five columns");
+            float density = activity.getResources().getDisplayMetrics().density;
+            float available = grid().getWidth() / density;
+            float scale = activity.ui().textScale * activity.getResources().getConfiguration().fontScale;
+            int row = 0;
+            for (DashboardConfig.Widget widget : dashboardConfig().widgets) {
+                if (widget.type.equals("scooter")) {
+                    widget.keys.clear();
+                    widget.keys.addAll(Arrays.asList("odometer_km", "remaining_range_km", "driving_mode"));
+                }
+                if (widget.type.equals("note")) widget.note = "Check tire pressure before riding.";
+                int span = widget.minimumWidth(5, available, 10, scale);
+                float width = span * (available + 10) / 5 - 10;
+                int height = widget.minimumHeight(width);
+                widget.layouts.put(5, new DashboardLayout.Cell(widget.id, 0, row, span, height));
+                row += height;
+            }
+            invoke(dashboard(), "render");
+        }); settleMotion(); stopUiPulse();
+        final ArrayList<String> problems = new ArrayList<>();
+        main(() -> {
+            require(tiles().size() == DashboardConfig.TYPES.length, "Narrow fixture lost a widget type");
+            for (Object item : tiles()) {
+                View card = (View)item;
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
+                DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid(), "currentCell",
+                        new Class<?>[]{DashboardConfig.Widget.class}, widget);
+                int minimum = ((Number)invoke(grid(), "minimumWidth",
+                        new Class<?>[]{DashboardConfig.Widget.class}, widget)).intValue();
+                require(cell.w == minimum, widget.type + " fixture is wider than its minimum span");
+                require(cell.h == widget.minimumHeight(card.getWidth() / activity.getResources().getDisplayMetrics().density),
+                        widget.type + " fixture is taller than its minimum height");
+                for (TextView text : texts(card)) collectNarrowTextProblems(text, widget.type, problems);
+                saveCardBitmap(card, "minimum-" + widget.type);
+                overlayGeometry.add("minimum " + widget.type + " cell=" + cellText(cell)
+                        + " card=" + card.getWidth() + "x" + card.getHeight());
+            }
+            List<?> scooterStats = (List<?>)field(tile("scooter"), "scooterStats");
+            String[] spokenNames = {"Total odometer", "Scooter's estimated remaining range", "Drive mode"};
+            for (int index = 0; index < scooterStats.size(); index++) {
+                Object value = scooterStats.get(index);
+                LinearLayout item = (LinearLayout)value;
+                TextView label = (TextView)item.getChildAt(0);
+                require(spokenNames[index].contentEquals(label.getContentDescription())
+                                && label.getContentDescription().equals(item.getTooltipText()),
+                        "Compact scooter label lost its full spoken/tooltip name");
+                require(label.getLayout() != null && label.getLayout().getLineCount() <= 2,
+                        "Compact scooter label consumes more than two lines: " + label.getText());
+            }
+        });
+        for (String problem : problems) overlayGeometry.add("text failure: " + problem);
+        verifyChangingCaptions();
+        verifyEditOverlays();
+        main(() -> {
+            for (Object item : tiles()) {
+                String type = ((DashboardConfig.Widget)field(item, "widget")).type;
+                for (TextView text : texts((View)item)) collectNarrowTextProblems(text, type + " after editing", problems);
+            }
+        });
+        require(problems.isEmpty(), "Minimum-width content: " + String.join("; ", problems));
+        verifyCompactWidgetActions();
+        check("All 15 widget types keep whole words within their smallest five-column spans, including after editing; compact scooter captions retain full spoken names");
+    }
+    /** A refresh changes the meaning, so a later measure must not restore old wording. */
+    private void verifyChangingCaptions() {
+        main(() -> {
+            View scooter = (View)tile("scooter");
+            int scooterWidth = scooter.getWidth(), scooterHeight = scooter.getHeight();
+            TextView odometer = (TextView)((LinearLayout)((List<?>)field(scooter, "scooterStats")).get(0)).getChildAt(0);
+            try {
+                int fullWidth = (int)Math.ceil(odometer.getPaint().measureText("Odometer")) + 2;
+                int shortWidth = (int)Math.ceil(odometer.getPaint().measureText("Odo")) + 2;
+                for (int width : new int[]{fullWidth, shortWidth, activity.ui().dp(16), fullWidth}) {
+                    odometer.forceLayout();
+                    odometer.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                            View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+                    String expected = width == fullWidth ? "Odometer" : width == shortWidth ? "Odo" : "";
+                    require(expected.contentEquals(odometer.getText()), "Caption did not use/restore whole-word text tier");
+                    require((odometer.getCompoundDrawablesRelative()[0] != null) == expected.isEmpty(),
+                            "Caption icon fallback is missing or remained after widening");
+                    require("Total odometer".contentEquals(odometer.getContentDescription())
+                                    && "Total odometer".contentEquals(odometer.getTooltipText()),
+                            "Caption fallback lost the full spoken name");
+                }
+            } finally { measureCard(scooter, scooterWidth, scooterHeight); }
+            Map<String, TelemetryHistory.Reading> values = new LinkedHashMap<>(activity.service().displayReadings());
+            for (String type : new String[]{"live", "history"}) {
+                Object item = tile(type); View card = (View)item;
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
+                int width = card.getWidth(), height = card.getHeight(); long originalWindow = widget.windowMs;
+                try {
+                    for (long window : new long[]{120000L, 172800000L}) {
+                        widget.windowMs = window;
+                        invoke(item, "drawChart", new Class<?>[]{Map.class, String.class}, values, widget.metric);
+                        measureCard(card, activity.ui().dp(600), height);
+                        TextView caption = (TextView)field(item, "subtitle");
+                        String expected = window == 120000L ? "2 minutes" : "2 days";
+                        require(caption.getText().toString().contains(expected)
+                                        && caption.getContentDescription().toString().contains(expected),
+                                type + " measure restored the old chart-window caption");
+                        measureCard(card, width, height);
+                    }
+                } finally {
+                    widget.windowMs = originalWindow;
+                    invoke(item, "drawChart", new Class<?>[]{Map.class, String.class}, values, widget.metric);
+                    measureCard(card, width, height);
+                }
+            }
+            Object item = tile("charging"); View card = (View)item;
+            int width = card.getWidth(), height = card.getHeight();
+            try {
+                long now = System.currentTimeMillis();
+                reading(values, "charging_state", "Charging", "", 1, now);
+                reading(values, "voltage_v", "52 V", "V", 52, now);
+                reading(values, "current_a", "-3 A", "A", -3, now);
+                reading(values, "battery_percent", "55 %", "%", 55, now);
+                reading(values, "rated_capacity_ah", "12.75 Ah", "Ah", 12.75, now);
+                for (int target : new int[]{80, 100}) {
+                    reading(values, "charge_limit_percent", target + " %", "%", target, now);
+                    invoke(item, "refreshCharging", new Class<?>[]{Map.class}, values);
+                    measureCard(card, activity.ui().dp(600), height);
+                    TextView caption = (TextView)field(item, "chargingEtaLabel");
+                    String expected = target == 80 ? "To 80% limit" : "Time to full";
+                    require(expected.contentEquals(caption.getText()) && expected.contentEquals(caption.getContentDescription()),
+                            "Measure restored an obsolete charging-target label");
+                    measureCard(card, width, height);
+                }
+            } finally {
+                invoke(item, "refreshCharging", new Class<?>[]{Map.class}, activity.service().displayReadings());
+                measureCard(card, width, height);
+            }
+        });
+        check("Changing chart windows and charge targets survive narrow/wide measurement with matching spoken labels");
+    }
+    private void verifyCompactWidgetActions() throws Exception {
+        main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
+        final int count = dashboardConfig().widgets.size();
+        for (String type : new String[]{"metric", "readings", "trip", "note"}) {
+            main(() -> {
+                View card = (View)tile(type);
+                if (editorControls(card).size() != 3) return;
+                android.widget.PopupMenu menu = openCompactActions(card);
+                require(menu.getMenu().size() == 3 && menu.getMenu().findItem(1).isEnabled()
+                                && menu.getMenu().findItem(2).isEnabled() && menu.getMenu().findItem(3).isEnabled(),
+                        type + " compact editor lost Edit/Duplicate/Remove");
+                menu.dismiss();
+            });
+        }
+        final String id = ((DashboardConfig.Widget)field(tile("metric"), "widget")).id;
+        if (editorControls((View)tileById(id)).size() == 3) {
+            main(() -> openCompactActions((View)tileById(id)).getMenu().performIdentifierAction(1, 0)); settle();
+            main(() -> {
+                require(described(dialogRoot(), "Save widget options") != null, "Compact Edit failed to open options");
+                invoke(dashboard(), "dismiss");
+            }); settle();
+            main(() -> openCompactActions((View)tileById(id)).getMenu().performIdentifierAction(2, 0)); settleMotion();
+            require(dashboardConfig().widgets.size() == count + 1, "Compact Duplicate did not add one card");
+            historyAction("Undo");
+            main(() -> openCompactActions((View)tileById(id)).getMenu().performIdentifierAction(3, 0)); settleMotion();
+            require(dashboardConfig().widgets.size() == count - 1 && !containsWidget(id), "Compact Remove deleted the wrong card");
+            historyAction("Undo");
+            require(dashboardConfig().widgets.size() == count && containsWidget(id), "Undo did not restore compact card");
+        }
+        main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
+        check("Short narrow editors keep distinct targets and functional Edit/Duplicate/Remove in their named action menu");
+    }
+    private android.widget.PopupMenu openCompactActions(View card) {
+        described(card, "Options for ").performClick();
+        android.widget.PopupMenu menu = (android.widget.PopupMenu)field(card.findViewWithTag("widget-editor-bar"), "actionsMenu");
+        require(menu != null, "Compact Options did not open an action menu");
+        return menu;
+    }
+    private void collectNarrowTextProblems(TextView text, String type, List<String> problems) {
+        if (!text.isShown() || text.length() == 0) return;
+        android.text.Layout layout = text.getLayout();
+        if (layout == null) { problems.add(type + " has no text layout: " + text.getText()); return; }
+        String value = text.getText().toString();
+        int width = text.getWidth() - text.getCompoundPaddingLeft() - text.getCompoundPaddingRight();
+        for (int line = 0; line < layout.getLineCount(); line++) {
+            // Deliberate title/status ellipses have their own full accessibility text.
+            if (layout.getEllipsisCount(line) != 0) continue;
+            if (layout.getLineMax(line) > width + 2)
+                problems.add(type + " clips text horizontally: " + value);
+            int end = layout.getLineEnd(line);
+            if (line + 1 < layout.getLineCount() && end > 0 && end < value.length()
+                    && Character.isLetter(value.charAt(end - 1)) && Character.isLetter(value.charAt(end)))
+                problems.add(type + " breaks a word: " + value.substring(0, end) + " / " + value.substring(end));
+        }
+    }
     private void verifyEditOverlays() throws Exception {
         final Map<String, Rect> normalFrames = new LinkedHashMap<>();
         main(() -> {
@@ -1317,8 +1514,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             ViewGroup card = (ViewGroup)item;
             DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
             List<View> controls = editorControls(card);
-            boolean narrowRail = widget.type.equals("quick") && card.getWidth() < activity.ui().dp(96);
-            require(controls.size() == (narrowRail ? 3 : 5), "Expected accessible editor actions on " + widget.title + ", got " + controls.size());
+            boolean compactActions = controls.size() == 3;
+            require(compactActions || controls.size() == 5, "Expected accessible editor actions on " + widget.title + ", got " + controls.size());
             ArrayList<Rect> occupied = new ArrayList<>();
             View grip = described(card, "Move "), options = described(card, "Options for "),
                     duplicate = described(card, "Duplicate "), remove = described(card, "Remove ");
@@ -1329,12 +1526,13 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             int inlineTarget = grip.getWidth();
             require(inlineTarget >= activity.ui().dp(36) - 1, "Inline controls fell below the compact target floor");
             require(gripBounds.left == 0 && gripBounds.top == 0, "Move handle left its top-left anchor");
-            boolean wrapped = narrowRail || duplicateBounds.top > 0;
+            boolean wrapped = compactActions || duplicateBounds.top > 0;
             if (wrapped) {
                 require(inlineTarget == activity.ui().dp(48), "Wrapped editor did not retain full 48dp targets");
-                if (narrowRail) {
-                    require(optionBounds.left == 0 && optionBounds.top == gripBounds.bottom,
-                            "Tiny rail Options must sit directly below Move");
+                if (compactActions) {
+                    require((optionBounds.left == 0 && optionBounds.top == gripBounds.bottom)
+                                    || (optionBounds.left == gripBounds.right && optionBounds.top == 0),
+                            "Compact Options must sit directly beside or below Move");
                     require(duplicate.getVisibility() == View.GONE && remove.getVisibility() == View.GONE,
                             "Tiny rail kept hidden actions as overlapping targets");
                 } else {
