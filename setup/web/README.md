@@ -21,6 +21,10 @@ fails; it never guesses an identity.
 
 Node 20+ and npm are needed **only to build the website**. Dependency versions are
 pinned; `package-lock.json` fixes their full transitive tree and integrity hashes.
+Build from the full repository: the website reuses the app's Saira font files in
+`res/font/` and bundles their SIL Open Font License from `licenses/Saira-OFL.txt`.
+No font CDN is contacted. The dark palette, rounded controls and typography match
+Volt for Android; reduced-motion preferences disable the capture pulse.
 
 ```sh
 cd setup/web
@@ -38,8 +42,9 @@ must additionally send the response headers emitted in `dist/headers.json`.
 The optional `test/browser-check.mjs` uses an already-installed Playwright and
 Chrome; it never downloads a browser or connects to hardware. Supply absolute
 `PLAYWRIGHT_MODULE`, `CHROME_PATH`, and `QA_DIR` environment variables. It checks
-320/390/768/1280 px layouts, all panels, initial consent gating and cancellation,
-the local recovery guide, CSP upload/script rejection, and service-worker blocking.
+320/344/390/768/1000/1280 px layouts, all panels, loaded local fonts, text contrast,
+keyboard focus, reduced motion, initial consent gating and cancellation, the local
+recovery guide, CSP upload/script rejection, and service-worker blocking.
 
 ## Consent and privacy boundaries
 
@@ -169,6 +174,11 @@ Deploy **only `dist/`**, atomically, at the root of the dedicated
 `https://pairscooter.jjricks.com/` origin. All links/assets are relative and also
 support the legacy `/pairscooter/` subpath. Do not expose node_modules, source maps, repository
 metadata, or runtime captures. There is no upload route to deploy.
+Include `saira_regular.ttf`, `saira_semibold.ttf`, and `saira_bold.ttf` alongside
+the HTML/CSS/script files and `THIRD-PARTY-NOTICES.txt`. Hosts with an asset
+allowlist need those three additions and the generated policy's `font-src 'self'`;
+font responses should use `font/ttf`. This permits only local font loads and does
+not change the exact-hash script or blocked-upload policies.
 
 Apply every header in `dist/headers.json` to all responses in this location.
 `script-src` allows **only the exact hash of the bundled script**, paired with its

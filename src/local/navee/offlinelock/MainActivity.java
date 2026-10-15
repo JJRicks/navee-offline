@@ -386,6 +386,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         // "Unlocked" on a narrow tile. Keep the state on one line and stack the caption
         // when the actual text and icon widths need more room.
         lockTitle.setMaxLines(1);lockTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
+        lockTitle.setAutoSizeTextTypeUniformWithConfiguration(Math.round(design.sp(12)),Math.round(design.sp(15)),1,android.util.TypedValue.COMPLEX_UNIT_PX);
         TextView kind=design.caption("Electronic lock");kind.setMaxLines(1);kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
         LinearLayout head=new LockHeading(lockTitle,kind);
         ((LinearLayout)lockReady).addView(head);
@@ -405,6 +406,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         content.addView(offline,new LinearLayout.LayoutParams(-1,-2));
         // Connect/Cancel are always available; Disconnect is a per-widget choice.
         connectionAction=design.button("Connect",this::connect);
+        connectionAction.setMaxLines(1);
+        connectionAction.setPadding(design.dp(6),connectionAction.getPaddingTop(),design.dp(6),connectionAction.getPaddingBottom());
+        connectionAction.setAutoSizeTextTypeUniformWithConfiguration(Math.round(design.sp(12)),Math.round(design.sp(14)),1,android.util.TypedValue.COMPLEX_UNIT_PX);
         content.addView(connectionAction);
         lockHint=design.caption("");lockHint.setVisibility(View.GONE);content.addView(lockHint);
         connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);
@@ -421,6 +425,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         @Override protected void onMeasure(int widthSpec,int heightSpec){
             int width=MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
+            // On a narrow five-column card the slider already identifies the lock.
+            // Keep the state readable before spending width on a second lock glyph.
+            android.graphics.drawable.Drawable glyph=state.getCompoundDrawablesRelative()[0];
+            if(glyph!=null){
+                int size=width<design.dp(112)?0:design.dp(20);
+                if(glyph.getBounds().width()!=size){glyph.setBounds(0,0,size,size);state.setCompoundDrawablesRelative(glyph,null,null,null);}
+                state.setCompoundDrawablePadding(size==0?0:design.dp(8));
+            }
             float stateWidth=state.getPaint().measureText(state.getText().toString())+state.getCompoundPaddingLeft()+state.getCompoundPaddingRight();
             float kindWidth=kind.getPaint().measureText(kind.getText().toString())+kind.getCompoundPaddingLeft()+kind.getCompoundPaddingRight();
             boolean stack=MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED&&stateWidth+design.dp(12)+kindWidth>width;

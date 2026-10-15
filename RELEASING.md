@@ -1,4 +1,4 @@
-# Releasing Navee Offline
+# Releasing Volt
 
 Release from a reviewed commit on `main`. Keep the repository's existing visibility; publishing a release does not require making it public.
 

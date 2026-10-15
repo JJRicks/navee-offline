@@ -1,4 +1,4 @@
-NAVEE OFFLINE — VERSION 0.12.1 (versionCode 25)
+VOLT — VERSION 0.12.1 (versionCode 25)
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -21,7 +21,7 @@ dashboards and recordings. See CHANGELOG.md and VERIFICATION.txt for details.
 GET CONNECTED
 
 1. Power on the scooter and close NAVEE so it releases Bluetooth.
-2. Open Navee Offline and allow Nearby devices. Android 8–11 calls its Bluetooth
+2. Open Volt and allow Nearby devices. Android 8–11 calls its Bluetooth
    discovery permission Location. GPS route recording asks for Location separately
    on newer Android versions. Allow notifications for connection/recording actions.
 3. With a configured profile, launch connects to the last verified scooter by
@@ -195,10 +195,11 @@ release transitions. Disabled system animations are respected. Scooter/data
 actions inside widgets stay inactive; local scooter
 renaming remains available. Tap Done when finished.
 
-One row of matching square controls contains the move grip, gear for options,
-copy icon for Duplicate and red trash icon at the right for Remove. Icons remain
-centered. Below 96 dp, narrow cards keep Move and Options targets; Options
-opens Edit, Duplicate and Remove actions. The options sheet retains its top-right X
+Matching square controls contain the move grip, gear for options, copy icon for
+Duplicate and red trash icon at the right for Remove. Icons remain centered.
+Compact cards use two rows to keep the targets usable. Below 96 dp, narrow
+Quick access rails keep Move and Options targets; Options opens Edit, Duplicate
+and Remove actions. The options sheet retains its top-right X
 and has only a fixed ✓ Save button below its scrolling settings.
 Tap the dots for a Move dialog or the corner for Size if dragging is inconvenient.
 New widgets stay drafts until Save; closing without saving adds nothing. Dialogs
@@ -226,9 +227,10 @@ Battery, Your scooter and reading-list widgets can contain up to 12 chosen readi
 
 New dashboards and Restore default widgets use the owner's ten-widget setup
 and widget options, including maximum-speed and scheduled-charging Quick access
-shortcuts. The preset selects five columns where they fit and adapts to fewer
-columns on narrow screens. Existing current layouts, empty layouts, custom
-options and saved slots are preserved. Restore defaults explicitly adopts the
+shortcuts. The preset retains five columns on supported narrow cover screens,
+including the Galaxy Fold 5 at default display settings. Only windows with less
+than 280 dp of dashboard width use fewer columns. Existing current layouts,
+empty layouts, custom options and saved slots are preserved. Restore defaults explicitly adopts the
 new preset; it does not replace slots or recorded data.
 Edit > Layout also offers three named saved-layout slots for this scooter.
 Each saves the widget list/options, the column choice, and all one- through
@@ -289,9 +291,14 @@ the spoken mode name and reading context.
 
 Layout offers Adaptive or one to six columns in a rounded selector with a
 sliding red highlight. Swipe it sideways on narrow screens. Adaptive retains
-the familiar one- through four-column behavior; five/six columns are optional
-where the screen width permits. Each widget has a minimum usable width that
-accounts for its contents and text scale, so finer grids still have usable cards.
+the familiar one- through four-column behavior. An explicit five-column choice
+stays available at 280 dp of dashboard width (about a 316 dp screen with normal
+side padding); six becomes available at 480 dp of dashboard width. A six-column
+choice uses five in a smaller supported window instead of jumping to Adaptive.
+Five-column cover layouts use smaller content-width floors for most widget types
+and tighter padding to prioritize placement. Quick access retains its touch-target
+floor, and large text can still need wider cards. Compact editor controls keep
+editing usable. Left and right page margins match; gaps sit only between cards.
 New five/six-column layouts derive from the saved four-column layout where
 available, leaving the original intact. A four-column scooter card beside a
 two-column lock card in a six-column grid gives a two-thirds/one-third split.
@@ -311,7 +318,7 @@ The wiggle pauses when the app loses focus or is hidden.
 App preferences use rounded selectors. Distance & speed, Temperature and Time
 format live together under Units; narrow controls can scroll sideways. Map settings
 and Background recording guidance also live in App preferences.
-Tap the Navee Offline version seven times in More > About & permissions to reveal
+Tap the Volt version seven times in More > About & permissions to reveal
 Developer options. Simulate scooter as connected supplies temporary sample
 readings, local control responses and generated chart previews. A persistent
 sample-data banner has an Exit action. The real Bluetooth connection is closed;
@@ -442,7 +449,9 @@ An acknowledgement beep alone does not confirm which lamp illuminated.
 
 PHONE SENSORS AND ROUTE MAPS
 
-Start a ride from Rides while the app is visible. Precise Location gives the best
+Start a ride from Rides while the app is visible. The ride-name field receives
+focus, selects the current name and opens the keyboard for easy replacement.
+Precise Location gives the best
 route; denied or approximate permissions do not prevent scooter recording.
 GPS continues during Bluetooth gaps. Phone sensors run only during explicit
 recordings and stop after the final buffered measurements are saved.
@@ -459,7 +468,10 @@ changes and GPS noise can still distort estimates. Route comparison includes GPS
 distance, ascent/descent and the existing scooter energy measurements. It does not
 plan or declare an optimal route before comparable rides have been collected.
 
-Pinch to zoom around your fingers, drag to pan, or use the zoom and Fit buttons.
+The expand icon opens a full-screen route map; a separate center icon fits the
+whole route. Pinch to zoom around your fingers, drag to pan and tap to inspect
+in either view. Opening or closing the expanded map keeps its center, zoom,
+selected overlay and inspected point.
 More > App preferences > Map settings controls basemap use and provider.
 USGS Topo is enabled for new preferences; explicit existing choices are retained.
 It provides U.S. streets/terrain with attribution and cached viewport requests,
@@ -622,7 +634,7 @@ Run ./build.sh with installed SDK platform 36/build-tools 36.1.0 and JDK 17+.
 Android Studio's bundled Java runtime works.
 ANDROID_SDK_ROOT/JAVA_HOME override paths. No Gradle or dependency downloads
 are required. Default output: dist/navee-offline-lock.apk. Launcher name:
-Navee Offline. The build verifies APK signatures and alignment. INTERNET supports
+Volt. The build verifies APK signatures and alignment. INTERNET supports
 only the optional replaceable map-tile source.
 
 Generated build files and local signing keys default to ignored .local/build

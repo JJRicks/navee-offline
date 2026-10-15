@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Rename the app to Volt in the launcher, onboarding, About, notifications and user documentation. Keep the existing Android package, setup, saved data and repository identity.
+- Give the dashboard equal left/right margins. Retain five-column layouts on narrow cover screens, fit compact lock text and editor controls, and preserve the saved placement instead of silently switching to two columns.
+- Focus and select the ride name and show the keyboard when starting a recording.
+- Expand ride maps into a full-screen view with zoom, route-color and reading controls. Keep a separate recenter button and preserve the inspected position and selection when opening or closing the expanded map.
+- Make the Location permission row open Volt's Android app settings, with directions to Permissions → Location.
+- Match the USB setup and recovery website to Volt's dark/red theme, rounded controls and locally bundled Saira fonts.
+
 ## 0.12.1 — 2026-10-14
 
 - Add subtle haptic feedback for tabs, choices, switches, favourites, dashboard editing and confirmed lock/ride actions. Haptic feedback is on by default and can be disabled in App preferences; Android’s Touch feedback setting is respected.

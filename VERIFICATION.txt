@@ -1,3 +1,62 @@
+PR28 NARROW-CARD REVIEW FOLLOW-UP
+October 14, 2026
+
+Reproduced Claude's mid-word captions at the newly allowed five-column card
+minimum, plus clipped right-edge editor dots. The stricter all-widget fixture
+also exposed fragmented recorder text at 320dp and short-card editor/Resize
+overlap. These are corrected without rewriting saved positions or sizes.
+
+- My Scooter gives text the full card before abbreviating: the photo is hidden
+  when it cannot leave a readable column. Captions retain a fixed readable size
+  and choose whole-word normal, short, then icon-only labels, keeping full names
+  for screen readers and long press. The original image/labels return on widening.
+- Reading/charging tiles, metric/chart subtitles and trip captions share the same
+  fitting. Dynamic chart windows and charge-target captions survive remeasurement.
+- Narrow recorder actions use named icons; smallest cards stack independent
+  record/Rides targets. Short editor bars reuse their named Edit/Duplicate/Remove
+  menu when four buttons would overlap Resize. Right-edge grid dots are restored.
+- App/runner build, signature and alignment passed. Core 22 suites/53,978 checks
+  passed. Native minimum-span+height fixtures passed for all 15 widget types at
+  320/344/360/390dp and 344dp with 140% system font, plus 725dp all-widget/edit cases
+  and 320/344dp editor-action regressions (9 cases total).
+  Checks cover unbroken words, caption/accessibility tier restoration, changing
+  labels, unchanged edit/non-edit dimensions, target nonoverlap and compact menu
+  actions with undo. The reviewed e625b77 build fails the new narrow fixture.
+- Evidence: work/pr28-feedback in the owner workspace. Disposable-signature
+  emulator builds only; no owner phone update or real scooter traffic.
+
+UNRELEASED VOLT UI VALIDATION
+October 14, 2026
+
+Scope: Volt naming, centered/five-column cover-screen dashboard, compact lock
+and editor fitting, ride-name keyboard focus, expanded route maps, Location
+settings entry point, and matching dark/red USB setup/recovery website.
+
+- 22 core suites / 53,978 checks passed; all 11 owner-capture cleanup tests passed.
+- App and separate native runner build, signature and alignment checks passed.
+- Native dashboard checks passed at 320, 344, 360, 432 and 725dp, including
+  enlarged text, equal outer margins, five-column placement, connected/offline
+  lock bounds, layout constraints, folded/unfolded callbacks and All widgets.
+- Edit actions passed on 344x882 and 725x604: wrapped and inline targets,
+  non-overlap, glyph alignment, recorder resize lane, save/duplicate/remove,
+  undo/redo, six-column sizing and cancelled resize.
+- Ride analysis passed 148 assertions each at 344x882 dark, 725x604 dark and
+  360x800 light with 140% system font: actual naming keyboard, selected text,
+  cancellation, expanded map gestures/state retention, cleanup and graph detail.
+- Native preference checks passed 505 assertions, including installed Volt
+  label/About and an intercepted real Location-row click targeting this app's
+  public Android settings intent. No system permission was changed by that test.
+- Website: 56 tests, bundle build, and browser checks at 320/344/390/768/1000/1280px
+  passed. Every panel and recovery guide fits; local fonts, text contrast,
+  keyboard focus, reduced motion, consent/cancel, old-origin recovery,
+  service-worker refusal and blocked uploads/unreviewed scripts were checked.
+
+Limits: disposable emulator and local browser only; no owner-phone sideload,
+real scooter operation, or live website deployment in this pass. Galaxy Fold
+hardware testing and independent review remain. Website deployment must include
+all three local Saira TTFs and its generated font-src self header; see setup/web.
+Existing released validation follows for reference.
+
 RELEASE VALIDATION 0.12.1 (versionCode 25)
 October 14, 2026
 

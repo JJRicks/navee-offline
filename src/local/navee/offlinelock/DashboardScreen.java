@@ -878,6 +878,12 @@ public final class DashboardScreen implements AppScreen {
         return ui.featureIcon(key);
     }
 
+    private DashboardCaption readingCaption(String key) {
+        String full = label(key), normal = ScooterReadingLabels.label(key, full);
+        return new DashboardCaption(host.activity(), ui, full, normal,
+                ScooterReadingLabels.compact(key, normal), glyphDrawable(readingIcon(key), ui.muted, 18));
+    }
+
     private Bitmap scooterPhoto() {
         if (scooterPhoto == null) {
             BitmapFactory.Options o = new BitmapFactory.Options();
@@ -1156,16 +1162,25 @@ public final class DashboardScreen implements AppScreen {
     /** Compact, labeled metric cards shared by charging and the reading-list widget. */
     private final class InfoCell extends LinearLayout {
         final TextView label, value;
+        final View labelIcon;
         InfoCell(String icon, String title) {
+            this(icon, title, title, title.equals("Charging power") ? "Power" : title);
+        }
+        InfoCell(String icon, String full, String normal, String compact) {
             super(host.activity());
             setOrientation(VERTICAL);
             setPadding(ui.dp(12), ui.dp(10), ui.dp(12), ui.dp(10));
             setBackground(ui.shape(ui.raised, 14, 0));
-            label = ui.text(title, 12, false);
-            label.setTextColor(ui.muted);
-            label.setCompoundDrawablesRelative(glyphDrawable(icon, ui.muted, 15), null, null, null);
-            label.setCompoundDrawablePadding(ui.dp(5));
-            addView(label, new LinearLayout.LayoutParams(-1, -2));
+            LinearLayout labelRow = row();
+            labelRow.setGravity(Gravity.CENTER_VERTICAL);
+            labelIcon = new GlyphView(icon, ui.muted);
+            LinearLayout.LayoutParams iconSpace = new LinearLayout.LayoutParams(ui.dp(15), ui.dp(15));
+            iconSpace.setMarginEnd(ui.dp(5));
+            labelRow.addView(labelIcon, iconSpace);
+            label = new DashboardCaption(host.activity(), ui, full, normal, compact,
+                    glyphDrawable(icon, ui.muted, 18));
+            labelRow.addView(label, new LinearLayout.LayoutParams(0, -2, 1));
+            addView(labelRow, new LinearLayout.LayoutParams(-1, -2));
             // Keep ordinary number/unit pairs together before permitting a
             // readable-floor wrap for unusually long diagnostic values.
             value = new FittedValue("—", 12, 26, 1);
@@ -1176,6 +1191,14 @@ public final class DashboardScreen implements AppScreen {
             p.topMargin = ui.dp(2);
             addView(value, p);
         }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            boolean narrow = MeasureSpec.getSize(widthSpec) < ui.dp(170 * ui.textScale
+                    * getResources().getConfiguration().fontScale);
+            int inset = ui.dp(narrow ? 6 : 12);
+            setPadding(inset, ui.dp(10), inset, ui.dp(10));
+            labelIcon.setVisibility(narrow ? GONE : VISIBLE);
+            super.onMeasure(widthSpec, heightSpec);
+        }
     }
 
     private final class InfoTiles extends LinearLayout {
@@ -1185,6 +1208,12 @@ public final class DashboardScreen implements AppScreen {
         InfoCell add(String icon, String title) {
             InfoCell cell = new InfoCell(icon, title); cells.add(cell); columns = 0;
             requestLayout(); return cell;
+        }
+        InfoCell addReading(String key) {
+            String full = label(key), normal = ScooterReadingLabels.label(key, full);
+            InfoCell cell = new InfoCell(readingIcon(key), full, normal,
+                    ScooterReadingLabels.compact(key, normal));
+            cells.add(cell); columns = 0; requestLayout(); return cell;
         }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
             int next = MeasureSpec.getSize(widthSpec) >= ui.dp(280 * ui.textScale) ? 2 : 1;
@@ -1339,9 +1368,9 @@ public final class DashboardScreen implements AppScreen {
             if (known && photo.getDrawable() == null) photo.setImageBitmap(scooterPhoto());
             photo.setVisibility(known ? View.VISIBLE : View.GONE);
             stage.setMinimumHeight(ui.dp(known ? 236 : 44));
-            etaLabel.setText(hasLimit
-                    ? String.format(Locale.US, "Time to %.0f%%", estimate.targetPercent)
-                    : "Time to full");
+            String timeLabel = hasLimit ? String.format(Locale.US, "Time to %.0f%%", estimate.targetPercent) : "Time to full";
+            ((DashboardCaption) etaLabel).setLabels(timeLabel, timeLabel,
+                    hasLimit ? String.format(Locale.US, "To %.0f%%", estimate.targetPercent) : "To full");
             eta.setText(duration(hasLimit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull));
             String watts = estimate.inputWatts == null ? null
                     : String.format(Locale.US, "%.0f W", estimate.inputWatts);
@@ -1564,7 +1593,7 @@ public final class DashboardScreen implements AppScreen {
         /** Overlay actions keep their touch targets; tiny rails move secondary actions into a popup. */
         private final class EditorBar extends ViewGroup {
             final View grip, editButton, duplicateButton, removeButton;
-            int target, controlColumns;
+            int target, controlColumns, resizeInset;
             boolean compactRail;
             PopupMenu actionsMenu;
 
@@ -1613,22 +1642,30 @@ public final class DashboardScreen implements AppScreen {
 
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 int width = MeasureSpec.getSize(widthSpec);
-                compactRail = widget.type.equals("quick") && width < ui.dp(96);
+                // Only physically short recorders need a separate resize lane. Large text also
+                // uses compact recorder content, but must not steal width from a taller editor.
+                resizeInset = compactRecorder && MeasureSpec.getSize(heightSpec) < ui.dp(96) ? ui.dp(48) : 0;
+                int available = Math.max(1, width - resizeInset);
+                controlColumns = available < ui.dp(144) ? (available >= ui.dp(96) ? 2 : 1) : 4;
+                target = Math.min(ui.dp(controlColumns < 4 ? 48 : 52), available / controlColumns);
+                // A short two-column card cannot fit two action rows above Resize.
+                // Use the existing named action menu instead of overlapping tap targets.
+                compactRail = (widget.type.equals("quick") && available < ui.dp(96))
+                        || (resizeInset == 0 && target * (4 / controlColumns)
+                                > MeasureSpec.getSize(heightSpec) - ui.dp(48));
                 duplicateButton.setVisibility(compactRail ? GONE : VISIBLE);
                 removeButton.setVisibility(compactRail ? GONE : VISIBLE);
-                controlColumns = width < ui.dp(144) ? (width >= ui.dp(96) ? 2 : 1) : 4;
-                target = Math.min(ui.dp(controlColumns < 4 ? 48 : 52),
-                        (width - (compactRecorder ? ui.dp(48) : 0)) / controlColumns);
                 for (int i = 0; i < getChildCount(); i++)
                     getChildAt(i).measure(MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
                             MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
-                setMeasuredDimension(width, target * ((compactRail ? 2 : 4) / controlColumns));
+                setMeasuredDimension(width, target * (((compactRail ? 2 : 4) + controlColumns - 1) / controlColumns));
             }
 
             @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
                 if (controlColumns < 4) {
                     for (int i = 0; i < (compactRail ? 2 : 4); i++) {
                         int x = (i % controlColumns) * target, y = (i / controlColumns) * target;
+                        if (i == 3) x = getWidth() - resizeInset - target;
                         getChildAt(i).layout(x, y, x + target, y + target);
                     }
                     return;
@@ -1636,7 +1673,7 @@ public final class DashboardScreen implements AppScreen {
                 grip.layout(0, 0, target, target);
                 editButton.layout(target, 0, target * 2, target);
                 duplicateButton.layout(target * 2, 0, target * 3, target);
-                int end = getWidth() - (compactRecorder ? ui.dp(48) : 0);
+                int end = getWidth() - resizeInset;
                 removeButton.layout(end - target, 0, end, target);
             }
         }
@@ -1684,8 +1721,7 @@ public final class DashboardScreen implements AppScreen {
                     for (String key : widget.keys) {
                         LinearLayout item = column();
                         item.setPadding(0, ui.dp(3), ui.dp(4), ui.dp(3));
-                        TextView label = ui.caption(ScooterReadingLabels.label(key, label(key)));
-                        label.setContentDescription(label(key));
+                        TextView label = readingCaption(key);
                         item.setTooltipText(label(key));
                         label.setTextSize(12.5f * ui.textScale);
                         item.addView(label, new LinearLayout.LayoutParams(-1, -2));
@@ -1731,14 +1767,14 @@ public final class DashboardScreen implements AppScreen {
                 case "metric":
                     big = new FittedValue("—", 14, 34, 2);
                     body.addView(big, new LinearLayout.LayoutParams(-1, -2));
-                    subtitle = ui.caption(label(widget.metric));
+                    subtitle = readingCaption(widget.metric);
                     subtitle.setPadding(0, ui.dp(2), 0, 0);
                     body.addView(subtitle);
                     break;
                 case "gauge":
                     gauge = new Gauge(widget);
                     body.addView(gauge, new LinearLayout.LayoutParams(-1, ui.dp(140)));
-                    subtitle = ui.caption(label(widget.metric));
+                    subtitle = readingCaption(widget.metric);
                     subtitle.setGravity(Gravity.CENTER);
                     body.addView(subtitle);
                     break;
@@ -1747,7 +1783,7 @@ public final class DashboardScreen implements AppScreen {
                     chart = ui.new ChartView();
                     chart.setHistoryMode(true);
                     body.addView(chart, new LinearLayout.LayoutParams(-1, ui.dp(140)));
-                    subtitle = ui.caption(label(widget.metric));
+                    subtitle = readingCaption(widget.metric);
                     body.addView(subtitle);
                     break;
                 case "health":
@@ -1828,7 +1864,7 @@ public final class DashboardScreen implements AppScreen {
                 case "readings":
                     InfoTiles readingTiles = new InfoTiles();
                     for (String key : widget.keys) {
-                        InfoCell cell = readingTiles.add(readingIcon(key), ScooterReadingLabels.label(key, label(key)));
+                        InfoCell cell = readingTiles.addReading(key);
                         amounts.put(key, cell.value);
                     }
                     body.addView(readingTiles, new LinearLayout.LayoutParams(-1, -2));
@@ -1842,7 +1878,7 @@ public final class DashboardScreen implements AppScreen {
                                 "trip_minutes",
                                 "maximum_speed_kmh",
                                 "odometer_km"
-                            }) amounts.put(key, stats.addReading(null, label(key)));
+                            }) amounts.put(key, stats.addReading(null, label(key), key));
                     body.addView(stats, new LinearLayout.LayoutParams(-1, -2));
                     break;
                 case "quick":
@@ -1869,7 +1905,19 @@ public final class DashboardScreen implements AppScreen {
 
         /** Record card: a red circle that starts or stops, the state beside it, and a way to Rides. */
         private void buildRecorder() {
-            LinearLayout line = row();
+            LinearLayout line = new LinearLayout(host.activity()) {
+                @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                    boolean stack = MeasureSpec.getSize(widthSpec) < ui.dp(96);
+                    setOrientation(stack ? VERTICAL : HORIZONTAL);
+                    if (getChildCount() == 2) {
+                        LinearLayout.LayoutParams first = (LinearLayout.LayoutParams)getChildAt(0).getLayoutParams();
+                        first.width = stack ? -1 : 0; first.weight = stack ? 0 : 1;
+                        LinearLayout.LayoutParams last = (LinearLayout.LayoutParams)getChildAt(1).getLayoutParams();
+                        last.gravity = stack ? Gravity.CENTER_HORIZONTAL : Gravity.CENTER_VERTICAL;
+                    }
+                    super.onMeasure(widthSpec, heightSpec);
+                }
+            };
             line.setGravity(Gravity.CENTER_VERTICAL);
             FrameLayout disc = new FrameLayout(host.activity());
             recordDisc = disc;
@@ -1923,6 +1971,8 @@ public final class DashboardScreen implements AppScreen {
 
             @Override
             protected void onMeasure(int widthSpec, int heightSpec) {
+                boolean iconOnly = MeasureSpec.getSize(widthSpec) < ui.dp(92 * ui.textScale
+                        * getResources().getConfiguration().fontScale);
                 boolean narrow = !compactRecorder && MeasureSpec.getSize(widthSpec) < ui.dp(170 * ui.textScale);
                 setMinimumHeight(ui.dp(compactRecorder ? 48 : 56));
                 setPadding(0, compactRecorder ? 0 : ui.dp(4), ui.dp(4), compactRecorder ? 0 : ui.dp(4));
@@ -1930,8 +1980,10 @@ public final class DashboardScreen implements AppScreen {
                 rideDetail.setVisibility(compactRecorder ? GONE : VISIBLE);
                 rideTitle.setMaxLines(compactRecorder ? 1 : Integer.MAX_VALUE);
                 rideTitle.setEllipsize(compactRecorder ? android.text.TextUtils.TruncateAt.END : null);
+                words.setVisibility(iconOnly ? GONE : VISIBLE);
+                setTooltipText(getContentDescription());
                 setOrientation(narrow ? VERTICAL : HORIZONTAL);
-                setGravity(narrow ? Gravity.START : Gravity.CENTER_VERTICAL);
+                setGravity(iconOnly ? Gravity.CENTER : narrow ? Gravity.START : Gravity.CENTER_VERTICAL);
                 LinearLayout.LayoutParams p = (LinearLayout.LayoutParams) words.getLayoutParams();
                 int width = narrow ? -1 : 0, start = narrow ? 0 : ui.dp(12), top = narrow ? ui.dp(8) : 0;
                 float weight = narrow ? 0 : 1;
@@ -2035,6 +2087,9 @@ public final class DashboardScreen implements AppScreen {
             }
 
             TextView addReading(String iconKey, String label) {
+                return addReading(iconKey, label, null);
+            }
+            TextView addReading(String iconKey, String label, String key) {
                 LinearLayout cell = column();
                 TextView value;
                 if (mode == READINGS) {
@@ -2052,7 +2107,7 @@ public final class DashboardScreen implements AppScreen {
                     cell.setPadding(0, ui.dp(4), ui.dp(8), ui.dp(4));
                     value = new FittedValue("—", 12, 20, 2);
                     cell.addView(value, new LinearLayout.LayoutParams(-1, -2));
-                    TextView name = ui.caption(label);
+                    TextView name = key == null ? ui.caption(label) : readingCaption(key);
                     cell.addView(name, new LinearLayout.LayoutParams(-1, -2));
                 }
                 value.setContentDescription(label + ", not reported");
@@ -2153,12 +2208,18 @@ public final class DashboardScreen implements AppScreen {
         }
 
         private void arrangeScooter(int width) {
+            float scale = Math.max(1, ui.textScale * getResources().getConfiguration().fontScale);
+            // Let the readings use the full card before abbreviating a caption. A tiny
+            // photo must never consume the last readable word/number column.
+            boolean showPhoto = width >= ui.dp((36 + 10 + 106) * scale);
+            photoPane.setVisibility(showPhoto ? VISIBLE : GONE);
             int photoWidth = Math.max(ui.dp(36), Math.min(Math.round(width * .45f),
-                    width - ui.dp(10) - ui.dp(106 * ui.textScale)));
+                    width - ui.dp(10) - ui.dp(106 * scale)));
             viewSize(photoPane, photoWidth, photoPane.getLayoutParams().height);
-            int available = width - photoWidth - ui.dp(10);
+            linearSize(scooterInfo, 0, -2, 1, showPhoto ? ui.dp(10) : 0);
+            int available = showPhoto ? width - photoWidth - ui.dp(10) : width;
             boolean glanceable = widget.keys.size() <= 2;
-            int columns = !glanceable && available >= ui.dp(180 * ui.textScale) ? 2 : 1;
+            int columns = !glanceable && available >= ui.dp(180 * scale) ? 2 : 1;
             if (columns == scooterColumns) return;
             scooterColumns = columns;
             for (LinearLayout item : scooterStats)
@@ -2180,7 +2241,8 @@ public final class DashboardScreen implements AppScreen {
             boolean narrowQuick = quickAccess != null && MeasureSpec.getSize(widthSpec) < ui.dp(144);
             compactRecorder = recorder != null && MeasureSpec.getSize(heightSpec) < ui.dp(100
                     * Math.max(1, ui.textScale * getResources().getConfiguration().fontScale));
-            int pad = narrowQuick ? 10 : widget.type.equals("battery") ? 16 : 28;
+            int pad = narrowQuick ? 10 : widget.type.equals("battery") ? 16
+                    : MeasureSpec.getSize(widthSpec) < ui.dp(144) ? 16 : 28;
             int vertical = compactRecorder ? 2 : narrowQuick ? 5 : widget.type.equals("battery") ? 8 : 12;
             content.setPadding(ui.dp(pad / 2), ui.dp(vertical), ui.dp(pad / 2), ui.dp(vertical));
             if (quickAccess != null) heading.setVisibility(narrowQuick ? GONE : VISIBLE);
@@ -2337,10 +2399,11 @@ public final class DashboardScreen implements AppScreen {
                             : String.format(Locale.US, "%.0f W", estimate.inputWatts));
             chargingWatts.setTextColor(estimate.inputWatts == null ? ui.muted : ui.ok);
             boolean limit = estimate.targetPercent != null && estimate.targetPercent < 100;
-            chargingEtaLabel.setText(
-                    limit
-                            ? String.format(Locale.US, "To %.0f%% limit", estimate.targetPercent)
-                            : "Time to full");
+            String etaLabel = limit ? String.format(Locale.US, "To %.0f%% limit", estimate.targetPercent) : "Time to full";
+            if (chargingEtaLabel instanceof DashboardCaption)
+                ((DashboardCaption) chargingEtaLabel).setLabels(etaLabel, etaLabel,
+                        limit ? String.format(Locale.US, "To %.0f%%", estimate.targetPercent) : "To full");
+            else chargingEtaLabel.setText(etaLabel);
             Double minutes =
                     limit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull;
             chargingEta.setText(duration(minutes));
@@ -2349,7 +2412,7 @@ public final class DashboardScreen implements AppScreen {
                     (estimate.inputWatts == null ? "" : "Battery-side readings. ")
                             + estimate.status);
             describeCharging(chargingWatts, "Charging power", "Battery-side power");
-            describeCharging(chargingEta, chargingEtaLabel.getText().toString(), estimate.status);
+            describeCharging(chargingEta, etaLabel, estimate.status);
             if (chargingTemperature != null) {
                 TelemetryHistory.Reading temperature = values.get("temperature_c");
                 chargingTemperature.setText(format(temperature));
@@ -2665,7 +2728,10 @@ public final class DashboardScreen implements AppScreen {
                 history = service.simulationHistory(key, now - widget.windowMs, now);
                 livePoints.clear(); wasLive = service.ble.connected();
                 drawChart(values, key);
-                if (!widget.type.equals("health")) subtitle.setText("Sample · " + windowName(widget.windowMs));
+                if (!widget.type.equals("health")) {
+                    String sample = "Sample · " + windowName(widget.windowMs);
+                    ((DashboardCaption) subtitle).setLabels(label(key) + " · " + sample, sample, sample);
+                }
                 return;
             }
             if (widget.type.equals("live")) {
@@ -2723,9 +2789,11 @@ public final class DashboardScreen implements AppScreen {
             chart.set(points, chartUnit(key, values), color(widget), "No saved readings yet");
             if (!widget.type.equals("health")) {
                 String metricLabel = label(key);
-                subtitle.setText(
-                        (widget.title.equalsIgnoreCase(metricLabel) ? "" : metricLabel + " · ")
-                                + windowName(widget.windowMs));
+                String window = windowName(widget.windowMs);
+                boolean named = widget.title.equalsIgnoreCase(metricLabel);
+                String normal = (named ? "" : ScooterReadingLabels.label(key, metricLabel) + " · ") + window;
+                String compact = (named ? "" : ScooterReadingLabels.compact(key, metricLabel) + " · ") + window;
+                ((DashboardCaption) subtitle).setLabels(metricLabel + " · " + window, normal, compact);
             }
             footer.setText(widget.type.equals("live") && !wasLive && !points.isEmpty()
                     ? "Last seen" : "");
@@ -3306,15 +3374,12 @@ public final class DashboardScreen implements AppScreen {
         }
 
         float columnWidth() {
-            return Math.max(1, measuredWidth / (float) columns);
+            return Math.max(1, (measuredWidth + ui.dp(10)) / (float) columns);
         }
 
-        /** The most columns this width can show; narrower screens use fewer. */
+        /** Explicit five-column layouts remain available on narrow cover screens. */
         int maximumColumns() {
-            int ordinary = adaptiveColumns();
-            return measuredWidth >= ui.dp(400)
-                    ? Math.max(ordinary, Math.min(DashboardConfig.MAX_COLUMNS, measuredWidth / ui.dp(80)))
-                    : ordinary;
+            return DashboardLayout.maximumColumns(measuredWidth / getResources().getDisplayMetrics().density);
         }
 
         private int adaptiveColumns() {
@@ -3593,7 +3658,7 @@ public final class DashboardScreen implements AppScreen {
             measuredWidth = MeasureSpec.getSize(widthSpec);
             int maximum = maximumColumns();
             int requested = preferences.getInt("dashboard_columns", 0);
-            int next = requested == 0 || requested > maximum ? adaptiveColumns() : Math.max(1, requested);
+            int next = requested == 0 ? adaptiveColumns() : Math.max(1, Math.min(requested, maximum));
             // Parents can probe several widths in one measurement pass. Keep the
             // active layout stable until an actual laid-out width changes.
             columns = gestureTile == null ? next : gestureColumns;
@@ -3605,7 +3670,8 @@ public final class DashboardScreen implements AppScreen {
             int end = gestureTile == null ? 0 : gestureMinimumHeight;
             for (int i = 0; i < tiles.size(); i++) {
                 DashboardLayout.Cell cell = cells.get(i);
-                int width = Math.max(1, Math.round(cell.w * columnWidth()) - ui.dp(10));
+                int width = Math.max(1, Math.round((cell.x + cell.w) * columnWidth())
+                        - Math.round(cell.x * columnWidth()) - ui.dp(10));
                 int height = Math.round(cell.h * rowHeight()) - ui.dp(10);
                 tiles.get(i)
                         .measure(
@@ -3687,7 +3753,7 @@ public final class DashboardScreen implements AppScreen {
             paint.setColor(Ui.withAlpha(ui.muted, 45));
             for (int col = 0; col <= columns; col++)
                 for (float y = 0; y < getHeight(); y += rowHeight())
-                    c.drawCircle(col * columnWidth(), y, ui.dp(1.5f), paint);
+                    c.drawCircle(col == columns ? getWidth() : col * columnWidth(), y, ui.dp(1.5f), paint);
             if (previewBounds != null) {
                 paint.setColor(Ui.withAlpha(ui.accent, ui.dark ? 18 : 14));
                 c.drawRoundRect(previewBounds, ui.dp(20), ui.dp(20), paint);

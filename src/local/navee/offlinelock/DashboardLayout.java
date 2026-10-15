@@ -127,8 +127,8 @@ public final class DashboardLayout {
 
     /**
      * Minimum number of columns for a widget at this measured grid width. The
-     * grid uses cardWidth = span * availableWidth / columns - gap, including a
-     * trailing gap in each card. If even a full-width card cannot meet its floor,
+     * grid has gaps only between cards: span * (availableWidth + gap) / columns
+     * minus one gap. If even a full-width card cannot meet its floor,
      * use the entire available width; never return an out-of-bounds span.
      */
     public static int minimumSpan(String type, int columns, float availableWidthDp,
@@ -136,11 +136,29 @@ public final class DashboardLayout {
         int count = clamp(columns, 1, MAX_COLUMNS);
         if (!Float.isFinite(availableWidthDp) || availableWidthDp <= 0) return count;
         float gap = Float.isFinite(gapDp) ? Math.max(0, gapDp) : 0;
-        float minimum = minimumWidgetWidthDp(type, textScale);
+        float minimum = minimumGridWidthDp(type, count, availableWidthDp, textScale);
         for (int span = 1; span < count; span++)
-            if (span * (double) availableWidthDp / count - gap >= minimum - .0001)
+            if (span * ((double) availableWidthDp + gap) / count - gap >= minimum - .0001)
                 return span;
         return count;
+    }
+
+    /** Five-column cover-screen layouts trade some whitespace for preserving placement. */
+    public static float minimumGridWidthDp(String type, int columns, float availableWidthDp, float textScale) {
+        float normal = minimumWidgetWidthDp(type, textScale);
+        if (columns < 5 || !Float.isFinite(availableWidthDp) || availableWidthDp >= 400
+                || "quick".equals(type)) return normal;
+        // Two 48dp editor targets fit side by side. Content retains text fitting/scrolling;
+        // larger accessibility text can still request more space without rewriting storage.
+        return Math.max(104, normal * Math.max(.7f, availableWidthDp / 400f));
+    }
+
+    /** Maximum explicit grid choice; Adaptive remains independent of this finer granularity. */
+    public static int maximumColumns(float availableWidthDp) {
+        if (!Float.isFinite(availableWidthDp) || availableWidthDp <= 0) return 1;
+        if (availableWidthDp >= 480) return MAX_COLUMNS;
+        if (availableWidthDp >= 280) return 5;
+        return Math.max(1, Math.min(4, (int)(availableWidthDp / 150)));
     }
 
     /**

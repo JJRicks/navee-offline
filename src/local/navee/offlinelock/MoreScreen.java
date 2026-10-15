@@ -160,7 +160,7 @@ public final class MoreScreen implements AppScreen {
                 row.view.setTag("developer-options-menu");
             }
         }
-        TextView footer = ui.text("Navee Offline " + AppVersion.name(host.activity()) + " · not affiliated with NAVEE", 11.5f, false);
+        TextView footer = ui.text("Volt " + AppVersion.name(host.activity()) + " · not affiliated with NAVEE", 11.5f, false);
         footer.setTextColor(ui.muted); footer.setGravity(Gravity.CENTER);
         footer.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(8));
         indexView.addView(footer, new LinearLayout.LayoutParams(-1, -2));
@@ -862,7 +862,30 @@ public final class MoreScreen implements AppScreen {
         android.content.Intent intent=new android.content.Intent(action);
         if(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS.equals(action))intent.putExtra(android.provider.Settings.EXTRA_APP_PACKAGE,host.activity().getPackageName());
         else intent.setData(android.net.Uri.parse("package:"+host.activity().getPackageName()));
-        try{host.activity().startActivity(intent);}catch(android.content.ActivityNotFoundException missing){host.toast("Open this app's settings in Android");}
+        if (startAndroidSettings(intent)) return;
+        if (!android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS.equals(action)
+                && startAndroidSettings(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                        android.net.Uri.parse("package:"+host.activity().getPackageName())))) return;
+        // Some manufacturers omit a settings activity. Fall back to the public
+        // app list instead of relying on private permission-controller routes.
+        if (startAndroidSettings(new android.content.Intent(android.provider.Settings.ACTION_APPLICATION_SETTINGS))) {
+            host.toast("Choose Volt to manage its Android settings");
+            return;
+        }
+        host.toast("Open Volt's settings in Android");
+    }
+    private boolean startAndroidSettings(android.content.Intent intent) {
+        try {
+            host.activity().startActivity(intent);
+            return true;
+        } catch (android.content.ActivityNotFoundException | SecurityException unavailable) {
+            return false;
+        }
+    }
+    private void openLocationSettings() {
+        // Android exposes app details publicly, but not a portable direct link
+        // to one app's Location permission page.
+        openAndroidSettings(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS);
     }
     private void units() {
         segmentedField("Distance & speed", "units", new String[]{"Miles / mph", "km / km/h", "Both"},
@@ -1338,7 +1361,7 @@ public final class MoreScreen implements AppScreen {
 
     private void privacy() {
         LinearLayout c = ui.card();
-        TextView version = ui.text("Navee Offline " + AppVersion.name(host.activity()), 17, true);
+        TextView version = ui.text("Volt " + AppVersion.name(host.activity()), 17, true);
         version.setTag("about-version");
         version.setMinHeight(ui.dp(48)); version.setGravity(Gravity.CENTER_VERTICAL);
         clickable(version, this::tapDeveloperVersion);
@@ -1349,7 +1372,7 @@ public final class MoreScreen implements AppScreen {
         label("Permissions");
         LinearLayout permissions = group();
         nearbyRow = row(permissions, "bluetooth", "Nearby devices", "Connects to your scooter", host::requestBluetooth);
-        locationRow = row(permissions, "route", "Location", "Optional, for ride routes", null);
+        locationRow = row(permissions, "route", "Location", "Android settings → Permissions → Location", this::openLocationSettings);
         notificationRow = row(permissions, "sound", "Notifications", "Recording notification with Stop", ()->openAndroidSettings(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS));
         if (Build.VERSION.SDK_INT < 31) footnote("Older Android versions require location permission for Bluetooth discovery.");
         label("Your data");
@@ -1505,7 +1528,7 @@ public final class MoreScreen implements AppScreen {
     }
 
     private void licenses() {
-        LinearLayout box = dialogBox("Licenses & attribution", "Navee Offline is an independent project, not affiliated with NAVEE or its app vendor.");
+        LinearLayout box = dialogBox("Licenses & attribution", "Volt is an independent project, not affiliated with NAVEE or its app vendor.");
         note(box, "Saira typeface\nCopyright 2020 The Saira Project Authors. SIL Open Font License 1.1; not covered by the app's MIT licence.");
         note(box, "Shizuku API 13.1.5\nCopyright (c) 2021 RikkaW. MIT License. Optional phone-only owner setup.");
         note(box, "AndroidX annotations 1.3.0\nCopyright The Android Open Source Project. Apache License 2.0.");
@@ -1578,7 +1601,7 @@ public final class MoreScreen implements AppScreen {
         boolean nearby = s.ble.permissions();
         permissionValue(nearbyRow, nearby ? "Allowed" : "Not allowed", nearby);
         boolean fine = granted(Manifest.permission.ACCESS_FINE_LOCATION), coarse = granted(Manifest.permission.ACCESS_COARSE_LOCATION);
-        permissionValue(locationRow, fine ? "Allowed" : coarse ? "Approximate" : "Asked in rides", fine || coarse);
+        permissionValue(locationRow, fine ? "Allowed" : coarse ? "Approximate" : "Not allowed", fine || coarse);
         NotificationManager notifications = host.activity().getSystemService(NotificationManager.class);
         boolean notify = notifications != null && notifications.areNotificationsEnabled();
         permissionValue(notificationRow, notify ? "Allowed" : "Off", notify);

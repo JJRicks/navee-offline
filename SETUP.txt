@@ -1,4 +1,4 @@
-NAVEE OFFLINE — FIRST-TIME OWNER SETUP
+VOLT — FIRST-TIME OWNER SETUP
 
 For your own, already activated NAVEE UT5 MAX. The app connects directly by
 Bluetooth. Essential scooter controls need no NAVEE server; optional maps use
@@ -104,7 +104,7 @@ it to your phone manually. Existing computer files are never overwritten.
 
 IMPORT AND CONNECT
 
-1. Open Navee Offline and go to More → Scooters → Import owner setup file.
+1. Open Volt and go to More → Scooters → Import owner setup file.
 2. Choose navee-owner-setup.json in Downloads.
 3. Allow Nearby devices, power on your scooter, and tap Connect.
 4. Select your scooter if it is the first connection. The app checks its serial

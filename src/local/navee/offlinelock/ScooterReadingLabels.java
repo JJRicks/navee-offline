@@ -4,6 +4,43 @@ package local.navee.offlinelock;
 final class ScooterReadingLabels {
     private ScooterReadingLabels() {}
 
+    /** Further abbreviations for physically narrow cards; full names remain accessible. */
+    static String compact(String key, String fallback) {
+        if (key == null) return fallback;
+        switch (key) {
+            case "battery_percent": return "Charge";
+            case "voltage_v": return "Voltage";
+            case "current_a": return "Current";
+            case "power_w": return "Power";
+            case "temperature_c": return "Temp.";
+            case "battery_health_percent": return "Health";
+            case "battery_status": return "Status";
+            case "charging_state": return "Charge (raw)";
+            case "charge_cycles": return "Charges";
+            case "energy_throughput_wh": return "Energy (unverified)";
+            case "capacity_throughput_ah": return "Throughput";
+            case "rated_capacity_ah": return "Capacity";
+            case "health_adjusted_capacity_ah": return "Est. capacity";
+            case "speed_kmh": return "Speed";
+            case "remaining_range_km": return "Range";
+            case "trip_km": return "Distance";
+            case "trip_minutes": return "Time";
+            case "maximum_speed_kmh": return "Top speed";
+            case "average_speed_kmh": return "Avg. speed";
+            case "odometer_km": return "Odo";
+            case "driving_mode": return "Mode";
+            case "lock_status": return "Lock";
+            case "charge_limit_percent": return "Limit";
+            case "meter_version": return "Meter FW";
+            case "controller_version": return "Control FW";
+            case "battery_version": return "Battery FW";
+            case "screen_version": return "Screen FW";
+            case "uwb_version": return "Proximity FW";
+            case "warning_code": return "Warning";
+            default: return fallback;
+        }
+    }
+
     static String label(String key, String fallback) {
         if (key == null) return fallback;
         switch (key) {

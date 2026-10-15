@@ -285,9 +285,9 @@ def main(argv=None):
         print("This is a Bluetooth owner identity, not a cloud login token. Keep the file private.")
         if args.push:
             adb.run("push", str(output), "/sdcard/Download/navee-owner-setup.json")
-            print("Copied to phone Downloads. In Navee Offline, import navee-owner-setup.json, then keep or remove that Downloads copy as you prefer.")
+            print("Copied to phone Downloads. In Volt, import navee-owner-setup.json, then keep or remove that Downloads copy as you prefer.")
         else:
-            print("Copy this JSON to your phone, then import it in Navee Offline's owner setup.")
+            print("Copy this JSON to your phone, then import it in Volt's owner setup.")
         return 0
     except SetupError as error:
         print("Setup: " + str(error), file=sys.stderr)

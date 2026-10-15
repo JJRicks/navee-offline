@@ -367,7 +367,7 @@ public final class DashboardConfig {
             cell.w = Math.max(cell.w,
                     widgets.get(i).minimumWidth(columns, availableWidthDp, gapDp, textScale));
             cell.h = Math.max(cell.h, widgets.get(i).minimumHeight(
-                    cell.w * availableWidthDp / columns - gapDp));
+                    cell.w * (availableWidthDp + gapDp) / columns - gapDp));
             visible.add(cell);
         }
         List<DashboardLayout.Cell> result = DashboardLayout.settle(visible, columns, priority);

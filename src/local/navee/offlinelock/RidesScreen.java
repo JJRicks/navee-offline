@@ -33,8 +33,11 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
+import android.view.WindowManager;
+import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.EditorInfo;
+import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -208,6 +211,9 @@ public final class RidesScreen implements AppScreen {
         if (service.phoneSaving()) { host.toast("Finishing the previous ride…"); return; }
         if (service.rides == null) { host.toast("Ride storage is unavailable."); return; }
         if (!service.ble.ready()) { host.toast("Connect to the scooter before starting a recording."); return; }
+        showRideNameDialog();
+    }
+    private void showRideNameDialog() {
         EditText label = input("Sport + Boost, evening hills…"); label.setText(preferences.getString("last_ride_label", "Sport + Boost"));
         label.setImeOptions(EditorInfo.IME_ACTION_DONE); label.setSelectAllOnFocus(true);
         LinearLayout box = dialogBody("Name this ride", "GPS, elevation and motion stay on this phone. You can change sensors before recording.");
@@ -226,7 +232,29 @@ public final class RidesScreen implements AppScreen {
             if (preferences.getBoolean("phone_gps", true)) host.requestRideLocation(begin); else begin.run();
         });
         label.setOnEditorActionListener((v, action, event) -> { if (action == EditorInfo.IME_ACTION_DONE) { start.performClick(); return true; } return false; });
-        show(dialog, DIALOG, null);
+        // Request the keyboard only after this dialog owns the focused window. A queued request
+        // must not reopen it after Cancel, a tab change, or an activity rebuild.
+        ViewTreeObserver.OnWindowFocusChangeListener keyboard = new ViewTreeObserver.OnWindowFocusChangeListener() {
+            @Override public void onWindowFocusChanged(boolean focused) {
+                if (!focused) return;
+                if (label.getViewTreeObserver().isAlive()) label.getViewTreeObserver().removeOnWindowFocusChangeListener(this);
+                label.post(() -> {
+                    if (closed || !dialog.isShowing() || host.activity().isFinishing() || host.activity().isDestroyed()
+                            || !label.isAttachedToWindow() || !label.hasWindowFocus()) return;
+                    label.requestFocus(); label.selectAll();
+                    InputMethodManager input = host.activity().getSystemService(InputMethodManager.class);
+                    if (input != null) input.showSoftInput(label, InputMethodManager.SHOW_IMPLICIT);
+                });
+            }
+        };
+        label.getViewTreeObserver().addOnWindowFocusChangeListener(keyboard);
+        label.requestFocus(); label.selectAll();
+        if (dialog.getWindow() != null) dialog.getWindow().setSoftInputMode(
+                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        show(dialog, DIALOG, () -> {
+            if (label.getViewTreeObserver().isAlive()) label.getViewTreeObserver().removeOnWindowFocusChangeListener(keyboard);
+        });
+        if (label.hasWindowFocus()) keyboard.onWindowFocusChanged(true);
     }
     private EditText input(String hint) {
         EditText input = new EditText(host.activity()); input.setSingleLine(true); input.setHint(hint);
@@ -1004,55 +1032,17 @@ public final class RidesScreen implements AppScreen {
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setCustomTitle(titleView(rideName, "Route")).setView(scroller).setPositiveButton("Done", null).create();
         show(dialog, PAGE, () -> { maps.remove(map); map.close(); });
     }
-    /** A route map in its frame (controls and attribution float on it) plus the route page's readouts. */
+    /** The inline and expanded maps own separate tile work, but share the same recorded route. */
     private static final class PhoneRide {
-        final FrameLayout frame; final RouteMapView map;
-        PhoneRide(FrameLayout frame, RouteMapView map) { this.frame = frame; this.map = map; }
-    }
-    /**
-     * Map controls/readout stay above the unified chart; phone summary and exports sit with the
-     * scooter overview below it. The same route renderer also supports the isolated native fixture.
-     */
-    private PhoneRide phoneRide(PhoneRideStore.Track track, LinearLayout top, LinearLayout bottom, boolean inline) {
-        TextView selection = ui.text("Tap the route to inspect a reading", 14, false); selection.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(10));
-        MapSource source = MapSource.load(preferences);
-        RouteMapView map = new RouteMapView(ui, track, source.url, p -> selection.setText(pointReadout(p)));
-        maps.add(map);
-        // The map runs edge to edge; its controls and attribution float on top of it.
-        FrameLayout mapFrame = new FrameLayout(host.activity());
-        if (inline) { mapFrame.setBackground(ui.shape(ui.surface, 20, 0)); mapFrame.setClipToOutline(true); }
-        mapFrame.addView(map, new FrameLayout.LayoutParams(-1, -1));
-        int plate = ui.dark ? ui.bg : ui.text, ink = ui.dark ? ui.text : ui.surface;
-        TextView attribution = ui.text(source.attribution, 10.5f, false); attribution.setTextColor(ink); attribution.setMaxLines(3);
-        attribution.setBackground(ui.shape(Ui.withAlpha(plate, 215), 7, 0)); attribution.setPadding(ui.dp(7), ui.dp(4), ui.dp(7), ui.dp(4));
-        attribution.setOnClickListener(v -> openWeb(MapSource.load(preferences).attributionUrl));
-        attribution.setVisibility(View.GONE);
-        FrameLayout.LayoutParams creditParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
-        creditParams.setMargins(ui.dp(8), 0, ui.dp(64), ui.dp(8)); mapFrame.addView(attribution, creditParams);
-        LinearLayout controls = vertical();
-        controls.addView(mapButton("plus", "Zoom in", () -> map.zoomBy(1)));
-        controls.addView(mapButton("minus", "Zoom out", () -> map.zoomBy(-1)));
-        controls.addView(mapButton("fit", "Fit route", map::fitRoute));
-        FrameLayout.LayoutParams controlParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
-        controlParams.setMargins(0, 0, ui.dp(6), ui.dp(6)); mapFrame.addView(controls, controlParams);
-
-        TextView mapStatus = ui.caption(""); mapStatus.setTextColor(ui.orange);
-        mapStatus.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); top.addView(mapStatus);
-        map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
-        String powerLegend = "Power magnitude · blue 0 → yellow 2,000 W · gray: missing";
-        TextView legend = ui.caption(powerLegend); legend.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8));
-        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Grade", "Accel", "Elev."}, choice -> {
-            String key = new String[]{"power", "grade", "accel", "elevation"}[choice]; map.setMetric(key);
-            legend.setText(choice == 1 ? "Grade · blue −12% → gray 0% → orange +12% · gray dashed: missing"
-                    : choice == 2 ? "GPS acceleration · blue −2 → gray 0 → orange +2 m/s² · gray dashed: missing"
-                    : choice == 3 ? elevationLegend(track) : powerLegend);
-        }); colors.select(0, false);
-        if (!track.points.isEmpty()) {
-            LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2);
-            colorParams.topMargin = ui.dp(6);
-            top.addView(colors, colorParams); top.addView(legend); top.addView(selection);
+        final FrameLayout frame; final RouteMapView map; final SegmentedSelector colors;
+        final TextView legend; final PhoneRideStore.Track track;
+        AlertDialog expandedDialog;
+        PhoneRide(FrameLayout frame, RouteMapView map, SegmentedSelector colors, TextView legend, PhoneRideStore.Track track) {
+            this.frame = frame; this.map = map; this.colors = colors; this.legend = legend; this.track = track;
         }
-        boolean basemap = MapPreferences.enabled(preferences); map.setStreets(basemap); attribution.setVisibility(basemap ? View.VISIBLE : View.GONE);
+    }
+    private PhoneRide phoneRide(PhoneRideStore.Track track, LinearLayout top, LinearLayout bottom, boolean inline) {
+        PhoneRide ride = mapPanel(track, top, inline, false);
         bottom.addView(ui.sectionLabel("Phone & route"));
         note(bottom, track.status);
         tiles(bottom, new String[]{"GPS distance", distance(track.distanceMeters == null ? null : track.distanceMeters / 1000),
@@ -1067,7 +1057,100 @@ public final class RidesScreen implements AppScreen {
         note(bottom, "Grade is a smoothed estimate over distance, not an instantaneous tilt. Pressure changes and poor GPS can distort it. Compare similar riding modes and conditions when judging route efficiency.");
         TextView export = ui.secondaryButton("Export phone data", () -> exportPhone(track)); iconize(export, "download");
         bottom.addView(export);
-        return new PhoneRide(mapFrame, map);
+        return ride;
+    }
+    /** Shared controls keep power, grade, acceleration, selection and basemap attribution in both views. */
+    private PhoneRide mapPanel(PhoneRideStore.Track track, LinearLayout top, boolean inline, boolean full) {
+        TextView selection = ui.text("Tap the route to inspect a reading", 14, false); selection.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(10));
+        MapSource source = MapSource.load(preferences);
+        RouteMapView map = new RouteMapView(ui, track, source.url, p -> selection.setText(pointReadout(p)));
+        if (full) map.setMinimumHeight(0);
+        maps.add(map);
+        FrameLayout mapFrame = new FrameLayout(host.activity());
+        if (inline) { mapFrame.setBackground(ui.shape(ui.surface, 20, 0)); mapFrame.setClipToOutline(true); }
+        mapFrame.addView(map, new FrameLayout.LayoutParams(-1, -1));
+        int plate = ui.dark ? ui.bg : ui.text, ink = ui.dark ? ui.text : ui.surface;
+        TextView attribution = ui.text(source.attribution, 10.5f, false); attribution.setTextColor(ink); attribution.setMaxLines(3);
+        attribution.setBackground(ui.shape(Ui.withAlpha(plate, 215), 7, 0)); attribution.setPadding(ui.dp(7), ui.dp(4), ui.dp(7), ui.dp(4));
+        attribution.setOnClickListener(v -> openWeb(source.attributionUrl));
+        FrameLayout.LayoutParams creditParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
+        creditParams.setMargins(ui.dp(8), 0, ui.dp(64), ui.dp(8)); mapFrame.addView(attribution, creditParams);
+        TextView mapStatus = ui.caption(""); mapStatus.setTextColor(ui.orange);
+        mapStatus.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); top.addView(mapStatus);
+        map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
+        TextView legend = ui.caption(mapLegend(track, "power")); legend.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8));
+        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Grade", "Accel", "Elev."}, choice -> {
+            String key = new String[]{"power", "grade", "accel", "elevation"}[choice]; map.setMetric(key);
+            legend.setText(mapLegend(track, key));
+        }); colors.select(0, false);
+        if (!track.points.isEmpty()) {
+            LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2); colorParams.topMargin = ui.dp(6);
+            top.addView(colors, colorParams); top.addView(legend); top.addView(selection);
+        }
+        boolean basemap = MapPreferences.enabled(preferences); map.setStreets(basemap); attribution.setVisibility(basemap ? View.VISIBLE : View.GONE);
+        PhoneRide ride = new PhoneRide(mapFrame, map, colors, legend, track);
+        LinearLayout controls = vertical();
+        controls.addView(mapButton("plus", "Zoom in", () -> map.zoomBy(1)));
+        controls.addView(mapButton("minus", "Zoom out", () -> map.zoomBy(-1)));
+        controls.addView(full ? mapButton("center", "Fit route", map::fitRoute)
+                : mapButton("fit", "Expand route map", () -> expandMap(ride)));
+        FrameLayout.LayoutParams controlParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.END);
+        controlParams.setMargins(0, 0, ui.dp(6), ui.dp(6)); mapFrame.addView(controls, controlParams);
+        if (!full) {
+            FrameLayout.LayoutParams fitParams = new FrameLayout.LayoutParams(ui.dp(48), ui.dp(48), Gravity.TOP | Gravity.END);
+            fitParams.setMargins(0, ui.dp(6), ui.dp(6), 0);
+            mapFrame.addView(mapButton("center", "Fit route", map::fitRoute), fitParams);
+        }
+        mapFrame.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View view) { }
+            @Override public void onViewDetachedFromWindow(View view) {
+                if (ride.expandedDialog != null) ride.expandedDialog.dismiss();
+            }
+        });
+        return ride;
+    }
+    private String mapLegend(PhoneRideStore.Track track, String metric) {
+        return "grade".equals(metric) ? "Grade · blue −12% → gray 0% → orange +12% · gray dashed: missing"
+                : "accel".equals(metric) ? "GPS acceleration · blue −2 → gray 0 → orange +2 m/s² · gray dashed: missing"
+                : "elevation".equals(metric) ? elevationLegend(track)
+                : "Power magnitude · blue 0 → yellow 2,000 W · gray: missing";
+    }
+    private void syncMapControls(PhoneRide ride) {
+        String metric = ride.map.metric(); int selected = 0;
+        String[] keys = {"power", "grade", "accel", "elevation"};
+        for (int i = 0; i < keys.length; i++) if (keys[i].equals(metric)) selected = i;
+        ride.colors.select(selected, false); ride.legend.setText(mapLegend(ride.track, metric));
+    }
+    private void expandMap(PhoneRide source) {
+        if (closed || !source.frame.isAttachedToWindow() || (source.expandedDialog != null && source.expandedDialog.isShowing())) return;
+        LinearLayout controls = vertical(); controls.setPadding(ui.dp(12), 0, ui.dp(12), ui.dp(8));
+        ScrollView controlScroll = new ScrollView(host.activity()); controlScroll.addView(controls);
+        controlScroll.setContentDescription("Route map readings and colors");
+        LinearLayout body = new LinearLayout(host.activity()) {
+            @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                // The map keeps most of the display even with large text or a landscape window.
+                int available = MeasureSpec.getSize(heightSpec);
+                ViewGroup.LayoutParams params = controlScroll.getLayoutParams();
+                params.height = Math.min(ui.dp(180), Math.max(ui.dp(64), available / 3));
+                super.onMeasure(widthSpec, heightSpec);
+            }
+        };
+        body.setOrientation(LinearLayout.VERTICAL); body.setBackgroundColor(ui.bg);
+        LinearLayout heading = horizontal(); heading.setGravity(Gravity.CENTER_VERTICAL); heading.setPadding(ui.dp(16), ui.dp(4), ui.dp(6), ui.dp(4));
+        heading.addView(ui.text("Route", 20, true), new LinearLayout.LayoutParams(0, -2, 1));
+        PhoneRide expanded = mapPanel(source.track, controls, false, true);
+        expanded.map.copyViewStateFrom(source.map); syncMapControls(expanded);
+        body.addView(heading); body.addView(expanded.frame, new LinearLayout.LayoutParams(-1, 0, 1));
+        body.addView(controlScroll, new LinearLayout.LayoutParams(-1, ui.dp(180)));
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).create();
+        dialog.setView(body, 0, 0, 0, 0);
+        source.expandedDialog = dialog;
+        heading.addView(mapButton("close", "Close expanded route map", dialog::dismiss));
+        show(dialog, PAGE, () -> {
+            source.expandedDialog = null;
+            if (!closed && source.frame.isAttachedToWindow()) { source.map.copyViewStateFrom(expanded.map); syncMapControls(source); }
+            maps.remove(expanded.map); expanded.map.close();
+        });
     }
     private String elevationLegend(PhoneRideStore.Track track) {
         Double low = null, high = null; for (PhoneRideStore.Point point : track.points) if (point.relativeAltitudeM != null) {
@@ -1374,6 +1457,10 @@ public final class RidesScreen implements AppScreen {
             case "fit":
                 p.moveTo(4, 9); p.lineTo(4, 4); p.lineTo(9, 4); p.moveTo(15, 4); p.lineTo(20, 4); p.lineTo(20, 9);
                 p.moveTo(20, 15); p.lineTo(20, 20); p.lineTo(15, 20); p.moveTo(9, 20); p.lineTo(4, 20); p.lineTo(4, 15); canvas.drawPath(p, paint); break;
+            case "center":
+                canvas.drawCircle(12, 12, 6, paint); canvas.drawCircle(12, 12, 2, paint);
+                canvas.drawLine(12, 2, 12, 6, paint); canvas.drawLine(12, 18, 12, 22, paint);
+                canvas.drawLine(2, 12, 6, 12, paint); canvas.drawLine(18, 12, 22, 12, paint); break;
             case "minus": canvas.drawLine(5, 12, 19, 12, paint); break;
             case "plus": canvas.drawLine(12, 5, 12, 19, paint); canvas.drawLine(5, 12, 19, 12, paint); break;
             case "wave":

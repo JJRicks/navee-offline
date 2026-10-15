@@ -28,6 +28,7 @@ if adb("shell", "getprop", "ro.kernel.qemu").strip() != "1":
     parser.error("Selected device did not identify itself as an emulator.")
 
 cases = args.case or ["344x882:1:dark", "725x604:1:dark", "360x800:1.4:light"]
+original_ime = adb("shell", "settings", "get", "secure", "show_ime_with_hard_keyboard").strip()
 parsed = []
 for case in cases:
     size, font, theme = case.split(":")
@@ -37,6 +38,7 @@ for case in cases:
     parsed.append((width, height, font, theme))
 try:
     adb("shell", "svc", "bluetooth", "disable")
+    adb("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", "1")
     adb("shell", "settings", "put", "system", "screen_off_timeout", "2147483647")
     adb("shell", "input", "keyevent", "82")
     for width, height, font, theme in parsed:
@@ -59,6 +61,10 @@ try:
         if "result=PASS" not in result:
             raise RuntimeError(f"Ride validation failed: {variant}")
 finally:
+    if original_ime == "null":
+        adb("shell", "settings", "delete", "secure", "show_ime_with_hard_keyboard", optional=True)
+    else:
+        adb("shell", "settings", "put", "secure", "show_ime_with_hard_keyboard", original_ime, optional=True)
     adb("shell", "wm", "size", "reset", optional=True)
     adb("shell", "wm", "density", "reset", optional=True)
     adb("shell", "settings", "put", "system", "font_scale", "1.0", optional=True)
