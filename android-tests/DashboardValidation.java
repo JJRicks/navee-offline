@@ -654,6 +654,23 @@ public final class DashboardValidation extends Instrumentation {
             }
             // The header's status line now carries the time; no other caption repeats it.
             assertSingleStatusLine();
+            Map<String, TelemetryHistory.Reading> cached = activity.service().displayReadings();
+            long older = System.currentTimeMillis() - 2 * 86400000L;
+            for (String type : new String[] {"overview", "tiles"}) {
+                Map<String, TelemetryHistory.Reading> changed = new HashMap<>(cached);
+                String key = type.equals("overview") ? "battery_percent" : "power_w";
+                TelemetryHistory.Reading reading = cached.get(key);
+                require(reading != null, "Missing age fixture " + key);
+                changed.put(key, new TelemetryHistory.Reading(reading.key, reading.label, reading.group,
+                        reading.value, reading.unit, reading.number, older, false));
+                Object card = tile(type);
+                invoke(card, "refresh", new Class<?>[] {Map.class}, changed);
+                TextView age = (TextView)field(card, "footer");
+                require(age.getVisibility() == View.VISIBLE && age.getText().toString().contains("d")
+                                && String.valueOf(age.getContentDescription()).startsWith("Last seen"),
+                        type + " hides readings older than the header's last-seen time");
+            }
+            invoke(dashboard(), "refresh");
         });
         assertNoScooterWork();
         check("Offline Lock bar offers Connect with an unknown state; overview, reading and setting tiles show cached values without their own Last seen footers");

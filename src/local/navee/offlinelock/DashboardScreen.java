@@ -2096,6 +2096,8 @@ public final class DashboardScreen implements AppScreen {
                     else body.addView(actions.lock(widget.showDisconnect));
                     break;
                 case "overview":
+                    watched.add("battery_percent");
+                    watched.add("remaining_range_km");
                     overview = new OverviewCard(limited(widget.keys, 0));
                     body.addView(overview, new LinearLayout.LayoutParams(-1, -2));
                     break;
@@ -3327,7 +3329,7 @@ public final class DashboardScreen implements AppScreen {
                 TelemetryHistory.Reading r = values.get(key);
                 boolean live = r != null && r.live;
                 anyStale |= r != null && r.value != null && !live;
-                if (r != null && r.value != null) oldest = Math.min(oldest, r.capturedWallMs);
+                if (r != null && r.value != null && !live) oldest = Math.min(oldest, r.capturedWallMs);
                 TextView amount = amounts.get(key);
                 if (amount != null) {
                     String text = format(r);
@@ -3413,8 +3415,10 @@ public final class DashboardScreen implements AppScreen {
             footer.setVisibility(aged ? View.VISIBLE : View.GONE);
             if (chargingData != null && chargingData.getVisibility() == View.VISIBLE)
                 footer.setVisibility(View.GONE);
-            // New Home cards grey stale values; the header carries the time.
-            if (newHome(widget.type)) footer.setVisibility(View.GONE);
+            // Data cards only show an age when it differs from the header. The compact
+            // lock and setting controls carry their own state instead of a data footer.
+            if (widget.type.equals("lockbar") || widget.type.equals("shortcuts"))
+                footer.setVisibility(View.GONE);
             if (overview != null) overview.refresh(values);
             if (readingTiles != null) readingTiles.refresh(values);
             if (chart != null) refreshChart(values);
