@@ -53,7 +53,7 @@ public final class RouteMapView extends View {
     private final int touchSlop;
     private boolean dragged, multiplePointers;
     private String metric = "power";
-    private boolean fitted;
+    private boolean fitted, preserveViewportOnFirstSize;
     private volatile boolean streets, attached;
     private volatile boolean closed;
     private volatile long generation;
@@ -79,6 +79,18 @@ public final class RouteMapView extends View {
         setClickable(true);
         setContentDescription(
                 "Ride route. Pinch to zoom, drag to pan, tap a point to inspect its readings.");
+    }
+
+    String metric() { return metric; }
+
+    /** Opening or closing the expanded map preserves inspection instead of resetting the route. */
+    void copyViewStateFrom(RouteMapView other) {
+        zoom = other.zoom; centerX = other.centerX; centerY = other.centerY; fitted = other.fitted;
+        metric = other.metric; selected = other.selected;
+        preserveViewportOnFirstSize = getWidth() == 0 || getHeight() == 0;
+        generation++;
+        if (selected >= 0 && selected < points.size() && selection != null) selection.accept(points.get(selected));
+        invalidate();
     }
 
     public void setMetric(String value) {
@@ -149,7 +161,8 @@ public final class RouteMapView extends View {
     @Override
     protected void onSizeChanged(int w, int h, int oldw, int oldh) {
         super.onSizeChanged(w, h, oldw, oldh);
-        fitted = false;
+        if (!preserveViewportOnFirstSize) fitted = false;
+        preserveViewportOnFirstSize = false;
     }
 
     private static double x(double longitude) {

@@ -1035,7 +1035,7 @@ public final class OnboardingScreen implements AppScreen {
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ui.dp(84), ui.dp(84));
         tp.gravity = Gravity.CENTER_HORIZONTAL; tp.topMargin = ui.dp(26);
         content.addView(tile, tp);
-        TextView body = paragraph("Navee Offline uses Bluetooth to find and talk to your scooter. Nothing is sent to a server.", true);
+        TextView body = paragraph("Volt uses Bluetooth to find and talk to your scooter. Nothing is sent to a server.", true);
         ((LinearLayout.LayoutParams) body.getLayoutParams()).topMargin = ui.dp(18);
         LinearLayout tip = row(); tip.setGravity(Gravity.CENTER_VERTICAL);
         tip.setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12));

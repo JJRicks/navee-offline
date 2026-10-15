@@ -73,6 +73,7 @@ public final class DeveloperSettingsValidation extends Instrumentation {
                     .putFloat("text_scale", Float.parseFloat(arguments.getString("text_scale", "1"))).commit(), "Fixture settings failed");
             seed(); launch();
             main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
+            verifyBrandAndLocationSettings(); checks.add("Installed app and About use Volt; Location opens this app's public Android settings intent without launching or changing system settings");
             verifySelectors(); checks.add("Rounded preference tracks retain readable labels, 48dp targets, radio semantics, selected indication and existing preference keys");
             verifyFeedbackSwitches(); checks.add("Switch thumb drags count like taps: Haptic feedback saves a swipe and keeps it through a redraw; one click in the dragged direction, none for a cancelled drag or code");
             verifyDeveloperGate(); checks.add("Developer options stay hidden and reject direct access until seven version taps");
@@ -126,6 +127,42 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, "App did not launch");
         await(() -> activity.service().displayReadings().get("battery_percent") != null
                 && activity.service().displayReadings().get("battery_percent").number != null, "Genuine cache did not load"); settle();
+    }
+    private void verifyBrandAndLocationSettings() {
+        main(() -> {
+            require("Volt".contentEquals(activity.getApplicationInfo().loadLabel(activity.getPackageManager())),
+                    "Installed launcher label is not Volt");
+            invoke(more(), "selectSection", new Class<?>[]{String.class}, "About");
+        }); settle();
+        AtomicReference<Intent> opened = new AtomicReference<>(); AtomicInteger launches = new AtomicInteger();
+        ActivityMonitor monitor = new ActivityMonitor() {
+            @Override public ActivityResult onStartActivity(Intent intent) {
+                launches.incrementAndGet(); opened.set(new Intent(intent));
+                // Intercept every activity while clicking this row: a wrong route must
+                // fail this test, not open Android settings on the disposable device.
+                return new ActivityResult(android.app.Activity.RESULT_CANCELED, null);
+            }
+        };
+        addMonitor(monitor);
+        try {
+            main(() -> {
+                View version = root().findViewWithTag("about-version");
+                require(version instanceof TextView && ((TextView)version).getText().toString().startsWith("Volt "),
+                        "About version is not branded Volt");
+                View location = (View)field(field(more(), "locationRow"), "view");
+                require(location.isShown() && location.isClickable(), "Location permission row is not actionable");
+                require(location.performClick(), "Location permission row refused its click");
+            });
+            Intent intent = opened.get();
+            require(launches.get() == 1 && intent != null, "Location did not open exactly one settings destination");
+            require(android.provider.Settings.ACTION_APPLICATION_DETAILS_SETTINGS.equals(intent.getAction()),
+                    "Location used a private or unrelated Android settings destination");
+            require(("package:" + activity.getPackageName()).equals(intent.getDataString()),
+                    "Location did not target this app's Android settings");
+        } finally {
+            removeMonitor(monitor);
+        }
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "App")); settle();
     }
     private void verifySelectors() throws Exception {
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "App")); settle();

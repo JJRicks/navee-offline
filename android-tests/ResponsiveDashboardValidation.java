@@ -92,7 +92,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             } else if (mode.equals("edit") || mode.equals("editor")) {
                 seedEveryWidget();
                 verifyEditOverlays();
-                check("Editing adds one inline row of equal icon-only Move/Edit/Duplicate/Remove controls, without overlaps or resized cards");
+                check("Editing keeps equal icon-only controls in one row or a compact grid, without overlaps, smaller touch targets, or resized cards");
                 if (mode.equals("editor")) { verifyEditorActions(); check("Save/duplicate/remove and Undo/Redo preserve the intended widgets and settings; six-column sizing and cancelled resize keep safe layout constraints"); }
             } else if (!mode.equals("fold")) {
                 assertGridAndHeader(); check("Default cards fit the available window and start immediately after the header");
@@ -413,13 +413,26 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             }
             require(grid.getTop() - expected <= activity.ui().dp(16), "Unexplained gap before the first card: " + (grid.getTop() - expected));
             List<Rect> occupied = new ArrayList<>();
-            int first = Integer.MAX_VALUE;
+            int first = Integer.MAX_VALUE, leftmost = Integer.MAX_VALUE, rightmost = 0;
             for (Object tile : tiles()) {
                 View card = (View)tile; Rect box = new Rect(card.getLeft(), card.getTop(), card.getRight(), card.getBottom());
                 require(box.left >= 0 && box.right <= grid.getWidth() && box.top >= 0 && box.bottom <= grid.getHeight()
                         && box.width() > 0 && box.height() > 0, "Card lies outside the grid: " + box);
                 for (Rect other : occupied) require(!Rect.intersects(box, other), "Cards overlap");
                 occupied.add(box); first = Math.min(first, box.top);
+                leftmost = Math.min(leftmost, box.left); rightmost = Math.max(rightmost, box.right);
+            }
+            require(leftmost == 0 && rightmost == grid.getWidth(), "Dashboard has unequal left/right edge gaps");
+            int count = ((Number)field(grid, "columns")).intValue();
+            if (settings().getInt("dashboard_columns", 0) == 5 && grid.getWidth() >= activity.ui().dp(280)) {
+                require(count == 5, "A five-column dashboard silently switched layout on a cover screen");
+                if (activity.ui().textScale * activity.getResources().getConfiguration().fontScale <= 1.05f) {
+                    DashboardLayout.Cell scooter = (DashboardLayout.Cell)invoke(grid, "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, field(tile("scooter"), "widget"));
+                    DashboardLayout.Cell lock = (DashboardLayout.Cell)invoke(grid, "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, field(tile("lock"), "widget"));
+                    DashboardLayout.Cell quick = (DashboardLayout.Cell)invoke(grid, "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, field(tile("quick"), "widget"));
+                    require(scooter.x == 0 && scooter.y == 0 && scooter.w == 3 && quick.x == 3 && quick.y == 0 && quick.w == 2
+                            && lock.x == 0 && lock.y == 3 && lock.w == 2, "Narrow default dashboard shuffled its saved five-column placements");
+                }
             }
             require(first <= activity.ui().dp(16), "Default grid has phantom leading rows");
         });
@@ -1261,10 +1274,36 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             for (Object item : tiles()) { View card = (View)item;
                 Rect before = normalFrames.get(((DashboardConfig.Widget)field(item, "widget")).id);
                 require(before.width() == card.getWidth() && before.height() == card.getHeight(), "Editor changed the card's dashboard dimensions"); }
+            verifyRecorderEditorTargets();
             invoke(dashboard(), "toggleEditing");
         });
         settleMotion();
         main(this::assertNoEditorControls);
+    }
+    private void verifyRecorderEditorTargets() {
+        View card = (View)tile("ride"); int width = card.getWidth(), height = card.getHeight();
+        try {
+            for (int dp : new int[]{192, 216, 300}) {
+                measureCard(card, activity.ui().dp(dp), activity.ui().dp(54));
+                drawEditorFrame(card);
+                assertEditorControls(); // One-row controls must leave the resize target its own lane.
+            }
+            measureCard(card, activity.ui().dp(113), activity.ui().dp(170));
+            // Large text can select compact recorder content even in a physically tall card.
+            // Exercise that condition directly, without changing global settings or rebuilding.
+            setField(card, "compactRecorder", true);
+            View bar = card.findViewWithTag("widget-editor-bar"); bar.forceLayout();
+            bar.measure(View.MeasureSpec.makeMeasureSpec(card.getWidth(), View.MeasureSpec.EXACTLY),
+                    View.MeasureSpec.makeMeasureSpec(card.getHeight(), View.MeasureSpec.AT_MOST));
+            bar.layout(0, 0, card.getWidth(), bar.getMeasuredHeight());
+            drawEditorFrame(card); assertEditorControls();
+        } finally { measureCard(card, width, height); }
+    }
+    private void drawEditorFrame(View card) {
+        // View updates a resized RippleDrawable's bounds on draw, after measurement/layout.
+        // Inspect the resulting painted frame, not the previous size's drawable bounds.
+        Bitmap bitmap = Bitmap.createBitmap(card.getWidth(), card.getHeight(), Bitmap.Config.ARGB_8888);
+        try { card.draw(new android.graphics.Canvas(bitmap)); } finally { bitmap.recycle(); }
     }
     private void assertNoEditorControls() {
         for (Object item : tiles()) require(editorControls((View)item).isEmpty(), "Widget editor controls escaped dashboard edit mode");
@@ -1278,19 +1317,43 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             ViewGroup card = (ViewGroup)item;
             DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
             List<View> controls = editorControls(card);
-            require(controls.size() == 5, "Expected Move/Edit/Duplicate/Remove/Resize on " + widget.title + ", got " + controls.size());
+            boolean narrowRail = widget.type.equals("quick") && card.getWidth() < activity.ui().dp(96);
+            require(controls.size() == (narrowRail ? 3 : 5), "Expected accessible editor actions on " + widget.title + ", got " + controls.size());
             ArrayList<Rect> occupied = new ArrayList<>();
             View grip = described(card, "Move "), options = described(card, "Options for "),
                     duplicate = described(card, "Duplicate "), remove = described(card, "Remove ");
             Rect gripBounds = relativeBounds(grip, card), optionBounds = relativeBounds(options, card),
                     duplicateBounds = relativeBounds(duplicate, card), removeBounds = relativeBounds(remove, card);
-            int inlineTarget = Math.min(activity.ui().dp(52), card.getWidth() / 4);
+            // Five columns now remain available on narrow covers. Test the actual square
+            // targets rather than assuming four fit across every card; the 36dp floor stays.
+            int inlineTarget = grip.getWidth();
             require(inlineTarget >= activity.ui().dp(36) - 1, "Inline controls fell below the compact target floor");
-            require(gripBounds.left == 0 && optionBounds.left == gripBounds.right
-                            && duplicateBounds.left == optionBounds.right && removeBounds.right == card.getWidth(),
-                    "Move/Edit/Duplicate must sit together at the left, with Remove at the right");
-            require(gripBounds.top == 0 && optionBounds.top == 0 && duplicateBounds.top == 0 && removeBounds.top == 0,
-                    "Editor controls wrapped instead of staying on one row");
+            require(gripBounds.left == 0 && gripBounds.top == 0, "Move handle left its top-left anchor");
+            boolean wrapped = narrowRail || duplicateBounds.top > 0;
+            if (wrapped) {
+                require(inlineTarget == activity.ui().dp(48), "Wrapped editor did not retain full 48dp targets");
+                if (narrowRail) {
+                    require(optionBounds.left == 0 && optionBounds.top == gripBounds.bottom,
+                            "Tiny rail Options must sit directly below Move");
+                    require(duplicate.getVisibility() == View.GONE && remove.getVisibility() == View.GONE,
+                            "Tiny rail kept hidden actions as overlapping targets");
+                } else {
+                    require(optionBounds.left == gripBounds.right && optionBounds.top == 0
+                                    && duplicateBounds.left == 0 && duplicateBounds.top == gripBounds.bottom
+                                    && removeBounds.top == duplicateBounds.top && removeBounds.right == card.getWidth(),
+                            "Compact editor must keep Move/Edit above Duplicate/Remove, with Remove at the right");
+                }
+            } else {
+                int resizeLane = ((Boolean)field(item, "compactRecorder")) && card.getHeight() < activity.ui().dp(96)
+                        ? activity.ui().dp(48) : 0;
+                require(inlineTarget == Math.min(activity.ui().dp(52), (card.getWidth() - resizeLane) / 4),
+                        "Inline controls lost their equal available-width targets");
+                require(optionBounds.left == gripBounds.right && duplicateBounds.left == optionBounds.right
+                                && removeBounds.right == card.getWidth() - resizeLane,
+                        "Move/Edit/Duplicate must sit together at the left, with Remove at the right");
+                require(optionBounds.top == 0 && duplicateBounds.top == 0 && removeBounds.top == 0,
+                        "Wide editor wrapped despite room for a full row");
+            }
             if (widget.type.equals("scooter")) for (TextView text : texts(card)) if (text.getText().toString().equals("SPORT"))
                 require(text.getLayout() != null && text.getLayout().getLineCount() == 1, "Scooter drive mode wrapped onto a second line");
             for (View control : controls) {

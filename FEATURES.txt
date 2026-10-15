@@ -1,4 +1,4 @@
-NAVEE OFFLINE — UT5 MAX FEATURE AVAILABILITY
+VOLT — UT5 MAX FEATURE AVAILABILITY
 Current version: 0.12.1 (versionCode 25)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
@@ -208,9 +208,14 @@ Battery health, Capacity experiment, Charging, Quick access, Ride recorder and
 Note. Each profile has its own dashboard, with separate saved layouts for
 adaptive/selected column counts. A rounded column selector offers Adaptive and
 one through six, with a sliding red highlight and horizontal scrolling when
-needed. Adaptive retains its one- through four-column behavior; five/six columns
-are optional on sufficiently wide screens. Each widget's minimum usable width
-also accounts for text size, so small windows cannot force unusably thin cards.
+needed. Adaptive retains its one- through four-column behavior. An explicit
+five-column choice remains available at 280 dp of dashboard width (roughly a
+316 dp screen with normal side padding); six columns become available at 480 dp.
+A six-column choice uses five in a smaller supported window instead of Adaptive.
+Five-column cover layouts use smaller width floors for most widget types and
+tighter padding to preserve placement. Quick access retains its touch-target
+floor, and large text can still require wider cards. Saved layouts stay intact.
+Dashboard gaps sit only between cards, giving matching left and right margins.
 New five/six-column layouts derive from the stored four-column arrangement where
 available, preserving the original. Six columns support a four/two split between
 Your scooter and Lock & connection.
@@ -231,9 +236,10 @@ corner resizes it. Full-size dashed previews show the drop destination while
 neighboring cards reflow and fill vertical gaps. Release saves; cancellation
 restores the starting layout. Size and position animate together with short
 preview/release transitions and disabled system animations respected. The move
-grip, options gear, Duplicate copy icon and red Remove trash icon share one row
-of matching squares with centered glyphs. Below 96 dp, narrow cards show only
-Move and Options; Options opens Edit/Duplicate/Remove. Separate 48 dp targets
+grip, options gear, Duplicate copy icon and red Remove trash icon use matching
+squares with centered glyphs, arranged in two rows on compact cards. Below 96 dp,
+narrow Quick access rails show only Move and Options; Options opens
+Edit/Duplicate/Remove. Separate 48 dp targets
 remain usable on three-row rails. Tap the dots for Move or corner for Size as
 accessible alternatives.
 Size and Move remain accessible by tapping the corner and grip. Menus, grips, resize corners
@@ -262,7 +268,7 @@ Distance/speed, temperature and time format are grouped under App preferences >
 Units. Narrow controls may scroll sideways; light-pattern controls fit or wrap
 to show every choice. Their highlight follows confirmed scooter state, with
 pending writes disabled and rejected/unknown values represented honestly.
-A hidden Developer options menu is unlocked by seven taps on the Navee Offline
+A hidden Developer options menu is unlocked by seven taps on the Volt
 version under About & permissions. Its simulation toggle closes real Bluetooth,
 shows all catalog parameters using sample readings, and offers local-only scalar
 control responses and generated chart previews. A persistent banner marks the
@@ -292,7 +298,9 @@ selected parameters/readings, gauge
 scales, chart windows and notes where applicable. New widgets remain drafts
 until Save. New/reset dashboards use the owner's ten-widget setup and options,
 including maximum-speed and scheduled-charging Quick access shortcuts. Five
-columns are selected where they fit, adapting to fewer on narrower screens.
+columns are retained on supported narrow cover screens, including the Galaxy
+Fold 5 at default display settings. Fewer columns apply only below 280 dp of
+available dashboard width.
 Existing current/empty/custom layouts and all saved slots stay intact.
 The battery overview uses a red cell with percentage/range and configurable
 readings. Fresh charging status swaps to separate Charging power and Time to
@@ -413,10 +421,14 @@ names, MAC addresses, PINs and location are excluded.
 
 PHONE RECORDING AND ROUTE MAPS
 
-New explicit recordings can save GPS, pressure and experimental motion separately
-from electrical-energy sampling. Route overlays color power, grade, GPS speed
+Starting a ride focuses the name field, selects the current name and opens the
+keyboard. New explicit recordings can save GPS, pressure and experimental motion
+separately from electrical-energy sampling. Route overlays color power, grade, GPS speed
 derivative and elevation; pinch to zoom, pan and tap for synchronized readings.
-Two-finger panning, zoom buttons and Fit are also available. Phone raw, linear and earth-frame
+The expand icon opens a full-screen route map; a separate center icon fits the
+whole route. Center, zoom, overlay and inspected point survive opening/closing
+the expanded view. Pinch, pan, zoom buttons and inspection work in either view.
+Phone raw, linear and earth-frame
 acceleration are retained in CSV when the relevant sensors are available.
 
 A shared ride graph supports power, wheel/GPS speed, voltage, battery, relative

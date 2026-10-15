@@ -31,6 +31,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             long until = SystemClock.uptimeMillis() + 8000; while (activity.service() == null && SystemClock.uptimeMillis() < until) SystemClock.sleep(40);
             check(activity.service() != null, "Service ready"); mapPreferences(); seed();
             main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen) field(activity, "screen"); }); settle();
+            verifyRideNaming();
             main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
             main(() -> { View options = root(); check(find(options, SegmentedSelector.class) != null, "Phone placement uses sliding selector"); text(options, "Mounted").performClick(); check(activity.service().settings.getString("phone_placement", "").equals("mounted"), "Placement saves immediately"); text(options, "Pocket").performClick(); ((AlertDialog)((List<?>)field(screen, "dialogs")).get(0)).dismiss(); });
             if (context.getResources().getConfiguration().screenWidthDp < 650) main(() -> invoke(screen, "showDetails", new Class[]{String.class}, id));
@@ -40,6 +41,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(find(root, RouteMapView.class) != null, "Map at top of same overview");
             main(() -> { text(root, "Elev.").performClick(); check("elevation".equals(field(find(root, RouteMapView.class), "metric")), "Elevation overlay selects recorded heights"); text(root, "Grade").performClick(); verifyMapContrast((RouteMapView)find(root,RouteMapView.class)); }); settle(); screenshot("grade-route");
             main(() -> { text(root,"Power").performClick();SegmentedSelector selector=(SegmentedSelector)text(root,"Elev.").getParent().getParent();View track=(View)field(selector,"track");check(track.getWidth()<=selector.getWidth(),"Short route overlay labels fit without hidden choices");verifyZoomButtons(root); }); screenshot("overview");
+            verifyExpandedMap(root);
             Object panel = ancestor(find(root, RideChartView.class), "ChartPanel");
             Set<?> selected = (Set<?>) field(panel, "chosen"); check(selected.size() == 2 && selected.contains("power_w") && selected.contains("speed_kmh"), "Power and speed selected by default");
             List<?> data = (List<?>)field(panel, "data"); check(data.size() == 8, "Eight graph series");
@@ -90,6 +92,83 @@ public final class RidesAnalysisValidation extends Instrumentation {
             if (activity != null) main(() -> { activity.finish(); ScooterService.setUiVisible(false); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); });
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
         }
+    }
+    void verifyRideNaming() throws Exception {
+        // Open the actual naming dialog below the BLE guard; this fixture never starts a ride.
+        main(() -> { activity.service().settings.edit().putString("last_ride_label", "Evening campus loop").commit(); invoke(screen, "showRideNameDialog", new Class[0]); }); settle();
+        AlertDialog dialog = (AlertDialog)((List<?>)field(screen, "dialogs")).get(0);
+        EditText name = (EditText)find(dialog.getWindow().getDecorView(), EditText.class);
+        check(name.hasFocus() && name.hasWindowFocus(), "Ride name owns keyboard focus immediately");
+        check(name.getSelectionStart() == 0 && name.getSelectionEnd() == name.length(), "Previous ride name is fully selected");
+        check((dialog.getWindow().getAttributes().softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)
+                == WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE, "Naming dialog asks Android to show the keyboard");
+        long until = SystemClock.uptimeMillis() + 5000;
+        while (Build.VERSION.SDK_INT >= 30 && !name.getRootWindowInsets().isVisible(WindowInsets.Type.ime()) && SystemClock.uptimeMillis() < until) settle();
+        check(Build.VERSION.SDK_INT < 30 || name.getRootWindowInsets().isVisible(WindowInsets.Type.ime()), "Naming keyboard is visible without another tap");
+        screenshot("ride-name-keyboard");
+        main(() -> text(dialog.getWindow().getDecorView(), "Cancel").performClick()); settle();
+        check(!dialog.isShowing() && !name.isAttachedToWindow() && !activity.service().isRecording(), "Cancel releases the editor without recording");
+        main(() -> { invoke(screen, "showRideNameDialog", new Class[0]); ((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss(); }); settle();
+        check(((List<?>)field(screen,"dialogs")).isEmpty(), "Immediate dismissal leaves no pending naming dialog");
+        main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
+        View next = root();
+        check(find(next, EditText.class) == null && (Build.VERSION.SDK_INT < 30 || !next.getRootWindowInsets().isVisible(WindowInsets.Type.ime())), "A dismissed naming request cannot reopen the keyboard over the next dialog");
+        main(() -> ((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss()); settle();
+    }
+    void verifyExpandedMap(View sourceRoot) throws Exception {
+        RouteMapView inline = (RouteMapView)find(sourceRoot, RouteMapView.class);
+        int mapCount = ((List<?>)field(screen,"maps")).size();
+        main(() -> {
+            text(sourceRoot,"Grade").performClick(); inline.zoomBy(1);
+            long now = SystemClock.uptimeMillis(); float x = inline.getWidth()/2f, y = inline.getHeight()/2f;
+            touch(inline,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(inline,now,30,MotionEvent.ACTION_UP,new float[]{x,y});
+        }); settle();
+        double originalZoom = (double)field(inline,"zoom"), originalCenter = (double)field(inline,"centerX");
+        int originalPoint = (int)field(inline,"selected");
+        check(originalPoint >= 0, "Inline map point selected before expanding");
+        View expand = byDescription(sourceRoot,"Expand route map");
+        check(expand != null && byDescription(sourceRoot,"Fit route") != null, "Expansion and route centering have separate controls");
+        main(expand::performClick); settle();
+        View full = root(); RouteMapView map = (RouteMapView)find(full,RouteMapView.class);
+        check(map != null && map != inline && full != sourceRoot, "Corner expansion opens a separate full-window map");
+        check(map.getWidth() >= full.getWidth() - activity.ui().dp(8) && map.getHeight() >= activity.ui().dp(180), "Expanded map fills the dialog width with usable height");
+        check(map.getHeight() > ((View)byDescription(full,"Route map readings and colors")).getHeight(), "Map gets more room than its bounded readouts");
+        check(Math.abs((double)field(map,"zoom")-originalZoom) < .0001 && Math.abs((double)field(map,"centerX")-originalCenter) < .0000001,
+                "Expanding preserves zoom and center instead of fitting the route");
+        check("grade".equals(field(map,"metric")) && (int)field(map,"selected") == originalPoint, "Expansion preserves route colors and selected point");
+        check(byDescription(full,"Route color: Grade").isSelected() && byDescription(full,"Expand route map") == null, "Expanded overlay selector matches and cannot recursively expand");
+        main(() -> {
+            float x=map.getWidth()/2f,y=map.getHeight()/2f,span=activity.ui().dp(24); long now=SystemClock.uptimeMillis();
+            touch(map,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y});
+            touch(map,now,20,MotionEvent.ACTION_MOVE,new float[]{x-activity.ui().dp(40),y}); touch(map,now,50,MotionEvent.ACTION_UP,new float[]{x-activity.ui().dp(40),y});
+            check(Math.abs((double)field(map,"centerX")-originalCenter)>.0000001,"Expanded route pans with a real drag");
+            double before=(double)field(map,"zoom");
+            touch(map,now+100,0,MotionEvent.ACTION_DOWN,new float[]{x-span,y});
+            touch(map,now+100,20,MotionEvent.ACTION_POINTER_DOWN|(1<<MotionEvent.ACTION_POINTER_INDEX_SHIFT),new float[]{x-span,y,x+span,y});
+            touch(map,now+100,40,MotionEvent.ACTION_MOVE,new float[]{x-span*2,y,x+span*2,y});
+            touch(map,now+100,60,MotionEvent.ACTION_POINTER_UP|(1<<MotionEvent.ACTION_POINTER_INDEX_SHIFT),new float[]{x-span*2,y,x+span*2,y});
+            touch(map,now+100,80,MotionEvent.ACTION_UP,new float[]{x-span*2,y});
+            check((double)field(map,"zoom")>before,"Expanded route responds to two-finger zoom");
+            text(full,"Accel").performClick();
+            check("accel".equals(field(map,"metric")),"Expanded route can change its metric");
+            byDescription(full,"Fit route").performClick(); check(!(boolean)field(map,"fitted"),"Dedicated center control requests a route fit");
+        }); settle();
+        check((boolean)field(map,"fitted"),"Route fit completes after drawing");
+        screenshot("expanded-map");
+        main(() -> byDescription(full,"Close expanded route map").performClick()); settle();
+        check(root()==sourceRoot && inline.isAttachedToWindow() && !(boolean)field(inline,"closed"),"Closing expansion returns to the usable inline map");
+        check((boolean)field(map,"closed") && ((List<?>)field(screen,"maps")).size()==mapCount,"Expanded map tile resources are released on close");
+        check("accel".equals(field(inline,"metric")) && byDescription(sourceRoot,"Route color: Accel").isSelected(),"Closing keeps the chosen overlay in the inline map");
+        check(Math.abs((double)field(inline,"zoom")-(double)field(map,"zoom"))<.0001,"Closing retains the expanded viewport");
+        main(expand::performClick); settle();
+        RouteMapView second=(RouteMapView)find(root(),RouteMapView.class);
+        AlertDialog expanded=(AlertDialog)((List<?>)field(screen,"dialogs")).get(((List<?>)field(screen,"dialogs")).size()-1);
+        main(() -> {
+            View frame=(View)inline.getParent(); ViewGroup parent=(ViewGroup)frame.getParent(); int index=parent.indexOfChild(frame); ViewGroup.LayoutParams params=frame.getLayoutParams();
+            parent.removeView(frame); parent.addView(frame,index,params);
+        }); settle();
+        check(!expanded.isShowing() && (boolean)field(second,"closed"),"Removing the source route dismisses expansion and closes its tile work");
+        main(() -> text(sourceRoot,"Power").performClick()); settle();
     }
     void awaitFull(Object panel) {
         long until = SystemClock.uptimeMillis() + 15000;

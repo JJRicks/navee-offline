@@ -1564,7 +1564,7 @@ public final class DashboardScreen implements AppScreen {
         /** Overlay actions keep their touch targets; tiny rails move secondary actions into a popup. */
         private final class EditorBar extends ViewGroup {
             final View grip, editButton, duplicateButton, removeButton;
-            int target, controlColumns;
+            int target, controlColumns, resizeInset;
             boolean compactRail;
             PopupMenu actionsMenu;
 
@@ -1613,12 +1613,15 @@ public final class DashboardScreen implements AppScreen {
 
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 int width = MeasureSpec.getSize(widthSpec);
-                compactRail = widget.type.equals("quick") && width < ui.dp(96);
+                // Only physically short recorders need a separate resize lane. Large text also
+                // uses compact recorder content, but must not steal width from a taller editor.
+                resizeInset = compactRecorder && MeasureSpec.getSize(heightSpec) < ui.dp(96) ? ui.dp(48) : 0;
+                int available = Math.max(1, width - resizeInset);
+                compactRail = widget.type.equals("quick") && available < ui.dp(96);
                 duplicateButton.setVisibility(compactRail ? GONE : VISIBLE);
                 removeButton.setVisibility(compactRail ? GONE : VISIBLE);
-                controlColumns = width < ui.dp(144) ? (width >= ui.dp(96) ? 2 : 1) : 4;
-                target = Math.min(ui.dp(controlColumns < 4 ? 48 : 52),
-                        (width - (compactRecorder ? ui.dp(48) : 0)) / controlColumns);
+                controlColumns = available < ui.dp(144) ? (available >= ui.dp(96) ? 2 : 1) : 4;
+                target = Math.min(ui.dp(controlColumns < 4 ? 48 : 52), available / controlColumns);
                 for (int i = 0; i < getChildCount(); i++)
                     getChildAt(i).measure(MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
                             MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
@@ -1629,6 +1632,7 @@ public final class DashboardScreen implements AppScreen {
                 if (controlColumns < 4) {
                     for (int i = 0; i < (compactRail ? 2 : 4); i++) {
                         int x = (i % controlColumns) * target, y = (i / controlColumns) * target;
+                        if (i == 3) x = getWidth() - resizeInset - target;
                         getChildAt(i).layout(x, y, x + target, y + target);
                     }
                     return;
@@ -1636,7 +1640,7 @@ public final class DashboardScreen implements AppScreen {
                 grip.layout(0, 0, target, target);
                 editButton.layout(target, 0, target * 2, target);
                 duplicateButton.layout(target * 2, 0, target * 3, target);
-                int end = getWidth() - (compactRecorder ? ui.dp(48) : 0);
+                int end = getWidth() - resizeInset;
                 removeButton.layout(end - target, 0, end, target);
             }
         }
@@ -2180,7 +2184,8 @@ public final class DashboardScreen implements AppScreen {
             boolean narrowQuick = quickAccess != null && MeasureSpec.getSize(widthSpec) < ui.dp(144);
             compactRecorder = recorder != null && MeasureSpec.getSize(heightSpec) < ui.dp(100
                     * Math.max(1, ui.textScale * getResources().getConfiguration().fontScale));
-            int pad = narrowQuick ? 10 : widget.type.equals("battery") ? 16 : 28;
+            int pad = narrowQuick ? 10 : widget.type.equals("battery") ? 16
+                    : MeasureSpec.getSize(widthSpec) < ui.dp(144) ? 16 : 28;
             int vertical = compactRecorder ? 2 : narrowQuick ? 5 : widget.type.equals("battery") ? 8 : 12;
             content.setPadding(ui.dp(pad / 2), ui.dp(vertical), ui.dp(pad / 2), ui.dp(vertical));
             if (quickAccess != null) heading.setVisibility(narrowQuick ? GONE : VISIBLE);
@@ -3306,15 +3311,12 @@ public final class DashboardScreen implements AppScreen {
         }
 
         float columnWidth() {
-            return Math.max(1, measuredWidth / (float) columns);
+            return Math.max(1, (measuredWidth + ui.dp(10)) / (float) columns);
         }
 
-        /** The most columns this width can show; narrower screens use fewer. */
+        /** Explicit five-column layouts remain available on narrow cover screens. */
         int maximumColumns() {
-            int ordinary = adaptiveColumns();
-            return measuredWidth >= ui.dp(400)
-                    ? Math.max(ordinary, Math.min(DashboardConfig.MAX_COLUMNS, measuredWidth / ui.dp(80)))
-                    : ordinary;
+            return DashboardLayout.maximumColumns(measuredWidth / getResources().getDisplayMetrics().density);
         }
 
         private int adaptiveColumns() {
@@ -3593,7 +3595,7 @@ public final class DashboardScreen implements AppScreen {
             measuredWidth = MeasureSpec.getSize(widthSpec);
             int maximum = maximumColumns();
             int requested = preferences.getInt("dashboard_columns", 0);
-            int next = requested == 0 || requested > maximum ? adaptiveColumns() : Math.max(1, requested);
+            int next = requested == 0 ? adaptiveColumns() : Math.max(1, Math.min(requested, maximum));
             // Parents can probe several widths in one measurement pass. Keep the
             // active layout stable until an actual laid-out width changes.
             columns = gestureTile == null ? next : gestureColumns;
@@ -3605,7 +3607,8 @@ public final class DashboardScreen implements AppScreen {
             int end = gestureTile == null ? 0 : gestureMinimumHeight;
             for (int i = 0; i < tiles.size(); i++) {
                 DashboardLayout.Cell cell = cells.get(i);
-                int width = Math.max(1, Math.round(cell.w * columnWidth()) - ui.dp(10));
+                int width = Math.max(1, Math.round((cell.x + cell.w) * columnWidth())
+                        - Math.round(cell.x * columnWidth()) - ui.dp(10));
                 int height = Math.round(cell.h * rowHeight()) - ui.dp(10);
                 tiles.get(i)
                         .measure(

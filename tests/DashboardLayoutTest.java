@@ -25,6 +25,7 @@ public final class DashboardLayoutTest {
         sixColumnLayouts();
         proportionalGridConversion();
         minimumUsableWidths();
+        narrowFiveColumnLayouts();
         System.out.println("DashboardLayout tests passed: " + assertions + " assertions");
     }
 
@@ -322,6 +323,23 @@ public final class DashboardLayoutTest {
         rejects(() -> DashboardLayout.rescale(null, 4, 6));
     }
 
+    private static void narrowFiveColumnLayouts() {
+        for (int screen : new int[]{320, 344, 360, 390, 432}) {
+            float grid = screen - 36;
+            check(DashboardLayout.maximumColumns(grid) == 5, "Cover screens retain five explicit columns");
+            check(DashboardLayout.minimumSpan("lock", 5, grid, 10, 1) == 2,
+                    "Default lock keeps two of five columns on narrow phones");
+            check(DashboardLayout.minimumSpan("scooter", 5, grid, 10, 1) <= 3,
+                    "Default scooter preserves its three-column position");
+            float step = (grid + 10) / 5;
+            check(Math.abs(5 * step - 10 - grid) < .001,
+                    "The last card ends at the grid edge without an extra trailing gap");
+        }
+        check(DashboardLayout.maximumColumns(480) == 6, "Wider screens retain six-column editing");
+        check(DashboardLayout.maximumColumns(240) == 1, "Exceptionally narrow windows keep safe bounds");
+        check(DashboardLayout.maximumColumns(Float.NaN) == 1, "Invalid measurement stays bounded");
+    }
+
     private static void minimumUsableWidths() {
         String[] types = {"lock", "scooter", "battery", "metric", "gauge", "live", "history",
                 "readings", "trip", "health", "capacity", "charging", "quick", "ride", "note"};
@@ -340,11 +358,11 @@ public final class DashboardLayoutTest {
                 for (int width : new int[] {1, 280, 320, 600, 852, 1440}) {
                     for (float scale : new float[] {1, 1.3f, 1.4f, 1.82f, 2}) {
                         int span = DashboardLayout.minimumSpan(type, columns, width, 10, scale);
-                        float floor = DashboardLayout.minimumWidgetWidthDp(type, scale);
+                        float floor = DashboardLayout.minimumGridWidthDp(type, columns, width, scale);
                         check(span >= 1 && span <= columns, "Physical width floor returns a bounded span");
-                        check(span == columns || span * (double) width / columns - 10 >= floor - .0001,
+                        check(span == columns || span * (double) (width + 10) / columns - 10 >= floor - .0001,
                                 "Constrained cards meet their usable width whenever space permits");
-                        check(span == 1 || (span - 1) * (double) width / columns - 10 < floor + .0001,
+                        check(span == 1 || (span - 1) * (double) (width + 10) / columns - 10 < floor + .0001,
                                 "Constrained cards do not consume an unnecessary additional column");
                         check(span >= DashboardLayout.minimumSpan(type, columns, width, 10, 1),
                                 "Larger text never lowers a widget's minimum span");

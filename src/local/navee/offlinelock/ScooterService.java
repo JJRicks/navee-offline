@@ -1029,7 +1029,7 @@ public final class ScooterService extends Service {
                                 ? (recordingError == null
                                         ? "Ride recording is active"
                                         : "Recording needs attention")
-                                : ble.ready() ? "Navee connected offline" : "Navee Offline";
+                                : ble.ready() ? "Scooter connected" : "Volt";
         String text =
                 isChargeRecording() ? chargeCaptureStatus() : phoneSaving()
                         ? "Finishing the last phone sensor measurements."
