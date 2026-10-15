@@ -239,7 +239,12 @@ public final class RidesScreen implements AppScreen {
         if (!text.contentEquals(button.getText())) button.setText(text);
         button.setContentDescription(text);
     }
-    public void beginRecording() { if (!service.isRecording()) toggleRecording(); }
+    /** Home's Record ride; unlike the Rides record button, it never leaves simulation. */
+    public void beginRecording() {
+        if (service.isRecording()) return;
+        if (service.simulating()) { host.toast("Exit simulation first"); return; }
+        toggleRecording();
+    }
     private void toggleRecording() {
         if (service.simulating() && !service.isRecording()) { service.setSimulation(false); host.rebuild(); return; }
         if (service.isRecording()) {
@@ -386,7 +391,7 @@ public final class RidesScreen implements AppScreen {
         boolean disconnected = !service.ble.connected();
         disconnectedPill.setVisibility(disconnected ? View.VISIBLE : View.GONE);
         reconnectButton.setVisibility(disconnected ? View.VISIBLE : View.GONE);
-        activeQuality.setText(error == null ? "" : "Storage full · free space, then Retry save");
+        activeQuality.setText(error == null ? "" : error);
         activeQuality.setVisibility(error == null ? View.GONE : View.VISIBLE);
         liveChart.set(points(trend, chartKey), chartUnit(chartKey), chartColor(chartKey), "Waiting for readings");
     }

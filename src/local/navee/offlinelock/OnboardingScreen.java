@@ -954,6 +954,8 @@ public final class OnboardingScreen implements AppScreen {
         found.setContentDescription("Owner identity found, stored privately on this phone. " + detail.getText());
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(18);
         content.addView(found, gp);
+        // A re-picked file that failed keeps this identity; say so here too (no toast during setup).
+        if (prefs.getBoolean(KEY_IMPORT_FAILED, false)) fine("Not an owner file.").setTextColor(ui.danger);
         nameField = nameInput(prefs.getString(KEY_PENDING_NAME, summary[0]));
         fine(SHIZUKU.equals(path()) ? "Stored privately. Revoke Shizuku now." : "This file unlocks your scooter. Keep it private.");
         // The picked file is still in Downloads after import; offer to remove that copy right here.

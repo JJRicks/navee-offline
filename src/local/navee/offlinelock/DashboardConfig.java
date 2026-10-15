@@ -396,6 +396,40 @@ public final class DashboardConfig {
         save(false);
     }
 
+    /** The stored column choice, or -1 when none is stored. */
+    public int columnPreference() {
+        return preferences.contains(COLUMN_KEY) ? preferences.getInt(COLUMN_KEY, 0) : -1;
+    }
+
+    /** Puts back a value from {@link #columnPreference()}; -1 removes the stored choice. */
+    public void restoreColumnPreference(int columns) {
+        if (columns < 0) preferences.edit().remove(COLUMN_KEY).apply();
+        else preferences.edit().putInt(COLUMN_KEY, columns).apply();
+    }
+
+    /** The widgets in their storage form, for a short-lived copy such as a pending Undo. */
+    public String widgetsJson() {
+        try {
+            return writeWidgets(widgets).toString();
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** The widgets as last saved, or null when none are saved. */
+    public String storedWidgetsJson() {
+        return preferences.getString(storageKey, null);
+    }
+
+    /** Reads widgets written by {@link #widgetsJson()}; null when unreadable. */
+    public static ArrayList<Widget> parseWidgets(String json) {
+        try {
+            return json == null ? null : readWidgets(new JSONArray(json));
+        } catch (JSONException | RuntimeException invalid) {
+            return null;
+        }
+    }
+
     private void save(boolean resetColumns) {
         try {
             SharedPreferences.Editor edit = preferences.edit()

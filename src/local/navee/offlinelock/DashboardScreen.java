@@ -64,6 +64,11 @@ public final class DashboardScreen implements AppScreen {
     private static final String EDIT_ACTION = "dashboard-edit-action";
     private static final String WIDGET_LIMIT_TEXT = "32-widget limit";
     private AlertDialog dialog;
+    /**
+     * Holds the layout from before Restore defaults while that step is still the latest edit, so
+     * its Undo survives a rebuild in edit mode (tab switch, rotation, fold).
+     */
+    private final String restoreUndoKey;
     /** The bottom notice (e.g. "Defaults restored · Undo"), if one is showing. */
     private PopupWindow notice;
     private Bitmap scooterPhoto;
@@ -83,6 +88,7 @@ public final class DashboardScreen implements AppScreen {
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
         profileId = profile == null ? "unconfigured" : profile.id;
         config = new DashboardConfig(preferences, profileId);
+        restoreUndoKey = "dashboard_restore_undo_v1_" + profileId;
         editing = preferences.getBoolean("dashboard_editing", false);
         view = column();
         // Home header: a muted status line, the scooter name and a round edit button.
@@ -179,6 +185,7 @@ public final class DashboardScreen implements AppScreen {
         grid = new Grid();
         view.addView(grid, new LinearLayout.LayoutParams(-1, -2));
         render();
+        resumeRestoreUndo();
     }
 
     @Override
@@ -289,6 +296,7 @@ public final class DashboardScreen implements AppScreen {
         stopEditTransition();
         grid.stopJiggle();
         editHistory.clear();
+        clearRestoreUndo();
         editing = !editing;
         preferences.edit().putBoolean("dashboard_editing", editing).apply();
         render();
@@ -589,9 +597,15 @@ public final class DashboardScreen implements AppScreen {
         redo.setAlpha(redo.isEnabled() ? 1 : .3f);
     }
 
-    private void recordEdit(DashboardEditHistory.Snapshot before) {
-        editHistory.record(before, config);
+    private boolean recordEdit(DashboardEditHistory.Snapshot before) {
+        boolean recorded = editHistory.record(before, config);
+        if (recorded) {
+            // A newer step ends any Undo offer; it would no longer undo the step it named.
+            hideNotice();
+            clearRestoreUndo();
+        }
         updateHistoryControls();
+        return recorded;
     }
 
     private void restoreEdit(boolean forward) {
@@ -599,6 +613,7 @@ public final class DashboardScreen implements AppScreen {
         grid.finishGesture(false);
         stopRemovalEffect();
         dismiss();
+        clearRestoreUndo();
         if (forward ? editHistory.redo(config) : editHistory.undo(config)) {
             config.save();
             render();
@@ -735,7 +750,8 @@ public final class DashboardScreen implements AppScreen {
         // Last seen is the newer of the last connection and the newest captured reading.
         for (TelemetryHistory.Reading r : readings.values())
             if (r != null && r.value != null) lastConnected = Math.max(lastConnected, r.capturedWallMs);
-        headerSeenMs = !ready && !connecting ? lastConnected : 0;
+        // While editing the status line is hidden, so stale cards show their own age.
+        headerSeenMs = !editing && !ready && !connecting ? lastConnected : 0;
         // Done, undo/redo, the jiggle and the edit tools already show edit mode.
         status.setVisibility(editing ? View.GONE : View.VISIBLE);
         if (editing) {
@@ -6048,21 +6064,79 @@ public final class DashboardScreen implements AppScreen {
         if (closed || !editing) return;
         grid.finishGesture(false);
         stopRemovalEffect();
-        DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
-        final boolean hadColumns = preferences.contains("dashboard_columns");
-        final int columns = preferences.getInt("dashboard_columns", 0);
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.captureWithColumns(config);
+        String previous = config.widgetsJson();
+        int columns = config.columnPreference();
         config.reset();
-        recordEdit(before);
+        boolean recorded = recordEdit(before);
+        if (recorded) {
+            try {
+                preferences.edit().putString(restoreUndoKey, new org.json.JSONObject()
+                        .put("widgets", previous)
+                        .put("columns", columns)
+                        .put("restored", config.widgetsJson())
+                        .toString()).apply();
+            } catch (org.json.JSONException ignored) {
+                // Undo still works from this screen's history.
+            }
+        }
         dismiss();
         render();
+        if (recorded) offerRestoreUndo();
+        else showNotice(view, "Defaults restored", null, null);
+    }
+
+    private void offerRestoreUndo() {
         showNotice(view, "Defaults restored", "Undo", () -> {
             if (closed || !editing || !editHistory.canUndo()) return;
             restoreEdit(false);
-            SharedPreferences.Editor edit = preferences.edit();
-            if (hadColumns) edit.putInt("dashboard_columns", columns);
-            else edit.remove("dashboard_columns");
-            edit.apply();
-            grid.requestLayout();
+        });
+    }
+
+    private void clearRestoreUndo() {
+        if (preferences.contains(restoreUndoKey)) preferences.edit().remove(restoreUndoKey).apply();
+    }
+
+    /** After a rebuild in edit mode, puts a pending Restore defaults back into Undo and offers it again. */
+    private void resumeRestoreUndo() {
+        if (!preferences.contains(restoreUndoKey)) return;
+        ArrayList<DashboardConfig.Widget> previous = null;
+        int columns = -1;
+        try {
+            org.json.JSONObject saved = new org.json.JSONObject(preferences.getString(restoreUndoKey, ""));
+            // Anything that replaced the restored defaults since (an import, a backup restore) ends the offer.
+            String restored = saved.getString("restored");
+            String stored = config.storedWidgetsJson();
+            if (editing && stored != null && stored.equals(restored)) {
+                previous = DashboardConfig.parseWidgets(saved.getString("widgets"));
+                columns = saved.optInt("columns", -1);
+            }
+        } catch (org.json.JSONException | RuntimeException unreadable) {
+            previous = null;
+        }
+        if (previous == null) {
+            clearRestoreUndo();
+            return;
+        }
+        ArrayList<DashboardConfig.Widget> current = new ArrayList<>(config.widgets);
+        config.widgets.clear();
+        config.widgets.addAll(previous);
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.captureWithColumns(config, columns);
+        config.widgets.clear();
+        config.widgets.addAll(current);
+        if (!editHistory.record(before, config)) {
+            clearRestoreUndo();
+            return;
+        }
+        updateHistoryControls();
+        Runnable offer = () -> view.post(() -> { if (!closed && editing && editHistory.canUndo()) offerRestoreUndo(); });
+        if (view.isAttachedToWindow()) offer.run();
+        else view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {
+                v.removeOnAttachStateChangeListener(this);
+                offer.run();
+            }
+            @Override public void onViewDetachedFromWindow(View v) { }
         });
     }
 
@@ -6250,6 +6324,7 @@ public final class DashboardScreen implements AppScreen {
             }
             stopRemovalEffect();
             editHistory.clear();
+            clearRestoreUndo();
             dismiss();
             render();
             host.toast("Restored “" + saved.name + "”");

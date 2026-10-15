@@ -2166,7 +2166,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             }catch(Exception error){handler.post(()->toast("Not a Volt layout file. Nothing changed."));}},"Volt-layout-import").start();
             return;
         }
-        if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();pickedOwnerUri=uri;try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));maybeApplyOwnerImport();}catch(Exception e){
+        if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();pickedOwnerUri=null;try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));pickedOwnerUri=uri;maybeApplyOwnerImport();}catch(Exception e){pickedOwnerUri=null;
             // First-run setup shows its own inline "Not an owner file."; elsewhere the parser's reason is a toast.
             if(onboarding==null)toast(e instanceof IllegalArgumentException?e.getMessage():"The setup file could not be read.");else onboarding.onOwnerImported(false);}}
     }
@@ -2183,10 +2183,18 @@ public final class MainActivity extends Activity implements ScreenHost {
     /** The document the rider picked for the last owner import, so its Downloads copy can be removed. */
     private Uri pickedOwnerUri;
     /** True while the owner-setup document picked during this session can still be offered for deletion. */
-    public boolean hasPickedOwnerFile(){return pickedOwnerUri!=null;}
+    public boolean hasPickedOwnerFile(){return downloadsDocument(pickedOwnerUri);}
+    /** Only a Downloads (or on-device Download folder) document is called a "Downloads copy". */
+    private static boolean downloadsDocument(Uri uri){
+        if(uri==null)return false;String authority=uri.getAuthority();
+        if("com.android.providers.downloads.documents".equals(authority))return true;
+        if(!"com.android.externalstorage.documents".equals(authority))return false;
+        try{String id=android.provider.DocumentsContract.getDocumentId(uri);int colon=id.indexOf(':');String path=colon<0?id:id.substring(colon+1);
+            return path.equals("Download")||path.startsWith("Download/");}catch(RuntimeException invalid){return false;}
+    }
     /** Deletes the picked owner-setup document; false when nothing was picked or the provider cannot delete it. */
     public boolean deletePickedOwnerFile(){
-        Uri uri=pickedOwnerUri;if(uri==null)return false;
+        Uri uri=pickedOwnerUri;if(!downloadsDocument(uri))return false;
         try{if(!android.provider.DocumentsContract.deleteDocument(getContentResolver(),uri))return false;pickedOwnerUri=null;return true;}
         catch(Exception unsupported){return false;}
     }
