@@ -259,22 +259,29 @@ final class QuickAccessGrid extends ViewGroup {
         setMeasuredDimension(width, rows * rowHeight + (rows - 1) * gap);
     }
 
-    /** Separate cards: wrap below ~88 dp of text each, then drop labels before values to fit the height. */
+    /** Separate cards: wrap below ~88 dp of text each when the height holds the rows, else stay on one row and drop labels. */
     private void measureTiles(int width) {
         int gap = ui.dp(10), count = cells.size();
         if (count == 0) { setMeasuredDimension(width, 0); return; }
         float factor = Math.max(1, ui.textScale * getResources().getConfiguration().fontScale);
+        // Wrap only into rows the height can hold (48 dp each); a one-row card keeps every tile on one row.
+        int maxRows = budget > 0 ? Math.max(1, (budget + gap) / (ui.dp(48) + gap)) : count;
         columns = count;
-        while (columns > 1 && (width - (columns - 1) * gap) / columns < ui.dp(88 * factor))
-            columns = columns == 4 ? 2 : columns - 1;
+        while (columns > 1 && (width - (columns - 1) * gap) / columns < ui.dp(88 * factor)) {
+            int next = columns == 4 ? 2 : columns - 1;
+            if ((count + next - 1) / next > maxRows) break;
+            columns = next;
+        }
         int rows = (count + columns - 1) / columns;
         int cellWidth = Math.max(1, (width - (columns - 1) * gap) / columns);
+        // Too narrow for a label beside the value: show the value alone (the description keeps the label).
+        boolean cramped = columns > 1 && cellWidth < ui.dp(88 * factor);
         int perRow = budget > 0 ? (budget - (rows - 1) * gap) / rows : Integer.MAX_VALUE;
         int natural;
         if (width != fittedWidth || budget != fittedBudget) {
             // Choose once per size so visibility and size changes do not request layout on every pass.
             fittedWidth = width; fittedBudget = budget;
-            tileLabels = true; tileCompact = false;
+            tileLabels = !cramped; tileCompact = false;
             natural = measureTileCells(cellWidth, true, perRow);
             if (natural > perRow) { tileCompact = true; natural = measureTileCells(cellWidth, true, perRow); }
             if (natural > perRow) { tileLabels = false; natural = measureTileCells(cellWidth, true, perRow); }

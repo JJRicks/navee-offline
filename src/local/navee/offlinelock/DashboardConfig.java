@@ -775,7 +775,7 @@ public final class DashboardConfig {
             if (widget.has("quickActions")) {
                 JSONArray actions = widget.getJSONArray("quickActions");
                 require(actions.length() >= minimumShortcuts(type)
-                        && actions.length() <= QuickAccessActions.MAX_ITEMS, "Invalid shortcut count");
+                        && actions.length() <= maximumShortcuts(type), "Invalid shortcut count");
                 HashSet<String> actionIds = new HashSet<>();
                 for (int k = 0; k < actions.length(); k++) {
                     String action = string(actions.get(k));

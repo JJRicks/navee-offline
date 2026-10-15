@@ -2421,7 +2421,9 @@ public final class DashboardScreen implements AppScreen {
             final BatteryBar bar;
             final ArrayList<LinearLayout> items = new ArrayList<>();
             int budget, readingColumns, fittedWidth = -1, fittedBudget = -1;
-            boolean photoAllowed, fittedPhoto, fittedRange;
+            boolean photoAllowed, fittedPhoto, fittedRange, rangeWanted, rangeFits = true;
+            /** Spoken battery text; readings dropped to fit the height are appended to it. */
+            String spoken = "";
 
             OverviewCard(List<String> keys) {
                 super(host.activity());
@@ -2511,16 +2513,15 @@ public final class DashboardScreen implements AppScreen {
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 int width = MeasureSpec.getSize(widthSpec);
                 // Refit only when the space changes: repeated budget changes would request layout every frame.
-                boolean ranged = range.getVisibility() == VISIBLE;
                 if (width == fittedWidth && budget == fittedBudget && photoAllowed == fittedPhoto
-                        && ranged == fittedRange) {
+                        && rangeWanted == fittedRange) {
                     super.onMeasure(widthSpec, heightSpec);
                     return;
                 }
                 fittedWidth = width;
                 fittedBudget = budget;
                 fittedPhoto = photoAllowed;
-                fittedRange = ranged;
+                fittedRange = rangeWanted;
                 arrangeReadings(width);
                 // The photo only takes width the percentage and range can spare.
                 int photoWidth = Math.min(ui.dp(150), Math.round(width * .42f));
@@ -2528,15 +2529,51 @@ public final class DashboardScreen implements AppScreen {
                 picture.setVisibility(photo ? VISIBLE : GONE);
                 LinearLayout.LayoutParams photoSize = (LinearLayout.LayoutParams) picture.getLayoutParams();
                 if (photoSize.width != photoWidth) photoSize.width = photoWidth;
+                rangeFits = true;
+                range.setVisibility(rangeWanted ? VISIBLE : GONE);
+                for (int i = 0; i < readingsBox.getChildCount(); i++) readingsBox.getChildAt(i).setVisibility(VISIBLE);
+                readingsBox.setVisibility(items.isEmpty() ? GONE : VISIBLE);
+                int lines = readingsBox.getChildCount();
+                // Give up height from the big percentage first; once it sits at its floor, hide
+                // the range line, then whole rows of readings from the end. Never scroll inside.
+                while (!fitPercent(widthSpec) && (range.getVisibility() == VISIBLE || lines > 0)) {
+                    if (range.getVisibility() == VISIBLE) {
+                        rangeFits = false;
+                        range.setVisibility(GONE);
+                    } else {
+                        readingsBox.getChildAt(--lines).setVisibility(GONE);
+                        if (lines == 0) readingsBox.setVisibility(GONE);
+                    }
+                }
+                speak();
+                super.onMeasure(widthSpec, heightSpec);
+            }
+
+            /** Fits the percentage to what the other lines leave; false when it is over budget at its floor. */
+            private boolean fitPercent(int widthSpec) {
                 percent.fitHeight(Integer.MAX_VALUE);
                 // Probe the natural height; an AT_MOST spec would clamp it and hide an overflow.
-                super.onMeasure(widthSpec, MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-                if (budget > 0 && getMeasuredHeight() > budget) {
-                    // Give up height from the big percentage first; the readings keep their size.
-                    int other = getMeasuredHeight() - percent.getMeasuredHeight();
-                    percent.fitHeight(Math.max(1, budget - other));
+                int unbounded = MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED);
+                super.onMeasure(widthSpec, unbounded);
+                if (budget <= 0 || getMeasuredHeight() <= budget) return true;
+                int other = getMeasuredHeight() - percent.getMeasuredHeight();
+                percent.fitHeight(Math.max(1, budget - other));
+                super.onMeasure(widthSpec, unbounded);
+                return getMeasuredHeight() <= budget;
+            }
+
+            /** Battery description plus any readings hidden for height, so they stay reachable. */
+            private void speak() {
+                StringBuilder text = new StringBuilder(spoken);
+                for (LinearLayout item : items) {
+                    if (item.getParent() instanceof View && ((View) item.getParent()).getVisibility() == VISIBLE
+                            && readingsBox.getVisibility() == VISIBLE) continue;
+                    CharSequence reading = item.getChildAt(1).getContentDescription();
+                    if (reading != null && reading.length() > 0) text.append(". ").append(reading);
                 }
-                super.onMeasure(widthSpec, heightSpec);
+                if (!text.toString().contentEquals(percent.getContentDescription() == null
+                        ? "" : percent.getContentDescription()))
+                    percent.setContentDescription(text.toString());
             }
 
             void refresh(Map<String, TelemetryHistory.Reading> values) {
@@ -2556,12 +2593,14 @@ public final class DashboardScreen implements AppScreen {
                 String distance = rangeText(values.get("remaining_range_km"));
                 String line = charging ? "Charging" : distance.isEmpty() ? "" : distance + " left";
                 if (!line.contentEquals(range.getText())) range.setText(line);
-                range.setVisibility(line.isEmpty() ? GONE : VISIBLE);
+                if (rangeWanted != !line.isEmpty()) { rangeWanted = !line.isEmpty(); requestLayout(); }
+                range.setVisibility(rangeWanted && rangeFits ? VISIBLE : GONE);
                 bar.set(level, live, charging);
-                percent.setContentDescription("Battery " + (level == null ? "not reported" : amount + " percent")
+                spoken = "Battery " + (level == null ? "not reported" : amount + " percent")
                         + (line.isEmpty() ? "" : ", " + line)
                         + (charge != null && charge.value != null && !live
-                                ? ", last seen " + when(charge.capturedWallMs) : ""));
+                                ? ", last seen " + when(charge.capturedWallMs) : "");
+                speak();
                 ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
                 boolean allowed = profile != null && profile.pid() == 2538;
                 if (allowed != photoAllowed) { photoAllowed = allowed; requestLayout(); }
@@ -2671,12 +2710,19 @@ public final class DashboardScreen implements AppScreen {
                 int width = MeasureSpec.getSize(widthSpec), gap = ui.dp(10), count = cells.size();
                 if (count == 0) { setMeasuredDimension(width, 0); return; }
                 // Wrap to two per row (or one) before a tile becomes narrower than ~88 dp of text.
+                // Wrap only into rows the height can hold (a ~44 dp label + value tile each);
+                // a one-row card keeps every tile on one row and drops icons and labels instead.
                 int minimum = ui.dp(88 * textFactor());
+                int maxRows = budget > 0 ? Math.max(1, (budget + gap) / (ui.dp(44 * textFactor()) + gap)) : count;
                 columns = count;
-                while (columns > 1 && (width - (columns - 1) * gap) / columns < minimum)
-                    columns = columns == 4 ? 2 : columns - 1;
+                while (columns > 1 && (width - (columns - 1) * gap) / columns < minimum) {
+                    int next = columns == 4 ? 2 : columns - 1;
+                    if ((count + next - 1) / next > maxRows) break;
+                    columns = next;
+                }
                 int rows = (count + columns - 1) / columns;
                 int cellWidth = Math.max(1, (width - (columns - 1) * gap) / columns);
+                boolean cramped = columns > 1 && cellWidth < minimum;
                 int perRow = budget > 0 ? (budget - (rows - 1) * gap) / rows : Integer.MAX_VALUE;
                 int natural;
                 if (width == fittedWidth && budget == fittedBudget) natural = measureCells(cellWidth, -1);
@@ -2685,7 +2731,8 @@ public final class DashboardScreen implements AppScreen {
                     fittedWidth = width;
                     fittedBudget = budget;
                     natural = 0;
-                    for (int next = FULL; next <= VALUE; next++) {
+                    // Too narrow for a label: values only (each value's description keeps its label).
+                    for (int next = cramped ? VALUE : FULL; next <= VALUE; next++) {
                         apply(next);
                         natural = measureCells(cellWidth, perRow);
                         if (natural <= perRow) break;
@@ -2803,13 +2850,16 @@ public final class DashboardScreen implements AppScreen {
                     : MeasureSpec.getSize(widthSpec) < ui.dp(144) ? 16 : 28;
             int vertical = compactRecorder ? 2 : narrowQuick ? 5 : widget.type.equals("battery") ? 8 : 12;
             if (widget.type.equals("lockbar")) {
-                // A one-row card: 48 dp controls with 3 dp above and below.
-                pad = 24;
+                // A one-row card: 48 dp controls with 3 dp above and below. Below 104 dp the
+                // side padding shrinks so the icon-only Connect button still fits.
+                pad = MeasureSpec.getSize(widthSpec) < ui.dp(104) ? 8 : 24;
                 vertical = 3;
             } else if (frameless(widget.type)) {
                 // The tiles are the cards; editing adds a thin frame of the widget card around them.
+                // A one-row card (54 dp at 1.0 text scale) keeps 48 dp for its tiles: 3 dp above and below.
+                boolean oneRow = MeasureSpec.getSize(heightSpec) < ui.dp(86 * ui.textScale);
                 pad = editing ? 12 : 0;
-                vertical = editing ? 6 : 0;
+                vertical = editing ? oneRow ? 3 : 6 : 0;
             }
             content.setPadding(ui.dp(pad / 2), ui.dp(vertical), ui.dp(pad / 2), ui.dp(vertical));
             if (quickAccess != null) heading.setVisibility(narrowQuick ? GONE : VISIBLE);

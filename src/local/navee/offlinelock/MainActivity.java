@@ -492,19 +492,72 @@ public final class MainActivity extends Activity implements ScreenHost {
         connectionAction.setMaxLines(1);
         connectionAction.setPadding(design.dp(16),0,design.dp(16),0);
         connectionAction.setMinWidth(design.dp(48));
-        LinearLayout content=row();content.setGravity(Gravity.CENTER_VERTICAL);
-        content.setMinimumHeight(design.dp(48));
+        LinearLayout content=new CompactLockRow(offline,offlineTitle,connectionAction);
         content.addView(offline,new LinearLayout.LayoutParams(0,-2,1));
         content.addView(lockControl,new LinearLayout.LayoutParams(0,design.dp(48),1));
         LinearLayout.LayoutParams action=new LinearLayout.LayoutParams(-2,design.dp(48));action.setMarginStart(design.dp(10));
         content.addView(connectionAction,action);
         return registerDashboardLock(content);
     }
+    /**
+     * Lock bar row. When the status and the worded action do not both fit, the action becomes a
+     * 48 dp icon button (its text and description stay for accessibility); after that the title
+     * ellipsizes. The status drops its own icon square first, so that one goes before the words.
+     */
+    private final class CompactLockRow extends LinearLayout {
+        private final View status;private final TextView title,action;
+        private final android.text.method.TransformationMethod words;
+        private final android.graphics.drawable.Drawable glyph;
+        private boolean iconOnly;
+        CompactLockRow(View status,TextView title,TextView action){
+            super(MainActivity.this);this.status=status;this.title=title;this.action=action;
+            setOrientation(HORIZONTAL);setGravity(Gravity.CENTER_VERTICAL);setMinimumHeight(design.dp(48));
+            words=action.getTransformationMethod();
+            glyph=new android.graphics.drawable.Drawable(){
+                @Override public void draw(Canvas canvas){
+                    android.graphics.Rect b=getBounds();
+                    String key="Connect".contentEquals(action.getText())?"bluetooth":"close";
+                    design.drawIcon(canvas,key,action.getCurrentTextColor(),b.exactCenterX(),b.exactCenterY(),b.width());
+                }
+                @Override public void setAlpha(int alpha){}
+                @Override public void setColorFilter(android.graphics.ColorFilter filter){}
+                @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
+            };
+            glyph.setBounds(0,0,design.dp(20),design.dp(20));
+        }
+        @Override protected void onMeasure(int widthSpec,int heightSpec){
+            int width=MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
+            boolean icon=false;
+            if(MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED&&action.getVisibility()!=GONE){
+                // Natural worded width from the text itself: toggling and re-measuring would request layout every pass.
+                float worded=Math.max(design.dp(48),action.getPaint().measureText(action.getText().toString())+design.dp(32));
+                float need=status.getVisibility()!=GONE?title.getPaint().measureText(title.getText().toString()):design.dp(96);
+                icon=width-worded-design.dp(10)<need;
+            }
+            if(icon!=iconOnly){
+                iconOnly=icon;
+                action.setTransformationMethod(icon?new android.text.method.TransformationMethod(){
+                    @Override public CharSequence getTransformation(CharSequence source,View view){return "";}
+                    @Override public void onFocusChanged(View view,CharSequence source,boolean focused,int direction,android.graphics.Rect previous){}
+                }:words);
+                action.setPadding(design.dp(icon?14:16),0,design.dp(icon?14:16),0);
+                action.setCompoundDrawablesRelative(icon?glyph:null,null,null,null);
+                action.setCompoundDrawablePadding(0);
+                LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)action.getLayoutParams();
+                p.setMarginStart(design.dp(icon?4:10));p.resolveLayoutDirection(getLayoutDirection());
+                if(!icon)action.setTooltipText(null);
+            }
+            // The icon names its action on long press; the description follows Connect/Cancel/Disconnect.
+            if(icon&&!android.text.TextUtils.equals(action.getTooltipText(),action.getContentDescription()))
+                action.setTooltipText(action.getContentDescription());
+            super.onMeasure(widthSpec,heightSpec);
+        }
+    }
     /** Offline lock bar status: drops its icon square before it would cut the state short. */
     private final class CompactLockStatus extends LinearLayout {
-        private final View symbol;private final TextView title;
+        private final View symbol;private final TextView title,detail;
         CompactLockStatus(View symbol,LinearLayout words,TextView title){
-            super(MainActivity.this);this.symbol=symbol;this.title=title;
+            super(MainActivity.this);this.symbol=symbol;this.title=title;this.detail=(TextView)words.getChildAt(1);
             setOrientation(HORIZONTAL);setGravity(Gravity.CENTER_VERTICAL);setMinimumHeight(design.dp(48));
             setClickable(true);setFocusable(true);
             setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(design.accent,30)),null,design.shape(android.graphics.Color.WHITE,12,0)));
@@ -514,7 +567,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         @Override protected void onMeasure(int widthSpec,int heightSpec){
             int width=MeasureSpec.getSize(widthSpec);
-            float needed=title.getPaint().measureText(title.getText().toString());
+            // Both lines decide: the square goes before either the state or its time is cut short.
+            float needed=Math.max(title.getPaint().measureText(title.getText().toString()),
+                    detail.getPaint().measureText(detail.getText().toString()));
             boolean room=MeasureSpec.getMode(widthSpec)==MeasureSpec.UNSPECIFIED||width-design.dp(52)>=needed;
             symbol.setVisibility(room?VISIBLE:GONE);
             LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)getChildAt(1).getLayoutParams();
@@ -752,7 +807,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 String unknown=compactLock?"Lock state unknown":"Lock state unverified";
                 offlineTitle.setText(connecting?(compactLock?"Connecting…":"Connecting"):unknown);
                 offlineTitle.setContentDescription(connecting?"Connecting to "+scooterName:unknown);
-                offlineDetail.setText(connecting?"Tap for details":last>0?"Last verified "+DisplayTime.recent(this,preferences,last,System.currentTimeMillis()):"Connect to check the lock");
+                offlineDetail.setText(connecting?"Tap for details":last>0?"Last verified "+(compactLock?shortRecent(last):DisplayTime.recent(this,preferences,last,System.currentTimeMillis())):"Connect to check the lock");
             }
         }
         }
@@ -766,6 +821,22 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         updateConnectionAction(ready,connecting);
         ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();if(profileTitle!=null){profileTitle.setText(p==null?"Your scooter":p.name);profileTitle.setVisibility(home?View.VISIBLE:View.GONE);}
+    }
+    /**
+     * Lock bar detail time, short enough for a 320 dp phone: the clock today, the weekday and clock
+     * within the last week ("Tue 3:02 PM"), otherwise a short date and the clock ("14 Oct 3:02 PM").
+     */
+    private String shortRecent(long wall){
+        java.util.Calendar then=java.util.Calendar.getInstance(),day=java.util.Calendar.getInstance();
+        then.setTimeInMillis(wall);
+        String clock=DisplayTime.clock(this,preferences,wall);
+        // Midnight today, then step back: a calendar-day comparison that stays right across DST changes.
+        day.set(java.util.Calendar.HOUR_OF_DAY,0);day.set(java.util.Calendar.MINUTE,0);
+        day.set(java.util.Calendar.SECOND,0);day.set(java.util.Calendar.MILLISECOND,0);
+        if(!then.before(day))return clock;
+        day.add(java.util.Calendar.DAY_OF_MONTH,-6);
+        String date=!then.before(day)?"EEE":"d MMM";
+        return new java.text.SimpleDateFormat(date,java.util.Locale.ENGLISH).format(new java.util.Date(wall))+" "+clock;
     }
     /** Updates the action presentation without changing the Bluetooth transport. */
     private void updateConnectionAction(boolean ready,boolean connecting){
