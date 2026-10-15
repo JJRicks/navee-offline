@@ -1163,6 +1163,7 @@ public final class DashboardScreen implements AppScreen {
     private final class InfoCell extends LinearLayout {
         final TextView label, value;
         final View labelIcon;
+        int heightBudget = Integer.MAX_VALUE;
         InfoCell(String icon, String title) {
             this(icon, title, title, title.equals("Charging power") ? "Power" : title);
         }
@@ -1191,11 +1192,18 @@ public final class DashboardScreen implements AppScreen {
             p.topMargin = ui.dp(2);
             addView(value, p);
         }
+        void fitHeight(int pixels) {
+            heightBudget = pixels;
+            value.setMinHeight(pixels == Integer.MAX_VALUE ? ui.dp(48 * ui.textScale) : 0);
+            ((FittedValue) value).fitHeight(pixels == Integer.MAX_VALUE ? pixels
+                    : pixels - getChildAt(0).getMeasuredHeight() - ui.dp(10));
+        }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
             boolean narrow = MeasureSpec.getSize(widthSpec) < ui.dp(170 * ui.textScale
                     * getResources().getConfiguration().fontScale);
             int inset = ui.dp(narrow ? 6 : 12);
-            setPadding(inset, ui.dp(10), inset, ui.dp(10));
+            int vertical = ui.dp(heightBudget == Integer.MAX_VALUE ? 10 : 4);
+            setPadding(inset, vertical, inset, vertical);
             labelIcon.setVisibility(narrow ? GONE : VISIBLE);
             super.onMeasure(widthSpec, heightSpec);
         }
@@ -1214,6 +1222,24 @@ public final class DashboardScreen implements AppScreen {
             InfoCell cell = new InfoCell(readingIcon(key), full, normal,
                     ScooterReadingLabels.compact(key, normal));
             cells.add(cell); columns = 0; requestLayout(); return cell;
+        }
+        void fitHeight(int budget) {
+            if (cells.isEmpty() || columns == 0) return;
+            for (InfoCell cell : cells) {
+                cell.fitHeight(Integer.MAX_VALUE);
+                measureCell(cell);
+            }
+            if (readingRowsHeight(cells, columns, ui.dp(8)) <= budget) return;
+            // These are informational values, not touch targets: their usual 48dp
+            // minimum must not force a half-visible first reading in a short card.
+            for (InfoCell cell : cells) { cell.fitHeight(1); measureCell(cell); }
+            int rows = (cells.size() + columns - 1) / columns;
+            int minimum = readingRowsHeight(cells, columns, ui.dp(8));
+            int extra = minimum <= budget ? (budget - minimum) / rows : -1;
+            for (int i = 0; i < cells.size(); i += columns) {
+                int height = extra < 0 ? budget : readingRowHeight(cells, i, columns) + extra;
+                for (int j = i; j < Math.min(i + columns, cells.size()); j++) cells.get(j).fitHeight(height);
+            }
         }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
             int next = MeasureSpec.getSize(widthSpec) >= ui.dp(280 * ui.textScale) ? 2 : 1;
@@ -1237,6 +1263,25 @@ public final class DashboardScreen implements AppScreen {
             }
             super.onMeasure(widthSpec, heightSpec);
         }
+    }
+
+    private void measureCell(View cell) {
+        cell.measure(View.MeasureSpec.makeMeasureSpec(Math.max(1, cell.getMeasuredWidth()), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
+    }
+
+    private int readingRowHeight(List<? extends View> cells, int first, int columns) {
+        int height = 0;
+        for (int i = first; i < Math.min(first + columns, cells.size()); i++)
+            height = Math.max(height, cells.get(i).getMeasuredHeight());
+        return height;
+    }
+
+    private int readingRowsHeight(List<? extends View> cells, int columns, int gap) {
+        int height = 0;
+        for (int i = 0; i < cells.size(); i += columns)
+            height += readingRowHeight(cells, i, columns) + (i == 0 ? 0 : gap);
+        return height;
     }
 
     /**
@@ -1458,6 +1503,8 @@ public final class DashboardScreen implements AppScreen {
         boolean capacityPending, dragging, showsRange;
         View resizeControl;
         QuickAccessGrid quickAccess;
+        IconReadingStrip tripStats;
+        InfoTiles infoTiles;
         float jiggleAngle;
         Boolean recordingShown;
         long capacityChecked;
@@ -1863,6 +1910,7 @@ public final class DashboardScreen implements AppScreen {
                     break;
                 case "readings":
                     InfoTiles readingTiles = new InfoTiles();
+                    infoTiles = readingTiles;
                     for (String key : widget.keys) {
                         InfoCell cell = readingTiles.addReading(key);
                         amounts.put(key, cell.value);
@@ -1871,6 +1919,7 @@ public final class DashboardScreen implements AppScreen {
                     break;
                 case "trip":
                     IconReadingStrip stats = new IconReadingStrip(IconReadingStrip.STATS);
+                    tripStats = stats;
                     for (String key :
                             new String[] {
                                 "speed_kmh",
@@ -2115,6 +2164,34 @@ public final class DashboardScreen implements AppScreen {
                 return value;
             }
 
+            void fitHeight(int budget) {
+                if (mode != STATS || cells.isEmpty() || columns == 0) return;
+                for (LinearLayout cell : cells) {
+                    cell.setPadding(0, ui.dp(4), ui.dp(8), ui.dp(4));
+                    ((FittedValue) cell.getChildAt(0)).fitHeight(Integer.MAX_VALUE);
+                    measureCell(cell);
+                }
+                if (readingRowsHeight(cells, columns, 0) <= budget) return;
+                for (LinearLayout cell : cells) {
+                    cell.setPadding(0, ui.dp(1), ui.dp(8), ui.dp(1));
+                    ((FittedValue) cell.getChildAt(0)).fitHeight(1);
+                    measureCell(cell);
+                }
+                int rows = (cells.size() + columns - 1) / columns;
+                int minimum = readingRowsHeight(cells, columns, 0);
+                int extra = minimum <= budget ? (budget - minimum) / rows : -1;
+                for (int i = 0; i < cells.size(); i += columns) {
+                    // If all readings cannot fit at readable sizes, preserve scrolling
+                    // but show at least a complete value + label before the first swipe.
+                    int height = extra < 0 ? budget : readingRowHeight(cells, i, columns) + extra;
+                    for (int j = i; j < Math.min(i + columns, cells.size()); j++) {
+                        LinearLayout cell = cells.get(j);
+                        ((FittedValue) cell.getChildAt(0)).fitHeight(height
+                                - cell.getChildAt(1).getMeasuredHeight() - cell.getPaddingTop() - cell.getPaddingBottom());
+                    }
+                }
+            }
+
             void addShortcut(String label, String spoken, String page, String icon) {
                 LinearLayout cell = column();
                 cell.setGravity(Gravity.CENTER);
@@ -2295,6 +2372,17 @@ public final class DashboardScreen implements AppScreen {
                                 ? 0 : subtitle.getMeasuredHeight())));
             }
             if (quickAccess != null) quickAccess.fitHeight(budget);
+            if (tripStats != null) tripStats.fitHeight(budget);
+            if (infoTiles != null) {
+                int other = 0;
+                for (int i = 0; i < body.getChildCount(); i++) {
+                    View child = body.getChildAt(i);
+                    if (child == infoTiles || child.getVisibility() == View.GONE) continue;
+                    LinearLayout.LayoutParams params = (LinearLayout.LayoutParams) child.getLayoutParams();
+                    other += child.getMeasuredHeight() + params.topMargin + params.bottomMargin;
+                }
+                infoTiles.fitHeight(Math.max(1, budget - other));
+            }
             if (chart != null) {
                 // The chart takes whatever its card has left after the other lines.
                 int other = 0;
@@ -2376,6 +2464,7 @@ public final class DashboardScreen implements AppScreen {
 
         private void buildCharging(LinearLayout container, boolean detailed) {
             InfoTiles tiles = new InfoTiles();
+            infoTiles = tiles;
             chargingWatts = tiles.add("bolt", "Charging power").value;
             InfoCell time = tiles.add("clock", "Time to full");
             chargingEta = time.value;
@@ -4821,9 +4910,9 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private String windowName(long ms) {
-        if (ms < 3600000) return ms / 60000 + " minutes";
-        if (ms < 86400000) return ms / 3600000 + " hours";
-        return ms / 86400000 + " days";
+        long count = ms / (ms < 3600000 ? 60000 : ms < 86400000 ? 3600000 : 86400000);
+        String unit = ms < 3600000 ? "minute" : ms < 86400000 ? "hour" : "day";
+        return count + " " + unit + (count == 1 ? "" : "s");
     }
 
     private String scaleSummary(DashboardConfig.Widget widget, double value) {

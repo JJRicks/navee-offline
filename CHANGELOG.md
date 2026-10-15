@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Use singular chart windows (1 minute/hour/day) and consistent Odo. abbreviation.
+- Fit Trip overview, Readings and Charging values to short-card height, trimming noninteractive padding before reducing values within their existing readable limits. Keep scrolling when all readings cannot fit, and preserve saved card dimensions.
+- Keep the first connection/disconnect haptics immediate while suppressing rapid repeats for five seconds after each drop. Preserve the quiet period across focus changes, and never replay suppressed events or delay Bluetooth.
+- Include reproducible emulator-only Quick access and connection haptic regression checks in the repository, including dialog focus, preferences, guarded actions and lifecycle cancellation.
+
 ## 0.13.0 — 2026-10-14
 
 - Rename the app to Volt in the launcher, onboarding, About, notifications and user documentation. Keep the existing Android package, setup, saved data and repository identity.
