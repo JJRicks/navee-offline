@@ -3,26 +3,118 @@ package local.navee.offlinelock;
 import android.app.AlertDialog;
 import android.content.SharedPreferences;
 import android.view.Gravity;
+import android.view.View;
 import android.widget.EditText;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.Switch;
 import android.widget.TextView;
+import java.util.function.Consumer;
 
 /** Map privacy/provider preferences shared by App preferences and ride rendering. */
 public final class MapPreferences {
     private MapPreferences() { }
-    static boolean enabled(SharedPreferences settings) { return settings.getBoolean("map_basemap_enabled", true); }
+    static boolean enabled(SharedPreferences settings) { return settings.getBoolean("map_basemap_enabled", false); }
+
+    /** One remembered choice, shared by inline maps, expanded maps and app preferences. */
+    static View basemapControl(ScreenHost host, Consumer<Boolean> changed) {
+        return new BasemapControl(host, changed);
+    }
+
+    private static final class BasemapControl extends LinearLayout {
+        private final ScreenHost host;
+        private final SharedPreferences settings;
+        private final Consumer<Boolean> changed;
+        private final Switch toggle;
+        private boolean updating, listening;
+        private Boolean shown;
+        private AlertDialog prompt;
+        private final SharedPreferences.OnSharedPreferenceChangeListener preferenceChanged = (p, key) -> {
+            if (key == null || key.equals("map_basemap_enabled")) refresh();
+        };
+
+        BasemapControl(ScreenHost host, Consumer<Boolean> changed) {
+            super(host.activity());
+            this.host = host; this.settings = host.service().settings; this.changed = changed;
+            Ui ui = host.ui();
+            setOrientation(HORIZONTAL); setGravity(Gravity.CENTER_VERTICAL);
+            setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
+            toggle = new Haptics.FeedbackSwitch(host.activity()); toggle.setText("Basemap");
+            toggle.setTextColor(ui.text); toggle.setTextSize(15 * ui.textScale);
+            toggle.setMinHeight(ui.dp(48)); toggle.setContentDescription("Basemap");
+            ui.styleSwitch(toggle); addView(toggle, new LinearLayout.LayoutParams(-1, -2));
+            refresh();
+            toggle.setOnCheckedChangeListener((button, on) -> {
+                if (updating) return;
+                if (!on) {
+                    settings.edit().putBoolean("map_basemap_enabled", false).apply();
+                    refresh();
+                } else if (settings.getBoolean("map_basemap_explained", false)) {
+                    settings.edit().putBoolean("map_basemap_enabled", true).apply();
+                    refresh();
+                } else {
+                    // Do not show an enabled state or start tile requests before approval.
+                    refresh();
+                    explain();
+                }
+            });
+        }
+
+        private void refresh() {
+            boolean on = enabled(settings);
+            updating = true; toggle.setChecked(on); updating = false;
+            if (shown == null || shown != on) {
+                shown = on;
+                if (changed != null) changed.accept(on);
+            }
+        }
+
+        private void explain() {
+            if (!isAttachedToWindow() || (prompt != null && prompt.isShowing())) return;
+            Ui ui = host.ui();
+            LinearLayout body = new LinearLayout(host.activity()); body.setOrientation(VERTICAL);
+            body.setPadding(ui.dp(24), ui.dp(20), ui.dp(24), ui.dp(12));
+            body.addView(ui.text("Show online map?", 21, true));
+            TextView message = ui.text("Your map provider receives your IP address and the map area you view. Ride recordings stay on this phone. You can switch the basemap off at any time.", 15, false);
+            message.setPadding(0, ui.dp(12), 0, 0); body.addView(message);
+            ScrollView scroll = new ScrollView(host.activity()); scroll.addView(body);
+            AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(scroll)
+                    .setNegativeButton("Cancel", null)
+                    .setPositiveButton("Enable basemap", (d, which) -> {
+                        if (!isAttachedToWindow()) return;
+                        settings.edit().putBoolean("map_basemap_enabled", true)
+                                .putBoolean("map_basemap_explained", true).apply();
+                        refresh();
+                    }).create();
+            prompt = dialog;
+            dialog.setOnDismissListener(d -> { if (prompt == dialog) prompt = null; refresh(); });
+            dialog.getWindow().setBackgroundDrawable(ui.shape(ui.surface, 22, ui.outline));
+            Motion.present(dialog, Motion.DIALOG); dialog.show();
+            for (int which : new int[]{AlertDialog.BUTTON_POSITIVE, AlertDialog.BUTTON_NEGATIVE}) {
+                dialog.getButton(which).setTextColor(ui.accent);
+                dialog.getButton(which).setTypeface(ui.semibold());
+            }
+        }
+
+        @Override protected void onAttachedToWindow() {
+            super.onAttachedToWindow();
+            settings.registerOnSharedPreferenceChangeListener(preferenceChanged); listening = true;
+            refresh();
+        }
+
+        @Override protected void onDetachedFromWindow() {
+            if (listening) { settings.unregisterOnSharedPreferenceChangeListener(preferenceChanged); listening = false; }
+            if (prompt != null) prompt.dismiss();
+            super.onDetachedFromWindow();
+        }
+    }
+
     public static AlertDialog show(ScreenHost host) {
         Ui ui = host.ui(); SharedPreferences settings = host.service().settings;
         LinearLayout body = new LinearLayout(host.activity()); body.setOrientation(1);
         body.setPadding(ui.dp(20), ui.dp(16), ui.dp(20), ui.dp(20));
         body.addView(ui.text("Map settings", 22, true));
-        Switch basemap = new Haptics.FeedbackSwitch(host.activity()); basemap.setText("Show basemap");
-        basemap.setTextColor(ui.text); basemap.setTextSize(16 * ui.textScale); basemap.setMinHeight(ui.dp(56));
-        basemap.setChecked(enabled(settings)); ui.styleSwitch(basemap);
-        basemap.setOnCheckedChangeListener((v, on) -> settings.edit().putBoolean("map_basemap_enabled", on).apply());
-        body.addView(basemap);
+        body.addView(basemapControl(host, null));
         TextView caption = ui.caption("Map tiles download for the area you view. Your recorded route stays on this phone. Without a basemap, the route and its readings still work offline.");
         caption.setPadding(0, 0, 0, ui.dp(14)); body.addView(caption);
         MapSource source = MapSource.load(settings);

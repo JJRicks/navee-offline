@@ -64,8 +64,11 @@ OpenStreetMap is an alternative provider.
 Map data © OpenStreetMap contributors. Attribution and licence information:
   https://www.openstreetmap.org/copyright
 
-The app loads only the visible map area when Basemap is enabled (the default
-for new preferences). It identifies
+Basemap starts off when no choice has been saved; existing explicit choices are
+preserved. The first new enable explains the provider's receipt of the user's
+IP address and viewed map area and requires confirmation. The remembered switch
+is available below ride maps and in Map settings. When enabled, the app loads
+only the visible map area. It identifies
 requests with an application User-Agent, caches tiles with response metadata
 and uses conditional revalidation. It does not bulk-download or prefetch map
 regions. Cached tiles are a viewing cache, not a promised offline map package.

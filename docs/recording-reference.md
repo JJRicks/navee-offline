@@ -89,6 +89,13 @@ restart until you open the app again. A storage failure visibly needs attention:
 free space and retry Stop to save the session. Recording cannot collect scooter
 data while it sleeps or is outside Bluetooth range.
 
+Basemap tiles are separate from GPS, the local route and recording. They start
+off when no preference is saved; existing explicit choices remain. Use Basemap
+below either map view or in App preferences > Map settings. The first new enable
+explains provider access to your IP address and viewed area, with Enable basemap/Cancel
+choices. The switch and acknowledgement are remembered across views and included
+in a full app backup. Recording does not enable or request map tiles.
+
 ## Ride exports and journal format
 
 CSV/JSON exports use Android's file picker; you choose the destination. Volt does

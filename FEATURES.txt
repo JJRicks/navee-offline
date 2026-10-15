@@ -450,9 +450,15 @@ GPS and Bluetooth gaps
 remain gaps. No inferred accelerometer distance is used. Older rides do not gain
 GPS. Pocket IMU quality and outdoor GPS/pressure need physical ride validation.
 
-App preferences > Map settings controls basemap use and provider. USGS Topo is
-enabled for new preferences, with existing explicit choices retained. Tiles
-provide U.S. streets/terrain with caching and attribution. USGS, OSM and custom
+Basemap starts off if no preference is saved; existing explicit choices remain.
+A remembered Basemap switch directly below both inline and full-screen maps
+shares its state with App preferences > Map settings. The first new enable
+explains that the provider receives your IP address and viewed area, then asks
+for Enable basemap or Cancel. Approval is remembered; cancellation keeps tiles off.
+Full app backups include the switch choice and acknowledgement. Provider changes
+alone do not enable tiles. Local routes and recording work with Basemap off.
+USGS Topo is the default provider and supplies U.S. streets/terrain with caching
+and attribution. USGS, OSM and custom
 HTTPS providers remain selectable. Unsupported closer USGS
 zooms enlarge available level-16 tiles. HTTP errors and X-Blocked images show a
 status while local routes remain visible. Provider denial pauses further requests;

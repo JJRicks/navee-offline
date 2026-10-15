@@ -328,7 +328,7 @@ final class AppDataArchive {
     static void validatePreferenceTypes(Map<String,Map<String,Object>> all)throws IOException {
         Map<String,Object> app=all.get("app_settings");
         types(app,String.class,"theme units temperature_unit time_format more_section scooter_section stats_density stats_query stats_section stats_favourite_order ride_chart_key ride_selected last_ride_label phone_placement owner_import_applied stats_chart_query more_wide_section_scroll map_tile_url map_tile_attribution map_tile_attribution_url");
-        types(app,Boolean.class,"notification_prompted keep_screen_awake auto_connect background_connection phone_gps phone_motion history_enabled dashboard_editing developer_options map_basemap_enabled haptics_enabled");
+        types(app,Boolean.class,"notification_prompted keep_screen_awake auto_connect background_connection phone_gps phone_motion history_enabled dashboard_editing developer_options map_basemap_enabled map_basemap_explained haptics_enabled");
         types(app,Integer.class,"poll_interval_ms dashboard_columns stats_chart_window more_wide_menu_scroll more_away_boot stats_away_boot");
         types(app,Long.class,"more_away_elapsed stats_away_elapsed");types(app,Float.class,"text_scale");
         types(app,Set.class,"stats_favourites stats_chart_favourites ride_comparison ride_chart_series");

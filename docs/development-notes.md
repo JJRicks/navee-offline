@@ -51,7 +51,14 @@ paired electrical coverage. `PhoneRideRecorder` owns background callbacks and
 batched writes; `PhoneRideStore` analyzes its sidecar journals. Preserve source
 monotonic timestamps, uncertainty, unavailable readings, and segment boundaries.
 Don't use accelerometer integration as route distance. Never add a map request to
-the Bluetooth or recording path. Map tiles can be disabled in Map settings and must remain independent of recording.
+the Bluetooth or recording path. Map tiles must remain independent of recording.
+An absent `map_basemap_enabled` preference means false; preserve existing explicit
+values. The Basemap switches below inline/full-screen maps and in Map settings
+share this preference. A first new enable must explain provider access to the
+IP address and viewed area, then wait for Enable basemap or Cancel before loading tiles.
+Cancel leaves tiles off; acknowledgement persists only after approval. Full app
+backup/restore includes the choice and acknowledgement. Changing provider alone
+must not enable tiles, and refreshing a view must not count as consent.
 
 `PhoneRideValidation` and `UiOrganizationValidation` are fresh-emulator-only. They
 refuse owner phones and existing app data; synthetic routes are test fixtures, not

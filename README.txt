@@ -11,8 +11,9 @@ Guided computer/USB setup (testing preview): https://pairscooter.jjricks.com/
 
 Everyday Bluetooth controls and recording work locally without a cloud login.
 First setup requires your already activated scooter and working NAVEE owner
-account. Optional map tiles start on in this branch and use the internet; turn
-Basemap off in App preferences > Map settings for local-only route drawing.
+account. Optional map tiles start off unless you saved a choice. Use Basemap
+below a route map to enable them after a brief privacy explanation. Your choice
+is remembered; local route drawing and recording work with tiles off.
 
 Start with README.md for compatibility, setup, building and contributing.
 Detailed app instructions and measurement limits are in docs/user-guide.md.

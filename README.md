@@ -17,7 +17,7 @@ Current release: **0.13.0**. Public v1.0 preparation is in progress; this branch
 - **Battery insights:** charge recordings through Developer options, charging-time estimates and an experimental usable-energy estimate based on recorded rides.
 - **Local ownership:** multiple scooter profiles, dashboard import/export and password-encrypted full backups.
 
-Bluetooth controls and recordings work without a Volt server. Optional map tiles are **on by default** in this branch and need internet access; turn Basemap off in App preferences → Map settings to draw the route locally without them. The map provider receives requests for the viewed area. See [Privacy](PRIVACY.md) for storage, permissions and network behavior.
+Bluetooth controls and recordings work without a Volt server. Optional map tiles start off unless you previously chose otherwise; route geometry is drawn locally without them. Use **Basemap** directly below a ride map to turn tiles on. The first enable explains that the provider receives your IP address and viewed map area, then asks you to enable or cancel. Your choice is remembered. See [Privacy](PRIVACY.md) for storage, permissions and network behavior.
 
 ## Compatibility
 

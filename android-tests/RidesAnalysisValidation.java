@@ -10,6 +10,7 @@ import java.io.*;
 import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.*;
 import local.navee.offlinelock.*;
 
@@ -42,6 +43,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             main(() -> { text(root, "Elev.").performClick(); check("elevation".equals(field(find(root, RouteMapView.class), "metric")), "Elevation overlay selects recorded heights"); text(root, "Grade").performClick(); verifyMapContrast((RouteMapView)find(root,RouteMapView.class)); }); settle(); screenshot("grade-route");
             main(() -> { text(root,"Power").performClick();SegmentedSelector selector=(SegmentedSelector)text(root,"Elev.").getParent().getParent();View track=(View)field(selector,"track");check(track.getWidth()<=selector.getWidth(),"Short route overlay labels fit without hidden choices");verifyZoomButtons(root); }); screenshot("overview");
             verifyExpandedMap(root);
+            verifyBasemapControls(root);
             Object panel = ancestor(find(root, RideChartView.class), "ChartPanel");
             Set<?> selected = (Set<?>) field(panel, "chosen"); check(selected.size() == 2 && selected.contains("power_w") && selected.contains("speed_kmh"), "Power and speed selected by default");
             List<?> data = (List<?>)field(panel, "data"); check(data.size() == 8, "Eight graph series");
@@ -327,17 +329,128 @@ public final class RidesAnalysisValidation extends Instrumentation {
         for(int i=0;i<count;i++){props[i]=new MotionEvent.PointerProperties();props[i].id=i;props[i].toolType=MotionEvent.TOOL_TYPE_FINGER;coords[i]=new MotionEvent.PointerCoords();coords[i].x=xy[i*2];coords[i].y=xy[i*2+1];coords[i].pressure=1;coords[i].size=1;}
         MotionEvent event=MotionEvent.obtain(start,start+offset,action,count,props,coords,0,0,1,1,0,0,android.view.InputDevice.SOURCE_TOUCHSCREEN,0);try{view.dispatchTouchEvent(event);}finally{event.recycle();}
     }
-    void mapPreferences() {
-        AtomicReference<AlertDialog> dialog = new AtomicReference<>();
-        main(() -> { activity.service().settings.edit().remove("map_basemap_enabled").commit(); dialog.set(MapPreferences.show(activity)); }); settle();
+    void mapPreferences() throws Exception {
+        SharedPreferences settings = activity.service().settings;
+        AtomicReference<AlertDialog> dialog = new AtomicReference<>(), prompt = new AtomicReference<>();
+        AtomicReference<Switch> toggle = new AtomicReference<>();
+        main(() -> { settings.edit().remove("map_basemap_enabled").remove("map_basemap_explained").commit(); dialog.set(MapPreferences.show(activity)); }); settle();
         main(() -> {
-            View content = dialog.get().getWindow().getDecorView(); Switch toggle = (Switch)find(content, Switch.class);
-            check(toggle != null && toggle.isChecked(), "Basemap enabled by default");
-            check(!activity.service().settings.contains("map_tile_url"), "Fresh provider uses USGS default");
-            text(content, "OpenStreetMap").performClick(); check(activity.service().settings.getString("map_tile_url", "").contains("openstreetmap.org"), "Provider selection saved");
-            text(content, "USGS").performClick(); check(activity.service().settings.getString("map_tile_url", "").contains("nationalmap.gov"), "USGS restored");
-            toggle.performClick(); check(!activity.service().settings.getBoolean("map_basemap_enabled", true), "Basemap can be disabled in preferences"); dialog.get().dismiss();
-        });
+            View content = dialog.get().getWindow().getDecorView(); toggle.set(basemapSwitch(content));
+            check(!toggle.get().isChecked(), "Fresh basemaps default off without changing an existing preference");
+            check(!settings.contains("map_tile_url"), "Fresh provider uses USGS default");
+            text(content, "OpenStreetMap").performClick(); check(settings.getString("map_tile_url", "").contains("openstreetmap.org"), "Provider selection saved");
+            text(content, "USGS").performClick(); check(settings.getString("map_tile_url", "").contains("nationalmap.gov"), "USGS restored");
+            toggle.get().performClick(); prompt.set(basemapPrompt(toggle.get()));
+            check(prompt.get() != null && prompt.get().isShowing() && text(prompt.get().getWindow().getDecorView(), "Show online map?") != null, "First enable opens the privacy explanation");
+            check(!toggle.get().isChecked() && !settings.getBoolean("map_basemap_enabled", false), "Consent prompt does not enable tiles before approval");
+        }); settle(); screenshot("basemap-first-enable-consent");
+        main(() -> prompt.get().getButton(AlertDialog.BUTTON_NEGATIVE).performClick()); settle();
+        main(() -> {
+            check(!settings.getBoolean("map_basemap_explained", false) && !toggle.get().isChecked(), "Cancel neither acknowledges nor enables basemaps");
+            toggle.get().performClick(); basemapPrompt(toggle.get()).onBackPressed();
+        }); settle();
+        main(() -> {
+            check(!settings.getBoolean("map_basemap_explained", false) && !toggle.get().isChecked(), "Back neither acknowledges nor enables basemaps");
+            toggle.get().performClick(); prompt.set(basemapPrompt(toggle.get())); dialog.get().dismiss();
+        }); settle();
+        main(() -> {
+            check(!prompt.get().isShowing() && !settings.getBoolean("map_basemap_explained", false), "Closing settings dismisses its unapproved explanation without acknowledgement");
+            dialog.set(MapPreferences.show(activity));
+        }); settle();
+        main(() -> {
+            toggle.set(basemapSwitch(dialog.get().getWindow().getDecorView()));
+            check(toggle.get().isAttachedToWindow(), "Reopened settings control attaches before consent input");
+            toggle.get().performClick(); basemapPrompt(toggle.get()).getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+        }); settle();
+        main(() -> {
+            check(toggle.get().isChecked() && settings.getBoolean("map_basemap_enabled", false) && settings.getBoolean("map_basemap_explained", false), "Approval saves both the enabled state and one-time explanation acknowledgement");
+            dialog.get().dismiss(); dialog.set(MapPreferences.show(activity));
+        }); settle();
+        main(() -> {
+            toggle.set(basemapSwitch(dialog.get().getWindow().getDecorView()));
+            check(toggle.get().isChecked() && basemapPrompt(toggle.get()) == null, "Enabled state survives reopening preferences without another prompt");
+            toggle.get().performClick(); check(!settings.getBoolean("map_basemap_enabled", true), "An acknowledged basemap can be turned off directly");
+            toggle.get().performClick(); check(toggle.get().isChecked() && basemapPrompt(toggle.get()) == null, "Later enables use the remembered acknowledgement");
+            dialog.get().dismiss();
+            settings.edit().putBoolean("map_basemap_enabled", true).remove("map_basemap_explained").commit();
+            dialog.set(MapPreferences.show(activity));
+        }); settle();
+        main(() -> {
+            toggle.set(basemapSwitch(dialog.get().getWindow().getDecorView()));
+            check(toggle.get().isChecked() && basemapPrompt(toggle.get()) == null, "Previously enabled installations remain enabled without a surprise prompt");
+            dialog.get().dismiss();
+            // Independent route fixture below starts with unapproved, disabled basemaps.
+            settings.edit().putBoolean("map_basemap_enabled", false).remove("map_basemap_explained").commit();
+        }); settle();
+    }
+    void verifyBasemapControls(View sourceRoot) throws Exception {
+        SharedPreferences settings = activity.service().settings;
+        RouteMapView inline = (RouteMapView)find(sourceRoot, RouteMapView.class);
+        Switch inlineToggle = basemapSwitch(sourceRoot); AtomicInteger tileCalls = new AtomicInteger();
+        main(() -> {
+            for (Object map : (List<?>)field(screen, "maps")) fakeTiles((RouteMapView)map, tileCalls);
+            inline.requestRectangleOnScreen(new android.graphics.Rect(0, 0, inline.getWidth(), inline.getHeight()), true);
+            check(!inlineToggle.isChecked() && !(boolean)field(inline, "streets"), "Inline Basemap switch starts off with the offline route still visible");
+            inlineToggle.requestRectangleOnScreen(new android.graphics.Rect(0, 0, inlineToggle.getWidth(), inlineToggle.getHeight()), true);
+        }); settle(); screenshot("basemap-inline-off");
+        main(() -> {
+            inlineToggle.performClick(); AlertDialog prompt = basemapPrompt(inlineToggle);
+            check(prompt != null && prompt.isShowing() && !inlineToggle.isChecked() && !(boolean)field(inline, "streets"), "Inline enable waits for privacy approval");
+            check(text(prompt.getWindow().getDecorView(), "Your map provider receives your IP address and the map area you view. Ride recordings stay on this phone. You can switch the basemap off at any time.") != null,
+                    "Explanation names the provider's IP and viewed-area exposure without claiming routes upload");
+            View control = (View)inlineToggle.getParent(); ViewGroup parent = (ViewGroup)control.getParent();
+            int index = parent.indexOfChild(control); ViewGroup.LayoutParams params = control.getLayoutParams(); parent.removeView(control);
+            check(!prompt.isShowing() && !settings.getBoolean("map_basemap_explained", false), "Removing the inline control cancels its pending approval");
+            parent.addView(control, index, params);
+        }); settle();
+        check(tileCalls.get() == 0, "Default-off and canceled consent cause no tile requests");
+        main(() -> { inlineToggle.performClick(); basemapPrompt(inlineToggle).getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
+        check(inlineToggle.isChecked() && (boolean)field(inline, "streets"), "Approving the inline switch enables the current map");
+        check(tileCalls.get() > 0, "Approved visible map uses the synthetic tile connection only");
+        screenshot("basemap-inline-on");
+        main(() -> {
+            byDescription(sourceRoot, "Expand route map").performClick();
+            // Install the fake before this new window has a chance to draw its enabled map.
+            fakeTiles((RouteMapView)find(root(), RouteMapView.class), tileCalls);
+        }); settle();
+        View full = root(); RouteMapView expanded = (RouteMapView)find(full, RouteMapView.class); Switch expandedToggle = basemapSwitch(full);
+        check(expandedToggle.isChecked() && (boolean)field(expanded, "streets"), "Expanded map inherits the remembered enabled preference");
+        screenshot("basemap-expanded-on");
+        main(() -> expandedToggle.performClick()); settle();
+        check(!expandedToggle.isChecked() && !inlineToggle.isChecked() && !(boolean)field(inline, "streets") && !(boolean)field(expanded, "streets"), "Fullscreen disable immediately synchronizes both switches and maps");
+        screenshot("basemap-expanded-off");
+        int stopped = tileCalls.get(); main(() -> { inline.zoomBy(1); expanded.zoomBy(1); }); settle();
+        check(tileCalls.get() == stopped, "Disabled maps do not request new tiles when the viewport changes");
+        AtomicReference<AlertDialog> preferences = new AtomicReference<>();
+        main(() -> preferences.set(MapPreferences.show(activity))); settle();
+        main(() -> {
+            Switch toggle = basemapSwitch(preferences.get().getWindow().getDecorView());
+            check(!toggle.isChecked(), "App preferences reflects the map's disabled state"); toggle.performClick();
+            check(basemapPrompt(toggle) == null, "Shared approval is reused from app preferences");
+        }); settle();
+        check(inlineToggle.isChecked() && expandedToggle.isChecked() && (boolean)field(inline, "streets") && (boolean)field(expanded, "streets"), "App preferences enable synchronizes inline and expanded maps without recreation");
+        main(() -> { basemapSwitch(preferences.get().getWindow().getDecorView()).performClick(); preferences.get().dismiss(); byDescription(full, "Close expanded route map").performClick(); }); settle();
+        check(!settings.getBoolean("map_basemap_enabled", true) && !inlineToggle.isChecked() && !(boolean)field(inline, "streets"), "Closing fullscreen preserves the chosen disabled state");
+        check((boolean)field(expanded, "closed"), "Expanded map resources still close after preference changes");
+    }
+    Switch basemapSwitch(View root) {
+        View found = byDescription(root, "Basemap"); check(found instanceof Switch, "Basemap switch has an accessible label"); return (Switch)found;
+    }
+    AlertDialog basemapPrompt(Switch toggle) { return (AlertDialog)field(toggle.getParent(), "prompt"); }
+    void fakeTiles(RouteMapView map, AtomicInteger calls) {
+        try {
+            Class<?> provider = Class.forName("local.navee.offlinelock.MapTiles");
+            Class<?> factory = Class.forName("local.navee.offlinelock.MapTiles$ConnectionFactory");
+            Object connection = Proxy.newProxyInstance(factory.getClassLoader(), new Class[]{factory}, (proxy, method, arguments) -> {
+                if ("open".equals(method.getName())) { calls.incrementAndGet(); throw new IOException("Synthetic offline tile provider"); }
+                if ("toString".equals(method.getName())) return "Synthetic tile connection";
+                if ("hashCode".equals(method.getName())) return System.identityHashCode(proxy);
+                return arguments != null && arguments.length == 1 && proxy == arguments[0];
+            });
+            Constructor<?> constructor = provider.getDeclaredConstructor(Context.class, String.class, factory, java.util.function.LongSupplier.class); constructor.setAccessible(true);
+            Object instance = constructor.newInstance(activity, "https://synthetic.invalid/consent/{z}/{x}/{y}.png", connection, (java.util.function.LongSupplier)System::currentTimeMillis);
+            setField(map, "provider", instance);
+        } catch (Exception failure) { throw new IllegalStateException("Synthetic map provider", failure); }
     }
     TextView text(View view, String label) { if(view instanceof TextView && label.contentEquals(((TextView)view).getText()))return (TextView)view; if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++){TextView item=text(((ViewGroup)view).getChildAt(i),label);if(item!=null)return item;}return null; }
     void seed() throws Exception {

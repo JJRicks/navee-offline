@@ -60,8 +60,15 @@ still interrupt background work.
 
 ## When network access is used
 
-**Basemap is optional and starts enabled for new preferences.** You can turn it
-off in App preferences → Map settings. When enabled, the app requests visible map tiles from
+**Basemap is optional and starts off if you have not saved a choice.** Existing
+explicit choices are preserved. The **Basemap** switch directly below a ride map,
+including the full-screen map, shares its remembered state with
+**App preferences → Map settings**. The first new enable explains that the
+provider receives your IP address and viewed map area; choose **Enable basemap** or
+**Cancel**. Cancel keeps tiles off. Once you approve, that acknowledgement is
+remembered too. Full app backups include both the choice and acknowledgement.
+
+When enabled, the app requests visible map tiles from
 USGS Topo by default, OpenStreetMap if selected, or your chosen HTTPS provider.
 Requests reveal your network address, the requested map area and zoom, and an
 app/version User-Agent to that provider. A visible area can reveal where you
