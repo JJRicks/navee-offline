@@ -94,7 +94,6 @@ public final class MoreScreen implements AppScreen {
     private Row nearbyRow, locationRow, notificationRow;
     private Row developerIndexRow, simulationRow;
     private TextView simulationStatus, chargeCaptureStatus, chargeCurveValue;
-    private View chargeCurveFill, chargeCurveRest;
     private LinearLayout chargeCurve;
     private Row chargeCaptureRow, clearChargeRow, exportChargeRow;
     private SegmentedSelector chargeChargerSelector;
@@ -1657,18 +1656,12 @@ public final class MoreScreen implements AppScreen {
         preferenceSelectors.add(chargeChargerSelector);
         LinearLayout.LayoutParams chargerParams=new LinearLayout.LayoutParams(-1,-2);chargerParams.bottomMargin=ui.dp(12);
         cardDestination.addView(chargeChargerSelector,chargerParams);
-        // Learning progress for the chosen charger: two qualified recordings build its charge curve.
+        // Count qualified evidence without claiming every range is ready at a fixed session count.
         chargeCurve=ui.card();chargeCurve.setTag("charge-learning-status");
         LinearLayout curveHead=row();
-        TextView curveTitle=ui.text("Charge curve",14,false);curveHead.addView(curveTitle,new LinearLayout.LayoutParams(0,-2,1));
+        TextView curveTitle=ui.text("Saved charge curves",14,false);curveHead.addView(curveTitle,new LinearLayout.LayoutParams(0,-2,1));
         chargeCurveValue=ui.text("",14,true);curveHead.addView(chargeCurveValue);
         chargeCurve.addView(curveHead);
-        LinearLayout curveBar=row();curveBar.setBackground(ui.shape(ui.raised,4,0));curveBar.setClipToOutline(true);
-        chargeCurveFill=new View(host.activity());chargeCurveRest=new View(host.activity());
-        curveBar.addView(chargeCurveFill,new LinearLayout.LayoutParams(0,-1,0f));curveBar.addView(chargeCurveRest,new LinearLayout.LayoutParams(0,-1,1f));
-        curveBar.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        LinearLayout.LayoutParams barParams=new LinearLayout.LayoutParams(-1,ui.dp(6));barParams.topMargin=ui.dp(10);
-        chargeCurve.addView(curveBar,barParams);
         cardDestination.addView(chargeCurve);
         LinearLayout capture=group();
         chargeCaptureRow=row(capture,"battery","Record this charge",null,()->{
@@ -1732,6 +1725,9 @@ public final class MoreScreen implements AppScreen {
             simulationStatus.setVisibility(simulating ? View.VISIBLE : View.GONE);
         }
         if(chargeCaptureRow!=null){
+            ChargeSessionStore.Charger selected=s==null?null:s.chargeCharger();
+            chosenCharger=selected==null?ChargeSessionStore.Charger.STOCK:selected;
+            chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
             boolean capturing=s!=null&&s.isChargeRecording();
             String unavailable=s==null?"Connect your scooter first":s.chargeCaptureUnavailable();
             chargeCaptureRow.title.setText(capturing?"Stop charge recording":"Record this charge");
@@ -1782,20 +1778,16 @@ public final class MoreScreen implements AppScreen {
         });
         show(dialog, picker::finishMotion);
     }
-    /** "Charge curve 1/2": qualified recordings for the chosen charger, out of the two a curve needs. */
+    /** One completed finish can be useful; broad ranges can need more evidence. */
     private void refreshChargeCurve(ScooterService s) {
         if (chargeCurve == null) return;
         int qualified = s == null ? -1 : s.qualifiedChargeCurves();
-        int shown = Math.max(0, Math.min(2, qualified));
-        chargeCurveValue.setText(qualified < 0 ? "…" : qualified >= 2 ? "2/2 ✓" : shown + "/2");
-        chargeCurveValue.setTextColor(qualified >= 2 ? ui.ok : ui.text);
-        ((LinearLayout.LayoutParams) chargeCurveFill.getLayoutParams()).weight = shown / 2f;
-        ((LinearLayout.LayoutParams) chargeCurveRest.getLayoutParams()).weight = 1f - shown / 2f;
-        chargeCurveFill.setBackground(ui.shape(qualified >= 2 ? ui.ok : ui.accent, 4, 0));
-        ((View) chargeCurveFill.getParent()).requestLayout();
+        chargeCurveValue.setText(qualified < 0 ? "…" : Integer.toString(qualified));
+        chargeCurveValue.setTextColor(qualified > 0 ? ui.accent : ui.muted);
         String charger = chosenCharger == ChargeSessionStore.Charger.STOCK ? "stock" : "high-speed";
-        chargeCurve.setContentDescription(qualified < 0 ? "Charge curve loading"
-                : "Charge curve, " + shown + " of 2 qualified " + charger + " charges" + (qualified >= 2 ? ", ready" : ""));
+        chargeCurve.setContentDescription(qualified < 0 ? "Saved charge curves loading"
+                : qualified + " qualified " + charger + " charge recordings");
+        chargeCurve.setTooltipText("A completed charge can refine its finishing range. Other ranges need two matching recordings. Estimates depend on coverage and live power; UT5 MAX stock estimates also work without recordings.");
     }
     private void setChildrenEnabled(View view,boolean enabled){
         view.setEnabled(enabled);if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)setChildrenEnabled(((ViewGroup)view).getChildAt(i),enabled);

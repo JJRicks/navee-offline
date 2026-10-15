@@ -1338,12 +1338,13 @@ public final class DashboardScreen implements AppScreen {
         boolean limit = estimate.targetPercent != null && estimate.targetPercent < 100;
         Double minutes = limit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull;
         boolean learned = limit ? estimate.learnedToLimit : estimate.learnedToFull;
+        boolean reference = limit ? estimate.referenceToLimit : estimate.referenceToFull;
         boolean low = ChargingEstimate.LOW_CURRENT.equals(estimate.label);
         String state = estimate.label == null || estimate.label.isEmpty() ? "—" : estimate.label;
         value.setText(minutes != null ? duration(minutes) : low && tag != null ? "—" : state);
         value.setTextColor(minutes == null ? ui.muted : ui.text);
         if (tag != null)
-            styleTag(tag, minutes != null ? (learned ? "learned" : "current rate") : low ? state : null,
+            styleTag(tag, minutes != null ? (learned ? "learned" : reference ? "stock reference" : "current rate") : low ? state : null,
                     minutes == null && low);
     }
 
@@ -1369,7 +1370,9 @@ public final class DashboardScreen implements AppScreen {
 
         void refresh(ChargingEstimate.Result estimate) {
             ChargeSessionStore.Charger charger = service == null ? null : service.chargeCharger();
-            boolean consulted = estimate.learnedSessions > 0
+            boolean reference = estimate.referenceToLimit || estimate.referenceToFull;
+            if (charger == null && reference) charger = ChargeSessionStore.Charger.STOCK;
+            boolean consulted = reference || estimate.learnedSessions > 0
                     || "Charger mismatch · rate estimate".equals(estimate.label)
                     || "Rate-based estimate".equals(estimate.label);
             boolean show = estimate.charging && charger != null && consulted;

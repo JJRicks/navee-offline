@@ -412,18 +412,38 @@ ordinary battery details return when charging is no longer freshly reported.
 Power is battery-side absolute V x I from paired readings, not outlet power or
 charger efficiency. Missing/stale/unpaired inputs leave readings unavailable.
 
+Recognized UT5 MAX scooters get an experimental stock-charger reference without
+recordings or Developer options. It combines rated-Ah/live-current bulk timing
+with an observed finishing trajectory, including the rapid 91–95% gauge rise
+and extended 99% taper. The finishing time is included before that range begins.
+Only compatible live power enables the reference; this does not identify a
+charger. Unknown models and incompatible readings keep the current-rate fallback.
+Brief boundary fluctuations have bounded tolerance to avoid abrupt ETA switching;
+stale readings and sustained or larger power mismatches still discard the reference.
+The optional ride-capacity experiment never changes charging estimates.
+
+Scooter → Battery → Charger for estimates offers Stock / High-speed without
+Developer options, including while disconnected. This per-scooter manual choice
+changes estimates only: High-speed opts out of the bundled stock reference.
+It neither sets charger output nor starts recording, and cannot change during
+an active capture. The recording screen uses the same saved selection.
+
 Explicit Charge recording lives in Developer options, with a manual Stock or
 High-speed charger selection. There is no automatic charger detection. Bounded
 local samples are saved every ten seconds. Temporary disconnects allow up to
 five minutes of recovery with the same journal and marked gaps. Completion,
 Stop, explicit Disconnect, recovery expiry or an ending/error condition closes it. Simulation cannot create training evidence.
 
-Qualified recordings learn curves for each scooter/charger label. Learned ETA
-is used only if live power matches saved sessions at the current battery level.
-Otherwise the current-rate estimate uses rated Ah, remaining percentage and the
-known charge limit. Missing evidence or insufficient current leaves ETA absent.
+Qualified recordings learn curves for each scooter/charger label. One continuous
+recording reaching displayed 100% can provide a provisional finishing estimate
+within its fully observed range. Other learned ranges need two usable recordings.
+Personal estimates require compatible live power at the current battery level;
+missing or incompatible evidence keeps the applicable default. The bundled
+reference is never counted as a personal recording. Lower cutoffs include only
+time to that cutoff. Missing inputs or insufficient current leaves ETA absent.
 Taper, temperature and load can affect the result; it is not a promised finish
-time or independent battery-capacity measurement.
+time or independent battery-capacity measurement. Estimates end at displayed
+100%; battery balancing may continue afterward.
 
 Export charge recordings writes versioned JSON for the selected scooter using
 Android's save picker, including original readings, timestamps, gaps, stop reason
