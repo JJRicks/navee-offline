@@ -14,7 +14,6 @@ import java.nio.charset.StandardCharsets;
 import java.io.File;
 import java.text.SimpleDateFormat;
 import java.util.*;
-import org.json.JSONObject;
 
 /** One serialized BLE session. Activity/fold changes never own or recreate the connection. */
 public final class BleController {
@@ -254,9 +253,8 @@ public final class BleController {
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;result(key,evidence);clearMutation();notice(text);}
     private void clearMutation(){if(mutation!=null&&mutation.desiredPin!=null){Arrays.fill(mutation.desiredPin,'\u0000');Arrays.fill(mutation.bytes,(byte)0);}mutation=null;}
-    // Results stay saved per profile (More › Command evidence reads them across launches); only this session's
-    // results carry a time, and the Scooter tab shows a chip only for those, briefly.
-    private void result(String key,String text){commandResults.put(key,text);resultTimes.put(key,System.currentTimeMillis());if(!simulating()&&profile!=null)context.getSharedPreferences("control_evidence",Context.MODE_PRIVATE).edit().putString(profile.id,new JSONObject(commandResults).toString()).apply();}
+    // Results describe this session only. Neither row captions nor Command evidence reload old outcomes.
+    private void result(String key,String text){commandResults.put(key,text);resultTimes.put(key,System.currentTimeMillis());}
     /** A reconnect keeps this session's results (a cancelled change stays visible); another scooter starts clean. */
-    private void loadResults(){String id=profile==null?null:profile.id;if(id!=null&&id.equals(resultsProfileId))return;commandResults.clear();resultTimes.clear();resultsProfileId=id;if(simulating()||profile==null)return;try{JSONObject saved=new JSONObject(context.getSharedPreferences("control_evidence",Context.MODE_PRIVATE).getString(profile.id,"{}"));for(ScooterCommands.Feature feature:ScooterCommands.catalog())if(saved.has(feature.key))commandResults.put(feature.key,saved.getString(feature.key));if(saved.has("clock_sync"))commandResults.put("clock_sync",saved.getString("clock_sync"));}catch(Exception ignored){}}
+    private void loadResults(){String id=profile==null?null:profile.id;if(id!=null&&id.equals(resultsProfileId))return;commandResults.clear();resultTimes.clear();resultsProfileId=id;}
 }
