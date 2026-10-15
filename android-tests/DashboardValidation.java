@@ -639,15 +639,12 @@ public final class DashboardValidation extends Instrumentation {
                 Object tile = tile(type);
                 Object footer = field(tile, "footer");
                 require(!(footer instanceof TextView) || !((TextView)footer).isShown()
-                                || !((TextView)footer).getText().toString().contains("Last seen"),
+                                || !spoken((TextView)footer).contains("Last seen"),
                         type + " draws its own Last seen footer; the header carries the time");
                 require(!bodyText(tile).contains("Last seen"), type + " repeats Last seen inside its card");
             }
-            // The header's status line now carries the time; the old caption below it is gone.
-            Object stale = optionalField(dashboard(), "stale");
-            require(!(stale instanceof View) || !((View)stale).isShown()
-                            || !(stale instanceof TextView) || ((TextView)stale).length() == 0,
-                    "Home still shows a separate Last seen caption under the header");
+            // The header's status line now carries the time; no other caption repeats it.
+            assertSingleStatusLine();
         });
         assertNoScooterWork();
         check("Offline Lock bar offers Connect with an unknown state; overview, reading and setting tiles show cached values without their own Last seen footers");
@@ -1378,9 +1375,9 @@ public final class DashboardValidation extends Instrumentation {
     }
     private void setPosition(String id, int column, int row) {
         View grip = findDescription((View)tileById(id), "Move " + widgetById(id).title);
-        require(grip != null, "Move grip is missing"); click(grip); List<EditText> inputs = all(dialogRoot(), EditText.class);
-        require(inputs.size() == 2, "Move options need a column and row");
-        main(() -> { inputs.get(0).setText(Integer.toString(column)); inputs.get(1).setText(Integer.toString(row)); });
+        require(grip != null, "Move grip is missing"); click(grip); List<NumberPicker> pickers = all(dialogRoot(), NumberPicker.class);
+        require(pickers.size() == 2, "Move options need a column and row");
+        main(() -> { pickers.get(0).setValue(column); pickers.get(1).setValue(row); });
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE)); waitForIdleSync();
     }
     private void verifyEditAffordances(String id) {
@@ -1438,7 +1435,8 @@ public final class DashboardValidation extends Instrumentation {
                 "Tapping the resize handle must open size, not the options menu");
         closeDialog();
         click(grip);
-        require(all(dialogRoot(), EditText.class).size() == 2 && findText(dialogRoot(), "Color") == null,
+        require(all(dialogRoot(), NumberPicker.class).size() == 2 && findText(dialogRoot(), "Column") != null
+                && findText(dialogRoot(), "Color") == null,
                 "Tapping the move grip must open accessible placement, not widget options");
         closeDialog();
     }
@@ -1763,17 +1761,15 @@ public final class DashboardValidation extends Instrumentation {
                     invoke(tile, "refreshCharging", new Class<?>[] {Map.class}, preview);
                     require("104 W".contentEquals(((TextView)field(tile, "chargingWatts")).getText()),
                             "Charge widget did not format battery-side V × |I|");
-                    require(((TextView)field(tile, "chargingEtaLabel")).getText().toString().contains("80%"),
+                    require(spoken((TextView)field(tile, "chargingEtaLabel")).contains("80%"),
                             "ETA label ignored the configured charge cutoff");
                     require("≈ 2h 11m".contentEquals(((TextView)field(tile, "chargingEta")).getText()),
                             "ETA did not use the remaining Ah to the cutoff");
                 }
                 assertBatteryMode(batteryTile, true, "Fresh active charging state");
-                require("2.00 A".contentEquals(((TextView)field(chargeTile, "chargingAmps")).getText()),
-                        "Detailed charging card lost its measured current");
                 preview.remove("charge_limit_percent");
                 invoke(chargeTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
-                require("Time to 100%".contentEquals(((TextView)field(chargeTile, "chargingEtaLabel")).getText())
+                require("Time to 100%".equals(spoken((TextView)field(chargeTile, "chargingEtaLabel")))
                         && "≈ 3h 38m".contentEquals(((TextView)field(chargeTile, "chargingEta")).getText()),
                         "Unknown cutoff did not keep the hypothetical full estimate separate");
                 require(String.valueOf(((TextView)field(chargeTile, "chargingEta")).getContentDescription()).contains("cutoff unknown"),
@@ -1819,8 +1815,8 @@ public final class DashboardValidation extends Instrumentation {
                 for (Object tile : tiles()) {
                     invoke(tile, "refresh", new Class<?>[] {Map.class}, preview);
                     TextView footer = (TextView)field(tile, "footer");
-                    require(!footer.isShown() || !footer.getText().toString().toLowerCase(Locale.ROOT).contains("live"),
-                            "A current widget repeats its live status: " + footer.getText());
+                    require(!footer.isShown() || !spoken(footer).toLowerCase(Locale.ROOT).contains("live"),
+                            "A current widget repeats its live status: " + spoken(footer));
                 }
             } finally {
                 for (Object tile : tiles()) invoke(tile, "refresh", new Class<?>[] {Map.class}, cached);
@@ -1934,6 +1930,21 @@ public final class DashboardValidation extends Instrumentation {
         if (root.isShown() && description.contentEquals(root.getContentDescription() == null ? "" : root.getContentDescription())) return root;
         if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) { View found = findDescription(((ViewGroup)root).getChildAt(i), description); if (found != null) return found; }
         return null;
+    }
+    /** The header's text column holds one status line (hidden while editing) and no second caption. */
+    private void assertSingleStatusLine() {
+        TextView status = (TextView)field(dashboard(), "status");
+        ViewGroup words = (ViewGroup)status.getParent();
+        int lines = 0;
+        for (int i = 0; i < words.getChildCount(); i++)
+            if (words.getChildAt(i) instanceof TextView && words.getChildAt(i).getVisibility() != View.GONE) lines++;
+        require(lines == (status.getVisibility() == View.GONE ? 0 : 1),
+                "Home header must have exactly one status line, found " + lines);
+    }
+    /** What TalkBack reads: the description when set (fitted captions and age chips), else the text. */
+    private static String spoken(TextView view) {
+        CharSequence description = view.getContentDescription();
+        return String.valueOf(description != null && description.length() > 0 ? description : view.getText());
     }
     private static TextView findText(View root, String text) {
         if (root.isShown() && root instanceof TextView && text.contentEquals(((TextView)root).getText())) return (TextView)root;

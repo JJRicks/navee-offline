@@ -101,10 +101,16 @@ public final class SearchFocusValidation extends Instrumentation {
         if (!wide) clickText(root(), "Readings");
         Object stats = screen(); EditText search = (EditText)field(stats, "search");
         showKeyboard(search, activity.getWindow(), "battery");
-        boolean original = settings().getBoolean("stats_favourites_only", false); tap((View)field(stats, "filterButton"));
-        assertDismissed(search, activity.getWindow(), "battery", "Stats filter tap");
-        require(settings().getBoolean("stats_favourites_only", false) != original, "Dismissing search consumed the Favourites action");
-        if (settings().getBoolean("stats_favourites_only", false)) click((View)field(stats, "filterButton"));
+        // The Favourites filter is gone; a visible reading's star is the outside action instead.
+        final View[] starView = {null}; final String[] starKey = {null};
+        main(() -> { for (Object row : ((java.util.Map<?, ?>)field(stats, "rows")).values()) {
+            View candidate = (View)field(row, "star");
+            if (candidate.isShown()) { starView[0] = candidate; starKey[0] = (String)field(row, "key"); break; } } });
+        require(starView[0] != null, "No visible Stats favourite star");
+        boolean original = favourite(starKey[0]); tap(starView[0]);
+        assertDismissed(search, activity.getWindow(), "battery", "Stats favourite tap");
+        require(favourite(starKey[0]) != original, "Dismissing search consumed the favourite action");
+        if (favourite(starKey[0]) != original) click(starView[0]);
         showKeyboard(search, activity.getWindow(), "battery"); ScrollView scroll = (ScrollView)field(wide ? stats : activity, wide ? "readingsScroll" : "scroll");
         int before = scroll.getScrollY(); Rect bounds = new Rect(), fieldBounds = new Rect();
         main(() -> { require(scroll.getGlobalVisibleRect(bounds), "Stats scroller is not visible");
@@ -283,6 +289,9 @@ public final class SearchFocusValidation extends Instrumentation {
             throw new IllegalStateException(error.getMessage() + "; " + keyboardDiagnostics(input, window), error);
         }
         main(() -> require(text.contentEquals(input.getText()), action + " changed the search text"));
+    }
+    private boolean favourite(String key) {
+        return settings().getStringSet("stats_favourites", java.util.Collections.<String>emptySet()).contains(key);
     }
     private void tap(View view) {
         require(view != null, "Missing touch target"); Rect rect = nativeScreenBounds(view);

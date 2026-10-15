@@ -120,14 +120,16 @@ public final class RidesAnalysisValidation extends Instrumentation {
     void verifyExpandedMap(View sourceRoot) throws Exception {
         RouteMapView inline = (RouteMapView)find(sourceRoot, RouteMapView.class);
         int mapCount = ((List<?>)field(screen,"maps")).size();
+        final int[] preselected = {-1};
         main(() -> {
             text(sourceRoot,"Grade").performClick(); inline.zoomBy(1);
+            preselected[0] = (int)field(inline,"selected");
             long now = SystemClock.uptimeMillis(); float x = inline.getWidth()/2f, y = inline.getHeight()/2f;
             touch(inline,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(inline,now,30,MotionEvent.ACTION_UP,new float[]{x,y});
         }); settle();
         double originalZoom = (double)field(inline,"zoom"), originalCenter = (double)field(inline,"centerX");
         int originalPoint = (int)field(inline,"selected");
-        check(originalPoint >= 0, "Inline map point selected before expanding");
+        check(originalPoint >= 0 && originalPoint != preselected[0], "Inline map tap selected the tapped point before expanding");
         View expand = byDescription(sourceRoot,"Expand route map");
         check(expand != null && byDescription(sourceRoot,"Fit route") != null, "Expansion and route centering have separate controls");
         main(expand::performClick); settle();
@@ -303,8 +305,9 @@ public final class RidesAnalysisValidation extends Instrumentation {
         chart.reset(); android.graphics.RectF plot = (android.graphics.RectF)field(chart, "plot");
         long start = SystemClock.uptimeMillis(); float x = plot.left + plot.width() * .31f, y = plot.centerY();
         double originalFrom = (double)field(chart,"from"), originalTo = (double)field(chart,"to");
+        double preselected = (double)field(chart,"inspectedTime");
         touch(chart,start,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(chart,start,40,MotionEvent.ACTION_UP,new float[]{x,y});
-        double first = (double)field(chart,"inspectedTime"); check(Double.isFinite(first), "Tap selects a raw reading timestamp");
+        double first = (double)field(chart,"inspectedTime"); check(Double.isFinite(first) && first != preselected, "Tap selects the tapped raw reading timestamp");
         Object panel = ancestor(chart,"ChartPanel"); ViewGroup readout = (ViewGroup)field(panel,"inspection");
         List<RideChartData.Series> selected = (List<RideChartData.Series>)field(chart,"series");
         check(readout.getChildCount() == selected.size(), "Every selected series gets an inspection value");

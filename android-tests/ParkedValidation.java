@@ -160,7 +160,10 @@ public final class ParkedValidation extends Instrumentation {
         else if(mode.equals("lights"))require(shown==LINE_KEYS.size()+STAR_KEYS.size()+2,"Lights page must show both headlight controls and every zone control");
         else if(mode.equals("kickstart"))require(shown==1,"Kickstart search must show exactly the start-speed control");
         else require(shown==0,"No-match query left a control visible");
-        Map<View,String[]> extras=(Map<View,String[]>)field(screen,"extras");for(Map.Entry<View,String[]> e:extras.entrySet())require(e.getKey().isShown()==(mode==null),"Unexpected extra settings row visibility");
+        Map<View,String[]> extras=(Map<View,String[]>)field(screen,"extras");View headlightRow=(View)field(screen,"headlightRow");
+        // The read-only headlight row (switched by the power button) belongs to the Lights page only.
+        for(Map.Entry<View,String[]> e:extras.entrySet())require(e.getKey().isShown()==(e.getKey()==headlightRow?"lights".equals(mode):mode==null),"Unexpected extra settings row visibility");
+        if("lights".equals(mode))require(findText(headlightRow,"Power button")!=null,"Lights page headlight row lost its Power button value");
     }
     /** Wide Stats keeps Readings in its own right-hand pane, so it has no Readings tab and that section is always shown. */
     private boolean statsWide(Object screen){return Boolean.TRUE.equals(field(screen,"wide"));}
@@ -186,12 +189,12 @@ public final class ParkedValidation extends Instrumentation {
         runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");require(input!=null,"Stats search missing");input.setText("voltage");require(findText(screenView(activity),"Battery voltage")!=null,"Voltage search result missing");
             Map<?,?> rows=(Map<?,?>)field(currentScreen(activity),"rows");Object voltage=rows.get("voltage_v");require(voltage!=null,"Voltage favourite row missing");View star=(View)field(voltage,"star");require(star.isShown(),"Voltage favourite is not reachable");star.performClick();star.performClick();});
         render(activity,"navigation-stats-readings.png");runMain(()->{EditText input=findInput(screenView(activity),"Search scooter measurements");input.setText("");require(input.getText().length()==0&&"".equals(field(currentScreen(activity),"query")),"Clearing Stats search did not clear its input/query");});clickSection(activity,"Overview");render(activity,"navigation-stats-overview.png");
-        navigate(activity,"more");for(String[] section:new String[][]{{"App","App preferences"},{"Scooters","My scooters"},{"Security","PIN & proximity unlock"},{"Lab","Experimental controls"},{"Data","Data & history"},{"About","About & permissions"}}){clickMoreSection(activity,section[1]);runMain(()->assertSectionMap(currentScreen(activity),section[0],6));}
+        navigate(activity,"more");for(String[] section:new String[][]{{"App","App preferences"},{"Scooters","My scooters"},{"Security","PIN & proximity unlock"},{"Lab","Experimental controls"},{"Data","Data & history"},{"About","About & permissions"}}){clickMoreSection(activity,section[1]);runMain(()->assertSectionMap(currentScreen(activity),section[0],7));}
         clickMoreSection(activity,"App preferences");render(activity,"navigation-more-app.png");
         runMain(()->require(mutations()==initial.get(),"Navigation/search/favourite actions submitted a scooter mutation"));
         offlineSliderCancel(activity);
         runMain(()->require(mutations()==initial.get(),"Slider cancellation submitted a scooter mutation"));
-        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_groups",8);evidence.put("stats_sections",4);evidence.put("more_sections",6);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Native DOWN/MOVE/CANCEL while explicitly disconnected; events and message unchanged");results.put(evidence);
+        navigate(activity,"home");JSONObject evidence=new JSONObject();evidence.put("mode","navigation");evidence.put("tabs",5);evidence.put("controls_groups",8);evidence.put("stats_sections",4);evidence.put("more_sections",7);evidence.put("scooter_mutations",0);evidence.put("slider_cancel","Disconnected: kick-start row present, slider only in the connected edit sheet; no mutation");results.put(evidence);
     }
     @SuppressWarnings("unchecked") private void offlineSliderCancel(Activity activity)throws Exception{
         runMain(()->{assertNoUserRecording();reconnectAfterSmoke=service.ble.connected()||service.ble.state()==BleController.State.CONNECTING||service.ble.state()==BleController.State.AUTHENTICATING;service.ble.disconnect();service.settings.edit().putString("controls_query","").putString("controls_section","Ride").commit();});
@@ -199,13 +202,9 @@ public final class ParkedValidation extends Instrumentation {
         runMain(()->{
             require(service.ble.state()==BleController.State.DISCONNECTED&&!service.ble.connected(),"Slider cancel regression requires no live GATT");
             Object target=null;for(Object row:(List<Object>)field(currentScreen(activity),"rows"))if(((ScooterCommands.Feature)field(row,"feature")).key.equals("start_speed")){target=row;break;}
-            require(target!=null,"Kick-start slider row unavailable");android.widget.SeekBar slider=(android.widget.SeekBar)field(target,"slider");require(slider!=null,"Kick-start slider unavailable");
-            boolean enabled=slider.isEnabled();int l=slider.getLeft(),t=slider.getTop(),r=slider.getRight(),b=slider.getBottom();int width=Math.max(slider.getWidth(),300),height=Math.max(slider.getHeight(),80);String before=service.ble.message();List<String> events=service.ble.events();
-            try{slider.setEnabled(true);slider.measure(View.MeasureSpec.makeMeasureSpec(width,View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(height,View.MeasureSpec.EXACTLY));slider.layout(0,0,width,height);long stamp=SystemClock.uptimeMillis();
-                dispatch(slider,stamp,stamp,android.view.MotionEvent.ACTION_DOWN,width*0.2f,height/2f);dispatch(slider,stamp,stamp+16,android.view.MotionEvent.ACTION_MOVE,width*0.85f,height/2f);dispatch(slider,stamp,stamp+32,android.view.MotionEvent.ACTION_CANCEL,width*0.85f,height/2f);
-                require(events.equals(service.ble.events())&&Objects.equals(before,service.ble.message()),"Cancelled slider invoked an offline setting/notice path");
-            }finally{slider.setEnabled(enabled);slider.measure(View.MeasureSpec.makeMeasureSpec(Math.max(1,r-l),View.MeasureSpec.EXACTLY),View.MeasureSpec.makeMeasureSpec(Math.max(1,b-t),View.MeasureSpec.EXACTLY));slider.layout(l,t,r,b);((MainActivity)activity).redraw();}
-        });status("Read-only slider cancellation regression passed; no UP or control click was sent");
+            require(target!=null,"Kick-start slider row unavailable");
+            // Rows have no inline slider; the SeekBar lives in an edit sheet that opens only while connected.
+        });status("Read-only slider row check passed while disconnected; no control was sent");
     }
     private void dispatch(View view,long down,long stamp,int action,float x,float y){android.view.MotionEvent event=android.view.MotionEvent.obtain(down,stamp,action,x,y,0);try{view.dispatchTouchEvent(event);}finally{event.recycle();}}
     private void render(Activity activity,String filename)throws Exception{

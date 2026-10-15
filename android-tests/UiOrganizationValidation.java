@@ -178,11 +178,16 @@ public final class UiOrganizationValidation extends Instrumentation {
             verifyMapSources(map);
             reveal(map);
             main(() -> {
+                // The last point is preselected; the tap must move the selection to the tapped point.
+                int last = ((java.util.List<?>)field(map, "points")).size() - 1;
                 long now = SystemClock.uptimeMillis();
                 MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, map.getWidth() / 2f, map.getHeight() / 2f, 0);
                 MotionEvent up = MotionEvent.obtain(now, now + 25, MotionEvent.ACTION_UP, map.getWidth() / 2f, map.getHeight() / 2f, 0);
                 try { map.dispatchTouchEvent(down); map.dispatchTouchEvent(up); } finally { down.recycle(); up.recycle(); }
-                require(findTextContaining(dialogRoot, "Power ") != null, "Tapping the route did not expose synchronized readings");
+                require(((Number)field(map, "selected")).intValue() != last, "Tapping the route did not select the tapped point");
+                View power = findReadout(dialogRoot, "Power, ");
+                require(power != null && !"Power, not measured".contentEquals(power.getContentDescription()),
+                        "Tapping the route did not expose synchronized readings");
             });
             verifyMapGestures(map);
             clickText(dialogRoot, "Grade"); clickText(dialogRoot, "Accel"); clickText(dialogRoot, "Power");
@@ -577,6 +582,14 @@ public final class UiOrganizationValidation extends Instrumentation {
     private static TextView findText(View root, String text) {
         if (root.isShown() && root instanceof TextView && text.contentEquals(((TextView)root).getText())) return (TextView)root;
         if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) { TextView found = findText(((ViewGroup)root).getChildAt(i), text); if (found != null) return found; }
+        return null;
+    }
+    /** A readout cell (label over value) whose description starts with the given label; not a legend. */
+    private static View findReadout(View root, String prefix) {
+        CharSequence description = root.getContentDescription();
+        if (root.isShown() && root instanceof ViewGroup && description != null && description.toString().startsWith(prefix)
+                && !root.getClass().getSimpleName().contains("Legend")) return root;
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) { View found = findReadout(((ViewGroup)root).getChildAt(i), prefix); if (found != null) return found; }
         return null;
     }
     private static TextView findTextContaining(View root, String text) {

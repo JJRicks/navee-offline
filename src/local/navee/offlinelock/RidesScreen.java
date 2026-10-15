@@ -801,6 +801,8 @@ public final class RidesScreen implements AppScreen {
         final LinearLayout inspection; String inspectionSignature = "";
         final boolean full; List<RideChartData.Series> data;
         final TextView loadStatus; AlertDialog expandedDialog; java.util.concurrent.Future<?> fullLoad;
+        /** A waiting "load once saving finishes" step; cancelled with the load so it can't reload later. */
+        Runnable fullLoadRetry;
         int loadGeneration; boolean fullDataLoaded;
         int overlayLimit = ui.dp(112); ScrollView overlayScroll;
         ChartPanel(String rideId, List<RideStore.Point> measured, PhoneRideStore.Track phone, boolean full) {
@@ -917,7 +919,7 @@ public final class RidesScreen implements AppScreen {
                     if (!dialog.isShowing()) { phoneRefreshers.remove(this); return; }
                     if (!service.phoneSaving()) { phoneRefreshers.remove(this); loadFull(expanded, dialog); }
                 } };
-                phoneRefreshers.add(retry); return;
+                fullLoadRetry = retry; phoneRefreshers.add(retry); return;
             }
             final boolean miles = !"km".equals(preferences.getString("units", "mi"));
             final RideStore rideStore = service.rides; final PhoneRideStore phoneStore = service.phoneRides;
@@ -956,7 +958,10 @@ public final class RidesScreen implements AppScreen {
             expanded.loadStatus.setText("Preview · Retry"); expanded.loadStatus.setEnabled(true);
             expanded.loadStatus.setContentDescription("Preview only. Retry loading all recorded chart samples"); if (message != null) host.toast(message);
         }
-        void cancelFullLoad() { loadGeneration++; if (fullLoad != null) { fullLoad.cancel(true); fullLoad = null; } }
+        void cancelFullLoad() {
+            loadGeneration++; if (fullLoad != null) { fullLoad.cancel(true); fullLoad = null; }
+            if (fullLoadRetry != null) { phoneRefreshers.remove(fullLoadRetry); fullLoadRetry = null; }
+        }
         @Override protected void onDetachedFromWindow() {
             cancelFullLoad(); if (expandedDialog != null) expandedDialog.dismiss(); super.onDetachedFromWindow();
         }

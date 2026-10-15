@@ -415,6 +415,8 @@ public final class DeveloperSettingsValidation extends Instrumentation {
             BleController ble=activity.service().ble;
             Map<String,Integer> values=(Map<String,Integer>)field(field(ble,"simulation"),"features");
             Map<String,String> results=(Map<String,String>)field(ble,"commandResults");
+            // The row shows a result chip only for this session's results, which carry a time.
+            Map<String,Long> resultTimes=(Map<String,Long>)field(ble,"resultTimes");
             for(String key:new String[]{"line_pattern","star_pattern"}){
                 SegmentedSelector selector=(SegmentedSelector)root().findViewWithTag("scooter-selector-"+key);
                 require(selector!=null,"Missing lighting selector "+key);Object row=control(key);invoke(row,"refresh");
@@ -429,12 +431,12 @@ public final class DeveloperSettingsValidation extends Instrumentation {
                 setField(ble,"mutation",pending(key,next));invoke(row,"refresh");
                 require(selected(selector)==before&&!selector.isEnabled(),"Pending write replaced confirmed pattern");
                 selectorChoices(selector).get(next).performClick();require(values.get(key)==before,"Disabled pattern click wrote simulator data");
-                setField(ble,"mutation",null);results.put(key,"Rejected (3)");invoke(row,"refresh");
+                setField(ble,"mutation",null);results.put(key,"Rejected (3)");resultTimes.put(key,System.currentTimeMillis());invoke(row,"refresh");
                 require(selected(selector)==before&&((TextView)field(row,"result")).getText().toString().contains("Rejected"),"Rejection lost previous selection or feedback");
                 // A click that races a disconnection must roll back before its failed command.
                 setField(ble,"state",BleController.State.DISCONNECTED);selectorChoices(selector).get(next).performClick();
                 require(selected(selector)==before&&!selector.isEnabled(),"Failed write left optimistic pattern selected");
-                setField(ble,"state",BleController.State.READY);invoke(row,"refresh");results.remove(key);
+                setField(ble,"state",BleController.State.READY);invoke(row,"refresh");results.remove(key);resultTimes.remove(key);
                 values.put(key,next);invoke(row,"refresh");require(selected(selector)==next,"New readback did not move the highlight");
             }
             assertTransportIdle();activity.redraw();

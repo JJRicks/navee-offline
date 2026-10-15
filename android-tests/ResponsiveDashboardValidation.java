@@ -420,15 +420,19 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             ViewGroup grid = grid(); View toolbar = (View)field(dashboard(), "toolbar");
             require(grid.getParent() == toolbar.getParent(), "Flat window split the header away from the grid");
             int expected = toolbar.getBottom();
-            // The separate "Last seen" caption ("stale") may be removed entirely; the header line carries the time.
-            for (String name : new String[] {"tools", "hint", "stale", "chargingHero"}) {
+            for (String name : new String[] {"tools", "chargingHero"}) {
                 Object item = optionalField(dashboard(), name);
                 if (item instanceof View && ((View)item).getVisibility() != View.GONE)
                     expected = Math.max(expected, ((View)item).getBottom());
             }
-            Object stale = optionalField(dashboard(), "stale");
-            require(!(stale instanceof TextView) || !((TextView)stale).isShown() || ((TextView)stale).length() == 0,
-                    "Home still shows a separate Last seen caption under the header");
+            // The header line carries the time; no separate caption sits under it.
+            TextView status = (TextView)field(dashboard(), "status");
+            ViewGroup words = (ViewGroup)status.getParent();
+            int lines = 0;
+            for (int i = 0; i < words.getChildCount(); i++)
+                if (words.getChildAt(i) instanceof TextView && words.getChildAt(i).getVisibility() != View.GONE) lines++;
+            require(lines == (status.getVisibility() == View.GONE ? 0 : 1),
+                    "Home header must have exactly one status line, found " + lines);
             require(grid.getTop() - expected <= activity.ui().dp(16), "Unexplained gap before the first card: " + (grid.getTop() - expected));
             List<Rect> occupied = new ArrayList<>();
             int first = Integer.MAX_VALUE, leftmost = Integer.MAX_VALUE, rightmost = 0;
@@ -2054,8 +2058,18 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         }); settleMotion();
         final boolean sixAvailable = ((Number)invoke(grid(), "maximumColumns")).intValue() >= 6;
         main(() -> {
-            View six = described(dialogRoot(), "6 columns"); require(six != null && six.isEnabled() == sixAvailable, "Six-column availability does not match the usable width");
-            if (sixAvailable) { six.performClick(); require(settings().getInt("dashboard_columns", 0) == 6, "Six-column selector did not save the choice"); }
+            View six = described(dialogRoot(), "6 columns");
+            require(six != null && (six.getAlpha() == 1f) == sixAvailable
+                    && six.getContentDescription().toString().endsWith(", needs a wider screen") != sixAvailable,
+                    "Six-column availability does not match the usable width");
+            int columnsBefore = settings().getInt("dashboard_columns", 0);
+            six.performClick();
+            if (sixAvailable) require(settings().getInt("dashboard_columns", 0) == 6, "Six-column selector did not save the choice");
+            else {
+                require(settings().getInt("dashboard_columns", 0) == columnsBefore, "A too-wide column count was saved");
+                android.widget.PopupWindow notice = (android.widget.PopupWindow)field(dashboard(), "notice");
+                require(notice != null && notice.isShowing(), "A too-wide column count did not say it needs a wider screen");
+            }
             invoke(dashboard(), "dismiss");
         }); settleMotion();
         main(() -> {
