@@ -1262,6 +1262,10 @@ public final class MoreScreen implements AppScreen {
             list.addView(line, new LinearLayout.LayoutParams(-1, -2));
             labRows.add(new LabRow(f, state, inspect));
         }
+        label("Ride switch test");
+        LinearLayout rideTest = group();
+        row(rideTest, "lab", "Ride switch test", "Light button probe and Top speed while moving",
+                () -> { if (service() != null) RideSwitchTest.open(host.activity(), ui, service()); });
         TextView evidence = ui.text("View command evidence", 13.5f, false); evidence.setTypeface(ui.medium());
         evidence.setTextColor(ui.accent); evidence.setGravity(Gravity.CENTER); evidence.setMinHeight(ui.dp(48));
         clickable(evidence, this::commandEvidence);

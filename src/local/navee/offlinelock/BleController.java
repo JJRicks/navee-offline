@@ -63,6 +63,38 @@ public final class BleController {
     public State state(){return state;}public String message(){return message;}public boolean ready(){if(simulating())return simulation!=null&&state==State.READY;return workAllowed()&&state==State.READY&&authenticated&&gatt!=null&&statusMs>0&&now()-statusMs<=7000&&!serial.isEmpty();}
     public boolean connected(){return simulating()?simulation!=null&&state==State.READY:gatt!=null&&authenticated;}public Boolean locked(){Integer n=featureValue("lock");return ready()&&n!=null?(n!=0):null;}
     public String pending(){return mutation==null?null:mutation.key;}public int mtu(){return mtu;}public long statusAge(){return statusMs==0?Long.MAX_VALUE:now()-statusMs;}public long lastFrameAge(){return lastFrameMs==0?Long.MAX_VALUE:now()-lastFrameMs;}
+    // Lab status probe: while it runs, status reports are polled faster and byte changes are logged.
+    // Read-only: it sends nothing but the normal status request.
+    private long probeUntilMs;private final ArrayDeque<String> probeLog=new ArrayDeque<>();private final HashMap<Integer,byte[]> probeLast=new HashMap<>();
+    public void probe(boolean on){probeUntilMs=on?now()+180000:0;probeLast.clear();if(on){probeLog.clear();event("Lab: status probe started");if(!simulating()&&authenticated&&gatt!=null)send(Protocol.frame(0x70,null));}else event("Lab: status probe stopped");changed();}
+    public boolean probing(){return probeUntilMs>now();}
+    public long probeRemainingMs(){return Math.max(0,probeUntilMs-now());}
+    public List<String> probeLog(){return new ArrayList<>(probeLog);}
+    /** Latest wheel speed in tenths of km/h, or -1 when no fresh motion report has arrived. */
+    public int speedTenths(){return !simulating()&&motionMs>0&&now()-motionMs<3000?speedRaw:-1;}
+    private void probeFrame(Protocol.Frame f){
+        if(!probing()||f.error()!=0||(f.cmd!=0x70&&f.cmd!=0x90&&f.cmd!=0x91&&f.cmd!=0x92))return;
+        byte[] previous=probeLast.put(f.cmd,f.data.clone());if(previous==null)return;
+        StringBuilder changes=new StringBuilder();
+        for(int i=1;i<Math.max(previous.length,f.data.length);i++){
+            if(probeNoise(f.cmd,i))continue;
+            int before=i<previous.length?previous[i]&255:-1,after=i<f.data.length?f.data[i]&255:-1;
+            if(before!=after)changes.append(changes.length()==0?"":", ").append(String.format(Locale.ROOT,"byte %d: %s→%s",i,before<0?"none":String.format(Locale.ROOT,"%02X",before),after<0?"none":String.format(Locale.ROOT,"%02X",after)));
+        }
+        if(changes.length()==0)return;
+        probeLog.addFirst(new SimpleDateFormat("HH:mm:ss.S",Locale.ROOT).format(new Date())+String.format(Locale.ROOT,"  0x%02X  ",f.cmd)+changes);
+        while(probeLog.size()>300)probeLog.removeLast();
+    }
+    /** Bytes that move by themselves (battery, range, power, speed, trip counters); the probe ignores them. */
+    private static boolean probeNoise(int cmd,int i){
+        if(cmd==0x90)return i==3||i==7||(i>=9&&i<=16);
+        if(cmd==0x91)return i==1||(i>=3&&i<=9);
+        if(cmd==0x92)return i==1||(i>=3&&i<=18);
+        return false;
+    }
+    /** Lab ride switch test: opt-in Top speed changes while moving. Off unless the rider turns it on. */
+    public static final String LAB_MOVING_TOP_SPEED="lab_moving_top_speed";
+    private boolean movingTopSpeedAllowed(ScooterCommands.Feature f){return f.key.equals("maximum_speed")&&context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getBoolean(LAB_MOVING_TOP_SPEED,false);}
     public boolean stationary(){if(simulating())return simulation!=null&&state==State.READY;return motionMs>0&&now()>=motionMs&&now()-motionMs<6000&&speedRaw==0&&driving==0;}
     public ScooterProfiles.Profile profile(){return profile==null?profiles.active():profile;}public List<ScanResult> discoveries(){return new ArrayList<>(discoveries.values());}public List<String> events(){return new ArrayList<>(events);}public Map<String,String> commandResults(){return new LinkedHashMap<>(commandResults);}public ScooterCommands.PinState pinState(){return pinState;}
     public Integer featureValue(String key){if(simulating())return simulation==null?null:simulation.featureValue(key);try{return ScooterCommands.find(key).readback(statusFrame);}catch(Exception e){return null;}}
@@ -168,7 +200,7 @@ public final class BleController {
                 else if(!authenticated){authenticated=true;challengePending=false;event("Owner authenticated locally");message="Reading your scooter…";send(Protocol.frame(0x74,null));send(Protocol.frame(0x70,null));refresh(true);poll(generation);}
             }else if(f.cmd==0x31&&challengePending){if(f.error()!=0){failed("Authentication challenge rejected.",false);return;}int s=generation;handler.postDelayed(()->{if(s==generation)authenticate();},150);}
             else if(authenticated){
-                if(f.cmd!=0x7a&&f.cmd!=0x63)telemetry.accept(f.cmd,f.data,now());
+                if(f.cmd!=0x7a&&f.cmd!=0x63)telemetry.accept(f.cmd,f.data,now());probeFrame(f);
                 if(f.cmd==0x74&&f.error()==0&&f.data.length>=2){String received=new String(Arrays.copyOfRange(f.data,1,Math.min(18,f.data.length)),StandardCharsets.US_ASCII).replace("\u0000","").trim();if(!received.matches("[A-Za-z][A-Za-z0-9]{16}")){failed("The scooter returned an invalid serial identity.",false);return;}if(!profile.serial.isEmpty()&&!profile.serial.equals(received)){failed("This scooter’s serial does not match the saved profile.",false);return;}serial=received;profile.serial=received;remember();}
                 if(f.cmd==0x70&&f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1){statusFrame=f;statusMs=now();remember();confirmMutation(f);}
                 if(f.cmd==0x90&&f.error()==0&&f.data.length>=9){warning=f.data[1]&255;warningMs=now();}
@@ -185,12 +217,12 @@ public final class BleController {
     }
     private void remember(){if(simulating())return;if(authenticated&&gatt!=null&&!serial.isEmpty()&&statusMs>0){String address=gatt.getDevice().getAddress();boolean changed=!address.equals(profile.mac);profile.mac=address;if(changed||now()-savedProfileMs>60000||profile.lastConnected==0){profile.lastConnected=System.currentTimeMillis();profiles.update(profile);savedProfileMs=now();}state=State.READY;retries=0;if(mutation==null)message="Connected locally. Your scooter’s state is confirmed.";}}
     public void refresh(boolean full){if(simulating()){tickSimulation();changed();return;}if(!workAllowed()||!authenticated)return;for(int cmd:full?ScooterCommands.diagnosticReads():new int[]{0x70,0x72,0x79})send(Protocol.frame(cmd,null));}
-    private void poll(int session){if(simulating())return;handler.postDelayed(()->{if(simulating()||!workAllowed()||session!=generation||!authenticated||gatt==null)return;long silentLimit=visible||recording?12000:35000;if((lastFrameMs>0&&now()-lastFrameMs>silentLimit)||(statusMs>0&&now()-statusMs>silentLimit)){failed("Scooter readings stopped. Reconnecting locally…",true);return;}send(Protocol.frame(0x70,null));int interval=context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getInt("poll_interval_ms",2000);interval=Math.max(2000,Math.min(10000,interval));if((visible||recording)&&now()-lastBatteryPollMs>=(recording?2000:interval)){send(Protocol.frame(0x72,null));send(Protocol.frame(0x79,null));lastBatteryPollMs=now();}changed();poll(session);},visible||recording?2000:15000);}
+    private void poll(int session){if(simulating())return;handler.postDelayed(()->{if(simulating()||!workAllowed()||session!=generation||!authenticated||gatt==null)return;long silentLimit=visible||recording?12000:35000;if((lastFrameMs>0&&now()-lastFrameMs>silentLimit)||(statusMs>0&&now()-statusMs>silentLimit)){failed("Scooter readings stopped. Reconnecting locally…",true);return;}send(Protocol.frame(0x70,null));int interval=context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getInt("poll_interval_ms",2000);interval=Math.max(2000,Math.min(10000,interval));if((visible||recording)&&now()-lastBatteryPollMs>=(recording?2000:interval)){send(Protocol.frame(0x72,null));send(Protocol.frame(0x79,null));lastBatteryPollMs=now();}changed();poll(session);},probing()?500:visible||recording?2000:15000);}
     private boolean canChange(ScooterCommands.Feature f){
         if(simulating())return simulation!=null&&state==State.READY&&f!=null&&!f.sensitive;
         if(f==null){notice("This control is unavailable.");return false;}if(!ready()){notice("Wait for a fresh, verified scooter connection.");return false;}if(mutation!=null){notice("Wait for the current change to finish.");return false;}
         if(profile.pid()!=2538){notice("This control catalog is verified for UT5 MAX model 2538. Other models remain read-only.");return false;}
-        if(f.requiresParked&&!stationary()){notice("Wait for a fresh stationary reading before changing this setting.");return false;}
+        if(f.requiresParked&&!stationary()&&!movingTopSpeedAllowed(f)){notice("Wait for a fresh stationary reading before changing this setting.");return false;}
         if(f.key.equals("lock")&&now()-warningMs<6000&&warning!=0){notice("Resolve scooter warning "+warning+" before locking.");return false;}
         if(f.sensitive&&profile.role!=0){notice("PIN settings require the owner profile.");return false;}return true;
     }
@@ -201,6 +233,14 @@ public final class BleController {
             catch(IllegalArgumentException invalid){notice(invalid.getMessage());return false;}
         }
         if(key.equals("lock")&&value==0){if(!ready()||mutation!=null){notice("Wait for a fresh scooter connection.");return false;}}else if(!canChange(f))return false;
+        if(key.equals("maximum_speed")&&!stationary()){
+            // Lab test while moving: raising is sent at once. Lowering waits until a fresh reading shows the
+            // scooter already 3 km/h below the new limit, so it never has to cut power or brake to enforce it.
+            Integer cap=featureValue(key);int speed=speedTenths();
+            if(cap==null){notice("Top speed has no fresh readback yet.");return false;}
+            if(value<cap&&(speed<0||speed>(value-3)*10)){notice("Slow down below the new top speed first, then try again.");return false;}
+            event(String.format(Locale.ROOT,"Lab: Top speed %d to %d km/h sent while moving at %s",cap,value,speed<0?"unknown speed":String.format(Locale.ROOT,"%.1f km/h",speed/10.0)));
+        }
         Integer current=featureValue(key);if(current!=null&&current==value){notice(f.label+" is already set.");return true;}
         try{
             byte[] bytes;if(key.equals("proximity_key")){if(pinStateMs==0||now()-pinStateMs>10000){readPin();notice("Read the PIN state, then apply proximity unlock.");return false;}boolean bonded=gatt.getDevice().getBondState()==BluetoothDevice.BOND_BONDED;bytes=ScooterCommands.setProximity(value==1,profile.role==0,bonded,pinState);}else bytes=ScooterCommands.set(key,value,statusFrame);
