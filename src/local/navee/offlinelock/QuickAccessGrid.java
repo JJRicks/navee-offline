@@ -7,20 +7,31 @@ import android.widget.*;
 import java.util.*;
 import java.util.function.Consumer;
 
-/** Height-aware shortcuts: use available room without clipping text or shrinking touch targets. */
+/**
+ * Height-aware shortcuts: use available room without clipping text or shrinking touch targets.
+ * The same catalog, values and actions also drive Setting tiles: separate cards with a label over
+ * the current value and a chevron, the first one highlighted while connected.
+ */
 final class QuickAccessGrid extends ViewGroup {
     private final ScreenHost host;
     private final Ui ui;
-    private final boolean editing;
+    private final boolean editing, tiles;
     private final ArrayList<Cell> cells = new ArrayList<>();
-    private int budget, columns = 1, rowHeight;
-    private boolean iconsOnly;
+    private int budget, columns = 1, rowHeight, fittedWidth = -1, fittedBudget = -1;
+    private boolean iconsOnly, tileLabels = true, tileCompact;
 
     QuickAccessGrid(ScreenHost host, List<String> ids, boolean editing, Consumer<String> action) {
+        this(host, ids, editing, action, false);
+    }
+
+    /** {@code tiles} selects the Setting tiles presentation; callers normalize its one-to-four ids. */
+    QuickAccessGrid(ScreenHost host, List<String> ids, boolean editing, Consumer<String> action, boolean tiles) {
         super(host.activity());
-        this.host = host; this.ui = host.ui(); this.editing = editing;
-        setTag("quick-access-grid");
-        for (String id : QuickAccessActions.normalize(ids)) {
+        this.host = host; this.ui = host.ui(); this.editing = editing; this.tiles = tiles;
+        setTag(tiles ? "setting-tiles" : "quick-access-grid");
+        List<String> shown = tiles ? ids : QuickAccessActions.normalize(ids);
+        for (String id : shown) {
+            if (QuickAccessActions.find(id) == null) continue;
             Cell cell = new Cell(QuickAccessActions.find(id));
             cell.setOnClickListener(v -> { if (!editing) action.accept(id); });
             cells.add(cell); addView(cell);
@@ -39,7 +50,8 @@ final class QuickAccessGrid extends ViewGroup {
         String units = preferences.getString("units", "mi");
         TelemetryHistory.Reading schedule = service == null ? null
                 : service.displayReadings().get("scheduled_charge_time_raw");
-        for (Cell cell : cells) {
+        for (int index = 0; index < cells.size(); index++) {
+            Cell cell = cells.get(index);
             ScooterCommands.Feature feature = cell.entry.feature();
             boolean featureLive = feature != null && live && (feature.type == ScooterCommands.Type.TIME
                     ? service.readingFresh("scheduled_charge_time_raw") : service.featureFresh(feature.key));
@@ -59,14 +71,33 @@ final class QuickAccessGrid extends ViewGroup {
                         - TimeZone.getDefault().getOffset(System.currentTimeMillis());
                 state += " • " + DisplayTime.clock(host.activity(), preferences, wall);
             }
-            if (!state.contentEquals(cell.value.getText())) cell.value.setText(state);
-            cell.value.setVisibility(iconsOnly || state.isEmpty() ? GONE : VISIBLE);
-            cell.value.setTag(state);
-            cell.value.setTextColor(featureLive ? ui.text : ui.muted);
             boolean selected = cell.entry.directToggle() && value != null && value == 1 && featureLive;
-            if (cell.isSelected() != selected) { cell.setSelected(selected); cell.updateBackground(); }
+            if (tiles) {
+                // A page or menu shortcut has no value; its name takes the value line instead.
+                String shownValue = state.isEmpty() ? cell.entry.label : state;
+                if (!shownValue.contentEquals(cell.value.getText())) {
+                    cell.value.setText(shownValue);
+                    fittedWidth = -1;
+                }
+                cell.label.setTag(state.isEmpty() ? "" : cell.entry.label);
+                boolean highlight = index == 0 && live && !editing;
+                boolean muted = feature != null && !featureLive;
+                cell.label.setTextColor(highlight ? Ui.withAlpha(ui.onAccent, 220) : ui.muted);
+                cell.value.setTextColor(highlight ? ui.onAccent : muted ? ui.muted : ui.text);
+                ((Chevron) cell.icon).setColor(highlight ? ui.onAccent : ui.muted);
+                if (cell.highlighted != highlight || cell.isSelected() != selected) {
+                    cell.highlighted = highlight; cell.setSelected(selected); cell.updateBackground();
+                }
+                cell.label.setVisibility(tileLabels && !state.isEmpty() ? VISIBLE : GONE);
+            } else {
+                if (!state.contentEquals(cell.value.getText())) cell.value.setText(state);
+                cell.value.setVisibility(iconsOnly || state.isEmpty() ? GONE : VISIBLE);
+                cell.value.setTag(state);
+                cell.value.setTextColor(featureLive ? ui.text : ui.muted);
+                if (cell.isSelected() != selected) { cell.setSelected(selected); cell.updateBackground(); }
+                cell.setAlpha(feature != null && !featureLive ? .65f : 1f);
+            }
             cell.setEnabled(!editing);
-            cell.setAlpha(feature != null && !featureLive ? .65f : 1f);
             String description = cell.entry.label + (state.isEmpty() ? "" : ", " + state)
                     + (feature != null && !featureLive ? ", last seen" : "")
                     + (showSchedule && !schedule.live ? ", scheduled time last seen" : "")
@@ -76,12 +107,49 @@ final class QuickAccessGrid extends ViewGroup {
         }
     }
 
+    /** The setting tile's trailing chevron; recoloured on the highlighted tile. */
+    private final class Chevron extends View {
+        int color;
+        Chevron(int color) { super(host.activity()); this.color = color; setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); }
+        void setColor(int next) { if (next != color) { color = next; invalidate(); } }
+        @Override protected void onDraw(android.graphics.Canvas canvas) {
+            float size = Math.min(getWidth(), getHeight());
+            if (size > 0) ui.drawIcon(canvas, "chevron", color, getWidth() / 2f, getHeight() / 2f, size);
+        }
+    }
+
     private final class Cell extends LinearLayout {
         final QuickAccessActions.Entry entry;
         final View icon;
         final TextView label, value;
+        boolean highlighted;
         Cell(QuickAccessActions.Entry entry) {
             super(host.activity()); this.entry = entry;
+            if (tiles) {
+                setTag("setting-tile:" + entry.id);
+                setOrientation(HORIZONTAL); setGravity(Gravity.CENTER_VERTICAL);
+                setClickable(true); setFocusable(true); setMinimumHeight(ui.dp(48));
+                LinearLayout words = new LinearLayout(host.activity());
+                words.setOrientation(VERTICAL);
+                label = ui.text(entry.label, 12.5f, false);
+                label.setTextColor(ui.muted); label.setMaxLines(1);
+                label.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                label.setLineSpacing(0, 1);
+                words.addView(label, new LinearLayout.LayoutParams(-1, -2));
+                value = ui.text("", 18, true);
+                value.setMaxLines(1); value.setEllipsize(android.text.TextUtils.TruncateAt.END);
+                value.setLineSpacing(0, 1);
+                words.addView(value, new LinearLayout.LayoutParams(-1, -2));
+                addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+                icon = new Chevron(ui.muted);
+                LinearLayout.LayoutParams chevron = new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16));
+                chevron.setMarginStart(ui.dp(6));
+                addView(icon, chevron);
+                setTooltipText(entry.label); updateBackground();
+                for (View child : new View[]{words, label, value, icon})
+                    child.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+                return;
+            }
             setTag("quick-action:" + entry.id);
             setOrientation(VERTICAL); setGravity(Gravity.CENTER);
             setClickable(true); setFocusable(true); setMinimumHeight(ui.dp(48));
@@ -100,9 +168,51 @@ final class QuickAccessGrid extends ViewGroup {
                 child.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
         }
         void updateBackground() {
+            if (tiles) {
+                // White on accentDeep stays above 4.5:1 in both themes.
+                int fill = highlighted ? ui.accentDeep : isSelected() ? blendAccent() : editing ? ui.raised : ui.surface;
+                setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(highlighted ? ui.onAccent : ui.accent, 40)),
+                        ui.shape(fill, 20, isSelected() && !highlighted ? Ui.withAlpha(ui.accent, 100) : 0), null));
+                return;
+            }
             setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 40)),
                     ui.shape(isSelected() ? Ui.withAlpha(ui.accent, 35) : ui.raised, 12,
                             isSelected() ? Ui.withAlpha(ui.accent, 100) : 0), null));
+        }
+        int blendAccent() {
+            float a = ui.dark ? .14f : .08f;
+            int from = ui.surface, to = ui.accent;
+            return android.graphics.Color.rgb(
+                    Math.round(android.graphics.Color.red(from) + (android.graphics.Color.red(to) - android.graphics.Color.red(from)) * a),
+                    Math.round(android.graphics.Color.green(from) + (android.graphics.Color.green(to) - android.graphics.Color.green(from)) * a),
+                    Math.round(android.graphics.Color.blue(from) + (android.graphics.Color.blue(to) - android.graphics.Color.blue(from)) * a));
+        }
+        /** Setting tile content at this width: value shrinks to fit, chevron and label drop when needed. */
+        void measureTile(int width, boolean refit, int rowLimit) {
+            if (!refit) {
+                measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                        MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                return;
+            }
+            float factor = Math.max(1, ui.textScale * getResources().getConfiguration().fontScale);
+            icon.setVisibility(width >= ui.dp(110 * factor) ? VISIBLE : GONE);
+            label.setVisibility(tileLabels && !"".equals(label.getTag()) ? VISIBLE : GONE);
+            int vertical = ui.dp(tileCompact ? 3 : 8);
+            setPadding(ui.dp(14), vertical, ui.dp(12), vertical);
+            int text = width - getPaddingLeft() - getPaddingRight()
+                    - (icon.getVisibility() == VISIBLE ? ui.dp(22) : 0);
+            // Label and value are single lines without extra spacing, so their font metrics are their heights.
+            int room = rowLimit - getPaddingTop() - getPaddingBottom() - (label.getVisibility() == VISIBLE
+                    ? label.getPaint().getFontMetricsInt().descent - label.getPaint().getFontMetricsInt().ascent : 0);
+            float size = 18 * ui.textScale, floor = 12 * ui.textScale;
+            value.setTextSize(size);
+            while (size > floor && (value.getPaint().measureText(value.getText().toString()) > text
+                    || value.getPaint().getFontMetricsInt().descent - value.getPaint().getFontMetricsInt().ascent > room)) {
+                size -= .5f;
+                value.setTextSize(size);
+            }
+            measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
+                    MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
         }
         void measureContent(int width, boolean compact) {
             label.setVisibility(iconsOnly ? GONE : VISIBLE);
@@ -127,6 +237,7 @@ final class QuickAccessGrid extends ViewGroup {
     }
 
     @Override protected void onMeasure(int widthSpec, int heightSpec) {
+        if (tiles) { measureTiles(MeasureSpec.getSize(widthSpec)); return; }
         int width = MeasureSpec.getSize(widthSpec), gap = ui.dp(6);
         iconsOnly = width < ui.dp(100);
         columns = Math.min(Math.min(4, cells.size()), Math.max(1,
@@ -148,6 +259,38 @@ final class QuickAccessGrid extends ViewGroup {
         setMeasuredDimension(width, rows * rowHeight + (rows - 1) * gap);
     }
 
+    /** Separate cards: wrap below ~88 dp of text each, then drop labels before values to fit the height. */
+    private void measureTiles(int width) {
+        int gap = ui.dp(10), count = cells.size();
+        if (count == 0) { setMeasuredDimension(width, 0); return; }
+        float factor = Math.max(1, ui.textScale * getResources().getConfiguration().fontScale);
+        columns = count;
+        while (columns > 1 && (width - (columns - 1) * gap) / columns < ui.dp(88 * factor))
+            columns = columns == 4 ? 2 : columns - 1;
+        int rows = (count + columns - 1) / columns;
+        int cellWidth = Math.max(1, (width - (columns - 1) * gap) / columns);
+        int perRow = budget > 0 ? (budget - (rows - 1) * gap) / rows : Integer.MAX_VALUE;
+        int natural;
+        if (width != fittedWidth || budget != fittedBudget) {
+            // Choose once per size so visibility and size changes do not request layout on every pass.
+            fittedWidth = width; fittedBudget = budget;
+            tileLabels = true; tileCompact = false;
+            natural = measureTileCells(cellWidth, true, perRow);
+            if (natural > perRow) { tileCompact = true; natural = measureTileCells(cellWidth, true, perRow); }
+            if (natural > perRow) { tileLabels = false; natural = measureTileCells(cellWidth, true, perRow); }
+        } else natural = measureTileCells(cellWidth, false, perRow);
+        rowHeight = perRow != Integer.MAX_VALUE && perRow >= natural ? perRow : natural;
+        for (Cell cell : cells) cell.measure(MeasureSpec.makeMeasureSpec(cellWidth, MeasureSpec.EXACTLY),
+                MeasureSpec.makeMeasureSpec(rowHeight, MeasureSpec.EXACTLY));
+        setMeasuredDimension(width, rows * rowHeight + (rows - 1) * gap);
+    }
+
+    private int measureTileCells(int width, boolean refit, int rowLimit) {
+        int height = ui.dp(48);
+        for (Cell cell : cells) { cell.measureTile(width, refit, rowLimit); height = Math.max(height, cell.getMeasuredHeight()); }
+        return height;
+    }
+
     private int measureCells(int width, boolean compact) {
         int height = ui.dp(48);
         for (Cell cell : cells) { cell.measureContent(width, compact); height = Math.max(height, cell.getMeasuredHeight()); }
@@ -155,7 +298,8 @@ final class QuickAccessGrid extends ViewGroup {
     }
 
     @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
-        int gap = ui.dp(6), width = cells.get(0).getMeasuredWidth();
+        if (cells.isEmpty()) return;
+        int gap = ui.dp(tiles ? 10 : 6), width = cells.get(0).getMeasuredWidth();
         boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
         for (int i = 0; i < cells.size(); i++) {
             int x = (i % columns) * (width + gap), y = (i / columns) * (rowHeight + gap);

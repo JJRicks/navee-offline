@@ -298,11 +298,17 @@ confirmation behavior. These effects respect disabled system animations.
 The scooter card gives one/two-reading configurations a larger adaptive value
 size (up to 28 sp at normal text scale); longer lists retain the prior size cap.
 Done restores normal widget actions.
-Up to 32 widgets are supported, with one lock widget. Customize titles, colors,
-selected parameters/readings, gauge
+Up to 32 widgets are supported, with one lock control (Lock & connection or
+Lock bar). Customize titles, colors, selected parameters/readings, gauge
 scales, chart windows and notes where applicable. New widgets remain drafts
-until Save. New/reset dashboards use the owner's ten-widget setup and options,
-including maximum-speed and scheduled-charging Quick access shortcuts. Five
+until Save. New/reset dashboards use a five-widget Home: Lock bar, Scooter
+overview, Reading tiles (power, pack temperature, health), Setting tiles (top
+speed, scheduled charging) and Ride recorder, stacked full width and split
+into two columns on six-column grids. The header status line carries "last
+seen"; the new cards grey stale values instead of a per-card footer. Older
+widgets remain in Add widget. While editing, card content dims (animated,
+interrupt-safe, instant with animations off) so the solid editor handles stand
+out; the card being moved or resized returns to full opacity. Five
 columns are retained on supported narrow cover screens, including the Galaxy
 Fold 5 at default display settings. Fewer columns apply only below 280 dp of
 available dashboard width.

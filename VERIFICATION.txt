@@ -495,7 +495,11 @@ Reviewed feature integration:
   this section does not claim a new owner-phone installation.
 
 Release-specific checks:
-- The release includes the owner's ten-widget Home preset and all captured
+- Unreleased: the default Home is now the five-widget concept (Lock bar,
+  Scooter overview, Reading tiles, Setting tiles, Ride recorder) with explicit
+  rectangles for one to six columns. Core tests cover the new types' widths;
+  the layout was checked by reasoning only (no emulator or phone run yet).
+- 1.0.x: the release includes the owner's ten-widget Home preset and all captured
   options/rectangles. Maximum speed is the first Quick access item, followed by
   Scheduled charging. Five columns are the initial choice; narrower screens
   use the existing adaptive fallback. Fresh widget IDs are generated and no
