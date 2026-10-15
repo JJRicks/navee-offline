@@ -780,7 +780,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         main(() -> {
             LinearLayout heading = (LinearLayout)((View)field(activity, "lockTitle")).getParent();
             LinearLayout offline = (LinearLayout)((View)field(activity, "offlineTitle")).getParent().getParent();
-            for (LinearLayout row : new LinearLayout[] {heading, offline}) {
+            // The heading no longer carries an "Electronic lock" caption to stack beside the state.
+            require(heading.getChildCount() == 1, "Lock heading regained a caption beside its state");
+            for (LinearLayout row : new LinearLayout[] {offline}) {
                 int left = row.getLeft(), top = row.getTop(), width = row.getWidth(), height = row.getHeight(), direction = row.getLayoutDirection();
                 boolean ready = row == heading;
                 try {
