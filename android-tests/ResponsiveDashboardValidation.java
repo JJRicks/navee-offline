@@ -57,6 +57,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private Bundle arguments;
     private MainActivity activity;
     private boolean admitted;
+    /** Fresh Home: Lock bar, Battery overview, Reading tiles, Setting tiles, Ride recorder. */
+    private static final String[] DEFAULT_STACK = {"lockbar", "overview", "tiles", "shortcuts", "ride"};
     private final ArrayList<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private final ArrayList<String> overlayGeometry = new ArrayList<>();
 
@@ -103,7 +105,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 assertInitialLockVisible();
                 if (!mode.equals("battery")) { assertLockStates(); check("Connected, disconnected and connecting lock controls fit without inner scrolling"); }
                 assertDefaultCardContents(); screenshot("default-disconnected");
-                check("Default scooter and battery readings fit without hidden overflow");
+                check("Default battery overview and reading tiles fit without hidden overflow");
                 if (mode.equals("constraints")) {
                     verifyMinimumLockAndCharging();
                     check("Minimum lock height restores cleanly; minimum battery size fits its active charging readings");
@@ -156,7 +158,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             DashboardConfig config = dashboardConfig();
             require(settings().getInt("dashboard_columns", 0) == 6, "Example lost its preferred column setting");
             require(config.widgets.size() == DashboardConfig.TYPES.length && tiles().size() == DashboardConfig.TYPES.length,
-                    "Example did not render all 15 widgets");
+                    "Example did not render all " + DashboardConfig.TYPES.length + " widgets");
             for (String type : DashboardConfig.TYPES) {
                 int count = 0;
                 for (DashboardConfig.Widget widget : config.widgets) if (widget.type.equals(type)) count++;
@@ -168,8 +170,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     "Example speed gauge lost its useful range");
             require("power_w".equals(live.metric) && live.windowMs == 120000,
                     "Example live chart lost its two-minute power view");
-            require(((DashboardConfig.Widget)field(tile("lock"), "widget")).showDisconnect,
-                    "Example lock card lost its Disconnect option");
+            require(((DashboardConfig.Widget)field(tile("lock"), "widget")).showDisconnect
+                            && ((DashboardConfig.Widget)field(tile("lockbar"), "widget")).showDisconnect,
+                    "Example lock card or lock bar lost its Disconnect option");
             if ((Integer)field(grid(), "columns") == 2) {
                 DashboardConfig.Widget quick = (DashboardConfig.Widget)field(tile("quick"), "widget");
                 DashboardLayout.Cell quickCell = (DashboardLayout.Cell)invoke(grid(), "currentCell",
@@ -203,7 +206,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                         && ((Ui.ChartView)field(tile("health"), "chart")).pointCount() > 0,
                 "Example history charts did not load synthetic fixture samples");
         captureExampleSections();
-        check("Saved All widgets example restores all 15 types with useful parameters; cards fit without overlap and the compact Connect action starts on-screen");
+        check("Saved All widgets example restores all " + DashboardConfig.TYPES.length + " types with useful parameters; cards fit without overlap and the compact Connect action starts on-screen");
         check("Overlapping page captures cover every example card, including compact, wide and enlarged-text arrangements; intentional card scrolling is preserved");
     }
     private void captureExampleSections() throws Exception {
@@ -411,10 +414,15 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             ViewGroup grid = grid(); View toolbar = (View)field(dashboard(), "toolbar");
             require(grid.getParent() == toolbar.getParent(), "Flat window split the header away from the grid");
             int expected = toolbar.getBottom();
+            // The separate "Last seen" caption ("stale") may be removed entirely; the header line carries the time.
             for (String name : new String[] {"tools", "hint", "stale", "chargingHero"}) {
-                View item = (View) field(dashboard(), name);
-                if (item.getVisibility() != View.GONE) expected = Math.max(expected, item.getBottom());
+                Object item = optionalField(dashboard(), name);
+                if (item instanceof View && ((View)item).getVisibility() != View.GONE)
+                    expected = Math.max(expected, ((View)item).getBottom());
             }
+            Object stale = optionalField(dashboard(), "stale");
+            require(!(stale instanceof TextView) || !((TextView)stale).isShown() || ((TextView)stale).length() == 0,
+                    "Home still shows a separate Last seen caption under the header");
             require(grid.getTop() - expected <= activity.ui().dp(16), "Unexplained gap before the first card: " + (grid.getTop() - expected));
             List<Rect> occupied = new ArrayList<>();
             int first = Integer.MAX_VALUE, leftmost = Integer.MAX_VALUE, rightmost = 0;
@@ -430,12 +438,16 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             int count = ((Number)field(grid, "columns")).intValue();
             if (settings().getInt("dashboard_columns", 0) == 5 && grid.getWidth() >= activity.ui().dp(280)) {
                 require(count == 5, "A five-column dashboard silently switched layout on a cover screen");
-                if (activity.ui().textScale * activity.getResources().getConfiguration().fontScale <= 1.05f) {
-                    DashboardLayout.Cell scooter = (DashboardLayout.Cell)invoke(grid, "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, field(tile("scooter"), "widget"));
-                    DashboardLayout.Cell lock = (DashboardLayout.Cell)invoke(grid, "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, field(tile("lock"), "widget"));
-                    DashboardLayout.Cell quick = (DashboardLayout.Cell)invoke(grid, "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, field(tile("quick"), "widget"));
-                    require(scooter.x == 0 && scooter.y == 0 && scooter.w == 3 && quick.x == 3 && quick.y == 0 && quick.w == 2
-                            && lock.x == 0 && lock.y == 3 && lock.w == 2, "Narrow default dashboard shuffled its saved five-column placements");
+                if (activity.ui().textScale * activity.getResources().getConfiguration().fontScale <= 1.05f
+                        && dashboardConfig().widgets.size() == DEFAULT_STACK.length) {
+                    // The default Home is one full-width stack: rows 0, 1–4, 5–6, 7 and 8.
+                    int[][] rows = {{0, 1}, {1, 4}, {5, 2}, {7, 1}, {8, 1}};
+                    for (int i = 0; i < DEFAULT_STACK.length; i++) {
+                        DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid, "currentCell",
+                                new Class<?>[]{DashboardConfig.Widget.class}, field(tile(DEFAULT_STACK[i]), "widget"));
+                        require(cell.x == 0 && cell.w == 5 && cell.y == rows[i][0] && cell.h == rows[i][1],
+                                "Narrow default dashboard shuffled its full-width five-column stack: " + DEFAULT_STACK[i] + " " + cellText(cell));
+                    }
                 }
             }
             require(first <= activity.ui().dp(16), "Default grid has phantom leading rows");
@@ -449,9 +461,11 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             ScrollView scroll = (ScrollView)field(activity, "scroll");
             if (columns != 2 || scale > 1.05f || scroll.getHeight() < activity.ui().dp(600)) return;
             require(scroll.getScrollY() == 0, "Fresh default visibility must be checked before scrolling");
-            TextView connect = (TextView)field(activity, "connectionAction");
-            require("Connect".contentEquals(connect.getText()), "Fresh disconnected dashboard lost Connect");
-            for (View view : new View[] {(View)tile("lock"), connect}) {
+            View lock = (View)lockTile();
+            TextView connect = null;
+            for (TextView text : texts(lock)) if (text.isShown() && "Connect".contentEquals(text.getText())) connect = text;
+            require(connect != null, "Fresh disconnected dashboard lost Connect");
+            for (View view : new View[] {lock, connect}) {
                 Rect visible = new Rect();
                 require(view.getGlobalVisibleRect(visible) && visible.width() == view.getWidth()
                                 && visible.height() == view.getHeight(),
@@ -460,9 +474,10 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             check("Fresh two-column lock and Connect remain fully visible on the first screen at default text");
         });
     }
-    private void assertDefaultCardContents() {
+    private void assertDefaultCardContents() { assertCardContents("overview", "tiles"); }
+    private void assertCardContents(String... types) {
         main(() -> {
-            for (String type : new String[] {"scooter", "battery"}) {
+            for (String type : types) {
                 Object item = tile(type); View body = (View)field(item, "body");
                 ScrollView viewport = (ScrollView)field(item, "viewport");
                 require(body.getHeight() <= viewport.getHeight() + 1, type + " default needs inner scrolling: body=" + body.getWidth() + "x" + body.getHeight() + ", viewport=" + viewport.getWidth() + "x" + viewport.getHeight() + ", tile=" + ((View)item).getWidth() + "x" + ((View)item).getHeight());
@@ -471,7 +486,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         });
     }
     private void assertLockStates() throws Exception {
-        Object item = tile("lock"); View card = (View)item;
+        Object item = lockTile(); View card = (View)item;
+        final boolean bar = "lockbar".equals(((DashboardConfig.Widget)field(item, "widget")).type);
         for (String state : new String[] {"disconnected", "unlocked", "locked", "connecting"}) {
             Runnable showState = () -> {
                 invoke(activity, "updateHeader");
@@ -484,8 +500,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     } finally { setField(ble, "state", original); }
                 }
                 if (state.equals("unlocked") || state.equals("locked")) {
-                    ((View)field(activity, "lockOffline")).setVisibility(View.GONE);
-                    ((View)field(activity, "lockReady")).setVisibility(View.VISIBLE);
+                    setVisibilityIfPresent("lockOffline", View.GONE);
+                    setVisibilityIfPresent("lockReady", View.VISIBLE);
                     invoke(activity, "updateConnectionAction", new Class<?>[] {boolean.class, boolean.class}, true, false);
                     TextView title = (TextView)field(activity, "lockTitle"); title.setText(state.equals("locked") ? "Locked" : "Unlocked");
                     // Preserve the production glyph size installed by updateHeader; only the text/state changes.
@@ -512,8 +528,20 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 require(bounds.left >= 0 && bounds.top >= 0 && bounds.right <= viewport.getWidth() && bounds.bottom <= viewport.getHeight(),
                         state + " action is clipped: " + bounds + " in " + viewport.getWidth() + "x" + viewport.getHeight());
                 require(action.getWidth() >= activity.ui().dp(48) && action.getHeight() >= activity.ui().dp(48), state + " action lost its touch target");
-                if (state.equals("locked") || state.equals("unlocked")) {
-                    TextView disconnect = (TextView)field(activity, "connectionAction");
+                if (bar && (state.equals("locked") || state.equals("unlocked")))
+                    require(action.isShown(), "Connected Lock bar does not show its tap-or-slide LockControl");
+                if (bar && state.equals("disconnected")) {
+                    boolean unknown = false, connect = false;
+                    for (TextView text : texts(body)) if (text.isShown()) {
+                        unknown |= "Lock state unknown".contentEquals(text.getText());
+                        connect |= "Connect".contentEquals(text.getText());
+                    }
+                    require(unknown && connect, "Disconnected Lock bar must say Lock state unknown and offer Connect");
+                }
+                TextView shownDisconnect = (TextView)field(activity, "connectionAction");
+                if ((state.equals("locked") || state.equals("unlocked")) && (!bar || shownDisconnect.isShown())) {
+                    // The one-row Lock bar may give the whole card to the LockControl; a shown Disconnect must still fit.
+                    TextView disconnect = shownDisconnect;
                     require(disconnect.getVisibility() == View.VISIBLE && disconnect.getText().toString().equals("Disconnect"), "Default connected card lost Disconnect");
                     Rect disconnectBounds = relativeBounds(disconnect, viewport);
                     require(disconnectBounds.left >= 0 && disconnectBounds.top >= 0 && disconnectBounds.right <= viewport.getWidth()
@@ -548,8 +576,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     invoke(activity, "updateConnectionAction", new Class<?>[] {boolean.class, boolean.class}, false, true);
                     require(action.getVisibility() == View.VISIBLE && action.getText().toString().equals("Cancel"), "Hiding Disconnect also hid Cancel");
                 }
-                ((View)field(activity, "lockOffline")).setVisibility(View.GONE);
-                ((View)field(activity, "lockReady")).setVisibility(View.VISIBLE);
+                setVisibilityIfPresent("lockOffline", View.GONE);
+                setVisibilityIfPresent("lockReady", View.VISIBLE);
                 invoke(slider, "update", new Class<?>[] {Boolean.class, boolean.class}, false, true);
                 invoke(slider, "stopMotion");
                 require(((Number)field(slider, "position")).floatValue() == 0, "Unlocked thumb did not settle left");
@@ -592,7 +620,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     }
     private void verifyMinimumLockAndCharging() throws Exception {
         int columns = ((Number)field(grid(), "columns")).intValue();
-        DashboardConfig.Widget lock = (DashboardConfig.Widget)field(tile("lock"), "widget");
+        DashboardConfig.Widget lock = (DashboardConfig.Widget)field(lockTile(), "widget");
         int originalLockHeight = lock.layouts.get(columns).h;
         try {
             main(() -> { lock.layouts.get(columns).h = lock.minimumHeight(); grid().requestLayout(); });
@@ -601,6 +629,17 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             main(() -> { lock.layouts.get(columns).h = originalLockHeight; grid().requestLayout(); }); settle();
         }
         assertLockStates();
+        // The classic battery card is no longer in the default; seed it so its charging checks keep running.
+        final DashboardConfig.Widget seededBattery = new DashboardConfig.Widget("battery");
+        main(() -> {
+            int end = 0;
+            for (DashboardConfig.Widget widget : dashboardConfig().widgets) {
+                DashboardLayout.Cell cell = widget.layouts.get(columns);
+                if (cell != null) end = Math.max(end, cell.y + cell.h);
+            }
+            seededBattery.layouts.put(columns, new DashboardLayout.Cell(seededBattery.id, 0, end, columns, seededBattery.defaultHeight()));
+            dashboardConfig().widgets.add(seededBattery); invoke(dashboard(), "render");
+        }); settleMotion(); stopUiPulse();
         Object item = tile("battery");
         DashboardConfig.Widget battery = (DashboardConfig.Widget)field(item, "widget");
         int originalHeight = battery.layouts.get(columns).h, originalWidth = battery.layouts.get(columns).w;
@@ -622,16 +661,45 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             });
             settle();
             main(() -> require(((View)field(item, "chargingData")).getVisibility() == View.VISIBLE, "Fresh charging fixture did not appear"));
-            assertDefaultCardContents(); screenshot("minimum-charging-view-fixture");
+            assertCardContents("battery"); screenshot("minimum-charging-view-fixture");
+            main(() -> {
+                Object overview = tile("overview");
+                invoke(overview, "refresh", new Class<?>[] {Map.class}, preview);
+                StringBuilder text = new StringBuilder();
+                for (TextView view : texts((View)field(overview, "body"))) if (view.isShown()) text.append(view.getText()).append('\n');
+                require(text.toString().contains("50") && text.toString().contains("Charging"),
+                        "Battery overview did not show the fresh charging percentage and Charging caption: " + text);
+            });
         } finally {
             main(() -> {
                 battery.layouts.get(columns).h = originalHeight; battery.layouts.get(columns).w = originalWidth;
-                invoke(item, "refresh", new Class<?>[] {Map.class}, cached); grid().requestLayout();
-            }); settle();
+                invoke(item, "refresh", new Class<?>[] {Map.class}, cached);
+                invoke(tile("overview"), "refresh", new Class<?>[] {Map.class}, cached);
+                dashboardConfig().widgets.remove(seededBattery); invoke(dashboard(), "render");
+            }); settleMotion(); stopUiPulse();
         }
         assertGridAndHeader(); assertDefaultCardContents();
     }
+    /** The classic Lock card's heading rows; the Lock bar replaces it on the default Home, so swap one in briefly. */
     private void verifyLockWidthTransitions() {
+        if (tileOrNull("lock") != null) { verifyClassicLockWidthTransitions(); return; }
+        final ArrayList<DashboardConfig.Widget> original = new ArrayList<>();
+        main(() -> {
+            DashboardConfig config = dashboardConfig(); original.addAll(config.widgets);
+            DashboardConfig.Widget lock = new DashboardConfig.Widget("lock");
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++)
+                lock.layouts.put(c, new DashboardLayout.Cell(lock.id, 0, 0, c, lock.defaultHeight()));
+            config.widgets.clear(); config.widgets.add(lock); invoke(dashboard(), "render");
+        }); settleMotion(); stopUiPulse();
+        try { verifyClassicLockWidthTransitions(); }
+        finally {
+            main(() -> {
+                DashboardConfig config = dashboardConfig(); config.widgets.clear(); config.widgets.addAll(original);
+                invoke(dashboard(), "render");
+            }); settleMotion(); stopUiPulse();
+        }
+    }
+    private void verifyClassicLockWidthTransitions() {
         main(() -> {
             LinearLayout heading = (LinearLayout)((View)field(activity, "lockTitle")).getParent();
             LinearLayout offline = (LinearLayout)((View)field(activity, "offlineTitle")).getParent().getParent();
@@ -1007,6 +1075,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(Integer.valueOf(before==0?1:0).equals(ble.featureValue("traction_control")), "Quick toggle failed to change the sample feature in place");
             require("home".equals(field(activity,"selectedPage")) && field(activity,"screen") instanceof DashboardScreen, "Quick toggle navigated away from Home");
         }); settle();
+        verifySettingTilesDispatch();
         for (String action : new String[]{"feature:start_speed", "feature:energy_recovery", "section:Battery"}) {
             main(() -> { invoke(activity,"quickAction",new Class<?>[]{String.class},action); }); settle();
             main(() -> {
@@ -1052,6 +1121,78 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         });settleMotion();
         seedEveryWidget(); verifyEditOverlays();
         verifyAddedWidgetReveal();
+    }
+    /** Setting tiles reuse Quick access dispatch: in the isolated simulator, a toggle tile changes the sample in place. */
+    private void verifySettingTilesDispatch() throws Exception {
+        final DashboardConfig.Widget settingTiles = new DashboardConfig.Widget("shortcuts");
+        require(settingTiles.quickActions.equals(Arrays.asList("feature:maximum_speed", "feature:timed_charging")),
+                "Setting tiles default shortcuts changed");
+        main(() -> {
+            settingTiles.quickActions.clear();
+            settingTiles.quickActions.addAll(Arrays.asList("feature:traction_control", "feature:start_speed"));
+            int end = 0;
+            for (DashboardConfig.Widget widget : dashboardConfig().widgets)
+                for (DashboardLayout.Cell cell : widget.layouts.values()) end = Math.max(end, cell.y + cell.h);
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++)
+                settingTiles.layouts.put(c, new DashboardLayout.Cell(settingTiles.id, 0, end, c, settingTiles.defaultHeight()));
+            dashboardConfig().widgets.add(settingTiles); invoke(dashboard(), "render");
+        }); settleMotion(); stopUiPulse();
+        main(() -> {
+            BleController ble = activity.service().ble;
+            Integer before = ble.featureValue("traction_control"); require(before != null, "Missing sample traction state");
+            View card = (View)tileById(settingTiles.id);
+            View traction = tileAction(card, local.navee.offlinelock.QuickAccessActions.find("feature:traction_control").label);
+            View kick = tileAction(card, local.navee.offlinelock.QuickAccessActions.find("feature:start_speed").label);
+            require(traction != null && kick != null && traction != kick, "Setting tiles did not show two separate tiles");
+            require(traction.isEnabled() && traction.getWidth() >= activity.ui().dp(48) && traction.getHeight() >= activity.ui().dp(48),
+                    "Connected setting tile is not a full-size enabled tap target");
+            traction.performClick();
+            require(Integer.valueOf(before == 0 ? 1 : 0).equals(ble.featureValue("traction_control")),
+                    "Setting tile did not dispatch its Quick access toggle");
+            require("home".equals(field(activity,"selectedPage")) && field(activity,"screen") instanceof DashboardScreen,
+                    "Setting tile navigated away from Home");
+        }); settle();
+        main(() -> { dashboardConfig().widgets.remove(settingTiles); invoke(dashboard(), "render"); });
+        settleMotion(); stopUiPulse();
+        check("Setting tiles show one tile per shortcut and a tap dispatches the same Quick access action in place");
+    }
+    /** The clickable tile holding a visible label, or a clickable view described by that label. */
+    private View tileAction(View root, String label) {
+        if (root.isShown() && root.isClickable()) {
+            CharSequence description = root.getContentDescription();
+            if (description != null && description.toString().toLowerCase(Locale.ROOT).startsWith(label.toLowerCase(Locale.ROOT))) return root;
+        }
+        if (root instanceof TextView && root.isShown() && label.equalsIgnoreCase(((TextView)root).getText().toString())) {
+            View action = root;
+            while (!action.isClickable() && action.getParent() instanceof View) action = (View)action.getParent();
+            if (action.isClickable()) return action;
+        }
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) {
+            View found = tileAction(((ViewGroup)root).getChildAt(i), label); if (found != null) return found;
+        }
+        return null;
+    }
+    /** The lock control Home shows first: the Lock bar by default, or whichever lock card sits highest. */
+    private Object lockTile() {
+        Object best = null;
+        for (Object item : tiles()) {
+            String type = ((DashboardConfig.Widget)field(item, "widget")).type;
+            if ((type.equals("lock") || type.equals("lockbar")) && (best == null || ((View)item).getTop() < ((View)best).getTop())) best = item;
+        }
+        require(best != null, "Missing lock control");
+        return best;
+    }
+    private Object tileOrNull(String type) {
+        for (Object item : tiles()) if (((DashboardConfig.Widget)field(item, "widget")).type.equals(type)) return item;
+        return null;
+    }
+    private void setVisibilityIfPresent(String name, int visibility) {
+        Object view = optionalField(activity, name);
+        if (view instanceof View) ((View)view).setVisibility(visibility);
+    }
+    private static Object optionalField(Object target, String name) {
+        try { Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(target); }
+        catch (Exception error) { return null; }
     }
     private void saveCardBitmap(View card,String name) {
         Bitmap bitmap=Bitmap.createBitmap(card.getWidth(),card.getHeight(),Bitmap.Config.ARGB_8888);
@@ -1463,7 +1604,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         });
         require(problems.isEmpty(), "Minimum-width content: " + String.join("; ", problems));
         verifyCompactWidgetActions();
-        check("All 15 widget types keep whole words within their smallest five-column spans, including after editing; compact scooter captions retain full spoken names");
+        check("All " + DashboardConfig.TYPES.length + " widget types keep whole words within their smallest five-column spans, including after editing; compact scooter captions retain full spoken names");
     }
     /** A refresh changes the meaning, so a later measure must not restore old wording. */
     private void verifyChangingCaptions() {
@@ -1700,7 +1841,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 for (Rect other : occupied) require(!Rect.intersects(target, other), label + " touch target overlaps another editor action");
                 occupied.add(target);
                 require(texts(control).isEmpty(), label + " still contains visible button text");
-                if (label.startsWith("Duplicate ")) require(control.isEnabled() != widget.type.equals("lock"), "Duplicate lock restriction changed");
+                if (label.startsWith("Duplicate ")) require(control.isEnabled() != (widget.type.equals("lock") || widget.type.equals("lockbar")), "Duplicate lock/lock bar restriction changed");
                 require(control instanceof ViewGroup, label + " has no glyph container");
                 ViewGroup group = (ViewGroup)control;
                 require(group.getChildCount() == 1, label + " has unexpected glyph children");

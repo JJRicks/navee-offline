@@ -91,7 +91,7 @@ public final class DashboardTransferValidation extends Instrumentation {
         source.save();
         String portable = source.exportLayouts();
         DashboardConfig.LayoutTransfer summary = DashboardConfig.inspectLayouts(portable);
-        require(summary.columns == 3 && summary.widgetCount == 15 && summary.savedSlotCount == 3,
+        require(summary.columns == 3 && summary.widgetCount == DashboardConfig.TYPES.length && summary.savedSlotCount == 3,
                 "Consent preview is incorrect");
         require(!portable.contains("synthetic-secret") && !portable.contains("owner_secret")
                 && !portable.contains("synthetic-history") && !portable.contains("dashboard_v1_source"),
@@ -112,7 +112,7 @@ public final class DashboardTransferValidation extends Instrumentation {
             require(item.getValue().equals(prefs.getAll().get(key)), "Import changed unrelated preference " + key);
         }
         require(reopened.restoreSlot(0), "Imported saved slot cannot be restored");
-        require(reopened.widgets.size() == 15 && reopened.widgets.get(0).note.contains("Unicode"),
+        require(reopened.widgets.size() == DashboardConfig.TYPES.length && reopened.widgets.get(0).note.contains("Unicode"),
                 "Imported slot lost its independent widget options");
         for (DashboardConfig.Widget w : reopened.widgets) {
             require(w.layouts.size() == 6, "Import lost folded/unfolded arrangements");
@@ -120,7 +120,7 @@ public final class DashboardTransferValidation extends Instrumentation {
                     && !w.showDisconnect && w.absoluteAxis && w.minimum == -12.5
                     && w.advertisedWh == 716.04, "Import changed widget parameters");
         }
-        checks.add("All 15 widget types, options, six widths, three independent slots and columns survive export/import/reopen; other profiles and owner/history settings remain untouched");
+        checks.add("All " + DashboardConfig.TYPES.length + " widget types, options, six widths, three independent slots and columns survive export/import/reopen; other profiles and owner/history settings remain untouched");
     }
 
     private void emptyAndExample() throws Exception {
@@ -141,7 +141,7 @@ public final class DashboardTransferValidation extends Instrumentation {
                 && first.equals(prefs.getString("dashboard_slot_v1_empty_0", null))
                 && !config.slotExists(1) && prefs.getInt("dashboard_columns", -1) == 0,
                 "Example reset changed active layout, other slots or global columns");
-        require(config.slot(2).widgetCount == 15 && config.slot(2).columns == 6,
+        require(config.slot(2).widgetCount == DashboardConfig.TYPES.length && config.slot(2).columns == 6,
                 "Example reset did not load all widgets");
         DashboardConfig destination = new DashboardConfig(prefs, "empty-target");
         require(destination.importLayouts(config.exportLayouts()), "Empty saved slot transfer failed");

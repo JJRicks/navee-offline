@@ -380,7 +380,25 @@ public final class SearchFocusValidation extends Instrumentation {
     private Object liveTile(DashboardScreen dashboard) {
         for (Object tile : (List<?>)field(dashboard, "tiles"))
             if (((DashboardConfig.Widget)field(tile, "widget")).type.equals("live")) return tile;
-        throw new IllegalStateException("Default live widget is missing");
+        // The redesigned default Home has no live trend; add one explicitly for the parameter-picker checks.
+        main(() -> {
+            DashboardConfig config = (DashboardConfig)field(dashboard, "config");
+            DashboardConfig.Widget live = new DashboardConfig.Widget("live");
+            int end = 0;
+            for (DashboardConfig.Widget widget : config.widgets)
+                for (local.navee.offlinelock.DashboardLayout.Cell cell : widget.layouts.values()) end = Math.max(end, cell.y + cell.h);
+            for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++)
+                live.layouts.put(columns, new local.navee.offlinelock.DashboardLayout.Cell(live.id, 0, end, columns, live.defaultHeight()));
+            config.widgets.add(live); config.save();
+            try {
+                java.lang.reflect.Method render = DashboardScreen.class.getDeclaredMethod("render");
+                render.setAccessible(true); render.invoke(dashboard);
+            } catch (ReflectiveOperationException error) { throw new IllegalStateException("Could not render seeded live widget", error); }
+        });
+        waitForIdleSync();
+        for (Object tile : (List<?>)field(dashboard, "tiles"))
+            if (((DashboardConfig.Widget)field(tile, "widget")).type.equals("live")) return tile;
+        throw new IllegalStateException("Seeded live widget is missing");
     }
     private AlertDialog dialog(Object owner) {
         AlertDialog value = (AlertDialog)field(owner, "dialog"); require(value != null && value.isShowing(), "Widget dialog is missing"); return value;
