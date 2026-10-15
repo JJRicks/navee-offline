@@ -1077,6 +1077,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         if (entry.directToggle()) {
             if (!ble.set(feature.key, actual == 1 ? 0 : 1)) toast(ble.message());
+            // The stable window survives a synchronous readback/redraw. Answer the
+            // accepted tap once, using its requested direction, before rebuilding Home.
+            else Haptics.toggle(getWindow().getDecorView(), actual != 1);
             redraw();
         } else {
             closeQuickMenu();
