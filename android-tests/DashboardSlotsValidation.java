@@ -59,6 +59,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             boundsNamesAndIsolation();
             migrationCompatibility();
             sixColumnPersistence();
+            classicLockPersistence();
             quickAccessPersistence();
             legacyFourColumnSlots();
             temporaryWidthConstraints();
@@ -588,6 +589,11 @@ public final class DashboardSlotsValidation extends Instrumentation {
         JSONObject marker = new JSONObject(valid);
         marker.getJSONArray("widgets").getJSONObject(1).remove("glanceableScooterStats");
         invalid.add(marker.toString());
+        // Setting tiles hold at most four shortcuts (Quick access allows eight): five is damage.
+        JSONObject crowded = new JSONObject(valid);
+        crowded.getJSONArray("widgets").getJSONObject(0).put("type", "shortcuts").put("quickActions", new JSONArray()
+                .put("lights").put("controls").put("stats").put("rides").put("feature:maximum_speed"));
+        invalid.add(crowded.toString());
         JSONObject excess = new JSONObject(valid);
         JSONArray many = excess.getJSONArray("widgets");
         while (many.length() <= 32) many.put(many.getJSONObject(0));
@@ -716,6 +722,44 @@ public final class DashboardSlotsValidation extends Instrumentation {
                         && preferences.getInt("dashboard_columns", -1) == 5,
                 "Five-column preference could not round-trip");
         checks.add("Explicit five/six-column slots preserve every layout and Disconnect=false; default six columns place lock bar/overview beside tiles without changing the 1–4 stack");
+    }
+
+    /**
+     * The classic Lock left the default, so swap it in place of the Lock bar (the two are exclusive)
+     * to keep its height rule (four rows with Disconnect, three without) and the saved Disconnect=false
+     * preference covered across a six-column slot round trip.
+     */
+    private void classicLockPersistence() throws Exception {
+        // Restoring a six-column slot sets the shared column preference; put the earlier one back after.
+        int previousColumns = preferences.getInt("dashboard_columns", -1);
+        DashboardConfig config = new DashboardConfig(preferences, "classic-lock");
+        config.layout(6, null);
+        DashboardConfig.Widget bar = config.widgets.get(0), lock = new DashboardConfig.Widget("lock");
+        require(bar.type.equals("lockbar"), "Unexpected default widget order");
+        for (java.util.Map.Entry<Integer, DashboardLayout.Cell> entry : bar.layouts.entrySet()) {
+            DashboardLayout.Cell from = entry.getValue();
+            lock.layouts.put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
+        }
+        config.widgets.set(0, lock);
+        for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++)
+            if (lock.layouts.containsKey(columns)) config.layout(columns, lock.id);
+        require(lock.showDisconnect && lock.minimumHeight() == 4, "Lock with Disconnect must reserve room for its action button");
+        lock.showDisconnect = false;
+        require(lock.minimumHeight() == 3, "Hiding Disconnect must allow the compact three-row lock");
+        lock.layouts.get(6).h = 3;
+        String expected = signature(config);
+        require(config.saveSlot(1, "Classic lock", 6), "Classic Lock snapshot could not be saved");
+        config.reset();
+        DashboardConfig reopened = new DashboardConfig(preferences, "classic-lock");
+        require(reopened.restoreSlot(1), "Classic Lock slot could not be restored after recreation");
+        require(signature(reopened).equals(expected) && reopened.widgets.get(0).type.equals("lock")
+                        && !reopened.widgets.get(0).showDisconnect,
+                "Classic Lock restore lost the saved disconnect preference or widget geometry");
+        require(reopened.layout(6, null).get(0).h == 3,
+                "Restoring Disconnect=false no longer permits its compact saved lock height");
+        if (previousColumns < 0) preferences.edit().remove("dashboard_columns").commit();
+        else preferences.edit().putInt("dashboard_columns", previousColumns).commit();
+        checks.add("A classic Lock swapped in for the Lock bar keeps its four-row (Disconnect) / three-row minimum and restores Disconnect=false with its compact six-column height");
     }
 
     private void legacyFourColumnSlots() throws Exception {

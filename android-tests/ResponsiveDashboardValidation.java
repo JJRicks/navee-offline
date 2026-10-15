@@ -103,7 +103,12 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             } else if (!mode.equals("fold")) {
                 assertGridAndHeader(); check("Default cards fit the available window and start immediately after the header");
                 assertInitialLockVisible();
-                if (!mode.equals("battery")) { assertLockStates(); check("Connected, disconnected and connecting lock controls fit without inner scrolling"); }
+                if (!mode.equals("battery")) {
+                    assertLockStates(); check("Connected, disconnected and connecting lock controls fit without inner scrolling");
+                    verifyClassicLockStates(mode.equals("constraints"));
+                    check("The classic Lock, swapped in for the Lock bar, keeps its connected, disconnected, connecting and Disconnect states inside the card"
+                            + (mode.equals("constraints") ? ", including its four-row minimum with Disconnect" : ""));
+                }
                 assertDefaultCardContents(); screenshot("default-disconnected");
                 check("Default battery overview and reading tiles fit without hidden overflow");
                 if (mode.equals("constraints")) {
@@ -170,9 +175,10 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     "Example speed gauge lost its useful range");
             require("power_w".equals(live.metric) && live.windowMs == 120000,
                     "Example live chart lost its two-minute power view");
-            require(((DashboardConfig.Widget)field(tile("lock"), "widget")).showDisconnect
-                            && ((DashboardConfig.Widget)field(tile("lockbar"), "widget")).showDisconnect,
-                    "Example lock card or lock bar lost its Disconnect option");
+            require(((DashboardConfig.Widget)field(tile("lock"), "widget")).showDisconnect,
+                    "Example lock card lost its Disconnect option");
+            require(!((DashboardConfig.Widget)field(tile("lockbar"), "widget")).showDisconnect,
+                    "Example lock bar should keep the default: no Disconnect button");
             if ((Integer)field(grid(), "columns") == 2) {
                 DashboardConfig.Widget quick = (DashboardConfig.Widget)field(tile("quick"), "widget");
                 DashboardLayout.Cell quickCell = (DashboardLayout.Cell)invoke(grid(), "currentCell",
@@ -488,6 +494,16 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private void assertLockStates() throws Exception {
         Object item = lockTile(); View card = (View)item;
         final boolean bar = "lockbar".equals(((DashboardConfig.Widget)field(item, "widget")).type);
+        AtomicReference<Boolean> belowMinimum = new AtomicReference<>(false);
+        main(() -> {
+            DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
+            DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid(), "currentCell",
+                    new Class<?>[] {DashboardConfig.Widget.class}, widget);
+            int least = ((Number)invoke(grid(), "minimumWidth", new Class<?>[] {DashboardConfig.Widget.class}, widget)).intValue();
+            belowMinimum.set(cell != null && cell.w < least);
+        });
+        // Text fit is only promised from the type's minimum span; narrower stored cells are not laid out that way.
+        if (belowMinimum.get()) return;
         for (String state : new String[] {"disconnected", "unlocked", "locked", "connecting"}) {
             Runnable showState = () -> {
                 invoke(activity, "updateHeader");
@@ -548,7 +564,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                             && disconnectBounds.bottom <= viewport.getHeight(), "Disconnect action is clipped: " + disconnectBounds);
                     require(disconnect.getHeight() >= activity.ui().dp(48), "Disconnect lost its touch target");
                 }
-                for (TextView text : texts(body)) assertText(text, viewport, state);
+                for (TextView text : texts(body))
+                    if (!iconOnlyAction(text)) assertText(text, viewport, state, ellipsizedByDesign(text));
                 if (state.equals("connecting")) {
                     CharSequence spoken = ((TextView)field(activity, "offlineTitle")).getContentDescription();
                     require(spoken != null && spoken.toString().contains(activity.service().profiles.active().name), "Connecting status lost its accessible scooter name");
@@ -561,13 +578,19 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     /** View-only checks: never fake a GATT, tap an action, or submit a lock command. */
     private void verifyLockMotionAndDisconnect() {
         main(() -> {
-            boolean showDisconnect = (Boolean)field(activity, "showDashboardDisconnect");
+            // updateConnectionAction reloads each card's stored views and preference, so the
+            // fixture flips the first card's own flag rather than the activity's working copy.
+            java.util.List<?> locks = (java.util.List<?>)field(activity, "dashboardLocks");
+            require(!locks.isEmpty(), "Lock motion check needs a lock card on Home");
+            Object card = locks.get(0);
+            boolean showDisconnect = (Boolean)field(card, "showDisconnect");
             boolean resumed = (Boolean)field(activity, "resumed");
             View slider = (View)field(activity, "lockControl");
             try {
                 TextView action = (TextView)field(activity, "connectionAction");
+                require(action == field(card, "connectionAction"), "The activity's lock views are not the first card's");
                 for (boolean show : new boolean[] {false, true}) {
-                    setField(activity, "showDashboardDisconnect", show);
+                    setField(card, "showDisconnect", show);
                     invoke(activity, "updateConnectionAction", new Class<?>[] {boolean.class, boolean.class}, true, false);
                     require(action.getVisibility() == (show ? View.VISIBLE : View.GONE), "Disconnect setting was ignored");
                     require(action.getText().toString().equals("Disconnect"), "Ready connection action changed meaning");
@@ -612,7 +635,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 require(field(slider, "motion") == null && !slider.isEnabled() && ((Number)field(slider, "position")).floatValue() == 0, "Unavailable state retained a moving/interactive control");
             } finally {
                 setField(activity, "resumed", resumed);
-                setField(activity, "showDashboardDisconnect", showDisconnect);
+                setField(card, "showDisconnect", showDisconnect);
                 invoke(slider, "stopMotion"); invoke(activity, "updateHeader");
             }
         });
@@ -681,6 +704,60 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         assertGridAndHeader(); assertDefaultCardContents();
     }
     /** The classic Lock card's heading rows; the Lock bar replaces it on the default Home, so swap one in briefly. */
+    /**
+     * Lock and Lock bar are exclusive and the default uses the Lock bar, so swap the classic Lock
+     * into its place (same order and column, settled around the taller card), run the lock state
+     * checks, then restore the original widgets and placements.
+     */
+    private void verifyClassicLockStates(boolean minimumHeights) throws Exception {
+        final ArrayList<DashboardConfig.Widget> original = new ArrayList<>();
+        final Map<String, Map<Integer, DashboardLayout.Cell>> placements = new LinkedHashMap<>();
+        final AtomicReference<DashboardConfig.Widget> classic = new AtomicReference<>();
+        main(() -> {
+            DashboardConfig config = dashboardConfig(); original.addAll(config.widgets);
+            for (DashboardConfig.Widget widget : config.widgets) {
+                Map<Integer, DashboardLayout.Cell> cells = new LinkedHashMap<>();
+                for (Map.Entry<Integer, DashboardLayout.Cell> entry : widget.layouts.entrySet()) cells.put(entry.getKey(), entry.getValue().copy());
+                placements.put(widget.id, cells);
+            }
+            int at = -1;
+            for (int i = 0; i < config.widgets.size(); i++) if (config.widgets.get(i).type.equals("lockbar")) at = i;
+            require(at >= 0 && tileOrNull("lock") == null, "Classic Lock pass expects the Lock bar and no Lock");
+            DashboardConfig.Widget bar = config.widgets.get(at), lock = new DashboardConfig.Widget("lock");
+            for (Map.Entry<Integer, DashboardLayout.Cell> entry : bar.layouts.entrySet()) {
+                DashboardLayout.Cell from = entry.getValue();
+                lock.layouts.put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
+            }
+            config.widgets.set(at, lock);
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++) if (lock.layouts.containsKey(c)) config.layout(c, lock.id);
+            classic.set(lock); invoke(dashboard(), "render");
+        }); settleMotion(); stopUiPulse();
+        try {
+            main(() -> require(classic.get().showDisconnect && tileOrNull("lockbar") == null, "Classic Lock fixture should show Disconnect"));
+            assertLockStates();
+            if (minimumHeights) {
+                int columns = ((Number)field(grid(), "columns")).intValue();
+                DashboardConfig.Widget lock = classic.get();
+                main(() -> {
+                    require(lock.minimumHeight() == 4, "Classic Lock with Disconnect must reserve four rows");
+                    lock.showDisconnect = false;
+                    require(lock.minimumHeight() == 3, "Hiding Disconnect must allow the three-row classic Lock");
+                    lock.showDisconnect = true;
+                    lock.layouts.get(columns).h = 4; grid().requestLayout();
+                }); settle(); assertLockStates();
+            }
+        } finally {
+            main(() -> {
+                DashboardConfig config = dashboardConfig(); config.widgets.clear(); config.widgets.addAll(original);
+                for (DashboardConfig.Widget widget : config.widgets) {
+                    Map<Integer, DashboardLayout.Cell> cells = placements.get(widget.id);
+                    widget.layouts.clear();
+                    for (Map.Entry<Integer, DashboardLayout.Cell> entry : cells.entrySet()) widget.layouts.put(entry.getKey(), entry.getValue().copy());
+                }
+                invoke(dashboard(), "render");
+            }); settleMotion(); stopUiPulse();
+        }
+    }
     private void verifyLockWidthTransitions() {
         if (tileOrNull("lock") != null) { verifyClassicLockWidthTransitions(); return; }
         final ArrayList<DashboardConfig.Widget> original = new ArrayList<>();
@@ -1863,7 +1940,14 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 require(Math.abs(square.exactCenterX() - control.getWidth() / 2f) <= 1
                                 && Math.abs(square.exactCenterY() - control.getHeight() / 2f) <= 1,
                         label + " visual square is not centered in its touch target");
-                if (label.startsWith("Remove ")) require(((Number)field(glyph, "color")).intValue() == activity.ui().danger, "Remove icon lost its destructive color");
+                if (label.startsWith("Remove ")) {
+                    // The trash glyph sits on the solid text-coloured square: a deep red on the light
+                    // square (dark theme), a lightened red on the dark square (light theme).
+                    local.navee.offlinelock.Ui ui = activity.ui();
+                    int expected = ui.dark ? ui.accentDeep : ((Number)invoke(dashboard(), "blend",
+                            new Class<?>[] {int.class, int.class, float.class}, ui.danger, android.graphics.Color.WHITE, .4f)).intValue();
+                    require(((Number)field(glyph, "color")).intValue() == expected, "Remove icon lost its destructive color");
+                }
             }
         }
     }
@@ -1888,7 +1972,23 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private View dialogRoot() { android.app.AlertDialog dialog = editorDialog(); require(dialog != null && dialog.isShowing(), "Expected editor sheet"); return dialog.getWindow().getDecorView(); }
     private DashboardConfig dashboardConfig() { return (DashboardConfig)field(dashboard(), "config"); }
     private Object tileById(String id) { for (Object item : tiles()) if (((DashboardConfig.Widget)field(item, "widget")).id.equals(id)) return item; throw new IllegalStateException("Missing widget " + id); }
-    private void settleMotion() { waitForIdleSync(); SystemClock.sleep(260); waitForIdleSync(); }
+    /**
+     * Lets short motion finish. The edit transition lasts up to max(210, 240 + 20·(n−1)) ms for
+     * n staggered controls, so wait for it to clear rather than trusting a fixed sleep.
+     */
+    private void settleMotion() {
+        waitForIdleSync(); SystemClock.sleep(260);
+        long end = SystemClock.elapsedRealtime() + 4000;
+        while (true) {
+            AtomicReference<Boolean> moving = new AtomicReference<>(false);
+            main(() -> { Object screen = field(activity, "screen");
+                moving.set(screen instanceof DashboardScreen && field(screen, "editTransition") != null); });
+            if (!moving.get()) break;
+            require(SystemClock.elapsedRealtime() < end, "Editor transition did not finish");
+            SystemClock.sleep(16);
+        }
+        waitForIdleSync();
+    }
     private void verifyEditorActions() throws Exception {
         main(() -> invoke(dashboard(), "toggleEditing")); settleMotion();
         main(() -> assertHistoryControls(false, false));
@@ -2239,7 +2339,27 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             forceMeasure(((ViewGroup)view).getChildAt(i));
         view.forceLayout();
     }
-    private void assertText(TextView text, View ancestor, String context) {
+    /**
+     * Single lines that ellipsize by design: the Lock bar's "Last verified" detail, and the Lock
+     * bar's title once Connect has already collapsed to its 48 dp icon. Every other line must fit.
+     */
+    private boolean ellipsizedByDesign(TextView text) {
+        if (text.getEllipsize() == null || text.getMaxLines() != 1) return false;
+        for (Object lock : (List<?>)field(activity, "dashboardLocks")) {
+            if (!Boolean.TRUE.equals(field(lock, "compact"))) continue;
+            if (text == field(lock, "offlineDetail")) return true;
+            if (text == field(lock, "offlineTitle") && iconOnlyAction((TextView)field(lock, "connectionAction"))) return true;
+        }
+        return false;
+    }
+    /** The Lock bar's narrow Connect/Cancel: a 48 dp icon whose text stays for accessibility only. */
+    private static boolean iconOnlyAction(TextView text) {
+        android.text.method.TransformationMethod words = text.getTransformationMethod();
+        return words != null && words.getTransformation(text.getText(), text).length() == 0
+                && text.getCompoundDrawablesRelative()[0] != null;
+    }
+    private void assertText(TextView text, View ancestor, String context) { assertText(text, ancestor, context, false); }
+    private void assertText(TextView text, View ancestor, String context, boolean mayEllipsize) {
         if (!text.isShown() || text.length() == 0) return;
         android.text.Layout layout = text.getLayout(); require(layout != null && layout.getLineCount() > 0, context + " text has no layout: " + text.getText());
         Rect rect = relativeBounds(text, ancestor);
@@ -2248,7 +2368,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         require(layout.getHeight() <= text.getHeight() - text.getCompoundPaddingTop() - text.getCompoundPaddingBottom() + 2,
                 context + " text clipped vertically: " + text.getText());
         require(layout.getLineEnd(layout.getLineCount() - 1) >= text.length(), context + " text lost lines: " + text.getText());
-        for (int line = 0; line < layout.getLineCount(); line++) require(layout.getEllipsisCount(line) == 0, context + " text ellipsized: " + text.getText());
+        for (int line = 0; line < layout.getLineCount(); line++) require(mayEllipsize || layout.getEllipsisCount(line) == 0, context + " text ellipsized: " + text.getText());
     }
     private Rect relativeBounds(View view, View ancestor) {
         Rect box = new Rect(0, 0, view.getWidth(), view.getHeight());
