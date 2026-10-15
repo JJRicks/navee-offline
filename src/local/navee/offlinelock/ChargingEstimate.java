@@ -3,6 +3,8 @@ package local.navee.offlinelock;
 /** Battery-side charging measurements and a constant-current time estimate, without Android APIs. */
 public final class ChargingEstimate {
     public static final double MINIMUM_ETA_CURRENT_A = 0.05;
+    /** Short UI label when measured current is too low for a time estimate. */
+    public static final String LOW_CURRENT = "Low current";
 
     private ChargingEstimate() {}
 
@@ -27,7 +29,8 @@ public final class ChargingEstimate {
         public final boolean charging;
         public final Double inputWatts, inputAmps;
         public final Double remainingMinutesToLimit, remainingMinutesToFull, targetPercent;
-        public final String status;
+        /** Full diagnostic wording for tooltips and accessibility; {@code label} is the short UI state. */
+        public final String status, label;
         public final boolean learnedToLimit, learnedToFull;
         public final int learnedSessions;
 
@@ -38,12 +41,14 @@ public final class ChargingEstimate {
                 Double remainingMinutesToLimit,
                 Double remainingMinutesToFull,
                 Double targetPercent,
+                String label,
                 String status) {
-            this(charging,inputWatts,inputAmps,remainingMinutesToLimit,remainingMinutesToFull,targetPercent,status,false,false,0);
+            this(charging,inputWatts,inputAmps,remainingMinutesToLimit,remainingMinutesToFull,targetPercent,label,status,false,false,0);
         }
 
         private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
-                Double targetPercent,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions) {
+                Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions) {
+            this.label = label;
             this.learnedToLimit=learnedToLimit;this.learnedToFull=learnedToFull;this.learnedSessions=learnedSessions;
             this.charging = charging;
             this.inputWatts = inputWatts;
@@ -79,37 +84,37 @@ public final class ChargingEstimate {
                         ? chargeLimitPercent.number
                         : null;
         if (!valid(chargingState))
-            return result(false, null, null, null, null, target, "Waiting for a fresh charging state.");
+            return result(false, null, null, null, null, target, "Waiting for data", "Waiting for a fresh charging state.");
         if (chargingState.number != 1d)
-            return result(false, null, null, null, null, target, "Not charging.");
+            return result(false, null, null, null, null, target, "Not charging", "Not charging.");
         if (!valid(voltageV)
                 || voltageV.number <= 0
                 || !valid(currentA)
                 || voltageV.observedMs <= 0
                 || voltageV.observedMs != currentA.observedMs)
-            return result(true, null, null, null, null, target, "Waiting for paired voltage and current readings.");
+            return result(true, null, null, null, null, target, "Waiting for readings", "Waiting for paired voltage and current readings.");
 
         double amps = Math.abs(currentA.number);
         double watts = voltageV.number * amps;
         if (!Double.isFinite(watts))
-            return result(true, null, null, null, null, target, "Charging measurements are outside a usable range.");
+            return result(true, null, null, null, null, target, "Readings out of range", "Charging measurements are outside a usable range.");
         if (amps < MINIMUM_ETA_CURRENT_A)
-            return result(true, watts, amps, null, null, target, "Charging current is too low for a useful time estimate.");
+            return result(true, watts, amps, null, null, target, LOW_CURRENT, "Charging current is too low for a useful time estimate.");
         if (!valid(ratedAh) || ratedAh.number <= 0)
-            return result(true, watts, amps, null, null, target, "A fresh rated battery capacity is needed for a time estimate.");
+            return result(true, watts, amps, null, null, target, "Capacity unknown", "A fresh rated battery capacity is needed for a time estimate.");
         if (!valid(batteryPercent) || batteryPercent.number < 0 || batteryPercent.number > 100)
-            return result(true, watts, amps, null, null, target, "Waiting for a fresh battery percentage.");
+            return result(true, watts, amps, null, null, target, "Waiting for battery %", "Waiting for a fresh battery percentage.");
 
         Double full = minutes(ratedAh.number, 100 - batteryPercent.number, amps);
         Double limit = target == null ? null : minutes(ratedAh.number, target - batteryPercent.number, amps);
         if (full == null || (target != null && limit == null))
-            return result(true, watts, amps, null, null, target, "Charging time is outside a usable range.");
+            return result(true, watts, amps, null, null, target, "No estimate", "Charging time is outside a usable range.");
         String status = "At the current rate; taper and balancing can lengthen charging.";
         if (target == null)
             status += " Charge cutoff unknown; the 100% time assumes charging continues.";
         else if (target < 100)
             status += " The 100% time assumes a higher charge limit.";
-        return result(true, watts, amps, limit, full, target, status);
+        return result(true, watts, amps, limit, full, target, "Current rate", status);
     }
 
     /** Learned curves may replace a usable current-rate estimate, never bypass its fresh paired-data gate. */
@@ -123,13 +128,13 @@ public final class ChargingEstimate {
                     :"Saved charges lack consistent power at this battery level. ";
             return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
                     baseline.remainingMinutesToLimit,baseline.remainingMinutesToFull,baseline.targetPercent,
-                    reason+"Charger selection is manual. "+baseline.status);
+                    "Charger mismatch · rate estimate",reason+"Charger selection is manual. "+baseline.status);
         }
         ChargeSessionStore.Duration full=curve.estimate(soc.number,100);
         ChargeSessionStore.Duration limit=baseline.targetPercent==null?null:curve.estimate(soc.number,baseline.targetPercent);
         if(full==null&&limit==null)return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
                 baseline.remainingMinutesToLimit,baseline.remainingMinutesToFull,baseline.targetPercent,
-                "Current-rate estimate; not enough matching charge curves cover the remaining range. Taper can lengthen charging. "
+                "Rate-based estimate","Current-rate estimate; not enough matching charge curves cover the remaining range. Taper can lengthen charging. "
                         +(baseline.targetPercent==null?"Cutoff unknown; 100% assumes charging continues.":baseline.targetPercent<100?"100% assumes a higher cutoff.":""));
         int sessions=full==null?limit.sessions:limit==null?full.sessions:Math.min(full.sessions,limit.sessions);
         String charger=curve.charger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
@@ -140,7 +145,7 @@ public final class ChargingEstimate {
         else if(baseline.targetPercent<100)status+=" The 100% time assumes a higher charge limit.";
         return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
                 limit==null?baseline.remainingMinutesToLimit:limit.minutes,full==null?baseline.remainingMinutesToFull:full.minutes,
-                baseline.targetPercent,status,limit!=null,full!=null,sessions);
+                baseline.targetPercent,"From "+sessions+" past charge"+(sessions==1?"":"s"),status,limit!=null,full!=null,sessions);
     }
 
     private static boolean valid(Value value) {
@@ -159,7 +164,8 @@ public final class ChargingEstimate {
             Double limit,
             Double full,
             Double target,
+            String label,
             String status) {
-        return new Result(charging, watts, amps, limit, full, target, status);
+        return new Result(charging, watts, amps, limit, full, target, label, status);
     }
 }

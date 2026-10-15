@@ -174,7 +174,11 @@ public final class DashboardValidation extends Instrumentation {
                 Object tile = tileById(metricId); TextView amount = (TextView)field(tile, "big");
                 require(amount.getText().toString().contains("73"), "Big reading did not render the cached parameter");
                 require(amount.getCurrentTextColor() == activity.ui().muted, "Cached big reading is presented as live");
-                require(((TextView)field(tile, "footer")).getText().toString().contains("Last seen"), "Cached widget lacks its stale-reading label");
+                TextView footer = (TextView)field(tile, "footer");
+                require(footer.getVisibility() == View.VISIBLE
+                                ? String.valueOf(footer.getContentDescription()).startsWith("Last seen")
+                                : ((TextView)field(dashboard(), "status")).getText().toString().contains("last seen"),
+                        "Cached widget lacks its stale-reading age");
             });
             setSize(metricId, 1, 4); setPosition(metricId, 1, 1);
             main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == 1 && cell(metricId).h == 4,
@@ -308,13 +312,21 @@ public final class DashboardValidation extends Instrumentation {
         require("My commute".equals(config().slot(0).name), "Cancel replaced a saved slot");
         check("Two slots start empty beside the restorable All widgets example; save enables restore and cancel leaves an existing slot intact");
 
+        // Restoring defaults acts at once and offers Undo instead of a confirmation.
         clickText(dialogRoot(), "Restore default widgets");
-        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        require(config().widgets.size() == DEFAULT_TYPES.length, "Restore default widgets did not apply");
+        main(() -> {
+            android.widget.PopupWindow notice = (android.widget.PopupWindow)field(dashboard(), "notice");
+            require(notice != null && notice.isShowing(), "Defaults restored notice is missing");
+            View undo = notice.getContentView().findViewWithTag("dashboard-notice-action");
+            require(undo != null && undo.isClickable(), "Defaults restored notice lacks Undo");
+            undo.performClick();
+        });
+        waitForIdleSync();
         require(expected.equals(settings().getString("dashboard_v1_" + profileId, "")),
-                "Cancelled default reset changed the dashboard");
+                "Undo after restoring defaults did not bring the dashboard back");
         clickText(root(), "Layout");
         clickText(dialogRoot(), "Restore default widgets");
-        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
         require(config().widgets.size() == DEFAULT_TYPES.length && config().slot(0).widgetCount == DEFAULT_TYPES.length + 1,
                 "Default reset overwrote a saved slot");
         clickText(root(), "Layout");
@@ -367,8 +379,7 @@ public final class DashboardValidation extends Instrumentation {
             });
         }
         screenshot("slots-large-light");
-        clickText(dialogRoot(), "Restore default widgets");
-        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        require(findText(dialogRoot(), "Restore default widgets") != null, "Default reset is unreachable");
         assertNoScooterWork();
         check("Light theme and 140% text keep slot actions and default reset reachable with full touch targets");
     }
@@ -926,8 +937,9 @@ public final class DashboardValidation extends Instrumentation {
         }); assertNoScooterWork();
     }
     private void assertDisabledActions(View view) {
-        if ("Rename scooter".contentEquals(view.getContentDescription() == null ? "" : view.getContentDescription())) {
-            require(view.isEnabled(), "Edit-only scooter rename is disabled");
+        String spoken = view.getContentDescription() == null ? "" : view.getContentDescription().toString();
+        if ("Rename scooter".equals(spoken) || spoken.endsWith(". Edit note")) {
+            require(view.isEnabled(), "Edit-only action is disabled: " + spoken);
         } else if (view.isClickable()) require(!view.isEnabled(), "Widget action remains enabled while editing: " + view.getContentDescription());
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) assertDisabledActions(((ViewGroup)view).getChildAt(i));
     }
@@ -1730,7 +1742,7 @@ public final class DashboardValidation extends Instrumentation {
             for (Object tile : new Object[] {chargeTile, batteryTile}) {
                 invoke(tile, "refreshCharging", new Class<?>[] {Map.class}, cached);
                 require("—".contentEquals(((TextView)field(tile, "chargingWatts")).getText())
-                        && "—".contentEquals(((TextView)field(tile, "chargingEta")).getText()),
+                        && !((TextView)field(tile, "chargingEta")).getText().toString().startsWith("≈"),
                         "Stale cached charging values produced a live power or time estimate");
                 require(((TextView)field(tile, "chargingWatts")).getCurrentTextColor() == activity.ui().muted,
                         "Unavailable charging power is styled as live");
@@ -1761,16 +1773,16 @@ public final class DashboardValidation extends Instrumentation {
                         "Detailed charging card lost its measured current");
                 preview.remove("charge_limit_percent");
                 invoke(chargeTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
-                require("Time to full".contentEquals(((TextView)field(chargeTile, "chargingEtaLabel")).getText())
+                require("Time to 100%".contentEquals(((TextView)field(chargeTile, "chargingEtaLabel")).getText())
                         && "≈ 3h 38m".contentEquals(((TextView)field(chargeTile, "chargingEta")).getText()),
                         "Unknown cutoff did not keep the hypothetical full estimate separate");
-                require(((TextView)field(chargeTile, "chargingNote")).getText().toString().contains("cutoff unknown"),
+                require(String.valueOf(((TextView)field(chargeTile, "chargingEta")).getContentDescription()).contains("cutoff unknown"),
                         "Unknown charge cutoff was not explained");
                 TelemetryHistory.Reading current = preview.get("current_a");
                 preview.put("current_a", current.stale());
                 invoke(chargeTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
                 require("—".contentEquals(((TextView)field(chargeTile, "chargingWatts")).getText())
-                        && "—".contentEquals(((TextView)field(chargeTile, "chargingEta")).getText()),
+                        && !((TextView)field(chargeTile, "chargingEta")).getText().toString().startsWith("≈"),
                         "One stale electrical input did not suppress the charging estimate");
                 syntheticReading(preview, "charging_state", "Not charging", "", 0d, wall);
                 invoke(batteryTile, "refreshCharging", new Class<?>[] {Map.class}, preview);

@@ -110,6 +110,7 @@ public final class BatteryCapacityEstimateTest {
                         && r.percentOfAdvertised == null
                         && r.status.contains("unconfirmed"),
                 "Proxy never promoted to confirmed capacity");
+        check("Proxy · not health".equals(r.label), "Proxy keeps a short honesty label");
         Fixture confirmed =
                 fixture(
                         "A",
@@ -224,6 +225,12 @@ public final class BatteryCapacityEstimateTest {
                                 .status
                                 .contains("below 5"),
                 "NoSOCchange cannot yield capacity");
+        BatteryCapacityEstimate.Result rejectedOnly =
+                calculate("A", Collections.singletonList(zero.ride()), 716.04);
+        check(
+                "No usable rides yet".equals(rejectedOnly.label)
+                        && "Drop under 5%".equals(rejectedOnly.reason),
+                "Rejected rides show a short state with the reason in details");
         Fixture shortDrop =
                 fixture(
                         "A",
@@ -404,6 +411,31 @@ public final class BatteryCapacityEstimateTest {
                                 .estimatedUsableWh
                         == null,
                 "Empty journals remain insufficient evidence");
+        check(
+                "Record a longer ride"
+                        .equals(BatteryCapacityEstimate.calculate("A", Collections.emptyList(), 716.04, NOW, 90).label),
+                "Empty journals show a short next step");
+        for (String reason :
+                new String[] {
+                    "recording clock changed",
+                    "recording has gaps or recovery",
+                    "current direction changed during the ride",
+                    "record at least 1 minute",
+                    "battery end readings are missing",
+                    "battery drop is below 5 percentage points",
+                    "electrical coverage is below 95%",
+                    "at least 30 seconds of measured movement is needed",
+                    "measured energy is unavailable",
+                    "net measured energy is not positive",
+                    "endpoint power and battery readings are missing",
+                    "power and battery readings do not align with both ride ends",
+                    "battery gauge rebounded or rose while recording"
+                }) {
+            String label = BatteryCapacityEstimate.shortReason(reason);
+            check(
+                    label != null && !label.equals("Insufficient data") && label.split(" ").length <= 4,
+                    "Rejection reason has a short label: " + reason);
+        }
     }
 
     private static void analysisSnapshotsAreReadOnlyAndConsistent() throws Exception {

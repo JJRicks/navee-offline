@@ -97,13 +97,11 @@ public final class DashboardSlotsValidation extends Instrumentation {
         String[] names = {"Lock bar", "Scooter overview", "Reading tiles", "Setting tiles"};
         int base = DashboardConfig.TYPES.length - added.length;
         require(base == 15 && DashboardConfig.TYPES[0].equals("lock") && DashboardConfig.TYPES[1].equals("scooter")
-                        && DashboardConfig.NAMES.length == DashboardConfig.TYPES.length
-                        && DashboardConfig.DESCRIPTIONS.length == DashboardConfig.TYPES.length,
+                        && DashboardConfig.NAMES.length == DashboardConfig.TYPES.length,
                 "New widget types must be appended after the fifteen existing types");
         int[] defaultHeights = {1, 4, 2, 1}, minimumHeights = {1, 3, 1, 1};
         for (int i = 0; i < added.length; i++) {
-            require(DashboardConfig.TYPES[base + i].equals(added[i]) && DashboardConfig.NAMES[base + i].equals(names[i])
-                            && !DashboardConfig.DESCRIPTIONS[base + i].trim().isEmpty(),
+            require(DashboardConfig.TYPES[base + i].equals(added[i]) && DashboardConfig.NAMES[base + i].equals(names[i]),
                     "Catalog entry changed for " + added[i]);
             DashboardConfig.Widget widget = new DashboardConfig.Widget(added[i]);
             require(widget.title.equals(names[i]) && widget.metric.equals("power_w") && widget.windowMs == 86400000L

@@ -46,6 +46,7 @@ public final class ChargingEstimateTest {
         near(217.5, baseline.remainingMinutesToFull, .00001, "Separate hypothetical time to 100%");
         check(baseline.status.contains("higher charge limit") && baseline.status.contains("taper"),
                 "Time estimate explains cutoff and taper assumptions");
+        check("Current rate".equals(baseline.label), "Short label names the current-rate source");
 
         ChargingEstimate.Value[] values = nominal(); values[2] = live(2);
         ChargingEstimate.Result positive = estimate(values);
@@ -57,6 +58,7 @@ public final class ChargingEstimateTest {
                 live(Double.NaN), live(Double.POSITIVE_INFINITY), live(0), live(2), live(-1), live(1.1)}) {
             values = nominal(); values[0] = state; ChargingEstimate.Result result = estimate(values);
             check(!result.charging, "Only fresh exact state 1 is active charging");
+            check(result.label != null && result.label.split(" ").length <= 4, "Inactive state keeps a short label");
             noPowerOrTime(result, "Inactive or unavailable charging state");
         }
         for (int index : new int[] {1, 2}) {
@@ -84,6 +86,7 @@ public final class ChargingEstimateTest {
             near(Math.abs(amps), result.inputAmps, 0, "Low measured current is displayed honestly");
             near(Math.abs(amps) * 52, result.inputWatts, 0, "Low current is not replaced with nominal charger power");
             noTime(result, "Current below 0.05 A");
+            check(ChargingEstimate.LOW_CURRENT.equals(result.label), "Low current has its own short label");
         }
         values = nominal(); values[2] = live(.05);
         near(8700, estimate(values).remainingMinutesToFull, .00001, "The minimum usable current threshold is inclusive");

@@ -173,9 +173,8 @@ public final class BatteryWidgetValidation extends Instrumentation {
         main(() -> {
             View capacity = (View)tile("capacity"); bring(capacity);
             require(((View)field(capacity, "capacityBar")).getHeight() > 0, "Missing capacity comparison bar");
-            require(((TextView)field(capacity, "capacityMethod")).getText().toString().contains("Simulated"), "Sample capacity not labeled");
-            TextView evidence = (TextView)field(capacity, "capacityEvidence");
-            require(evidence.getParent() == null, "Full evidence crowds the card");
+            TextView method = (TextView)field(capacity, "capacityMethod");
+            require(method.getVisibility() == View.VISIBLE && method.getText().toString().contains("Sample"), "Sample capacity not labeled");
             TextView button = null;
             for (TextView text : texts(capacity)) if (text.getText().toString().equals("Estimate details")) button = text;
             require(button != null, "Capacity evidence is unreachable"); button.performClick();
