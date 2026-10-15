@@ -93,7 +93,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
     /** The redesigned Home's four types are appended so every older type index stays stable. */
     private void newHomeWidgetTypes() {
         String[] added = {"lockbar", "overview", "tiles", "shortcuts"};
-        String[] names = {"Lock bar", "Battery overview", "Reading tiles", "Setting tiles"};
+        String[] names = {"Lock bar", "Scooter overview", "Reading tiles", "Setting tiles"};
         int base = DashboardConfig.TYPES.length - added.length;
         require(base == 15 && DashboardConfig.TYPES[0].equals("lock") && DashboardConfig.TYPES[1].equals("scooter")
                         && DashboardConfig.NAMES.length == DashboardConfig.TYPES.length
@@ -106,7 +106,8 @@ public final class DashboardSlotsValidation extends Instrumentation {
                     "Catalog entry changed for " + added[i]);
             DashboardConfig.Widget widget = new DashboardConfig.Widget(added[i]);
             require(widget.title.equals(names[i]) && widget.metric.equals("power_w") && widget.windowMs == 86400000L
-                            && widget.showDisconnect && widget.note.isEmpty(),
+                            // The lock bar starts without its Disconnect button so the slider fills the card.
+                            && widget.showDisconnect == !added[i].equals("lockbar") && widget.note.isEmpty(),
                     "Constructor options changed for " + added[i]);
             require(widget.defaultHeight() == defaultHeights[i] && widget.minimumHeight() == minimumHeights[i],
                     "Default/minimum height changed for " + added[i]);
@@ -118,7 +119,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             require(widget.minimumWidth(2, 344, 10, 1) == 1, added[i] + " no longer fits half a phone grid");
         }
         require(new DashboardConfig.Widget("overview").keys.equals(Arrays.asList("odometer_km", "driving_mode")),
-                "Battery overview default readings changed");
+                "Scooter overview default readings changed");
         require(new DashboardConfig.Widget("tiles").keys.equals(Arrays.asList("power_w", "temperature_c", "battery_health_percent")),
                 "Reading tiles default readings changed");
         require(new DashboardConfig.Widget("shortcuts").quickActions.equals(
@@ -126,7 +127,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                 "Setting tiles default shortcuts changed");
         require(new DashboardConfig.Widget("lockbar").quickActions.equals(local.navee.offlinelock.QuickAccessActions.defaultIds()),
                 "Lock bar must keep the generic shortcut defaults");
-        checks.add("Lock bar, Battery overview, Reading tiles and Setting tiles append to the catalog with their constructor readings/shortcuts, full-width defaults and 1/4/2/1-row heights");
+        checks.add("Lock bar, Scooter overview, Reading tiles and Setting tiles append to the catalog with their constructor readings/shortcuts, full-width defaults and 1/4/2/1-row heights");
     }
 
     private void allWidgetsExample() throws Exception {
@@ -330,7 +331,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                 case "lock":
                     check.accept(widget.showDisconnect, "Example hides manual disconnect"); break;
                 case "lockbar":
-                    check.accept(widget.showDisconnect, "Example lock bar options changed"); break;
+                    check.accept(!widget.showDisconnect, "Example lock bar shows a Disconnect button"); break;
                 case "overview":
                     check.accept(widget.keys.size() <= 4,
                             "Example battery overview has too many readings"); break;
@@ -442,8 +443,8 @@ public final class DashboardSlotsValidation extends Instrumentation {
             java.util.function.BiConsumer<Boolean, String> check) {
         try {
             JSONArray expected = new JSONArray(
-                    "[{\"type\":\"lockbar\",\"title\":\"Lock bar\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,0,1,1],\"2\":[0,0,2,1],\"3\":[0,0,3,1],\"4\":[0,0,4,1],\"5\":[0,0,5,1],\"6\":[0,0,3,1]}}"
-                    + ",{\"type\":\"overview\",\"title\":\"Battery overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,1,1,4],\"2\":[0,1,2,4],\"3\":[0,1,3,4],\"4\":[0,1,4,4],\"5\":[0,1,5,4],\"6\":[0,1,3,4]}}"
+                    "[{\"type\":\"lockbar\",\"title\":\"Lock bar\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":false,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,0,1,1],\"2\":[0,0,2,1],\"3\":[0,0,3,1],\"4\":[0,0,4,1],\"5\":[0,0,5,1],\"6\":[0,0,3,1]}}"
+                    + ",{\"type\":\"overview\",\"title\":\"Scooter overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,1,1,4],\"2\":[0,1,2,4],\"3\":[0,1,3,4],\"4\":[0,1,4,4],\"5\":[0,1,5,4],\"6\":[0,1,3,4]}}"
                     + ",{\"type\":\"tiles\",\"title\":\"Reading tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"power_w\",\"temperature_c\",\"battery_health_percent\"],\"layouts\":{\"1\":[0,5,1,2],\"2\":[0,5,2,2],\"3\":[0,5,3,2],\"4\":[0,5,4,2],\"5\":[0,5,5,2],\"6\":[3,0,3,2]}}"
                     + ",{\"type\":\"shortcuts\",\"title\":\"Setting tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,7,1,1],\"2\":[0,7,2,1],\"3\":[0,7,3,1],\"4\":[0,7,4,1],\"5\":[0,7,5,1],\"6\":[3,2,3,1]}}"
                     + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,1],\"2\":[0,8,2,1],\"3\":[0,8,3,1],\"4\":[0,8,4,1],\"5\":[0,8,5,1],\"6\":[3,3,3,1]}}]");
@@ -690,7 +691,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(lock.minimumHeight() == 1, "Lock bar must fit one grid row with Disconnect enabled");
         lock.showDisconnect = false;
         require(lock.minimumHeight() == 1, "Hiding Disconnect changed the one-row lock bar minimum");
-        require(overview.minimumHeight() == 3, "Battery overview minimum height changed");
+        require(overview.minimumHeight() == 3, "Scooter overview minimum height changed");
         overview.layouts.get(6).h = 3;
         String expected = signature(config);
         require(config.saveSlot(1, "Six-column split", 6), "Six-column snapshot could not be saved");

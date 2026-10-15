@@ -597,7 +597,7 @@ public final class DashboardValidation extends Instrumentation {
         await(() -> {
             Object overview = tileOrNull("overview");
             return overview != null && bodyText(overview).contains("73");
-        }, 5000, "Battery overview did not render the cached charge");
+        }, 5000, "Scooter overview did not render the cached charge");
         main(() -> {
             require(activity.service().ble.state() == BleController.State.DISCONNECTED, "Home widget fixture must stay disconnected");
             Object lockBar = tile("lockbar");
@@ -610,18 +610,18 @@ public final class DashboardValidation extends Instrumentation {
                     "Default Lock bar grew beyond one grid row");
 
             String overview = bodyText(tile("overview")).toLowerCase(Locale.ROOT);
-            require(overview.contains("73") && overview.contains("%"), "Battery overview lacks its cached percentage");
+            require(overview.contains("73") && overview.contains("%"), "Scooter overview lacks its cached percentage");
             require(overview.contains("odometer") && overview.contains("drive mode"),
-                    "Battery overview lacks its default Odometer and Drive mode readings");
+                    "Scooter overview lacks its default Odometer and Drive mode readings");
 
             String readings = bodyText(tile("tiles")).toLowerCase(Locale.ROOT);
-            require(readings.contains("power") && readings.contains("pack temp") && readings.contains("health"),
-                    "Reading tiles lack their default Power, Pack temp and Health labels: " + readings);
+            require(readings.contains("power") && readings.contains("temp") && readings.contains("health"),
+                    "Reading tiles lack their default Power, Temp. and Health labels: " + readings);
             require(readings.contains("98"), "Reading tiles did not render the cached health value: " + readings);
 
             String settings = bodyText(tile("shortcuts")).toLowerCase(Locale.ROOT);
-            require(settings.contains("top speed") && settings.contains("charge schedule"),
-                    "Setting tiles lack their default Top speed and Charge schedule tiles: " + settings);
+            require(settings.contains("top speed") && settings.contains("scheduled charging"),
+                    "Setting tiles lack their default Top speed and Scheduled charging tiles: " + settings);
 
             for (String type : new String[] {"lockbar", "overview", "tiles", "shortcuts"}) {
                 Object tile = tile(type);

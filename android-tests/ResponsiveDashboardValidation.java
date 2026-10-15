@@ -57,7 +57,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private Bundle arguments;
     private MainActivity activity;
     private boolean admitted;
-    /** Fresh Home: Lock bar, Battery overview, Reading tiles, Setting tiles, Ride recorder. */
+    /** Fresh Home: Lock bar, Scooter overview, Reading tiles, Setting tiles, Ride recorder. */
     private static final String[] DEFAULT_STACK = {"lockbar", "overview", "tiles", "shortcuts", "ride"};
     private final ArrayList<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private final ArrayList<String> overlayGeometry = new ArrayList<>();
@@ -668,7 +668,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 StringBuilder text = new StringBuilder();
                 for (TextView view : texts((View)field(overview, "body"))) if (view.isShown()) text.append(view.getText()).append('\n');
                 require(text.toString().contains("50") && text.toString().contains("Charging"),
-                        "Battery overview did not show the fresh charging percentage and Charging caption: " + text);
+                        "Scooter overview did not show the fresh charging percentage and Charging caption: " + text);
             });
         } finally {
             main(() -> {

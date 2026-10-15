@@ -74,12 +74,12 @@ final class QuickAccessGrid extends ViewGroup {
             boolean selected = cell.entry.directToggle() && value != null && value == 1 && featureLive;
             if (tiles) {
                 // A page or menu shortcut has no value; its name takes the value line instead.
-                String shownValue = state.isEmpty() ? cell.entry.label : state;
+                String shownValue = state.isEmpty() ? tileLabel(cell.entry) : state;
                 if (!shownValue.contentEquals(cell.value.getText())) {
                     cell.value.setText(shownValue);
                     fittedWidth = -1;
                 }
-                cell.label.setTag(state.isEmpty() ? "" : cell.entry.label);
+                cell.label.setTag(state.isEmpty() ? "" : tileLabel(cell.entry));
                 boolean highlight = index == 0 && live && !editing;
                 boolean muted = feature != null && !featureLive;
                 cell.label.setTextColor(highlight ? Ui.withAlpha(ui.onAccent, 220) : ui.muted);
@@ -98,7 +98,7 @@ final class QuickAccessGrid extends ViewGroup {
                 cell.setAlpha(feature != null && !featureLive ? .65f : 1f);
             }
             cell.setEnabled(!editing);
-            String description = cell.entry.label + (state.isEmpty() ? "" : ", " + state)
+            String description = (tiles ? tileLabel(cell.entry) : cell.entry.label) + (state.isEmpty() ? "" : ", " + state)
                     + (feature != null && !featureLive ? ", last seen" : "")
                     + (showSchedule && !schedule.live ? ", scheduled time last seen" : "")
                     + (cell.entry.directToggle() ? ", toggle" : ", open");
@@ -131,7 +131,7 @@ final class QuickAccessGrid extends ViewGroup {
                 setClickable(true); setFocusable(true); setMinimumHeight(ui.dp(48));
                 LinearLayout words = new LinearLayout(host.activity());
                 words.setOrientation(VERTICAL);
-                label = ui.text(entry.label, 12.5f, false);
+                label = ui.text(tileLabel(entry), 12.5f, false);
                 label.setTextColor(ui.muted); label.setMaxLines(1);
                 label.setEllipsize(android.text.TextUtils.TruncateAt.END);
                 label.setLineSpacing(0, 1);
@@ -306,5 +306,10 @@ final class QuickAccessGrid extends ViewGroup {
             if (rtl) x = getWidth() - x - width;
             cells.get(i).layout(x, y, x + width, y + rowHeight);
         }
+    }
+
+    /** Setting tiles use the Scooter page's name for the Sport top speed. */
+    private static String tileLabel(QuickAccessActions.Entry entry) {
+        return "feature:maximum_speed".equals(entry.id) ? "Top speed" : entry.label;
     }
 }
