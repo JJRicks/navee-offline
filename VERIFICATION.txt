@@ -1,3 +1,30 @@
+BASEMAP OPT-IN (unreleased)
+October 14, 2026
+
+- Basemap is off when no saved choice exists. Existing explicit on/off choices
+  remain intact. Inline maps, fullscreen maps and Map settings share a remembered
+  switch. A first enable waits for an IP/viewed-area explanation and approval.
+  Cancel, Back and source-view removal leave it disabled and unacknowledged.
+- Full backups preserve both the choice and acknowledgement, including legacy
+  absent keys. Malformed non-boolean archive values are rejected before restore.
+- All 23 core suites passed: 54,182 assertions/checks, including 99 archive checks.
+- Android app and validation APK builds, signature and alignment checks passed
+  with a disposable test signer. No owner phone or official signing key was used.
+- Native ride/map checks passed 181 assertions each at 344x882dp dark, 725x604dp
+  dark, and 360x800dp light with 140% system font. Screenshots confirm the switch
+  directly below each map and a readable first-enable dialog in both themes.
+- A counting synthetic tile provider verifies no requests before approval or
+  after cancellation, shared enable/disable across all three control locations,
+  and no new requests after disabling and changing the viewport. Existing local
+  route inspection, expansion and full-detail graph checks also passed.
+- Validation uses synthetic rides and an isolated emulator; it does not contact
+  live tile providers or a scooter. Already-started network work may finish when
+  maps are switched off. No website deploy, release or sideload was performed.
+
+Evidence: work/map-basemap-opt-in in the owner's workspace. The first native run
+exposed a fixture attempting input before its newly reopened dialog attached;
+the fixture now waits for attachment before testing consent. All final cases pass.
+
 PUBLIC-LAUNCH DOCUMENTATION PREPARATION (unreleased)
 October 14, 2026
 

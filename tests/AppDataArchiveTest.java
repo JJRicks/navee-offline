@@ -143,10 +143,33 @@ public final class AppDataArchiveTest {
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"wrong favourites type rejected");
             badTypes.get("app_settings").clear();badTypes.get("app_settings").put("text_scale",Float.NaN);
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"nonfinite text scale rejected");
+            basemapPreferences(root);
             Store malformedRecovery=new Store(new File(root,"malformed-recovery"));AppDataArchive.deleteTree(malformedRecovery.work());file(malformedRecovery.work(),new byte[]{1});
             rejects(()->AppDataArchive.recover(malformedRecovery),"unreadable/nondirectory recovery storage fails closed");
             System.out.println("AppDataArchiveTest: "+checks+" checks passed (encrypted roundtrip, replace, rollback, crash recovery, tamper and hostile archives)");
         } finally {AppDataArchive.deleteTree(root);}
+    }
+    private static void basemapPreferences(File root)throws Exception {
+        // Old backups may omit both keys or contain only an explicit basemap choice.
+        // Restore must preserve that distinction instead of inventing an opt-in.
+        Boolean[][] choices={{null,null},{true,null},{false,null},{false,true},{true,true},{false,false}};
+        for(int i=0;i<choices.length;i++) {
+            Store source=new Store(new File(root,"basemap-source-"+i));
+            Map<String,Map<String,Object>> prefs=empty();Map<String,Object> app=prefs.get("app_settings");
+            if(choices[i][0]!=null)app.put("map_basemap_enabled",choices[i][0]);
+            if(choices[i][1]!=null)app.put("map_basemap_explained",choices[i][1]);
+            source.preferences(prefs);
+            Store restored=new Store(new File(root,"basemap-restored-"+i));
+            AppDataArchive.apply(restored,stage(restored,export(source)));
+            check(restored.preferences().equals(prefs),"encrypted backup preserves basemap choice and explanation state, including absent legacy keys "+i);
+        }
+        for(String key:new String[]{"map_basemap_enabled","map_basemap_explained"}) {
+            Store source=new Store(new File(root,"bad-"+key));Map<String,Map<String,Object>> prefs=empty();
+            prefs.get("app_settings").put(key,"true");source.preferences(prefs);
+            Store restored=new Store(new File(root,"reject-"+key));byte[] backup=export(source);
+            rejects(()->stage(restored,backup),"authenticated archive with nonboolean "+key+" is refused");
+            check(restored.preferences().equals(empty()),"invalid basemap preference cannot mutate live settings");
+        }
     }
     private static void compare(Store a,Store b)throws Exception {
         check(a.preferences().equals(b.preferences()),"every preference type and namespace roundtrips");

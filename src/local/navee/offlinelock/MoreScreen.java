@@ -1379,7 +1379,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout data = ui.card(); cardDestination.addView(data);
         note(data, "Owner setup, scooter profiles, preferences, and ride recordings stay on this phone. You choose when to export them. Ordinary diagnostics leave out owner identity and PIN digits; a private owner backup intentionally includes its setup identity.");
         note(data, "Nearby devices connects to your scooter. Optional location records your route during a ride. Phone motion and pressure sensors run only while recording. The recording notification includes a Stop action.");
-        note(data, "Route maps load tiles from the selected provider (USGS Topo by default) when Basemap is enabled. It starts on; you can turn it off in App preferences → Map settings. GPS and the recorded route still work without a map connection. Loading tiles sends the map area and your network address to that provider.");
+        note(data, "Basemap starts off unless you already chose otherwise. Enable it below a route map or in App preferences → Map settings to download tiles from the selected provider (USGS Topo by default). The first enable explains that the provider receives the viewed map area and your IP address. GPS and the recorded route still work offline.");
         LinearLayout more = group();
         row(more, "stats", "Connection activity", null, this::commandEvidence);
         row(more, "copy", "Licenses & attribution", null, this::licenses);

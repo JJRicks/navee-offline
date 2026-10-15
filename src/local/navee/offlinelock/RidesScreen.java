@@ -1075,6 +1075,11 @@ public final class RidesScreen implements AppScreen {
         attribution.setOnClickListener(v -> openWeb(source.attributionUrl));
         FrameLayout.LayoutParams creditParams = new FrameLayout.LayoutParams(-2, -2, Gravity.BOTTOM | Gravity.START);
         creditParams.setMargins(ui.dp(8), 0, ui.dp(64), ui.dp(8)); mapFrame.addView(attribution, creditParams);
+        attribution.setVisibility(View.GONE);
+        if (!track.points.isEmpty()) top.addView(MapPreferences.basemapControl(host, enabled -> {
+            map.setStreets(enabled);
+            attribution.setVisibility(enabled ? View.VISIBLE : View.GONE);
+        }));
         TextView mapStatus = ui.caption(""); mapStatus.setTextColor(ui.orange);
         mapStatus.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); top.addView(mapStatus);
         map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
@@ -1087,7 +1092,6 @@ public final class RidesScreen implements AppScreen {
             LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2); colorParams.topMargin = ui.dp(6);
             top.addView(colors, colorParams); top.addView(legend); top.addView(selection);
         }
-        boolean basemap = MapPreferences.enabled(preferences); map.setStreets(basemap); attribution.setVisibility(basemap ? View.VISIBLE : View.GONE);
         PhoneRide ride = new PhoneRide(mapFrame, map, colors, legend, track);
         LinearLayout controls = vertical();
         controls.addView(mapButton("plus", "Zoom in", () -> map.zoomBy(1)));
