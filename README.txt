@@ -1,30 +1,26 @@
-VOLT
+VOLT — Your scooter. Your connection.
 
-An independent Android companion for the owner-bound NAVEE UT5 MAX.
-Volt is not affiliated with, endorsed by, sponsored by, or supported by NAVEE
-or its app vendor. Product names identify compatible hardware only.
-
-Current release: 0.13.0. Public v1.0 preparation is in progress.
+An independent Android companion for the NAVEE UT5 MAX. Volt is not affiliated
+with, endorsed by, sponsored by, or supported by NAVEE or its app vendor.
+Product names identify compatible hardware only.
 
 Download: https://github.com/JJRicks/navee-offline/releases/latest
-Guided computer/USB setup (testing preview): https://pairscooter.jjricks.com/
+Start here: README.md
+Install and pair: docs/getting-started.md
+Using Volt: docs/user-guide.md
+Supported features: FEATURES.txt
+Build from source: docs/building.md
 
-Everyday Bluetooth controls and recording work locally without a cloud login.
-First setup requires your already activated scooter and working NAVEE owner
-account. Optional map tiles start off unless you saved a choice. Use Basemap
-below a route map to enable them after a brief privacy explanation. Your choice
-is remembered; local route drawing and recording work with tiles off.
+Requires Android 8.0+ with Bluetooth LE and an activated, owner-bound US UT5 MAX.
+First setup uses your working NAVEE account; everyday Bluetooth use is local.
+Computer ADB is the established capture route. Chrome/USB is a testing preview;
+on-phone Shizuku has limited validation. See the setup guide before choosing.
 
-Start with README.md for compatibility, setup, building and contributing.
-Detailed app instructions and measurement limits are in docs/user-guide.md.
-SETUP.txt covers the computer ADB helper; setup/SHIZUKU.md covers phone setup.
-Computer ADB is the established capture route. Chrome/USB and Shizuku have
-limited real-device capture validation; see README.md for the available evidence.
-PRIVACY.md explains local data and network access. SECURITY.md explains how to
-report sensitive findings. CHANGELOG.md contains release changes.
-FEATURES.txt lists per-control evidence and the project's control scope.
+Read PRIVACY.md for local storage, optional online maps and sensitive exports.
+Keep owner setup files private and back up before clearing app data.
+CHANGELOG.md lists updates; SECURITY.md explains sensitive reporting.
 
-Application source: MIT, with separate third-party terms in NOTICE.
-The manufacturer-sourced scooter photo remains a temporary placeholder pending
-replacement or permission before public distribution. Public launch readiness
-is tracked in docs/public-release.md.
+Application source: MIT. Third-party and image notices: NOTICE.
+The manufacturer-sourced scooter photo is a temporary placeholder; redistribution
+permission has not been established, so it must be replaced or cleared before
+public distribution (see NOTICE). Public-launch preparation: docs/public-release.md.

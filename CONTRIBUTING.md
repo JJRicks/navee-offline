@@ -16,7 +16,7 @@ Use a feature branch and include documentation changes where behavior changes. A
 
 ## Build and test
 
-Follow the [README build instructions](README.md#build-from-source). The app uses Java, native Android views and a shell build; the optional USB helper is a separate static Node/npm project.
+Follow the [build guide](docs/building.md). The app uses Java, native Android views and a shell build; the optional USB helper is a separate static Node/npm project.
 
 ```sh
 bash tests/run.sh
