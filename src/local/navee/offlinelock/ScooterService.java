@@ -170,7 +170,7 @@ public final class ScooterService extends Service {
                 boolean drained = chargeWorker.awaitTermination(remaining(deadline), TimeUnit.MILLISECONDS);
                 drained &= capacityWorker.awaitTermination(remaining(deadline), TimeUnit.MILLISECONDS);
                 if (history != null) drained &= history.closeAndAwait(remaining(deadline));
-                if (!drained) error = "App data did not finish saving. Close Volt and try again.";
+                if (!drained) error = "Couldn't prepare app data. Reopen Volt.";
                 else {
                     // commit waits for earlier apply writes for each preference file. The empty
                     // transaction changes no user setting and leaves no maintenance marker behind.
@@ -180,9 +180,9 @@ public final class ScooterService extends Service {
                 }
             } catch (InterruptedException interrupted) {
                 Thread.currentThread().interrupt();
-                error = "App data preparation was interrupted. Close Volt and try again.";
+                error = "Couldn't prepare app data. Reopen Volt.";
             } catch (RuntimeException | IOException failure) {
-                error = "App data could not finish saving. Close Volt and try again.";
+                error = "Couldn't prepare app data. Reopen Volt.";
             }
             final String result = error;
             handler.post(() -> completion.accept(result));
@@ -258,14 +258,19 @@ public final class ScooterService extends Service {
     public String chargeCaptureStatus(){
         if(!isChargeRecording())return chargeStatus;
         if(chargeRecovery!=null&&chargeRecovery.recovering())
-            return "Reconnecting to scooter · "+Math.max(1,(chargeRecovery.remainingMs(SystemClock.elapsedRealtime())+999)/1000)+"s remaining · gap will be marked";
+            return "Reconnecting · "+Math.max(1,(chargeRecovery.remainingMs(SystemClock.elapsedRealtime())+999)/1000)+"s";
         return (chargeStore.charger()==ChargeSessionStore.Charger.STOCK?"Stock charger":"High-speed charger")+" · "+chargeStore.sampleCount()+" local samples";
+    }
+    /** Qualified charge sessions behind the selected charger's learned curve (the count in chargeLearningSummary). */
+    public int qualifiedChargeCurves(){
+        ChargeSessionStore.Charger charger=chargeCharger();
+        ChargeSessionStore.Curve curve=chargeSnapshot==null||charger==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
+        return curve==null?0:curve.qualifiedSessions;
     }
     public String chargeLearningSummary(){
         if(chargeModelLoading)return "Loading saved charge recordings";
         ChargeSessionStore.Charger charger=chargeCharger();
-        ChargeSessionStore.Curve curve=chargeSnapshot==null||charger==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
-        int qualified=curve==null?0:curve.qualifiedSessions;
+        int qualified=qualifiedChargeCurves();
         return qualified+" qualified "+(charger==null?"selected-charger":charger==ChargeSessionStore.Charger.HIGH_SPEED?"high-speed":"stock")+" charge"+(qualified==1?"":"s")
                 +" · "+(chargeSnapshot==null?0:chargeSnapshot.sessions)+" recordings stored";
     }
@@ -500,7 +505,7 @@ public final class ScooterService extends Service {
         stopForeground(STOP_FOREGROUND_REMOVE);foregroundStarted=false;stopSelf();
     }
     public void startRide(String label){if(destroyed)return;if(isChargeRecording()){android.widget.Toast.makeText(this,"Stop charge recording before starting a ride",android.widget.Toast.LENGTH_SHORT).show();return;}if(simulating()) {
-            android.widget.Toast.makeText(this, "Turn off simulation to record a real ride", android.widget.Toast.LENGTH_SHORT).show();
+            android.widget.Toast.makeText(this, "Exit simulation first", android.widget.Toast.LENGTH_SHORT).show();
             return;
         }if(phoneSaving()){
             android.widget.Toast.makeText(
@@ -514,7 +519,7 @@ public final class ScooterService extends Service {
 
     public void stopRide(){if(!isRecording())return;try{rides.stop(System.currentTimeMillis(),SystemClock.elapsedRealtime());invalidateCapacityEstimate();recordingError=null;}catch(IOException e){
             recordingError =
-                    "Recording could not be saved. Free some phone storage, then try Stop again.";
+                    "Storage full · free space, then Retry save";
             android.widget.Toast.makeText(this,recordingError,android.widget.Toast.LENGTH_LONG).show();changed();return;}stopPhoneRecording();if(wakeLock.isHeld()&&!phoneSaving())wakeLock.release();applyWorkPolicy(false);changed();}
     private void startPhoneRecording(){
         if (simulating()) return;
@@ -617,8 +622,7 @@ public final class ScooterService extends Service {
                             }
                         } catch (IOException e) {
                             recordingError =
-                                    "Recording paused because phone storage could not be written."
-                                        + " Free some space, then stop to save the session.";
+                                    "Paused: storage full";
                             android.widget.Toast.makeText(
                                             ScooterService.this,
                                             recordingError,
@@ -766,7 +770,7 @@ public final class ScooterService extends Service {
         String profile = activeProfileId();
         if (simulating()) {
             callback.accept(BatteryCapacityEstimate.unavailable(profile, advertisedWh, windowDays,
-                    "Simulation uses sample data; real ride analysis is paused"));
+                    "Sample data"));
             return;
         }
         int days = Math.max(1, Math.min(3650, windowDays));
@@ -1069,17 +1073,18 @@ public final class ScooterService extends Service {
                                         ? "Ride recording is active"
                                         : "Recording needs attention")
                                 : ble.ready() ? "Scooter connected" : "Volt";
+        // Bodies carry live facts, not a repeat of the title: name and battery when connected,
+        // distance beside a running clock while recording, a progress bar while a ride is saved.
+        RideStore.Summary ride = isRecording() && recordingError == null && !isChargeRecording() && !phoneSaving() ? rides.activeSummary() : null;
         String text =
                 isChargeRecording() ? chargeCaptureStatus() : phoneSaving()
-                        ? "Finishing the last phone sensor measurements."
+                        ? null
                         : isRecording()
-                                ? (recordingError == null
-                                        ? "Scooter and phone ride data are being saved locally."
-                                        : recordingError)
-                                : ble.message();
+                                ? (recordingError == null ? rideDistanceText(ride) : recordingError)
+                                : ble.ready() ? connectedText() : ble.message();
         if (isRecording() && phoneStatus().startsWith("Phone sensor storage")) {
             title = "Ride recording needs attention";
-            text = "Scooter data continues. Phone sensor storage is unavailable.";
+            text = "Phone sensors not saving";
         }
         Notification.Builder builder =
                 new Notification.Builder(this, "scooter")
@@ -1091,6 +1096,9 @@ public final class ScooterService extends Service {
                         .setOnlyAlertOnce(true)
                         .setCategory(Notification.CATEGORY_SERVICE)
                         .setVisibility(Notification.VISIBILITY_PRIVATE);
+        if (phoneSaving()) builder.setProgress(0, 0, true);
+        if (ride != null && ride.startWallMs > 0)
+            builder.setWhen(ride.startWallMs).setShowWhen(true).setUsesChronometer(true);
         if(Build.VERSION.SDK_INT>=31&&(isRecording()||isChargeRecording()||phoneSaving()))
             builder.setForegroundServiceBehavior(Notification.FOREGROUND_SERVICE_IMMEDIATE);
         String action = isChargeRecording() ? "STOP_CHARGE_RECORDING" : isRecording() ? "STOP_RECORDING" : "DISCONNECT";
@@ -1101,6 +1109,20 @@ public final class ScooterService extends Service {
                                     null, isChargeRecording() ? "Stop charge recording" : isRecording() ? "Stop recording" : "Disconnect", stop)
                             .build());
         return builder.build();
+    }
+    /** "UT5 MAX · 82%": the connected notification names the scooter and its charge. */
+    private String connectedText() {
+        ScooterProfiles.Profile profile = profiles.active();
+        Double battery = ble.telemetry.number("battery_percent");
+        String name = profile == null ? "Scooter" : profile.name;
+        return battery == null ? name : name + " · " + Math.round(battery) + "%";
+    }
+    /** Recorded distance in the rider's units, or null before the odometer has moved. */
+    private String rideDistanceText(RideStore.Summary ride) {
+        if (ride == null || ride.distanceKm == null) return null;
+        String units = settings.getString("units", "mi");
+        String km = String.format(Locale.US, "%.1f km", ride.distanceKm), mi = String.format(Locale.US, "%.1f mi", ride.distanceKm / 1.609344);
+        return "km".equals(units) ? km : "dual".equals(units) ? mi + " / " + km : mi;
     }
     private void updateNotification(){if(foregroundStarted&&workAllowed())getSystemService(NotificationManager.class).notify(71,notification());}
     public String snapshot(){try{JSONObject o=new JSONObject();
