@@ -94,6 +94,25 @@ public final class ConnectionHapticsValidation extends Instrumentation {
             // Seed only the activity-local previous state. No fake GATT object, connection, or traffic.
             check("observer-disconnect", new String[]{"Primitive=TICK(scale=0.35", "Primitive=TICK(scale=0.18", "Primitive=TICK(scale=0.08"}, () -> main(() -> { call(field(activity,"connectionFeedback"),"baseline",new Class<?>[]{Object.class,boolean.class},activity.service().ble,true); call(activity,"observeConnectionFeedback",new Class<?>[]{boolean.class},false); }));
             check("observer-repeat-silent", new String[]{}, () -> main(() -> { call(activity,"observeConnectionFeedback",new Class<?>[]{boolean.class},false); activity.redraw(); }));
+            // Drive the activity's real observer/player using its real elapsed clock.
+            // Only previous observer state is seeded; the disconnected BLE transport
+            // remains untouched and cannot initiate a connection or send bytes.
+            check("observer-cooldown-loss-silent", new String[]{}, () -> main(() -> {
+                Object feedback = field(activity,"connectionFeedback");
+                require(SystemClock.elapsedRealtime() - ((Number)field(feedback,"lastLossAt")).longValue() < 5000,
+                        "Repeated loss must be exercised within the quiet period");
+                call(feedback,"baseline",new Class<?>[]{Object.class,boolean.class},activity.service().ble,true);
+                call(activity,"observeConnectionFeedback",new Class<?>[]{boolean.class},false);
+            }));
+            Object feedback = field(activity,"connectionFeedback");
+            long quietUntil = ((Number)field(feedback,"lastLossAt")).longValue() + 5000;
+            SystemClock.sleep(Math.max(0, quietUntil - SystemClock.elapsedRealtime()) + 100);
+            check("observer-cooldown-expired-no-replay", new String[]{}, () -> main(() ->
+                    call(activity,"observeConnectionFeedback",new Class<?>[]{boolean.class},false)));
+            check("observer-cooldown-later-loss", new String[]{"Primitive=TICK(scale=0.35", "Primitive=TICK(scale=0.18", "Primitive=TICK(scale=0.08"}, () -> main(() -> {
+                call(feedback,"baseline",new Class<?>[]{Object.class,boolean.class},activity.service().ble,true);
+                call(activity,"observeConnectionFeedback",new Class<?>[]{boolean.class},false);
+            }));
             // Exercise the real focus callbacks, not just a hand-edited activity flag. A lost
             // connection underneath a settings dialog is consumed without a surprise cue later.
             main(() -> {

@@ -61,8 +61,11 @@ zero assertions, failed fixture, or cleanup failure returns a nonzero exit code.
   focus without replaying the hidden cue.
 - **Connection observer:** unauthenticated READY is silent, an observed disconnect
   plays once, repeated refreshes remain silent and hidden changes do not replay.
-  `tests/ConnectionFeedbackStateTest.java` separately uses a fake elapsed clock to
-  cover the five-second connection-flapping cooldown without sleeps.
+  The activity's own observer/player also exercises a repeated loss inside the
+  five-second quiet period, expiry without replay, and a later loss cue using
+  the real elapsed clock. Only previous observer state is seeded; no GATT object
+  or transport is fabricated. `tests/ConnectionFeedbackStateTest.java` separately
+  covers exact boundaries and reconnect sequences with a fake elapsed clock.
 
 These tests prove requested effects and lifecycle behavior, not how the vibration
 motor feels. Older-device fallback effects and actual tactile strength still need

@@ -38,6 +38,26 @@ Android cloud backup and device-transfer extraction are disabled in the manifest
 and backup rules. Local profiles, including owner credentials, are not separately
 encrypted by Volt. They rely on Android's app sandbox and device protection.
 
+## Android permissions
+
+| Permission | Why Volt uses it |
+| --- | --- |
+| Nearby devices (`BLUETOOTH_SCAN`, `BLUETOOTH_CONNECT`) on Android 12+ | Scan for and connect to the scooter over Bluetooth LE. Scanning is declared `neverForLocation`; Volt does not derive location from Bluetooth scans. |
+| Legacy Bluetooth (`BLUETOOTH`, `BLUETOOTH_ADMIN`) and precise Location (`ACCESS_FINE_LOCATION`) on Android 8–11 | These Android versions require precise Location permission for Volt's Bluetooth scan/connect path, even when ride GPS is off. Grant it to connect; granting it alone does not start location recording. |
+| Location (`ACCESS_COARSE_LOCATION`, `ACCESS_FINE_LOCATION`) for optional ride GPS | Record a route only during a ride with phone GPS enabled. Approximate access is accepted, but precise access gives a more useful route. Denying ride GPS still allows scooter-only recording; Android 8–11 separately needs precise Location for Bluetooth as above. |
+| Notifications (`POST_NOTIFICATIONS` on Android 13+) | Show connection and recording status, including the recording Stop action. Allow notifications to keep these controls visible. |
+| Foreground service (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `FOREGROUND_SERVICE_LOCATION`) | Keep an active Bluetooth connection or recording running outside the app. The location service type is used when permitted ride GPS is active. Volt does not request `ACCESS_BACKGROUND_LOCATION`; start a ride while the app is visible. |
+| Vibration (`VIBRATE`) | Optional button, switch and connection haptics, respecting app and system settings. |
+| Wake lock (`WAKE_LOCK`) | A renewed, time-bounded CPU wake lock supports active ride/charge recording and pending phone-data writes with the screen off. It does not keep the display on. |
+| Internet (`INTERNET`) | Fetch map tiles when Basemap is enabled. Bluetooth control and recording do not need this access. External links open in your browser. |
+| Shizuku API (`moe.shizuku.manager.permission.API_V23`) | Optional on-phone owner setup through Shizuku. Shizuku authorization grants broad Android debugging access; capture requires a separate consent step. Everyday Bluetooth use does not need it. |
+
+Android only prompts for runtime permissions where applicable. Foreground-service,
+internet, vibration and wake-lock permissions are declared normal permissions,
+not separate approval dialogs. Manage runtime permissions in Android's app settings;
+manage Shizuku access in Shizuku. Device power restrictions and force stop can
+still interrupt background work.
+
 ## When network access is used
 
 **Basemap is optional and starts off if you have not saved a choice.** Existing

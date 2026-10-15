@@ -6,6 +6,7 @@ body:
       value: |
         Volt is an independent project, not NAVEE support. For security issues, follow SECURITY.md.
         Remove owner keys, serials, Bluetooth addresses, precise locations and private data from screenshots/logs. Do not attach full phone bug reports or backups.
+        Owner setup JSON contains a Bluetooth credential. navee-diagnostics.json can contain device identifiers; ride CSV/JSON/GPX exports can contain precise routes. Do not attach these files without removing private data.
   - type: input
     id: version
     attributes:
