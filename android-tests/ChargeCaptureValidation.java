@@ -190,6 +190,18 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(estimate.referenceToFull&&estimate.referenceToLimit&&!estimate.learnedToFull&&estimate.learnedSessions==0,
                         "Fresh UT5 MAX needs recordings, manual selection or developer options for its default estimate");
                 require(estimate.remainingMinutesToFull>20&&estimate.remainingMinutesToFull<30,"UT5 MAX default missed its long 99% finish");
+                Object dashboard=field(activity,"screen");
+                TextView etaValue=new TextView(activity),sourceTag=new TextView(activity);
+                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,sourceTag,estimate);
+                require("stock reference".contentEquals(sourceTag.getText()),"Bundled estimate is mislabeled as personal learning or current rate");
+                Map<String,TelemetryHistory.Reading> uncapped=new LinkedHashMap<>(readings);uncapped.remove("charge_limit_percent");
+                ChargingEstimate.Result unknownLimit=service.chargingEstimate(uncapped);
+                String[] captions=(String[])invoke(dashboard,"chargeTimeLabels",new Class<?>[]{ChargingEstimate.Result.class,boolean.class},unknownLimit,true);
+                for(String caption:captions)require(caption.contains("if uncapped"),"A visible compact charge label omits its unknown-cutoff condition");
+                uncapped.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-.01,1000,true));
+                ChargingEstimate.Result lowCurrent=service.chargingEstimate(uncapped);
+                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,sourceTag,lowCurrent);
+                require("—".contentEquals(etaValue.getText())&&"Low current".contentEquals(sourceTag.getText()),"Low-current UI invents a time or loses its reason");
                 readings.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-48d/54,1000,true));
                 ChargingEstimate.Result taper=service.chargingEstimate(readings);
                 require(taper.referenceToFull&&taper.remainingMinutesToFull>2&&taper.remainingMinutesToFull<9,
