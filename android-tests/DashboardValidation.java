@@ -59,7 +59,7 @@ import local.navee.offlinelock.TelemetryHistory;
 public final class DashboardValidation extends Instrumentation {
     private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
     private static final String[] DESTINATIONS = {"Home", "Scooter", "Live Stats", "Rides", "More"};
-    private static final String[] DEFAULT_TYPES = {"lockbar", "overview", "tiles", "shortcuts", "ride"};
+    private static final String[] DEFAULT_TYPES = {"overview", "lockbar", "tiles", "shortcuts", "ride"};
     /** Lock and Lock bar are mutually exclusive; the default's Lock bar keeps the palette from adding Lock. */
     private static final int HOME_TYPE_COUNT = DashboardConfig.TYPES.length - 1;
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
@@ -621,8 +621,8 @@ public final class DashboardValidation extends Instrumentation {
             require(readings.contains("98"), "Reading tiles did not render the cached health value: " + readings);
 
             String settings = bodyText(tile("shortcuts")).toLowerCase(Locale.ROOT);
-            require(settings.contains("top speed") && settings.contains("scheduled charging"),
-                    "Setting tiles lack their default Top speed and Scheduled charging tiles: " + settings);
+            require(settings.contains("top speed") && settings.contains("charge schedule"),
+                    "Setting tiles lack their default Top speed and Charge schedule tiles: " + settings);
 
             for (String type : new String[] {"lockbar", "overview", "tiles", "shortcuts"}) {
                 Object tile = tile(type);

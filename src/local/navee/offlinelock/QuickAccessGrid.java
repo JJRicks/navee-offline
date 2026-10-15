@@ -315,8 +315,10 @@ final class QuickAccessGrid extends ViewGroup {
         }
     }
 
-    /** Setting tiles use the Scooter page's name for the Sport top speed. */
+    /** Setting tiles use short names: the Scooter page's "Top speed", and "Charge schedule". */
     private static String tileLabel(QuickAccessActions.Entry entry) {
-        return "feature:maximum_speed".equals(entry.id) ? "Top speed" : entry.label;
+        if ("feature:maximum_speed".equals(entry.id)) return "Top speed";
+        if ("feature:timed_charging".equals(entry.id)) return "Charge schedule";
+        return entry.label;
     }
 }

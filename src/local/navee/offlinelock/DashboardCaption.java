@@ -13,6 +13,7 @@ import android.widget.TextView;
 final class DashboardCaption extends TextView {
     private String normalLabel, shortLabel;
     private final Drawable fallbackIcon;
+    private boolean oneLine;
 
     DashboardCaption(Context context, Ui ui, String fullName, String normalLabel,
             String shortLabel, Drawable icon) {
@@ -36,6 +37,17 @@ final class DashboardCaption extends TextView {
         setText(this.normalLabel);
     }
 
+    /**
+     * One line, never wrapped: the normal label when it fits on one line, otherwise the short
+     * label, ellipsized only if even that is too wide. The full name stays the description.
+     */
+    void fitOneLine() {
+        oneLine = true;
+        setMaxLines(1);
+        setEllipsize(android.text.TextUtils.TruncateAt.END);
+        requestLayout();
+    }
+
     /** Updates changing captions without losing their measured fallback choices. */
     void setLabels(String fullName, String normalLabel, String shortLabel) {
         String normal = normalLabel == null ? "" : normalLabel;
@@ -53,7 +65,7 @@ final class DashboardCaption extends TextView {
         int width = Math.max(0, MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight());
         boolean unbounded = MeasureSpec.getMode(widthSpec) == MeasureSpec.UNSPECIFIED;
         String shown = unbounded || fits(normalLabel, width) ? normalLabel
-                : fits(shortLabel, width) ? shortLabel : null;
+                : fits(shortLabel, width) || oneLine ? shortLabel : null;
         Drawable icon = shown == null ? fallbackIcon : null;
         // No fitting text with a missing icon is still accessible, without rendering
         // a label broken into individual letters. Callers normally supply an icon.
@@ -74,7 +86,7 @@ final class DashboardCaption extends TextView {
                 .setHyphenationFrequency(Layout.HYPHENATION_FREQUENCY_NONE)
                 .setTextDirection(TextDirectionHeuristics.FIRSTSTRONG_LTR)
                 .build();
-        if (layout.getLineCount() > 2) return false;
+        if (layout.getLineCount() > (oneLine ? 1 : 2)) return false;
         for (int line = 0; line < layout.getLineCount(); line++) {
             if (layout.getLineMax(line) > width) return false;
             int end = layout.getLineEnd(line);

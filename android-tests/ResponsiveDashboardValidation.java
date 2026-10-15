@@ -57,8 +57,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private Bundle arguments;
     private MainActivity activity;
     private boolean admitted;
-    /** Fresh Home: Lock bar, Scooter overview, Reading tiles, Setting tiles, Ride recorder. */
-    private static final String[] DEFAULT_STACK = {"lockbar", "overview", "tiles", "shortcuts", "ride"};
+    /** Fresh Home: Scooter overview, Lock bar beneath it, Reading tiles, Setting tiles, Ride recorder. */
+    private static final String[] DEFAULT_STACK = {"overview", "lockbar", "tiles", "shortcuts", "ride"};
     private final ArrayList<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private final ArrayList<String> overlayGeometry = new ArrayList<>();
 
@@ -446,8 +446,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 require(count == 5, "A five-column dashboard silently switched layout on a cover screen");
                 if (activity.ui().textScale * activity.getResources().getConfiguration().fontScale <= 1.05f
                         && dashboardConfig().widgets.size() == DEFAULT_STACK.length) {
-                    // The default Home is one full-width stack: rows 0, 1–4, 5–6, 7 and 8.
-                    int[][] rows = {{0, 1}, {1, 4}, {5, 2}, {7, 1}, {8, 1}};
+                    // The default Home is one full-width stack: rows 0–3 (overview), 4 (lock bar), 5–6, 7 and 8.
+                    int[][] rows = {{0, 4}, {4, 1}, {5, 2}, {7, 1}, {8, 1}};
                     for (int i = 0; i < DEFAULT_STACK.length; i++) {
                         DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid, "currentCell",
                                 new Class<?>[]{DashboardConfig.Widget.class}, field(tile(DEFAULT_STACK[i]), "widget"));

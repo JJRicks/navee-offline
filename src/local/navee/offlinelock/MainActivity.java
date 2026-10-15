@@ -870,7 +870,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final RectF track=new RectF();
         private Boolean value;
         private boolean available,dragging,dragSide;
-        /** Lock bar: draw the state word above the action inside the switch. */
+        /** Lock bar: draw only the state word, vertically centred inside the switch. */
         boolean compact;
         /** When the rider last asked for a lock change; the scooter's confirmation then gets a haptic. */
         private long requestedAt;
@@ -885,7 +885,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             value=locked;available=enabled;setEnabled(enabled);
             if(!enabled&&dragging){dragging=false;setPressed(false);releaseParent();settle(hadState&&locked!=null);}
             else if(changed&&!dragging)settle(hadState&&locked!=null);
-            setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+", tap to "+(locked?"unlock":"lock"));
+            setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+". Double-tap or slide to "+(locked?"unlock":"lock"));
             if(Build.VERSION.SDK_INT>=30)setStateDescription(locked==null?"Unavailable":locked?"Locked":"Unlocked");
             invalidate();
         }
@@ -913,19 +913,16 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);releaseParent();if(dragged)apply(target);else performClick();settle(true);return true;}
             if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);releaseParent();settle(true);return true;}return true;
         }
-        /** State word over the action, centred in the text lane; false when the lane is too short. */
-        private boolean drawStacked(Canvas canvas,String state,String action,float left,float right,float h){
+        /** The state word alone, centred on the bar's height; false when it cannot fit the lane. */
+        private boolean drawState(Canvas canvas,String state,float left,float right,float h){
             int alpha=words.getAlpha();
             android.text.TextPaint head=new android.text.TextPaint(words);
             head.setTypeface(design.semibold());head.setTextSize(design.sp(15));
+            if(head.measureText(state)>right-left)head.setTextSize(design.sp(13));
+            Paint.FontMetrics metrics=head.getFontMetrics();
+            if(metrics.descent-metrics.ascent>h||head.measureText(state)>right-left)return false;
             head.setColor(!available?design.dim:Boolean.FALSE.equals(value)?design.danger:design.text);head.setAlpha(alpha);
-            Paint.FontMetrics top=head.getFontMetrics();
-            words.setTextSize(design.sp(12));words.getFontMetrics(wordMetrics);
-            float first=top.descent-top.ascent,second=action.isEmpty()?0:wordMetrics.descent-wordMetrics.ascent;
-            if(first+second>h-design.dp(2)||head.measureText(state)>right-left){words.setTextSize(design.sp(13));words.getFontMetrics(wordMetrics);return false;}
-            float y=(h-first-second)/2-top.ascent;
-            canvas.drawText(state,(left+right)/2,y,head);
-            if(!action.isEmpty()&&words.measureText(action)<=right-left)canvas.drawText(action,(left+right)/2,y+top.descent-wordMetrics.ascent,words);
+            canvas.drawText(state,(left+right)/2,h/2-(metrics.ascent+metrics.descent)/2,head);
             return true;
         }
         /** Locked: white knob on the right. Unlocked: red knob on the left. Tap anywhere or slide to change. */
@@ -954,7 +951,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             // Its accessibility label always keeps the full tap/slide action text.
             String fitted=words.measureText(label)<=textWidth?label:"";
             words.setTextAlign(Paint.Align.CENTER);words.getFontMetrics(wordMetrics);
-            if(compact&&value!=null&&drawStacked(canvas,locked?"Locked":"Unlocked",fitted,textLeft,textRight,h))return;
+            if(compact&&value!=null){drawState(canvas,locked?"Locked":"Unlocked",textLeft,textRight,h);return;}
             canvas.drawText(fitted,(textLeft+textRight)/2,h/2-(wordMetrics.ascent+wordMetrics.descent)/2,words);
         }
     }

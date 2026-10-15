@@ -2658,9 +2658,10 @@ public final class DashboardScreen implements AppScreen {
                     LinearLayout head = column();
                     GlyphView icon = new GlyphView(readingIcon(key), ui.muted);
                     head.addView(icon, new LinearLayout.LayoutParams(ui.dp(18), ui.dp(18)));
-                    TextView name = readingCaption(key);
+                    DashboardCaption name = readingCaption(key);
                     name.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
-                    name.setMaxLines(1);
+                    // One line: "Battery power" becomes "Power" rather than being cut to "Battery".
+                    name.fitOneLine();
                     name.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
                     head.addView(name, new LinearLayout.LayoutParams(-1, -2));
                     cell.addView(head, new LinearLayout.LayoutParams(-1, -2));

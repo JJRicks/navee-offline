@@ -301,9 +301,9 @@ Done restores normal widget actions.
 Up to 32 widgets are supported, with one lock control (Lock & connection or
 Lock bar). Customize titles, colors, selected parameters/readings, gauge
 scales, chart windows and notes where applicable. New widgets remain drafts
-until Save. New/reset dashboards use a five-widget Home: Lock bar, Scooter
-overview, Reading tiles (power, pack temperature, health), Setting tiles (top
-speed, scheduled charging) and Ride recorder, stacked full width and split
+until Save. New/reset dashboards use a five-widget Home: Scooter overview, Lock
+bar beneath it, Reading tiles (power, pack temperature, health), Setting tiles (top
+speed, charge schedule) and Ride recorder, stacked full width and split
 into two columns on six-column grids. The header status line carries "last
 seen"; the new cards grey stale values instead of a per-card footer. Older
 widgets remain in Add widget. While editing, card content dims (animated,
