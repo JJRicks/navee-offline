@@ -1326,8 +1326,8 @@ public final class DashboardScreen implements AppScreen {
             return new String[] {name, name, "To " + target};
         }
         if (estimate.targetPercent == null)
-            return new String[] {"Time to 100% if uncapped", "Time to 100%", "To 100%"};
-        return new String[] {"Time to full", "Time to full", "To full"};
+            return new String[] {"Time to 100% if uncapped", "To 100% if uncapped", "100% if uncapped"};
+        return new String[] {"Time to full (est.)", "Time to full (est.)", "To full (est.)"};
     }
 
     /**
@@ -1387,11 +1387,16 @@ public final class DashboardScreen implements AppScreen {
 
         private void choose() {
             if (service == null || editing || service.isChargeRecording()) return;
+            ScooterProfiles.Profile original = service.profiles.active();
+            if (original == null) return;
+            String profileId = original.id;
             PopupMenu menu = new PopupMenu(host.activity(), chip);
             menu.getMenu().add(0, 1, 0, "Stock charger");
             menu.getMenu().add(0, 2, 1, "High-speed charger");
             menu.setOnMenuItemClickListener(item -> {
-                if (service == null || closed) return false;
+                if (service == null || closed || editing || service.isChargeRecording()
+                        || service.profiles.active() == null
+                        || !profileId.equals(service.profiles.active().id)) return false;
                 service.setChargeCharger(item.getItemId() == 1
                         ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED);
                 DashboardScreen.this.refresh();
@@ -3274,7 +3279,7 @@ public final class DashboardScreen implements AppScreen {
             String[] etaLabels = chargeTimeLabels(estimate, true);
             String etaLabel = etaLabels[1];
             if (chargingEtaLabel instanceof DashboardCaption)
-                ((DashboardCaption) chargingEtaLabel).setLabels(etaLabel, etaLabel, etaLabels[2]);
+                ((DashboardCaption) chargingEtaLabel).setLabels(etaLabels[0], etaLabel, etaLabels[2]);
             else chargingEtaLabel.setText(etaLabel);
             showChargeTime(chargingEta, chargingEtaTag, estimate);
             describeCharging(chargingWatts, "Charging power", "Battery-side power");
