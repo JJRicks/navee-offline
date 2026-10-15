@@ -26,12 +26,13 @@ final class StatsWindowPicker extends LinearLayout {
         super(ui.context); this.ui = ui; this.labels = labels.clone(); this.changed = changed;
         setOrientation(VERTICAL);
         button = ui.secondaryButton("", this::open);
-        button.setMinHeight(ui.dp(48));
+        button.setMinHeight(ui.dp(48)); ui.decorate(button, "clock"); button.setCompoundDrawablePadding(ui.dp(8));
         addView(button, new LayoutParams(-1, -2)); select(selected, false);
     }
     void select(int index, boolean ignoredAnimation) {
         selected = Math.max(0, Math.min(labels.length - 1, index));
-        button.setText("Window: " + labels[selected] + " ▾");
+        // The clock icon names the control; the spoken description still says "time window".
+        button.setText(labels[selected] + " ▾");
         button.setContentDescription("Chart time window: " + labels[selected] + ". Choose time window");
         if (Build.VERSION.SDK_INT >= 30) button.setStateDescription(labels[selected]);
         for (int i = 0; i < choices.size(); i++) style(choices.get(i), i == selected);

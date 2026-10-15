@@ -55,7 +55,8 @@ public final class ScooterCommandsTest {
         Set<String> keys=new HashSet<String>();
         for(ScooterCommands.Feature f:ScooterCommands.catalog()) {
             check(keys.add(f.key),"Unique catalog key");
-            check(!f.label.isEmpty()&&!f.group.isEmpty()&&!f.description.isEmpty(),"Readable feature metadata");
+            // Captions are optional; search terms that left the copy live in keywords instead.
+            check(!f.label.isEmpty()&&!f.group.isEmpty()&&f.description!=null&&f.keywords!=null,"Readable feature metadata");
             check(f.options.length==f.optionValues.length,"Choice labels match values");
             check(f.readbackCmd==0x70 || f.sensitive,"All ordinary controls read vehicle status");
             if(f.type==ScooterCommands.Type.TIME || f.type==ScooterCommands.Type.PIN) continue;
@@ -78,6 +79,12 @@ public final class ScooterCommandsTest {
         check(ScooterCommands.find("dual_drive").experimental,"OEM-hidden candidate isn't called supported");
         check(ScooterCommands.find("long_range_mode").experimental,"Other model feature stays unverified");
         check(!ScooterCommands.find("charge_limit").experimental,"Known UT5 charge setting");
+        check(ScooterCommands.find("parking_assist").searchText().toLowerCase().contains("boost"),"Power Assist stays findable by Boost");
+        check(ScooterCommands.find("start_speed").searchText().contains("kickstart"),"Kick-start speed findable without its caption");
+        check(!ScooterCommands.find("lock_expiry").description.isEmpty(),"Lock duration keeps its lock-out warning");
+        check(!ScooterCommands.find("hill_start_assist").description.isEmpty(),"Walk Assist keeps how to stop it");
+        check(ScooterCommands.find("speed_limit").valueLabel(0).equals("Off")&&ScooterCommands.find("drive_speed_limit").valueLabel(0).equals("Off"),"A zero cap reads as Off");
+        check(ScooterCommands.find("speed_limit").valueLabel(25).equals("25 km/h"),"An enabled cap keeps its speed");
         rejects(()->ScooterCommands.catalog().clear());
     }
 

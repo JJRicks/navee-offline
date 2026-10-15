@@ -18,6 +18,7 @@ public final class TelemetryTest {
         settingsHaveExactOffsets();
         drivingModeNamesStayModelSpecificAndKeepRawEvidence();
         firmwareSerialAndHistory();
+        statsDisplayWordingKeepsStoredEvidence();
         snapshotsAreDefensiveAndExcludeSecrets();
         truncatedAndRandomPayloadsStayBounded();
         System.out.println("Telemetry tests passed: " + assertions + " assertions");
@@ -265,6 +266,32 @@ public final class TelemetryTest {
         check(metric(model, "response_76").value.contains("incomplete"), "Malformed history diagnosed");
         model.accept(0x7b, response(new byte[] {1, 2, (byte) 255}), 70);
         check("0102ff".equals(metric(model, "fault_history_raw").value), "Unknown fault history units/formats remain raw");
+    }
+
+    private static void statsDisplayWordingKeepsStoredEvidence() {
+        Telemetry model = new Telemetry();
+        byte[] settings = new byte[8];
+        settings[3] = 1;
+        model.accept(0x70, response(settings), 10);
+        Telemetry.Metric cruise = metric(model, "cruise_control"), units = metric(model, "display_units");
+        check("1 (raw)".equals(cruise.value), "Stored raw value keeps its marker for export");
+        check("1".equals(Telemetry.displayValue(cruise.key, cruise.value, cruise.numericValue))
+                && Telemetry.rawReading(cruise.label, cruise.value), "Stats says raw once, as a marker beside the bare value");
+        check("Imperial".equals(Telemetry.displayValue(units.key, units.value, units.numericValue))
+                && !Telemetry.rawReading(units.label, units.value), "Decoded setting shows the word; the code stays stored");
+        check(Telemetry.rawReading("Battery serial response (raw)", "414243"), "Raw-named field is marked even without a value suffix");
+        check(Telemetry.rawReading("Self discharge rate (raw; unit unknown)", "4 (raw)"), "Unknown-unit field stays marked raw");
+        check("Unlocked".equals(Telemetry.displayValue("lock_status", "Unlocked (0)", 0.0)), "Lock word only");
+        check("3".equals(Telemetry.displayValue("lock_status", "3 (raw)", 3.0)), "Unknown lock code stays visible");
+        check("Abnormal".equals(Telemetry.displayValue("battery_status", "Abnormal; code 4", 4.0)), "Battery status word only");
+        check("12 km".equals(Telemetry.displayValue("remaining_range_km", "12 km (estimate)", 12.0)), "Range drops the km-only suffix");
+        check("v1".equals(Telemetry.displayValue("ride_report_format", "v1: tenths; optional 32-bit odometer", 1.0)), "Short report format");
+        check("Acknowledged".equals(Telemetry.displayValue("ride_read_raw", "Acknowledged; ride data arrives separately", null)), "Short ride read");
+        check("3 trips".equals(Telemetry.displayValue("stored_trips", "Trip 1: 1 km\nTrip 2: 2 km\nTrip 3: 3 km", 3.0)), "Trip count in the value column");
+        check("1 trip".equals(Telemetry.displayValue("stored_trips", "Trip 1: 1 km", 1.0)), "Single trip");
+        check("No stored trips reported".equals(Telemetry.displayValue("stored_trips", "No stored trips reported", 0.0)), "Empty history unchanged");
+        check("Unknown format 7 · 3 records".equals(Telemetry.displayValue("stored_trips",
+                "Unknown history format 7; 3 records (raw bytes available in export)", null)), "Unknown history format shortened");
     }
 
     private static void snapshotsAreDefensiveAndExcludeSecrets() {

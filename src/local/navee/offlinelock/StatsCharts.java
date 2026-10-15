@@ -72,8 +72,6 @@ final class StatsCharts {
         windowSelector = selector(); windowSelector.setTag("stats-chart-window");
         LinearLayout.LayoutParams pickerSpace = new LinearLayout.LayoutParams(-1, -2); pickerSpace.bottomMargin = ui.dp(12);
         view.addView(windowSelector, pickerSpace);
-        TextView retention = ui.caption("Older history is summarized. Missing intervals stay visible.");
-        retention.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(12)); view.addView(retention);
         search = new EditText(host.activity()); search.setSingleLine(true); search.setHint("Search");
         ui.styleSearch(search); search.setContentDescription("Search recorded charts");
         query = prefs.getString("stats_chart_query", ""); search.setText(query);
@@ -134,7 +132,7 @@ final class StatsCharts {
     private void rebuild() {
         StringBuilder signature = new StringBuilder();
         for (String key : catalog.keySet()) if (recorded.contains(key)) signature.append(key).append('\n');
-        if (signature.toString().equals(catalogSignature)) { if (cards.isEmpty()) count.setText("No recorded numerical readings yet"); return; }
+        if (signature.toString().equals(catalogSignature)) { if (cards.isEmpty()) count.setText("No chart data yet"); return; }
         catalogSignature = signature.toString();
         for (Card card : cards.values()) release(card);
         cards.clear(); groups.clear(); groupHolder.removeAllViews();
@@ -152,7 +150,7 @@ final class StatsCharts {
             for (Card card : cards.values()) {
                 TelemetryHistory.Reading r = catalog.get(card.key);
                 if (!r.group.equals(entry.getKey())) continue;
-                boolean match = (r.label + " " + r.key + " " + r.group).toLowerCase(Locale.ROOT).contains(needle);
+                boolean match = (label(card.key) + " " + r.label + " " + r.key + " " + r.group).toLowerCase(Locale.ROOT).contains(needle);
                 card.view.setVisibility(match ? View.VISIBLE : View.GONE); if (match) groupMatches++;
             }
             Group group = entry.getValue(); boolean open = group.expanded || !needle.isEmpty();
@@ -166,7 +164,7 @@ final class StatsCharts {
             if (Build.VERSION.SDK_INT >= 30) group.title.setStateDescription(open ? "Expanded" : "Collapsed");
             matches += groupMatches;
         }
-        count.setText(cards.isEmpty() ? "No recorded numerical readings yet" : matches == 0 ? "No matching charts" : matches + (matches == 1 ? " chart" : " charts"));
+        count.setText(cards.isEmpty() ? "No chart data yet" : matches == 0 ? "No matching charts" : matches + (matches == 1 ? " chart" : " charts"));
         view.post(this::refreshVisible);
     }
     Card favourite(String key) { return new Card(key, true); }
@@ -182,7 +180,8 @@ final class StatsCharts {
         private final List<TelemetryHistory.Point> tail = new ArrayList<>();
         private long queriedAt = -10000;
         private int generation;
-        private boolean querying, disposed, wasLive;
+        private boolean querying, disposed, wasLive, loaded;
+        private Spinner spinner;
         Card(String key, boolean favourite) {
             this.key = key; view = column(); view.setTag("stats-chart-card:" + key);
             view.setPadding(0, ui.dp(8), 0, ui.dp(14));
@@ -214,8 +213,8 @@ final class StatsCharts {
             view.addView(graph, position, new LinearLayout.LayoutParams(-1, ui.dp(220)));
         }
         private void reset() {
-            generation++; querying = false; queriedAt = -10000; saved = Collections.emptyList(); tail.clear(); wasLive = false;
-            if (graph != null) graph.set(Collections.emptyList(), unit(key), ui.muted, "Loading recorded readings…");
+            generation++; querying = false; queriedAt = -10000; saved = Collections.emptyList(); tail.clear(); wasLive = false; loaded = false;
+            if (graph != null) draw(false);
         }
         private void update() {
             if (disposed || !view.isShown() || !view.getGlobalVisibleRect(new Rect())) return;
@@ -223,12 +222,12 @@ final class StatsCharts {
             TelemetryHistory.Reading reading = service.displayReadings().get(key);
             long wall = System.currentTimeMillis(), now = SystemClock.elapsedRealtime(), window = WINDOWS[windowIndex];
             boolean live = reading != null && reading.live && reading.number != null;
-            latest.setText(reading == null || reading.number == null ? "Not currently reported" : value(key, reading.number)
+            latest.setText(reading == null || reading.number == null ? "Not reported" : value(key, reading.number)
                     + (service.simulating() ? " · Sample" : live ? "" : " · Last seen " + DisplayTime.recent(host.activity(), prefs, reading.capturedWallMs, wall)));
             latest.setTextColor(live ? ui.text : ui.muted);
             if (service.simulating()) {
                 // The sample source is never persisted or mixed into real observations.
-                saved = service.simulationHistory(key, wall - (window == 0 ? 86400000 : window), wall); tail.clear(); draw(live); return;
+                saved = service.simulationHistory(key, wall - (window == 0 ? 86400000 : window), wall); tail.clear(); loaded = true; draw(live); return;
             }
             if (live && (tail.isEmpty() || reading.capturedWallMs > tail.get(tail.size() - 1).wallMs)) {
                 boolean gap = !wasLive || (!tail.isEmpty() && reading.capturedWallMs - tail.get(tail.size() - 1).wallMs > TelemetryHistory.freshnessMs(key));
@@ -236,11 +235,12 @@ final class StatsCharts {
             }
             wasLive = live;
             while (!tail.isEmpty() && (tail.size() > 120 || tail.get(0).wallMs < wall - (window == 0 ? 120000 : Math.min(window, 120000)))) tail.remove(0);
+            if (service.history == null) loaded = true;
             if (service.history != null && !querying && now - queriedAt >= 5000) {
                 querying = true; queriedAt = now; final int expectedGeneration = generation; final String expectedSource = source();
                 service.history.queryWindow(profileId(), key, window, wall, points -> {
                     if (closed || disposed || generation != expectedGeneration || !expectedSource.equals(source())) return;
-                    querying = false; saved = points;
+                    querying = false; saved = points; loaded = true;
                     if (view.isShown()) draw(service.readingFresh(key));
                 });
             }
@@ -256,10 +256,42 @@ final class StatsCharts {
                 points.add(new Ui.Point(p.wallMs, number(key, p.value), p.gapBefore));
             for (TelemetryHistory.Point p : tail) if (p.wallMs > lastSaved && (window == 0 || p.wallMs >= now - window))
                 points.add(new Ui.Point(p.wallMs, number(key, p.value), p.gapBefore));
-            graph.set(points, unit(key), live ? ui.accent : ui.muted, "No recorded readings in this window");
+            // Until the first stored-history answer arrives, an empty chart spins instead of claiming no data.
+            boolean loading = !loaded && points.isEmpty();
+            graph.set(points, unit(key), live ? ui.accent : ui.muted, loading ? "" : "No data in this window");
+            if (loading && spinner == null) spinner = new Spinner(ui, false);
+            graph.setForegroundGravity(Gravity.CENTER); graph.setForeground(loading ? spinner : null);
+            if (loading) graph.setContentDescription("Loading chart");
         }
     }
-    private String label(String key) { TelemetryHistory.Reading r = catalog.get(key); return r == null ? key : r.label; }
+    /** The short shared name (as on Home and Readings); charts keep "(raw)" since they have no chip. */
+    private String label(String key) { TelemetryHistory.Reading r = catalog.get(key); return r == null ? key : ScooterReadingLabels.label(key, r.label); }
+    /** Indeterminate arc for loading states; still (a fixed arc) when animations are off. */
+    static final class Spinner extends android.graphics.drawable.Drawable {
+        private final Ui ui; private final boolean boxed;
+        private final android.graphics.Paint paint = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
+        /** boxed draws the rounded square that Ui.decorate puts behind button icons. */
+        Spinner(Ui ui, boolean boxed) { this.ui = ui; this.boxed = boxed; }
+        @Override public void draw(android.graphics.Canvas canvas) {
+            android.graphics.Rect b = getBounds();
+            android.graphics.RectF box = new android.graphics.RectF(b);
+            if (boxed) {
+                paint.setStyle(android.graphics.Paint.Style.FILL); paint.setColor(ui.dark ? ui.bg : ui.raised);
+                canvas.drawRoundRect(box, ui.dp(10), ui.dp(10), paint);
+                box.inset(b.width() * .25f, b.height() * .25f);
+            } else box.inset(ui.dp(2), ui.dp(2));
+            paint.setStyle(android.graphics.Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2));
+            paint.setStrokeCap(android.graphics.Paint.Cap.ROUND); paint.setColor(boxed ? ui.dim : ui.muted);
+            boolean moving = Ui.motionEnabled();
+            canvas.drawArc(box, moving ? (SystemClock.uptimeMillis() % 900) * .4f : 0, 250, false, paint);
+            if (moving && isVisible()) scheduleSelf(this::invalidateSelf, SystemClock.uptimeMillis() + 32);
+        }
+        @Override public int getIntrinsicWidth() { return ui.dp(28); }
+        @Override public int getIntrinsicHeight() { return ui.dp(28); }
+        @Override public void setAlpha(int alpha) { paint.setAlpha(alpha); }
+        @Override public void setColorFilter(android.graphics.ColorFilter filter) { paint.setColorFilter(filter); }
+        @Override public int getOpacity() { return android.graphics.PixelFormat.TRANSLUCENT; }
+    }
     private double number(String key, double value) {
         if (DisplayTemperature.isTemperature(key)) return DisplayTemperature.fromCelsius(value, prefs.getString("temperature_unit", "c"));
         if ((key.endsWith("_kmh") || key.endsWith("_km")) && !"km".equals(prefs.getString("units", "mi"))) return value / RideStore.KM_PER_MILE;

@@ -15,14 +15,15 @@ public final class ScooterCommands {
     public enum Type { TOGGLE, CHOICE, SLIDER, TIME, PIN }
 
     public static final class Feature {
+        /** description is an optional short caption: empty when the label and control already say enough. */
         public final String key, label, group, description, unit, readbackKey, capability;
+        /** Search-only terms (lowercase, space separated) for words no longer in the visible copy. */
+        public final String keywords;
         public final Type type;
         public final int cmd, min, max, step, payloadOffset, readbackCmd, readbackMask, readbackShift;
         public final String[] options;
         public final int[] optionValues;
         public final boolean sensitive, requiresParked, experimental, requiresBond, requiresPin;
-        /** A status field alone does not prove firmware support. */
-        public final String supportedModel;
         private final int[] prefix;
 
         private Feature(String key, String label, String group, String description, Type type,
@@ -41,7 +42,17 @@ public final class ScooterCommands {
                 || key.equals("dual_drive") || key.equals("drive_speed_limit")
                 || key.equals("long_range_mode") || key.equals("overspeed_control")
                 || key.equals("prompt_tone");
-            this.supportedModel = experimental ? "UT5 MAX support unverified" : "2538";
+            this.keywords = keywords(key);
+        }
+
+        /** Label, caption and search-only keywords, for settings search. */
+        public String searchText() {
+            return label + " " + description + " " + keywords;
+        }
+
+        /** Speed caps send 0 to disable themselves, so 0 reads as Off. */
+        public boolean zeroIsOff() {
+            return key.equals("speed_limit") || key.equals("drive_speed_limit");
         }
 
         public boolean allows(int value) {
@@ -54,6 +65,7 @@ public final class ScooterCommands {
         }
 
         public String valueLabel(int value) {
+            if (value == 0 && zeroIsOff()) return "Off";
             for (int i = 0; i < optionValues.length; i++)
                 if (optionValues[i] == value) return options[i];
             return Integer.toString(value) + (unit.isEmpty() ? "" : " " + unit);
@@ -83,62 +95,80 @@ public final class ScooterCommands {
     private static final int[] READS = {0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x79, 0x7b};
 
     static {
-        toggle("lock", "Electronic lock", "Security", "Immobilize or release the parked scooter.", 0x51, 2, "lock_status", "", true);
-        toggle("cruise_control", "Cruise control", "Ride", "Maintain speed using the scooter's cruise behavior.", 0x52, 3, "cruise_control", "cruise", true);
-        choice("energy_recovery", "Energy recovery", "Ride", "Coasting regeneration strength. Stronger recovery changes deceleration.", 0x53,
+        toggle("lock", "Electronic lock", "Security", "", 0x51, 2, "lock_status", "", true);
+        toggle("cruise_control", "Cruise control", "Ride", "", 0x52, 3, "cruise_control", "cruise", true);
+        choice("energy_recovery", "Energy recovery", "Ride", "", 0x53,
                 new int[]{0,30,60,90}, new String[]{"Off","Low","Medium","High"}, 5, "energy_recovery", "ers", true);
-        choice("acceleration", "Acceleration profile", "Ride", "Known OEM Eco/Turbo command on other models. Hidden by NAVEE on UT5 MAX; firmware support and behavior must be verified.", 0x58,
-                new int[]{3,5}, new String[]{"Eco (other-model OEM label)","Turbo (other-model OEM label)"}, 1, "driving_mode", "acceleration", true);
+        choice("acceleration", "Acceleration profile", "Ride", "Other models’ Eco/Turbo.", 0x58,
+                new int[]{3,5}, new String[]{"Eco","Turbo"}, 1, "driving_mode", "acceleration", true);
         // Retain the legacy key for saved control evidence. OEM DeviceLightType.TailLight
         // sends 0x54 and reads tailIsOn at 0x70 byte 4; it is not a manual headlight command.
-        toggle("headlight", "Tail light", "Lights & sound", "Set the tail-light preference. Automatic lighting can also affect the visible lights; this does not manually switch the headlight.", 0x54, 4, "tail_light", "", false);
-        toggle("auto_sensor", "Automatic lights", "Lights & sound", "Use ambient brightness to control the headlight and tail light. The OEM says a manual lighting change with the scooter's power button temporarily suspends automatic control until the scooter restarts.", 0x57, 8, "auto_sensor", "autoSensor", false);
-        toggle("traction_control", "Traction control", "Ride", "OEM traction control setting.", 0x5f, 11, "traction_control", "tcs", true);
-        toggle("turn_sound", "Turn signal sound", "Lights & sound", "Audible turn signal feedback.", 0x60, 12, "turn_sound", "turnSound", false);
-        add("display_units", "Dashboard units", "Preferences", "Set the scooter display to miles or kilometers.", Type.CHOICE, "", 0x55, 0,1,1,
+        toggle("headlight", "Tail light", "Lights & sound", "", 0x54, 4, "tail_light", "", false);
+        toggle("auto_sensor", "Automatic lights", "Lights & sound", "Power button pauses until restart.", 0x57, 8, "auto_sensor", "autoSensor", false);
+        toggle("traction_control", "Traction control", "Ride", "", 0x5f, 11, "traction_control", "tcs", true);
+        toggle("turn_sound", "Turn signal sound", "Lights & sound", "", 0x60, 12, "turn_sound", "turnSound", false);
+        add("display_units", "Dashboard units", "Preferences", "", Type.CHOICE, "", 0x55, 0,1,1,
                 new String[]{"Miles / mph","Kilometers / km/h"}, new int[]{0,1}, NO_VALUES, "display_units",7,255,0,"",false,false);
-        choice("range_algorithm", "Range estimate", "Preferences", "Choose the OEM estimate model; this changes the displayed prediction, not battery capacity.", 0x56,
+        choice("range_algorithm", "Range estimate", "Preferences", "Changes the estimate only.", 0x56,
                 new int[]{0,1,2,3,4}, new String[]{"Theoretical","Actual riding","D-mode estimate","Sport estimate","Eco estimate"},6,"range_algorithm","mileageAlgorithm",false);
-        add("start_speed", "Kick-start speed", "Ride", "Minimum wheel speed before throttle activation. Zero enables standing starts.", Type.SLIDER,"km/h",0x6a,0,5,1,
+        add("start_speed", "Kick-start speed", "Ride", "", Type.SLIDER,"km/h",0x6a,0,5,1,
                 NO_OPTIONS,NO_VALUES,NO_VALUES,"start_speed",19,255,0,"startSpeed",false,true);
-        add("speed_limit", "Custom speed cap", "Ride", "Zero disables the cap; other values set the maximum speed when supported.", Type.SLIDER,"km/h",0x6b,0,32,1,
+        add("speed_limit", "Custom speed cap", "Ride", "", Type.SLIDER,"km/h",0x6b,0,32,1,
                 NO_OPTIONS,NO_VALUES,NO_VALUES,"speed_limit",20,127,0,"limitSpeed",false,true);
-        add("maximum_speed", "Maximum speed", "Ride", "Maximum configured Sport mode speed, using the OEM choices for UT5 MAX.",Type.CHOICE,"km/h",0x6e,25,50,1,
+        add("maximum_speed", "Maximum speed", "Ride", "Sport mode only.",Type.CHOICE,"km/h",0x6e,25,50,1,
                 new String[]{"25 km/h","32 km/h","40 km/h","50 km/h"},new int[]{25,32,40,50},new int[]{1},"maximum_speed_setting",25,255,0,"maxSpeed",false,true);
-        add("dual_drive", "Dual motor drive", "Ride", "Use both motors when supported by the connected firmware.",Type.TOGGLE,"",0x6e,0,1,1,
+        add("dual_drive", "Dual motor drive", "Ride", "",Type.TOGGLE,"",0x6e,0,1,1,
                 new String[]{"Single motor","Dual motor"},new int[]{0,1},new int[]{2},"drive_mode_setting",26,255,0,"dualDrive",false,true);
-        add("drive_speed_limit", "Drive mode speed cap", "Ride", "Zero disables the Drive mode cap; other values set its maximum speed when supported.",Type.SLIDER,"km/h",0x6e,0,20,1,
+        add("drive_speed_limit", "Drive mode speed cap", "Ride", "",Type.SLIDER,"km/h",0x6e,0,20,1,
                 NO_OPTIONS,NO_VALUES,new int[]{3},"drive_speed_limit",42,127,0,"multiSpeedLimit",false,true);
-        add("charge_limit", "Charge ceiling", "Battery", "Stop charging at the OEM-selected battery percentage.",Type.CHOICE,"%",0x6f,80,100,5,
+        add("charge_limit", "Charge ceiling", "Battery", "",Type.CHOICE,"%",0x6f,80,100,5,
                 new String[]{"80%","85%","90%","95%","100%"},new int[]{80,85,90,95,100},new int[]{4},"charge_limit_percent",31,255,0,"chargeLimit",false,true);
-        add("timed_charging", "Scheduled charging", "Battery", "Enable the scooter's stored charging schedule.",Type.TOGGLE,"",0x6f,0,1,1,
+        add("timed_charging", "Scheduled charging", "Battery", "",Type.TOGGLE,"",0x6f,0,1,1,
                 new String[]{"Off","On"},new int[]{0,1},new int[]{1},"timed_charging",33,255,0,"timedCharge",false,true);
-        add("charge_start", "Charging start time", "Battery", "Choose when the scooter should next begin scheduled charging.",Type.TIME,"",0x6f,0,Integer.MAX_VALUE,1,
+        add("charge_start", "Charging start time", "Battery", "",Type.TIME,"",0x6f,0,Integer.MAX_VALUE,1,
                 NO_OPTIONS,NO_VALUES,new int[]{3},"scheduled_charge_time_raw",27,255,0,"timedCharge",false,true);
-        add("lock_expiry", "Lock duration", "Security", "How long the scooter stays on while electronically locked. It can remain locked after powering off; retain your dashboard PIN.",Type.CHOICE,"",0x6f,1,3,1,
+        add("lock_expiry", "Lock duration", "Security", "Stays locked when off; know PIN.",Type.CHOICE,"",0x6f,1,3,1,
                 new String[]{"6 hours","12 hours","24 hours"},new int[]{1,2,3},new int[]{2},"auto_lock_time",34,255,0,"lockTime",false,true);
-        add("low_power", "Low Battery Mode", "Battery", "Below 20% battery, limit maximum speed to extend remaining range.",Type.TOGGLE,"",0x6f,0,1,1,
+        add("low_power", "Low Battery Mode", "Battery", "",Type.TOGGLE,"",0x6f,0,1,1,
                 new String[]{"Off","On"},new int[]{0,1},new int[]{5},"low_power",32,255,0,"lowPower",false,true);
-        add("long_range_mode", "Long range mode", "Battery", "OEM range-focused mode; availability depends on connected firmware.",Type.TOGGLE,"",0x6f,0,1,1,
+        add("long_range_mode", "Long range mode", "Battery", "",Type.TOGGLE,"",0x6f,0,1,1,
                 new String[]{"Off","On"},new int[]{0,1},new int[]{7},"long_range_mode",38,255,0,"longRange",false,true);
-        add("hill_start_assist", "Walk Assist", "Ride", "In Walk mode, the scooter follows your walking speed when pushed. Brake to stop.",Type.TOGGLE,"",0x81,0,1,1,
+        add("hill_start_assist", "Walk Assist", "Ride", "Follows your push; brake stops.",Type.TOGGLE,"",0x81,0,1,1,
                 new String[]{"Off","On"},new int[]{0,1},new int[]{1},"slope_assist",37,1,0,"slopeSup",false,true);
-        add("parking_assist", "Power Assist", "Ride", "In Sport mode, press Boost and fully engage the throttle uphill for a temporary power increase.",Type.TOGGLE,"",0x81,0,1,1,
+        add("parking_assist", "Power Assist", "Ride", "Sport: Boost + full throttle uphill.",Type.TOGGLE,"",0x81,0,1,1,
                 new String[]{"Off","On"},new int[]{0,1},new int[]{2},"slope_assist",37,2,1,"slopeSup",false,true);
-        add("hill_descent_control", "Hill descent control", "Ride", "Automatically limit speed while descending without braking, using the OEM HDC setting.",Type.TOGGLE,"",0x81,0,1,1,
+        add("hill_descent_control", "Hill descent control", "Ride", "Limits downhill speed.",Type.TOGGLE,"",0x81,0,1,1,
                 new String[]{"Off","On"},new int[]{0,1},new int[]{3},"slope_assist",37,4,2,"slopeSup",false,true);
-        toggle("overspeed_control","Overspeed active control","Ride","OEM overspeed control behavior.",0x82,39,"overspeed_control","osc",true);
-        choice("prompt_tone","Prompt sound","Lights & sound","Select one of five OEM scooter sound effects.",0x6c,
+        toggle("overspeed_control","Overspeed active control","Ride","",0x82,39,"overspeed_control","osc",true);
+        choice("prompt_tone","Prompt sound","Lights & sound","",0x6c,
                 new int[]{0,1,2,3,4},new String[]{"Sound 1","Sound 2","Sound 3","Sound 4","Sound 5"},21,"volume","promptTone",false);
         lightCatalog("line",4,10,16,"Line lights");
         lightCatalog("star",5,17,18,"Star lights");
-        add("proximity_key","Proximity unlock","Security","Requires a configured handlebar PIN and this phone's Bluetooth bond. Wait for confirmed readback after any change.",Type.TOGGLE,"",0x61,0,1,1,
+        add("proximity_key","Proximity unlock","Security","",Type.TOGGLE,"",0x61,0,1,1,
                 new String[]{"Off","On"},new int[]{0,1},NO_VALUES,"proximity_key",13,1,0,"proximityKey",false,true);
-        add("pin","Handlebar PIN","Security","Read or change the owner's four-digit fallback PIN. PIN bytes must never enter diagnostics or exports.",Type.PIN,"",0x63,0,0,1,
+        // PIN bytes must never enter diagnostics or exports: Telemetry drops 0x7a/0x63 and parsePin keeps only state.
+        add("pin","Handlebar PIN","Security","",Type.PIN,"",0x63,0,0,1,
                 NO_OPTIONS,NO_VALUES,NO_VALUES,"",0,255,0,"password",true,true);
     }
 
     private ScooterCommands() {}
+
+    /** Words removed from captions that people still search for. Never shown. */
+    private static String keywords(String key) {
+        switch (key) {
+            case "lock": return "immobilize";
+            case "energy_recovery": return "regen regeneration coasting";
+            case "display_units": return "miles kilometers dashboard";
+            case "start_speed": return "kickstart standing start";
+            case "charge_limit": return "ceiling";
+            case "timed_charging": case "charge_start": return "schedule";
+            case "hill_start_assist": return "walk push";
+            case "parking_assist": return "boost uphill";
+            case "hill_descent_control": return "hdc downhill";
+            case "line_boost_color": case "star_boost_color": return "boost";
+            default: return "";
+        }
+    }
 
     public static List<Feature> catalog() {
         return Collections.unmodifiableList(new ArrayList<Feature>(FEATURES.values()));
@@ -156,11 +186,11 @@ public final class ScooterCommands {
         require(!feature.sensitive && feature.type != Type.TIME, "Feature needs its dedicated builder");
         require(feature.allows(value), "Value is outside the OEM feature domain");
         if (key.equals("speed_limit")) {
-            require(value == 0 || value >= 8, "Custom speed cap must be disabled or 8–32 km/h");
+            require(value == 0 || value >= 8, "Off or 8–32 km/h");
             return Protocol.frame(feature.cmd, new byte[]{(byte)(value == 0 ? 0 : value | 128)});
         }
         if (key.equals("drive_speed_limit")) {
-            require(value == 0 || value >= 5, "Drive cap must be disabled or 5–20 km/h");
+            require(value == 0 || value >= 5, "Off or 5–20 km/h");
             return Protocol.frame(feature.cmd,new byte[]{3,(byte)(value == 0 ? 0 : value | 128)});
         }
         byte[] payload = new byte[feature.prefix.length + 1];
@@ -172,11 +202,11 @@ public final class ScooterCommands {
     /** Runtime-gated builder: missing firmware fields cannot be treated as supported controls. */
     public static byte[] set(String key,int value,Protocol.Frame vehicleStatus) {
         Feature feature=find(key);
-        require(feature.readback(vehicleStatus)!=null,"This firmware has not supplied the control's status field");
+        require(feature.readback(vehicleStatus)!=null,"Not available now");
         if(key.equals("range_algorithm")) {
             boolean offered=false;
             for(int choice:choiceValues(key,vehicleStatus)) offered|=choice==value;
-            require(offered,"Range estimate is unavailable for the scooter's current algorithm mode");
+            require(offered,"Not available now");
         }
         return set(key,value);
     }
@@ -347,13 +377,13 @@ public final class ScooterCommands {
 
     private static void lightCatalog(String key,int target,int settingOffset,int colorOffset,String label) {
         String readbackKey=target==4?"ambient_light":"drive_light";
-        add(key+"_light",label,"Lights & sound","Independently enable this UT5 MAX lighting zone.",Type.TOGGLE,"",0x6d,0,1,1,
+        add(key+"_light",label,"Lights & sound","",Type.TOGGLE,"",0x6d,0,1,1,
             new String[]{"Off","On"},new int[]{0,1},new int[]{target,0},readbackKey,settingOffset,128,7,"ambientV3",false,false);
-        add(key+"_pattern",label+" pattern","Lights & sound","Three OEM lighting patterns.",Type.CHOICE,"",0x6d,0,2,1,
+        add(key+"_pattern",label+" pattern","Lights & sound","",Type.CHOICE,"",0x6d,0,2,1,
             new String[]{"Always on","Follow headlights","Breathing"},new int[]{0,1,2},new int[]{target,1},readbackKey,settingOffset,127,0,"ambientV3",false,false);
-        add(key+"_color",label+" color","Lights & sound","UT5 MAX supports ice blue and red.",Type.CHOICE,"",0x6d,0,1,1,
+        add(key+"_color",label+" color","Lights & sound","",Type.CHOICE,"",0x6d,0,1,1,
             new String[]{"Ice blue","Red"},new int[]{0,1},new int[]{target,2},target==4?"eco_light":"sport_light",colorOffset,15,0,"ambientV3",false,false);
-        add(key+"_boost_color",label+" Boost color","Lights & sound","Color used during Boost mode.",Type.CHOICE,"",0x6d,0,1,1,
+        add(key+"_boost_color",label+" Boost color","Lights & sound","",Type.CHOICE,"",0x6d,0,1,1,
             new String[]{"Ice blue","Red"},new int[]{0,1},new int[]{target,3},target==4?"eco_light":"sport_light",colorOffset,240,4,"ambientV3",false,false);
     }
 
