@@ -1,3 +1,36 @@
+PR #31 REVIEW-FEEDBACK VALIDATION (unreleased)
+October 14, 2026
+
+- Reproduced the reported live Readings overflow against 3d6ff46: at 411dp,
+  the default-height one-column card had an 802px body in a 797px viewport.
+  The stale-only fixture had not caught this. The new live regression fails
+  on that original PR head and passes after the fix.
+- Fitted values now measure their actual TextView layouts at each candidate
+  size, including platform fallback line spacing, padding and styled units.
+  Unconstrained height prevents a clipped value from counting as a fit.
+  Readable font floors and saved widget rectangles remain unchanged.
+- Six compact native cases passed: 344dp with normal/140%/200% system font,
+  360dp with 140% app text, 411dp normal and unfolded 725dp normal. Each covers
+  live and stale Trip/Readings, minimum-height Charging, ordinary heights,
+  supported 2/4/5-column spans and expansion restoring full-size typography.
+  Every stable-live probe recorded zero further global layouts in 750ms.
+  Shared-widget regressions also passed at narrow 344dp and unfolded 725dp.
+- Compact checks are now included in the standard responsive matrix. An
+  initial 200% stress fixture forced an unsupported span; its correction uses
+  the widget's real minimum width, as the dashboard does.
+- App and validation APK builds passed signature/alignment checks using only
+  a disposable signer. Source input hashes are recorded with the evidence.
+  The focused connection-haptics fixture also exercises the actual activity
+  observer/player's quiet period, expiry without replay and later loss cue.
+  It passed 82 assertions with no cleanup errors; feedback timing is unchanged.
+
+Evidence: work/pr31-feedback-evidence in the owner's workspace. Screenshots
+were checked for complete live tiles, including the previously clipped bottom.
+Short cards still scroll when their contents cannot fit at the readable floor;
+a partial following row remains a scrolling cue. Changing that presentation is
+deferred. No owner phone, scooter connection, version, release or deployment was
+used or changed. Hardware vibration feel remains a physical-device check.
+
 OPTIONAL REVIEW FOLLOW-UPS (unreleased)
 October 14, 2026
 

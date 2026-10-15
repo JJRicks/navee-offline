@@ -1327,7 +1327,74 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             }
         });
         check("Minimum-height trip, reading and charging cards show their first complete reading; ordinary trip/reading cards fit all values without shrinking below the readable floor or changing saved rectangles");
+        verifyLiveReadingHeights();
         verifyChangingCaptions();
+    }
+
+    /** Live cards have no stale footer: those extra pixels can expose rounding and font fallback errors. */
+    private void verifyLiveReadingHeights() {
+        Map<String, TelemetryHistory.Reading> live = new LinkedHashMap<>();
+        main(() -> {
+            for (TelemetryHistory.Reading reading : activity.service().displayReadings().values())
+                live.put(reading.key, new TelemetryHistory.Reading(reading.key, reading.label, reading.group,
+                        reading.value, reading.unit, reading.number, System.currentTimeMillis(), true));
+            float density = activity.getResources().getDisplayMetrics().density;
+            float available = grid().getWidth() / density;
+            float scale = activity.ui().textScale * activity.getResources().getConfiguration().fontScale;
+            float rowHeight = ((Number)invoke(grid(), "rowHeight")).floatValue();
+            for (String type : new String[]{"readings", "trip"}) {
+                View card = (View)tile(type);
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(card, "widget");
+                ScrollView viewport = (ScrollView)field(card, "viewport");
+                ViewGroup body = (ViewGroup)field(card, "body");
+                int originalWidth = card.getWidth(), originalHeight = card.getHeight();
+                String saved = cellText(widget.layouts.get(5));
+                invoke(card, "refresh", new Class<?>[]{Map.class}, live);
+                require(((View)field(card, "footer")).getVisibility() == View.GONE,
+                        "Live " + type + " fixture must not reserve footer space");
+                try {
+                    // Actual narrow phone, five-column and half-width fold spans.
+                    for (int columns : new int[]{2, 4, 5}) {
+                        int span = Math.max(columns == 4 ? 2 : 1, widget.minimumWidth(columns, available, 10, scale));
+                        int width = Math.round(density * (span * (available + 10) / columns - 10));
+                        measureCard(card, width, Math.round(widget.defaultHeight() * rowHeight) - activity.ui().dp(10));
+                        require(!viewport.canScrollVertically(1) && !viewport.canScrollVertically(-1),
+                                "Live " + type + " ordinary-height card still scrolls at " + columns
+                                + " columns: body=" + body.getHeight() + " viewport=" + viewport.getHeight()
+                                + " cardWidth=" + width);
+                        for (TextView text : texts(body)) assertText(text, viewport, "Complete live " + type);
+                        overlayGeometry.add("live " + type + " columns=" + columns + " card=" + width
+                                + "x" + card.getHeight() + " body=" + body.getHeight() + " viewport=" + viewport.getHeight());
+                        saveCardBitmap(card, "compact-live-" + type + "-" + columns + "-columns");
+                    }
+                    require(cellText(widget.layouts.get(5)).equals(saved), "Live measurement changed its saved rectangle");
+                } finally {
+                    invoke(card, "refresh", new Class<?>[]{Map.class}, activity.service().displayReadings());
+                    measureCard(card, originalWidth, originalHeight);
+                }
+            }
+        });
+        // Leave the live values in the real grid after sizing. Measurement must
+        // settle rather than keep scheduling another layout via candidate fonts.
+        main(() -> {
+            for (String type : new String[]{"readings", "trip"})
+                invoke(tile(type), "refresh", new Class<?>[]{Map.class}, live);
+            grid().requestLayout();
+        });
+        settleMotion();
+        final int[] layouts = {0};
+        android.view.ViewTreeObserver.OnGlobalLayoutListener listener = () -> layouts[0]++;
+        main(() -> grid().getViewTreeObserver().addOnGlobalLayoutListener(listener));
+        SystemClock.sleep(750);
+        waitForIdleSync();
+        main(() -> {
+            grid().getViewTreeObserver().removeOnGlobalLayoutListener(listener);
+            require(layouts[0] <= 2, "Stable live values kept scheduling layouts: " + layouts[0]);
+            overlayGeometry.add("stable live layout passes in 750ms=" + layouts[0]);
+            for (String type : new String[]{"readings", "trip"})
+                invoke(tile(type), "refresh", new Class<?>[]{Map.class}, activity.service().displayReadings());
+        });
+        check("Live numeric Trip and Readings cards fit their real TextView layouts without a stale footer or internal scrolling across narrow and unfolded spans; stable live measurement settles without a layout loop");
     }
     /** Inspect the actual smallest five-column cells, rather than comfortable default spans. */
     private void verifyMinimumWidthContents() throws Exception {
