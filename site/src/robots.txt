@@ -1,0 +1,3 @@
+User-agent: *
+Allow: /
+Sitemap: https://volt.jjricks.com/sitemap.xml
