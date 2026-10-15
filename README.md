@@ -13,7 +13,7 @@
 An Android companion for the **NAVEE UT5 MAX**. Connect over Bluetooth, control your scooter, make the dashboard yours, and explore your rides and battery data. Everyday use works without a Volt account or server.
 
 > [!NOTE]
-> **Independent community project.** Volt is not affiliated with, endorsed by, or supported by NAVEE or its app vendor.
+> **Independent community project.** Volt is not affiliated with, endorsed by, sponsored by, or supported by NAVEE or its app vendor. Product names identify compatible hardware only.
 
 ## Make it yours
 
@@ -30,8 +30,8 @@ An Android companion for the **NAVEE UT5 MAX**. Connect over Bluetooth, control 
 **You'll need:** Android **8.0+** with Bluetooth LE and an already activated, owner-bound **US UT5 MAX**. Other models and regions are not yet verified.
 
 1. **Install Volt.** Download the `.apk` from [Releases](https://github.com/JJRicks/navee-offline/releases/latest), open it on your phone and allow installation when Android asks.
-2. **Pair once.** Keep your powered-on scooter nearby and confirm it connects in NAVEE. Follow Volt's onboarding and the [setup guide](docs/getting-started.md): computer ADB is the established route; Chrome/USB is a testing preview, and on-phone Shizuku has limited validation. You can also import an existing setup or full backup.
-3. **Connect.** Grant the requested Bluetooth permissions, close NAVEE to release its connection, and connect in Volt.
+2. **Pair once.** Keep your powered-on scooter nearby and safely parked, and confirm it connects in NAVEE. Follow Volt's onboarding and the [setup guide](docs/getting-started.md): computer ADB is the established route; Chrome/USB is a testing preview, and on-phone Shizuku has limited validation. You can also import an existing setup or full backup.
+3. **Connect.** Grant the requested Bluetooth permissions (Location on Android 8–11), close NAVEE to release its connection, and connect in Volt.
 
 First-time capture needs your working NAVEE account and Android debugging access, with your explicit approval. You never enter your NAVEE or Google password into Volt. **After setup, everyday use needs no computer, ADB or Shizuku.**
 
@@ -56,4 +56,6 @@ First-time capture needs your working NAVEE account and Android debugging access
 
 Previously **Navee Offline**; existing installations and data remain compatible. Built with Java and native Android views.
 
-[MIT-licensed source](LICENSE) · [Third-party and image notices](NOTICE) · [Public-release preparation](docs/public-release.md). The scooter photo remains a temporary placeholder; its separate terms are documented in NOTICE. Protocol research builds on [pepperonas/navee-st3-pro](https://github.com/pepperonas/navee-st3-pro).
+[MIT-licensed source](LICENSE) · [Third-party and image notices](NOTICE) · [Public-release preparation](docs/public-release.md).
+
+The manufacturer-sourced scooter photo is a temporary placeholder; redistribution permission has not been established, so it must be replaced or cleared before public distribution (see [NOTICE](NOTICE)). Protocol research builds on [pepperonas/navee-st3-pro](https://github.com/pepperonas/navee-st3-pro).

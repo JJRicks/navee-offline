@@ -1,6 +1,6 @@
 # Get started with Volt
 
-[Download the APK](https://github.com/JJRicks/navee-offline/releases/latest) · [Owner setup website](https://pairscooter.jjricks.com/) · [User guide](user-guide.md)
+[Download the APK](https://github.com/JJRicks/navee-offline/releases/latest) · [Owner setup website (testing preview)](https://pairscooter.jjricks.com/) · [User guide](user-guide.md)
 
 ## Before you install
 
@@ -12,7 +12,7 @@
 
 Other scooter models, regions and firmware are not established as compatible. Firmware changes can affect both setup and available controls. Volt does not activate a new scooter, bypass ownership, transfer cloud ownership or recover a NAVEE account.
 
-Volt is an independent community project, not affiliated with, endorsed by or supported by NAVEE.
+Volt is an independent community project, not affiliated with, endorsed by, sponsored by, or supported by NAVEE or its app vendor. Product names identify compatible hardware only.
 
 ## Install and connect
 
@@ -37,9 +37,9 @@ The one-time capture retrieves your scooter's Bluetooth owner identity from your
 
 The browser and Shizuku helpers currently support only the main personal Android user, not work profiles or secondary users; they also reject NAVEE installations in another profile. Controlled phone checks of these two helpers exercised timeout and cleanup with the scooter out of range. A tester later reported successful onboarding without identifying the helper used, so successful real-scooter capture has not been confirmed separately for each new path.
 
-### Computer ADB fallback
+### Computer ADB quick start
 
-If a newer helper does not work, the computer helper remains available. Install Android Platform-Tools and Python 3, enable USB debugging and approve your own computer on the phone, then run this from an extracted source checkout:
+Computer ADB is the established capture route. Install Android Platform-Tools and Python 3, enable USB debugging and approve your own computer on the phone, then run this from an extracted source checkout:
 
 ```sh
 python3 setup/capture-owner.py --push
