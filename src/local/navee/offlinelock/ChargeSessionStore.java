@@ -44,8 +44,10 @@ public final class ChargeSessionStore {
         public enum PowerMatch { MATCH, DIFFERENT, UNKNOWN }
         public final String profile; public final Charger charger; public final int qualifiedSessions;
         private final double[] minutes, watts; private final int[] counts;
+        private final List<FinishingCurve> finishing = new ArrayList<>();
         Curve(String profile, Charger charger, List<Evidence> sessions) {
             this.profile=profile;this.charger=charger;qualifiedSessions=sessions.size();minutes=new double[100];watts=new double[100];counts=new int[100];
+            for (Evidence session : sessions) if (session.finishing != null) finishing.add(session.finishing);
             Arrays.fill(minutes,Double.NaN);Arrays.fill(watts,Double.NaN);
             for(int bin=0;bin<100;bin++) {
                 List<Double> values=new ArrayList<>();for(Evidence session:sessions)if(Double.isFinite(session.minutes[bin]))values.add(session.minutes[bin]);
@@ -86,6 +88,25 @@ public final class ChargeSessionStore {
                 if(fraction>0){total+=fraction*minutes[bin];supported=Math.min(supported,counts[bin]);}
             }
             return Double.isFinite(total)?new Duration(total,supported):null;
+        }
+        /** Complete observed finishes can provide a provisional estimate after just one charge. */
+        public Duration estimateFinishing(double soc, Double liveWatts) {
+            if (!between(soc, 0, 100) || liveWatts == null || !Double.isFinite(liveWatts) || liveWatts < 1) return null;
+            List<Double> estimates = new ArrayList<>();
+            for (FinishingCurve curve : finishing) {
+                Double value = curve.estimate(soc, liveWatts);
+                if (value != null) estimates.add(value);
+            }
+            if (estimates.isEmpty()) return null;
+            Collections.sort(estimates);
+            if (estimates.size() == 2 && estimates.get(1) > estimates.get(0) * 2.5) return null;
+            double center = median(estimates), sum = 0; int count = 0;
+            for (double value : estimates) if (value >= center * .4 && value <= center * 2.5) { sum += value; count++; }
+            return count == 0 ? null : new Duration(sum / count, count);
+        }
+        public boolean hasFinishingCoverage(double soc) {
+            for (FinishingCurve curve : finishing) if (soc >= curve.points.get(0).soc && soc < 100) return true;
+            return false;
         }
     }
     public static final class Snapshot {
@@ -285,13 +306,81 @@ public final class ChargeSessionStore {
     }
     private static final class Evidence {
         final double[] minutes=new double[100],watts=new double[100];
+        FinishingCurve finishing;
         Evidence(){Arrays.fill(minutes,Double.NaN);Arrays.fill(watts,Double.NaN);}
+    }
+    /**
+     * A complete terminal trajectory, not an inferred battery capacity. Retain real short SOC
+     * transitions: a gauge can rush through several percentages then spend much longer at 99%.
+     * Only the observed range is usable; no bulk-power or below-range extrapolation is made.
+     */
+    private static final class FinishingCurve {
+        final List<Point> points;
+        FinishingCurve(List<Point> points) { this.points = new ArrayList<>(points); }
+
+        static FinishingCurve from(Session session) {
+            List<Point> points = session.points;
+            if (session.stop != Stop.COMPLETE || points.size() < 61 || points.get(points.size()-1).soc != 100) return null;
+            int start = -1;
+            for (int i = 1; i < points.size(); i++) {
+                Point before = points.get(i-1), point = points.get(i);
+                if (start < 0 && point.soc > before.soc) start = i;
+                if (start < 0) continue;
+                if (point.gap || point.mono <= before.mono || point.mono - before.mono > MAX_GAP_MS
+                        || Math.abs((point.wall-before.wall)-(point.mono-before.mono)) > 2000
+                        || point.soc < before.soc || point.soc-before.soc > 1
+                        || point.soc != Math.floor(point.soc) || before.soc >= 100
+                        || (point.soc < 100 && point.power < 1)) return null;
+            }
+            if (start < 0 || 100-points.get(start).soc < 10
+                    || points.get(points.size()-1).mono-points.get(start).mono < 600000) return null;
+            return new FinishingCurve(points.subList(start, points.size()));
+        }
+
+        Double estimate(double soc, double liveWatts) {
+            if (soc != Math.floor(soc) || soc < points.get(0).soc || soc >= 100) return null;
+            List<Point> stage = new ArrayList<>(); Point next = null;
+            for (Point point : points) {
+                if (point.soc == soc) stage.add(point);
+                else if (!stage.isEmpty()) { next = point; break; }
+            }
+            if (stage.size() < 2 || next == null) return null;
+            double low = Double.POSITIVE_INFINITY, high = 0, runningLow = Double.POSITIVE_INFINITY;
+            for (Point point : stage) {
+                // A substantial rebound makes power an ambiguous indicator of progress.
+                if (point.power > runningLow + Math.max(5, runningLow*.1)) return null;
+                runningLow = Math.min(runningLow, point.power);
+                low = Math.min(low, point.power); high = Math.max(high, point.power);
+            }
+            // A plausibility gate only; the charger choice remains manual. Never substitute its
+            // nominal wattage for a live reading, or map a different charger into this finish.
+            if (liveWatts < low*.85 || liveWatts > high*1.15) return null;
+            double at;
+            if (low > high*.8) {
+                // Nearly flat power cannot locate us within this SOC plateau. Use its midpoint
+                // only for short intervals, without presenting a fabricated exact countdown.
+                if (next.mono-stage.get(0).mono > 600000) return null;
+                at = (stage.get(0).mono + next.mono) / 2d;
+            } else {
+                double closest = Double.POSITIVE_INFINITY;
+                for (Point point : stage) closest = Math.min(closest, Math.abs(point.power-liveWatts));
+                double tolerance = Math.max(1.5, liveWatts*.02), sum = 0;
+                int count = 0; long first = 0, last = 0;
+                for (Point point : stage) if (Math.abs(point.power-liveWatts) <= closest+tolerance) {
+                    if (count == 0) first = point.mono;
+                    last = point.mono; sum += point.mono; count++;
+                }
+                if (count == 0 || last-first > 600000) return null;
+                at = sum/count;
+            }
+            return Math.max(0, (points.get(points.size()-1).mono-at)/60000d);
+        }
     }
     private static final class Session {
         String profile;Charger charger;Stop stop;long startedWall,startedMono;List<Point> points=new ArrayList<>();
         Evidence evidence(){
             if(stop==null||stop==Stop.INTERRUPTED||stop==Stop.PROCESS_ENDED||stop==Stop.ERROR||points.size()<61)return null;
-            Evidence result=new Evidence();boolean[] repeated=new boolean[100];List<Double> powerSamples=new ArrayList<>();
+            Evidence result=new Evidence();result.finishing=FinishingCurve.from(this);boolean[] repeated=new boolean[100];List<Double> powerSamples=new ArrayList<>();
             Point previous=null;double anchorSoc=Double.NaN;long anchorTime=0,covered=0;int bins=0;
             for(Point point:points){
                 boolean continuous=previous!=null&&!point.gap&&point.mono>previous.mono&&point.mono-previous.mono<=MAX_GAP_MS
@@ -314,7 +403,7 @@ public final class ChargeSessionStore {
                 previous=point;
             }
             long elapsed=points.get(points.size()-1).mono-points.get(0).mono;
-            return bins>=MIN_BINS&&elapsed>=600000&&covered>=elapsed*.9?result:null;
+            return result.finishing!=null || bins>=MIN_BINS&&elapsed>=600000&&covered>=elapsed*.9?result:null;
         }
     }
     private static Session read(File file)throws IOException{
