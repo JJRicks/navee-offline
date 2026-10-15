@@ -7,7 +7,7 @@ fresh OEM "Send authData:" log rows and never writes full phone logs.
 
 Examples:
   python3 capture-owner.py
-  python3 capture-owner.py -s PHONE_SERIAL --output ollie-owner.json --push
+  python3 capture-owner.py -s PHONE_SERIAL --output scooter-owner-setup.json --push
   python3 capture-owner.py --capture-log existing-auth-rows.txt --output owner.json
 
 Close other scooter apps before capture. Keep your own scooter nearby, safely

@@ -1366,7 +1366,7 @@ public final class MoreScreen implements AppScreen {
         version.setMinHeight(ui.dp(48)); version.setGravity(Gravity.CENTER_VERTICAL);
         clickable(version, this::tapDeveloperVersion);
         c.addView(version);
-        TextView about = ui.caption("Controls and ride recording connect directly over Bluetooth. No account or server login. Independent project, not affiliated with NAVEE.");
+        TextView about = ui.caption("Controls and ride recording connect directly over Bluetooth. No account or server login. Independent community project; not affiliated with, sponsored by, or endorsed by NAVEE or its app vendor.");
         about.setPadding(0, ui.dp(6), 0, 0); c.addView(about);
         cardDestination.addView(c);
         label("Permissions");
@@ -1379,7 +1379,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout data = ui.card(); cardDestination.addView(data);
         note(data, "Owner setup, scooter profiles, preferences, and ride recordings stay on this phone. You choose when to export them. Ordinary diagnostics leave out owner identity and PIN digits; a private owner backup intentionally includes its setup identity.");
         note(data, "Nearby devices connects to your scooter. Optional location records your route during a ride. Phone motion and pressure sensors run only while recording. The recording notification includes a Stop action.");
-        note(data, "Route maps load tiles from the map source chosen in Rides (USGS Topo by default) only when you turn on Basemap. GPS and the recorded route still work without a map connection. Loading tiles sends the map area and your network address to that provider.");
+        note(data, "Route maps load tiles from the selected provider (USGS Topo by default) when Basemap is enabled. It starts on; you can turn it off in App preferences → Map settings. GPS and the recorded route still work without a map connection. Loading tiles sends the map area and your network address to that provider.");
         LinearLayout more = group();
         row(more, "stats", "Connection activity", null, this::commandEvidence);
         row(more, "copy", "Licenses & attribution", null, this::licenses);
@@ -1528,12 +1528,12 @@ public final class MoreScreen implements AppScreen {
     }
 
     private void licenses() {
-        LinearLayout box = dialogBox("Licenses & attribution", "Volt is an independent project, not affiliated with NAVEE or its app vendor.");
+        LinearLayout box = dialogBox("Licenses & attribution", "Volt is an independent community project, not affiliated with, sponsored by, or endorsed by NAVEE or its app vendor.");
         note(box, "Saira typeface\nCopyright 2020 The Saira Project Authors. SIL Open Font License 1.1; not covered by the app's MIT licence.");
         note(box, "Shizuku API 13.1.5\nCopyright (c) 2021 RikkaW. MIT License. Optional phone-only owner setup.");
         note(box, "AndroidX annotations 1.3.0\nCopyright The Android Open Source Project. Apache License 2.0.");
         note(box, "Protocol research reference\npepperonas/navee-st3-pro, MIT License.");
-        note(box, "UT5 MAX photo\nSupplied by the project user; its author and licence were not supplied. The app's licence grants no rights to the photo or NAVEE marks.");
+        note(box, "UT5 MAX photo\nTemporary image from the manufacturer's website; redistribution permission is not established. An original replacement or verified permission is needed before public distribution. The app's licence grants no rights to the photo or NAVEE marks.");
         note(box, "Maps\nMap data and tiles belong to the selected provider. USGS Topo: U.S. Geological Survey, National Geospatial Program. OpenStreetMap: © OpenStreetMap contributors.");
         note(box, "Full notices ship with the app source in NOTICE and licenses/. Dependency and font licenses are also bundled in the APK assets.");
         ScrollView inner = new ScrollView(host.activity()); inner.addView(box);
@@ -1557,7 +1557,7 @@ public final class MoreScreen implements AppScreen {
         command.setTextColor(ui.accent); command.setTextIsSelectable(true); command.setPadding(ui.dp(12), ui.dp(14), ui.dp(12), ui.dp(14));
         command.setBackground(ui.shape(ui.raised, 12, ui.outline)); box.addView(command);
         note(box, "The helper opens NAVEE. Connect to your scooter there. It waits up to 90 seconds, captures only a valid fresh owner-authentication packet, closes NAVEE and restores its temporary log setting, then saves a private JSON backup. --push copies the JSON to phone Downloads.\n\n"
-                + "If several phones are attached, add -s PHONE_SERIAL using the serial shown by adb devices. You can pass --output ollie-owner.json to choose a desktop filename.\n\n"
+                + "If several phones are attached, add -s PHONE_SERIAL using the serial shown by adb devices. You can pass --output scooter-owner-setup.json to choose a desktop filename.\n\n"
                 + "5  Back here, tap Import owner setup file and choose navee-owner-setup.json from Downloads. Allow Nearby devices and connect. Keep the desktop backup private.\n\n"
                 + "Everyday controls then work directly over Bluetooth. You only need another capture after changing ownership or when the scooter rejects its stored identity.");
         ScrollView inner = new ScrollView(host.activity()); inner.addView(box);

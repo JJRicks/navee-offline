@@ -23,11 +23,24 @@
 *owner*setup*.json
 *owner*setup*.txt
 *owner*backup*.json
+*owner*.json
 *provisioning*.json
 *.csv
 *.log
 *.zip
 *.voltbackup
+*.gpx
+*.geojson
+ride-*.json
+navee-diagnostics*.json
+volt-capture-recovery*.txt
+volt-dashboards*.json
+charge-recordings*.json
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
 bugreport-*
 /recordings/
 

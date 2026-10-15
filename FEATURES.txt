@@ -29,9 +29,11 @@ action. Capture processing stays local and introduces no account-login service.
 
 Both new paths include bounded capture, logging restoration, session locking
 and interruption recovery. The browser route remains a testing preview.
-Successful real-scooter capture through either new helper is still unverified;
-phone checks so far used an out-of-range scooter. Existing parked write/readback
-checks below do not establish that new setup capture succeeds on hardware.
+Controlled phone checks of both new helpers used an out-of-range scooter and
+exercised timeout/cleanup. A tester later reported successful onboarding without
+identifying the helper used; successful real-scooter capture is not yet confirmed
+separately for each new path. The computer ADB helper is the established route.
+Existing parked write/readback checks below do not establish helper capture.
 
 EARLIER CONFIRMED WRITES AND FRESH READBACK
 

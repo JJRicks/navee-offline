@@ -1,0 +1,4 @@
+contact_links:
+  - name: Report a security issue privately
+    url: https://github.com/JJRicks/navee-offline/blob/main/SECURITY.md
+    about: Follow the private-reporting instructions; do not include credentials or sensitive reproduction details in a public issue.

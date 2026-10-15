@@ -1,15 +1,20 @@
-This independent application is not affiliated with NAVEE or its app vendor.
+Volt is an independent community application. It is not affiliated with,
+sponsored by, or endorsed by NAVEE or its app vendor. NAVEE names and marks
+identify compatible hardware; no trademark rights are granted by this project.
 
 UT5 MAX PHOTO (0.6.0 AND LATER)
 
-The project user supplied the scooter image bundled at:
+The maintainer supplied the temporary scooter image bundled at:
   res/drawable-nodpi/ut5max.webp
 
 The supplied file had a .png name but contains WebP image data. It is bundled
 in WebP form with identifying metadata removed and compressed pixels/alpha
-unchanged. Its original author and asset licence were not supplied.
+unchanged. The maintainer clarified on 14 October 2026 that the image came from
+the manufacturer's website; redistribution permission has not been established.
+It remains a placeholder pending an original replacement photo or verified
+permission and must be resolved before public distribution.
 This image is separate from the MIT-licensed application source; the source
-licence does not grant additional rights to the photo or NAVEE marks shown in it.
+licence does not grant rights to the photo or NAVEE marks shown in it.
 
 SAIRA TYPEFACE (VOLT DESIGN)
 
@@ -49,17 +54,22 @@ OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
 
 
-OPTIONAL STREET MAPS (0.5.0 AND LATER)
+OPTIONAL BASEMAPS
 
+The default provider is USGS Topo (United States). Attribution:
+  U.S. Geological Survey, National Geospatial Program
+  https://www.usgs.gov/faqs/what-are-terms-uselicensing-map-services-and-data-national-map
+
+OpenStreetMap is an alternative provider.
 Map data © OpenStreetMap contributors. Attribution and licence information:
   https://www.openstreetmap.org/copyright
 
-The default raster tile provider is https://tile.openstreetmap.org/. The app
-loads only the visible map area after the user enables Street map. It identifies
+The app loads only the visible map area when Basemap is enabled (the default
+for new preferences). It identifies
 requests with an application User-Agent, caches tiles with response metadata
 and uses conditional revalidation. It does not bulk-download or prefetch map
 regions. Cached tiles are a viewing cache, not a promised offline map package.
-Provider policy: https://operations.osmfoundation.org/policies/tiles/
+OpenStreetMap tile policy: https://operations.osmfoundation.org/policies/tiles/
 
 A different HTTPS tile provider can be configured in the app. Its service, usage
 and attribution terms apply to that provider's content. Map tiles and map data
@@ -79,3 +89,26 @@ AndroidX annotations 1.3.0
 Copyright The Android Open Source Project. Apache License, Version 2.0.
 Source: https://android.googlesource.com/platform/frameworks/support/
 Full license: licenses/AndroidX-Apache-2.0.txt (also bundled in APK assets).
+
+
+BROWSER USB SETUP
+
+The browser bundle uses these MIT-licensed @yume-chan packages:
+Copyright (c) 2020-2025 Simon Chan; @yume-chan/async carries
+Copyright (c) 2019 Simon Chan. Full package notices are preserved in the
+generated website notices:
+  @yume-chan/adb 2.6.4
+  @yume-chan/adb-daemon-webusb 2.3.2
+  @yume-chan/async 4.1.3
+  @yume-chan/event 2.0.0
+  @yume-chan/no-data-view 2.0.0
+  @yume-chan/stream-extra 2.6.1
+  @yume-chan/struct 2.3.2
+Source: https://github.com/yume-chan/ya-webadb
+
+The website build preserves each installed package's full license text and the
+Saira license in dist/THIRD-PARTY-NOTICES.txt. Ship that file with the website.
+Exact dependency versions and integrity hashes are in setup/web/package-lock.json.
+
+Build-only dependencies include @types/w3c-web-usb 1.0.14 (MIT) and esbuild
+0.28.2 (MIT). Their code is not bundled in the browser runtime.
