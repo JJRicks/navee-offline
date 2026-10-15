@@ -116,7 +116,24 @@ public final class ChargingEstimate {
     public static Result withObservedCurve(Result baseline,Value soc,ChargeSessionStore.Curve curve) {
         if(baseline==null||!baseline.charging||baseline.inputWatts==null||baseline.remainingMinutesToFull==null
                 ||!valid(soc)||!Double.isFinite(soc.number)||soc.number<0||soc.number>100||curve==null)return baseline;
+        // Prefer the finishing trajectory even after a second recording becomes available:
+        // a SOC-only average would otherwise freeze the ETA throughout a long 99% plateau.
+        ChargeSessionStore.Duration finishing=curve.estimateFinishing(soc.number,baseline.inputWatts);
         ChargeSessionStore.Curve.PowerMatch power=curve.powerMatch(soc.number,baseline.inputWatts);
+        if(finishing!=null){
+            ChargeSessionStore.Duration limit=baseline.targetPercent==null?null:baseline.targetPercent==100
+                    ?finishing:power==ChargeSessionStore.Curve.PowerMatch.MATCH?curve.estimate(soc.number,baseline.targetPercent):null;
+            String charger=curve.charger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
+            String status=(finishing.sessions==1?"Provisional finish estimate from 1 completed ":"Approximate finish estimate from "+finishing.sessions+" completed ")
+                    +charger+" charge"+(finishing.sessions==1?"":"s")
+                    +"; matched battery level and charging power. Time to displayed 100%; balancing may continue. Charger selection is manual.";
+            if(baseline.targetPercent==null)status+=" Cutoff unknown; 100% assumes charging continues.";
+            else if(baseline.targetPercent<100)status+=" The 100% time assumes a higher charge limit.";
+            if(limit==null&&baseline.targetPercent!=null)status+=" Time to the limit uses the current-rate estimate.";
+            return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
+                    limit==null?baseline.remainingMinutesToLimit:Double.valueOf(limit.minutes),finishing.minutes,baseline.targetPercent,
+                    status,limit!=null,true,finishing.sessions);
+        }
         if(power!=ChargeSessionStore.Curve.PowerMatch.MATCH){
             String reason=power==ChargeSessionStore.Curve.PowerMatch.DIFFERENT
                     ?"Live power differs from the selected charger's saved charges at this battery level. "
@@ -125,8 +142,12 @@ public final class ChargingEstimate {
                     baseline.remainingMinutesToLimit,baseline.remainingMinutesToFull,baseline.targetPercent,
                     reason+"Charger selection is manual. "+baseline.status);
         }
-        ChargeSessionStore.Duration full=curve.estimate(soc.number,100);
-        ChargeSessionStore.Duration limit=baseline.targetPercent==null?null:curve.estimate(soc.number,baseline.targetPercent);
+        // If a complete trajectory cannot locate this stage safely, its older SOC-only bins
+        // must not silently resurrect the same frozen countdown we rejected above.
+        boolean unresolvedFinish=curve.hasFinishingCoverage(soc.number);
+        ChargeSessionStore.Duration full=unresolvedFinish?null:curve.estimate(soc.number,100);
+        ChargeSessionStore.Duration limit=baseline.targetPercent==null||unresolvedFinish&&baseline.targetPercent==100
+                ?null:curve.estimate(soc.number,baseline.targetPercent);
         if(full==null&&limit==null)return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
                 baseline.remainingMinutesToLimit,baseline.remainingMinutesToFull,baseline.targetPercent,
                 "Current-rate estimate; not enough matching charge curves cover the remaining range. Taper can lengthen charging. "
@@ -139,7 +160,7 @@ public final class ChargingEstimate {
         if(baseline.targetPercent==null)status+=" Cutoff unknown; 100% assumes charging continues.";
         else if(baseline.targetPercent<100)status+=" The 100% time assumes a higher charge limit.";
         return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
-                limit==null?baseline.remainingMinutesToLimit:limit.minutes,full==null?baseline.remainingMinutesToFull:full.minutes,
+                limit==null?baseline.remainingMinutesToLimit:Double.valueOf(limit.minutes),full==null?baseline.remainingMinutesToFull:full.minutes,
                 baseline.targetPercent,status,limit!=null,full!=null,sessions);
     }
 
