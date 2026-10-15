@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.0.1 — 2026-10-15
+
+- Keep an explicitly started charge recording alive through a temporary Bluetooth drop, retrying for up to five minutes while retaining its Stop notification and background protection.
+- Resume the same recording only after the same scooter authenticates and supplies fresh charging readings. Mark missing intervals as gaps and exclude them from learned charging curves.
+- Respect Stop, explicit Disconnect, profile changes, disabled Bluetooth, revoked permissions and the existing recording limits during recovery. Interrupted app processes do not silently resume capture.
+- Retain a small private connection-event history across app restarts and include it in manually exported diagnostics, without recording owner credentials, PINs, Bluetooth addresses or packet contents in that history.
+
+Upgrade over the previous APK to preserve setup and recordings. Recovery is tested with simulated faults; another real overnight charge is needed to validate physical Bluetooth recovery.
+
 ## 1.0.0 — 2026-10-14
 
 - Use singular chart windows (1 minute/hour/day) and consistent Odo. abbreviation.

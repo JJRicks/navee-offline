@@ -193,6 +193,16 @@ public final class ChargeSessionStoreTest {
         check(!output.contains("other_profile")&&!output.contains("owner_identity"),"Export excludes unrelated profile and credentials");
         check(output.contains("\"started_wall_ms\":"+WALL)&&output.contains("\"elapsed_ms\":"+MONO),"Original clocks preserved");
         StringWriter empty=new StringWriter();check(exports.exportJson("missing",empty)==0&&empty.toString().endsWith("\"sessions\":[]}"),"No recordings is a valid empty document");
+        ChargeSessionStore reconnected=store();
+        reconnected.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        reconnected.sample(frame(MONO,50));reconnected.sample(frame(MONO+10000,50));
+        reconnected.markGap();
+        ChargeSessionStore.Frame afterLoss=new ChargeSessionStore.Frame(WALL+50000,MONO+50000,value(1d,MONO+50000),value(54d,MONO+50000),value(56d,MONO+50000),value(-.2d,MONO+50000),null);
+        check(reconnected.sample(afterLoss),"Recovery starts a new electrical baseline instead of rejecting legitimate changed power forever");
+        reconnected.stop(ChargeSessionStore.Stop.STOPPED);
+        StringWriter resumedJson=new StringWriter();reconnected.exportJson("one",resumedJson);
+        check(resumedJson.toString().contains("\"battery_percent\":54.0,\"voltage_v\":56.0,\"current_a\":-0.2,\"power_w\":-11.200000000000001,\"temperature_c\":null,\"gap_before\":true"),"First post-loss sample keeps gap and real measurements");
+        check(reconnected.snapshot().sessions==1,"Transient recovery remains one journal, not a second session");
         System.out.println("ChargeSessionStore: "+checks+" checks passed");
     }
 }

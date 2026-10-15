@@ -11,7 +11,7 @@ public final class ChargeSessionStore {
     public static final int MAX_SESSIONS = 20, MAX_SAMPLES = 6500;
     private static final int MIN_BINS = 10;
     public enum Charger { STOCK, HIGH_SPEED }
-    public enum Stop { STOPPED, COMPLETE, CHARGING_ENDED, DISCONNECTED, PROFILE_CHANGED, READINGS_STOPPED, LIMIT, ERROR, PROCESS_ENDED, INTERRUPTED }
+    public enum Stop { STOPPED, COMPLETE, CHARGING_ENDED, DISCONNECTED, PROFILE_CHANGED, READINGS_STOPPED, LIMIT, ERROR, PROCESS_ENDED, INTERRUPTED, RECOVERY_TIMEOUT, CONNECTION_FAILED, BLUETOOTH_OFF, PERMISSION_LOST, IDENTITY_CHANGED }
     public static final class Value {
         public final Double value; public final long mono; public final int source;
         public Value(Double value, long mono, int source) { this.value = value; this.mono = mono; this.source = source; }
@@ -26,6 +26,9 @@ public final class ChargeSessionStore {
         }
         public boolean usableCompletion() {
             return fresh(state,mono) && (state.value==0 || state.value==1) && measurementsUsable() && soc.value==100;
+        }
+        public boolean usableChargingEnded() {
+            return fresh(state,mono) && state.value==0 && measurementsUsable();
         }
         private boolean measurementsUsable() {
             return wall > 0 && mono > 0 && fresh(soc,mono) && between(soc.value,0,100)
@@ -117,6 +120,7 @@ public final class ChargeSessionStore {
     public synchronized Charger charger(){return charger;}
     public synchronized int sampleCount(){return samples;}
     public synchronized long lastFreshMono(){return lastFreshMono;}
+    public synchronized long startedMono(){return startMono;}
     public synchronized void start(String profile,Charger charger,long wall,long mono) throws IOException {
         if(active!=null)throw new IllegalStateException("A charge capture is already active");
         if(profile==null||!profile.matches("[A-Za-z0-9_-]{1,128}")||charger==null||wall<=0||mono<=0)throw new IllegalArgumentException("Choose a scooter and charger");
@@ -156,7 +160,8 @@ public final class ChargeSessionStore {
         lastSoc=frame.soc.value;lastPower=power;lastVoltage=frame.voltage.value;gap=false;
         return true;
     }
-    public synchronized void markGap(){gap=true;}
+    /** A new observed segment must not be compared with electrical values from before a loss. */
+    public synchronized void markGap(){gap=true;lastPower=lastVoltage=null;}
     public synchronized void stop(Stop reason) throws IOException {
         if(active==null)return;
         File file=active;active=null;profile=null;charger=null;

@@ -97,6 +97,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(!service.isChargeRecording()&&service.chargeCaptureStatus().contains("profile changed"),"Profile switch did not stop capture");
                 require(service.chargeCharger()==null,"New scooter inherited the other charger selection");service.profiles.select(profile);
             });
+            verifyRecoveryTransitions();
             main(()->{seedActive(profile);activity.finish();getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});
             ScooterService ended=service;await(()->Boolean.TRUE.equals(field(ended,"destroyed")),"Service did not end");
             require(!store(ended).active(),"Service end left capture active");
@@ -133,6 +134,85 @@ public final class ChargeCaptureValidation extends Instrumentation {
             result.putString("result","PASS");
         }catch(Throwable error){result.putString("result","FAIL");result.putString("error",error.toString());error.printStackTrace();try{if(activity!=null)screenshot("failure");}catch(Throwable ignored){}}
         finally{result.putInt("assertions",checks);result.putBoolean("real_bluetooth_capture_tested",false);if(activity!=null)main(()->{activity.finish();getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});finish("PASS".equals(result.getString("result"))?0:1,result);}
+    }
+    /** Fault injection stays below the real-start gate: no adapter or GATT is enabled. */
+    private void verifyRecoveryTransitions(){
+        main(()->{
+            service.visible(true);setField(service,"chargeUpdating",true);
+            seedActive(profile);ChargeRecoveryPolicy policy=recoveryPolicy();setField(service,"chargeRecovery",policy);
+            long lost=store().startedMono()+1;
+            ChargeRecoveryPolicy.Result waiting=evaluate(policy,lost,false,false,true,null);
+            require(!(Boolean)invoke(service,"applyChargeRecoveryResult",new Class<?>[]{ChargeRecoveryPolicy.Result.class},waiting),"Loss unexpectedly admitted readings");
+            service.visible(false);
+            require(service.isChargeRecording()&&service.workAllowed()&&service.backgroundDeadlineMs()==0,"Recovery lost recording work admission");
+            require(((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"Recovery dropped CPU wake lock");
+            Notification notice=(Notification)invoke(service,"notification",new Class<?>[]{});
+            require(notice.extras.getCharSequence(Notification.EXTRA_TITLE).toString().contains("reconnecting"),"Recovery notice did not identify reconnecting state");
+            require((notice.flags&Notification.FLAG_ONGOING_EVENT)!=0&&notice.actions.length==1&&notice.actions[0].title.toString().equals("Stop charge recording"),"Recovery notice lost persistent Stop action");
+            require(store().sampleCount()==1,"Waiting fabricated a sample");
+            long resumedAt=lost+20000;
+            ChargeSessionStore.Frame resumed=sampleFrame(resumedAt,51,-.2);
+            ChargeRecoveryPolicy.Result resumedResult=evaluate(policy,resumedAt,true,true,true,resumed);
+            require((Boolean)invoke(service,"applyChargeRecoveryResult",new Class<?>[]{ChargeRecoveryPolicy.Result.class},resumedResult),"Fresh authenticated reconnect failed to resume");
+            try{require(store().sample(resumed)&&store().sampleCount()==2,"Reconnect failed to append to the same journal");}catch(IOException e){throw new IllegalStateException(e);}
+            require(!policy.recovering()&&service.isChargeRecording(),"Resume ended the journal");
+            service.stopChargeRecording();
+            try{
+                StringWriter out=new StringWriter();store().exportJson(profile,out);
+                org.json.JSONArray sessions=new org.json.JSONObject(out.toString()).getJSONArray("sessions");boolean found=false;
+                for(int i=0;i<sessions.length();i++){
+                    org.json.JSONArray samples=sessions.getJSONObject(i).getJSONArray("samples");
+                    if(samples.length()==2&&samples.getJSONObject(1).getDouble("current_a")==-.2){
+                        require(samples.getJSONObject(1).getBoolean("gap_before"),"Export bridged the missing charge interval");found=true;
+                    }
+                }
+                require(found,"Resumed single journal missing from export");
+            }catch(Exception e){throw new IllegalStateException(e);}
+            // A deadline ends the explicit recovery owner, including queued reconnect work.
+            service.visible(true);seedActive(profile);policy=recoveryPolicy();setField(service,"chargeRecovery",policy);lost=store().startedMono()+1;
+            invoke(service,"applyChargeRecoveryResult",new Class<?>[]{ChargeRecoveryPolicy.Result.class},evaluate(policy,lost,false,false,true,null));
+            service.visible(false);setField(service.ble,"wanted",true);setField(service.ble,"state",BleController.State.WAITING);
+            invoke(service,"applyChargeRecoveryResult",new Class<?>[]{ChargeRecoveryPolicy.Result.class},evaluate(policy,lost+ChargeRecoveryPolicy.RECOVERY_TIMEOUT_MS,false,false,true,null));
+            require(!service.isChargeRecording()&&!service.workAllowed()&&!((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"Timeout retained background charge work");
+            require(!Boolean.TRUE.equals(field(service.ble,"wanted"))&&service.ble.state()==BleController.State.DISCONNECTED,"Timeout left reconnect ownership active");
+            require(service.chargeCaptureStatus().contains("recovery timeout"),"Timeout reason was lost");
+            // The real public Disconnect callback is terminal even if a recovery is pending.
+            service.visible(true);seedActive(profile);policy=recoveryPolicy();setField(service,"chargeRecovery",policy);lost=store().startedMono()+1;
+            invoke(service,"applyChargeRecoveryResult",new Class<?>[]{ChargeRecoveryPolicy.Result.class},evaluate(policy,lost,false,false,true,null));
+            setField(service,"chargeUpdating",false);service.ble.disconnect();
+            require(!service.isChargeRecording()&&service.chargeCaptureStatus().equals("Charge recording saved"),"Public Disconnect callback did not stop capture intentionally");
+            // Stop delivered through onStartCommand must not immediately auto-connect again.
+            for(boolean foreground:new boolean[]{true,false}){
+                setField(service,"chargeUpdating",true);service.visible(true);seedActive(profile);policy=recoveryPolicy();setField(service,"chargeRecovery",policy);lost=store().startedMono()+1;
+                invoke(service,"applyChargeRecoveryResult",new Class<?>[]{ChargeRecoveryPolicy.Result.class},evaluate(policy,lost,false,false,true,null));
+                settings().edit().putBoolean("auto_connect",true).putBoolean("background_connection",true).commit();
+                service.visible(foreground);setField(service.ble,"wanted",true);setField(service.ble,"state",BleController.State.WAITING);
+                service.onStartCommand(new Intent(getTargetContext(),ScooterService.class).setAction("STOP_CHARGE_RECORDING"),0,901);
+                require(!service.isChargeRecording()&&!Boolean.TRUE.equals(field(service.ble,"wanted")),"Stop re-enabled auto-connect with foreground="+foreground);
+                require(service.ble.state()==BleController.State.DISCONNECTED,"Stop left retry transport active");
+                settings().edit().putBoolean("auto_connect",false).putBoolean("background_connection",false).commit();
+            }
+            service.visible(true);setField(service,"chargeUpdating",false);
+            try{
+                org.json.JSONObject snapshot=new org.json.JSONObject(service.snapshot());
+                require(snapshot.getJSONArray("connection_events").length()>0,"Diagnostic snapshot lacks persisted event stream");
+                require(snapshot.has("connection_events_loaded")&&snapshot.has("connection_events_storage_healthy"),"Diagnostic snapshot lacks availability flags");
+                String json=snapshot.getJSONArray("connection_events").toString();
+                require(!json.contains("000000000000")&&!json.contains("X2538-SYNTHETIC")&&!json.contains(profile),"Diagnostic events leaked owner/radio identity");
+            }catch(Exception e){throw new IllegalStateException(e);}
+            require(field(service.ble,"gatt")==null&&field(service.ble,"scanner")==null,"Fault injection touched real Bluetooth transport");
+        });
+    }
+    private ChargeRecoveryPolicy recoveryPolicy(){
+        return new ChargeRecoveryPolicy(profile,service.profiles.active().serial,store().startedMono(),service.ble.intentionalDisconnectSequence());
+    }
+    private ChargeRecoveryPolicy.Result evaluate(ChargeRecoveryPolicy policy,long now,boolean connected,boolean ready,boolean retry,ChargeSessionStore.Frame frame){
+        return policy.evaluate(now,profile,service.profiles.active().serial,service.ble.intentionalDisconnectSequence(),true,true,connected,ready,retry,
+                connected?service.profiles.active().serial:"",frame);
+    }
+    private ChargeSessionStore.Frame sampleFrame(long mono,double soc,double amps){
+        return new ChargeSessionStore.Frame(System.currentTimeMillis(),mono,new ChargeSessionStore.Value(1d,mono,0x72),new ChargeSessionStore.Value(soc,mono,0x72),
+                new ChargeSessionStore.Value(52d,mono,0x72),new ChargeSessionStore.Value(amps,mono,0x72),null);
     }
     private void admit(){
         require(Build.HARDWARE.contains("ranchu")||Build.HARDWARE.contains("goldfish")||Build.PRODUCT.startsWith("sdk_gphone"),"Refusing physical device");

@@ -1,5 +1,5 @@
 VOLT — UT5 MAX FEATURE AVAILABILITY
-Current version: 1.0.0 (versionCode 27)
+Current version: 1.0.1 (versionCode 28)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -184,7 +184,8 @@ Returning to the app cancels the deadline. Changing the option while already
 hidden or stopping a hidden recording creates no new grace period. Active
 ride/charge capture retains foreground-service protection and an immediate
 ongoing Stop notification with a renewed bounded CPU wake lock. Charge capture
-ends on disconnect; rides preserve Bluetooth gaps and can reconnect. Android may
+retries temporary disconnects for up to five minutes with marked gaps and
+same-scooter verification; rides preserve Bluetooth gaps and can reconnect. Android may
 allow dismissing ongoing notifications while unlocked. Force stop and device
 battery restrictions remain limits. No lock state changes automatically.
 
@@ -407,8 +408,9 @@ charger efficiency. Missing/stale/unpaired inputs leave readings unavailable.
 
 Explicit Charge recording lives in Developer options, with a manual Stock or
 High-speed charger selection. There is no automatic charger detection. Bounded
-local samples are saved every ten seconds, ending on disconnect, completion,
-Stop or an ending/error condition. Simulation cannot create training evidence.
+local samples are saved every ten seconds. Temporary disconnects allow up to
+five minutes of recovery with the same journal and marked gaps. Completion,
+Stop, explicit Disconnect, recovery expiry or an ending/error condition closes it. Simulation cannot create training evidence.
 
 Qualified recordings learn curves for each scooter/charger label. Learned ETA
 is used only if live power matches saved sessions at the current battery level.

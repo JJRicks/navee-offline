@@ -141,8 +141,13 @@ again.
 
 Ride and charge recording are independent of this idle option. Their service
 and ongoing Stop notification remain while hidden, with a renewed CPU wake lock.
-Ride recording can reconnect, recording Bluetooth loss as gaps; charge capture
-ends on disconnect. Android 14+ may allow dismissing an ongoing notification
+Ride recording can reconnect, recording Bluetooth loss as gaps. An explicitly
+started charge capture retries a temporary loss for up to five minutes, resuming
+the same journal only after the same scooter authenticates and provides fresh
+charging readings. Missing intervals stay marked as gaps and are excluded from
+learned curves. Stop, explicit Disconnect, profile changes, disabled Bluetooth,
+revoked permissions, fatal connection failures and recording limits end recovery.
+A process restart does not silently resume a charge capture. Android 14+ may allow dismissing an ongoing notification
 while unlocked. Force stop, real signal loss and vendor battery policy remain
 limits; no service can collect scooter readings without a connection.
 

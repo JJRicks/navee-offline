@@ -1444,7 +1444,7 @@ public final class MoreScreen implements AppScreen {
             String unavailable=s.chargeCaptureUnavailable();if(unavailable!=null){host.toast(unavailable);return;}
             String charger=chosenCharger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
             AlertDialog dialog=new AlertDialog.Builder(host.activity()).setTitle("Record this charge?")
-                    .setMessage("Use the "+charger+" charger currently attached. The app saves battery percentage, voltage, current, power and temperature locally every 10 seconds. It keeps Bluetooth awake in the background with a Stop notification.\n\nCapture stops at 100%, when charging ends, on disconnect, or when the app process ends. Up to 20 recordings are kept, at most about 20 MB. Nothing is uploaded. The selected charger is not detected automatically.")
+                    .setMessage("Use the "+charger+" charger currently attached. The app saves battery percentage, voltage, current, power and temperature locally every 10 seconds. It keeps Bluetooth awake in the background with a Stop notification.\n\nA temporary Bluetooth drop allows up to 5 minutes to reconnect to this scooter, with missing readings marked as a gap. Capture stops at 100%, when charging ends, on Stop or explicit Disconnect, if Bluetooth or permission is lost, when recovery expires, or when the app process ends. Up to 20 recordings are kept, at most about 20 MB. Nothing is uploaded. The selected charger is not detected automatically.")
                     .setNegativeButton("Cancel",null).setPositiveButton("Start recording",(d,which)->{
                         if(!s.startChargeRecording(chosenCharger))host.toast(s.chargeCaptureStatus());refreshDeveloper();
                     }).create();show(dialog);

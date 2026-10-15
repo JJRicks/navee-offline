@@ -19,6 +19,7 @@ storage:
 | Connected history | Draw local historical charts and estimates |
 | Ride readings and optional location, pressure, and motion samples | Analyze a ride you record |
 | Charge samples and a manually selected charger label | Review charging and estimate remaining time |
+| Bounded connection events with timestamps, failure codes and recording state | Explain connection losses without saving credentials or packet contents |
 
 Connected history is enabled by default. It does not start GPS or phone sensors.
 It has a shared **50 MiB** budget: detailed samples for up to seven days, minute
@@ -33,6 +34,11 @@ and charger labels; older sessions are pruned to stay within that limit. Phone
 location and motion sensors run only during ride recording when enabled and
 permitted. A foreground notification supports background recording; Android or
 device restrictions can still interrupt it.
+
+Connection diagnostics retain at most 200 coarse events in private device-local storage.
+They exclude owner identities, PINs, names, serials, Bluetooth addresses and packet
+contents. They are included only when you choose to export diagnostics, and are
+excluded from portable app backups. Clearing app storage removes them.
 
 Android cloud backup and device-transfer extraction are disabled in the manifest
 and backup rules. Local profiles, including owner credentials, are not separately
@@ -113,7 +119,7 @@ if you do not want them retained there.
 | Dashboard JSON | Layouts, widget options, notes and custom titles; no owner credentials or recorded readings |
 | Ride CSV/JSON/GPX | Timestamps and measurements; phone/joined/route exports can include precise locations |
 | Charge JSON | Electrical samples, times, gaps and charger label; excludes owner credentials, names, addresses, PINs and locations |
-| Ordinary diagnostics | Readings and diagnostic payloads, potentially device serials; excludes owner identity and PIN responses |
+| Ordinary diagnostics | Readings, diagnostic payloads and bounded connection events, potentially device serials in readings; excludes owner identity and PIN responses |
 
 Exports only go to a destination you choose through the file picker or helper.
 A destination may itself sync to a cloud service. The full backup password is
