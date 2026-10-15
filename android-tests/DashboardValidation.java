@@ -59,7 +59,9 @@ import local.navee.offlinelock.TelemetryHistory;
 public final class DashboardValidation extends Instrumentation {
     private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
     private static final String[] DESTINATIONS = {"Home", "Scooter", "Live Stats", "Rides", "More"};
-    private static final String[] DEFAULT_TYPES = {"lock", "scooter", "battery", "live", "capacity", "ride", "quick", "health", "history", "charging"};
+    private static final String[] DEFAULT_TYPES = {"lockbar", "overview", "tiles", "shortcuts", "ride"};
+    /** Lock and Lock bar are mutually exclusive; the default's Lock bar keeps the palette from adding Lock. */
+    private static final int HOME_TYPE_COUNT = DashboardConfig.TYPES.length - 1;
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
     private static final String RENAMED = "Synthetic renamed scooter";
     private static final String HOME_RENAMED = "Synthetic Home rename";
@@ -87,7 +89,11 @@ public final class DashboardValidation extends Instrumentation {
                     && config().widgets.size() == DEFAULT_TYPES.length && settings().getInt("dashboard_columns", 0) == 5,
                     "Fresh Home did not provide the default dashboard widgets"));
             assertGrid(); scrollHomeTop(); screenshot("default-dark");
-            check("Ten-widget defaults match the captured folded/unfolded layouts, survive reload and reset only the selected profile; navigation and cards fit");
+            main(() -> {
+                for (int i = 0; i < DEFAULT_TYPES.length; i++)
+                    require(config().widgets.get(i).type.equals(DEFAULT_TYPES[i]), "Fresh Home default order changed at " + i);
+            });
+            check("Five-widget Home default (lock bar, battery overview, reading tiles, setting tiles, recorder) matches its 1–6-column layouts, survives reload and resets only the selected profile; navigation and cards fit");
 
             if ("layout-slots".equals(arguments.getString("mode"))) {
                 verifySavedLayoutSlots();
@@ -102,6 +108,9 @@ public final class DashboardValidation extends Instrumentation {
 
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Persisted synthetic readings did not load");
+            verifyHomeWidgetsOffline();
+            // The photo card is no longer in the default; add it explicitly so its offline checks keep running.
+            seedScooterCard();
             assertCachedReadings();
             verifyCompactConnection();
             verifyDisconnectedScooterPhoto();
@@ -128,16 +137,25 @@ public final class DashboardValidation extends Instrumentation {
             require(dashboard().isEditing(), "Renaming the scooter unexpectedly left dashboard editing");
             assertEditInputsInert(); screenshot("edit-dark");
             Set<String> existing = types();
+            require(existing.contains("lockbar") && !existing.contains("lock"), "Palette fixture expects the default Lock bar");
             for (int i = 0; i < DashboardConfig.TYPES.length; i++) {
                 String type = DashboardConfig.TYPES[i];
                 if (existing.contains(type)) continue;
-                clickText(root(), "Add widget"); clickText(dialogRoot(), DashboardConfig.NAMES[i]); closeDialog();
+                clickText(root(), "Add widget");
+                View row = dialogRoot().findViewWithTag("add-widget:" + type);
+                require(row != null, "Palette lacks " + type);
+                if (type.equals("lock")) {
+                    verifySingleLockControlPalette(row);
+                    continue;
+                }
+                click(row); closeDialog();
                 await(() -> tileOrNull(type) != null && ((View)tile(type)).getWidth() > 0, 4000, "Added widget did not lay out: " + type);
                 assertGrid(); assertEditInputsInert();
             }
-            main(() -> require(types().equals(new HashSet<>(Arrays.asList(DashboardConfig.TYPES))) && config().widgets.size() == DashboardConfig.TYPES.length,
-                    "Palette did not construct every widget type exactly once"));
-            check("All " + DashboardConfig.TYPES.length + " widget types can be added; Edit disables widget actions and performs no scooter work");
+            Set<String> homeTypes = new HashSet<>(Arrays.asList(DashboardConfig.TYPES)); homeTypes.remove("lock");
+            main(() -> require(types().equals(homeTypes) && config().widgets.size() == HOME_TYPE_COUNT,
+                    "Palette did not construct every other widget type exactly once"));
+            check("All " + HOME_TYPE_COUNT + " widget types beside the Lock bar can be added; Lock shows On Home and is refused; Edit disables widget actions and performs no scooter work");
             clickText(root(), "Done"); await(() -> !dashboard().isEditing(), 3000, "Done did not leave Edit for content sizing checks");
             verifyResponsiveCards(); assertConfigurationHidden();
             enterEditPreservingContent();
@@ -204,7 +222,7 @@ public final class DashboardValidation extends Instrumentation {
                 require(restored.title.equals("Synthetic charge") && restored.metric.equals("battery_percent"), "Widget configuration did not survive recreation");
                 require(position.x == before.x && position.y == before.y && position.w == before.w && position.h == before.h,
                         "Widget placement did not survive recreation");
-                require(types().size() == DashboardConfig.TYPES.length && !dashboard().isEditing(), "Dashboard mode or widget list did not survive recreation");
+                require(types().size() == HOME_TYPE_COUNT && !dashboard().isEditing(), "Dashboard mode or widget list did not survive recreation");
                 require(HOME_RENAMED.equals(activity.service().profiles.active().name), "Scooter rename was lost on recreation");
                 require(widget("capacity").advertisedWh == 800d && widget("capacity").windowMs == 30 * 86400000L
                         && widget("capacity").title.equals("Synthetic capacity experiment"), "Capacity widget settings were lost on recreation");
@@ -229,7 +247,7 @@ public final class DashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Cached readings did not return after a service restart");
             assertCachedReadings(); assertGrid(); assertNoScooterWork();
-            main(() -> require(widgetById(metricId).metric.equals("battery_percent") && types().size() == DashboardConfig.TYPES.length,
+            main(() -> require(widgetById(metricId).metric.equals("battery_percent") && types().size() == HOME_TYPE_COUNT,
                     "Dashboard customization did not survive a cold activity/service restart"));
             check("A new service reloads cached numeric and nonnumeric readings without presenting them as live or starting Bluetooth work");
 
@@ -261,7 +279,7 @@ public final class DashboardValidation extends Instrumentation {
         require(dialogRoot().findViewWithTag("dashboard-slot-restore-2").isEnabled()
                         && dialogRoot().findViewWithTag("dashboard-slot-save-2").isEnabled()
                         && config().slot(2) != null && config().slot(2).name.equals("All widgets")
-                        && config().slot(2).widgetCount == 15,
+                        && config().slot(2).widgetCount == DashboardConfig.TYPES.length,
                 "Seeded example is not available beside the two empty slots");
         String savedExample = settings().getString("dashboard_slot_v1_" + profileId + "_2", "");
         screenshot("slots-example-dark");
@@ -574,6 +592,97 @@ public final class DashboardValidation extends Instrumentation {
             require(isolated.edit().clear().commit(), "Could not remove isolated clock preferences");
         }
     }
+    /** Offline view of the redesigned Home widgets, using only the synthetic cached readings. */
+    private void verifyHomeWidgetsOffline() {
+        await(() -> {
+            Object overview = tileOrNull("overview");
+            return overview != null && bodyText(overview).contains("73");
+        }, 5000, "Battery overview did not render the cached charge");
+        main(() -> {
+            require(activity.service().ble.state() == BleController.State.DISCONNECTED, "Home widget fixture must stay disconnected");
+            Object lockBar = tile("lockbar");
+            View lockBody = (View)field(lockBar, "body");
+            require(findText(lockBody, "Lock state unknown") != null, "Disconnected Lock bar lost its unknown-state title");
+            TextView connect = findText(lockBody, "Connect");
+            require(connect != null && connect.isEnabled(), "Disconnected Lock bar lacks an enabled Connect action");
+            require(connect.getHeight() >= activity.ui().dp(48) - 1, "Lock bar Connect lost its 48 dp touch target");
+            require(((View)lockBar).getHeight() <= Math.round(((Number)invoke(grid(), "rowHeight")).floatValue()) + 1,
+                    "Default Lock bar grew beyond one grid row");
+
+            String overview = bodyText(tile("overview")).toLowerCase(Locale.ROOT);
+            require(overview.contains("73") && overview.contains("%"), "Battery overview lacks its cached percentage");
+            require(overview.contains("odometer") && overview.contains("drive mode"),
+                    "Battery overview lacks its default Odometer and Drive mode readings");
+
+            String readings = bodyText(tile("tiles")).toLowerCase(Locale.ROOT);
+            require(readings.contains("power") && readings.contains("pack temp") && readings.contains("health"),
+                    "Reading tiles lack their default Power, Pack temp and Health labels: " + readings);
+            require(readings.contains("98"), "Reading tiles did not render the cached health value: " + readings);
+
+            String settings = bodyText(tile("shortcuts")).toLowerCase(Locale.ROOT);
+            require(settings.contains("top speed") && settings.contains("charge schedule"),
+                    "Setting tiles lack their default Top speed and Charge schedule tiles: " + settings);
+
+            for (String type : new String[] {"lockbar", "overview", "tiles", "shortcuts"}) {
+                Object tile = tile(type);
+                Object footer = field(tile, "footer");
+                require(!(footer instanceof TextView) || !((TextView)footer).isShown()
+                                || !((TextView)footer).getText().toString().contains("Last seen"),
+                        type + " draws its own Last seen footer; the header carries the time");
+                require(!bodyText(tile).contains("Last seen"), type + " repeats Last seen inside its card");
+            }
+            // The header's status line now carries the time; the old caption below it is gone.
+            Object stale = optionalField(dashboard(), "stale");
+            require(!(stale instanceof View) || !((View)stale).isShown()
+                            || !(stale instanceof TextView) || ((TextView)stale).length() == 0,
+                    "Home still shows a separate Last seen caption under the header");
+        });
+        assertNoScooterWork();
+        check("Offline Lock bar offers Connect with an unknown state; overview, reading and setting tiles show cached values without their own Last seen footers");
+    }
+    private void seedScooterCard() {
+        main(() -> {
+            DashboardConfig.Widget scooter = new DashboardConfig.Widget("scooter");
+            // Below the default stack (rows 0–8) or, at six columns, below the left column (rows 0–4).
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++)
+                scooter.layouts.put(c, new DashboardLayout.Cell(scooter.id, 0, c == 6 ? 5 : 9, c, scooter.defaultHeight()));
+            config().widgets.add(scooter); config().save(); invoke(dashboard(), "render");
+        });
+        await(() -> tileOrNull("scooter") != null && ((View)tile("scooter")).getWidth() > 0, 4000, "Seeded scooter card did not lay out");
+        assertGrid();
+    }
+    /** Lock and Lock bar are exclusive: the palette marks both On Home and refuses a second lock control. */
+    private void verifySingleLockControlPalette(View lockRow) {
+        View barRow = dialogRoot().findViewWithTag("add-widget:lockbar");
+        require(barRow != null && findText(barRow, "On Home") != null, "Palette does not mark the Lock bar as On Home");
+        require(findText(lockRow, "On Home") != null, "Palette offers Lock beside the existing Lock bar");
+        int before = config().widgets.size();
+        if (lockRow.isClickable() && lockRow.isEnabled()) click(lockRow);
+        main(() -> require(!types().contains("lock") && config().widgets.size() == before,
+                "Palette added Lock beside the Lock bar"));
+        AlertDialog open = (AlertDialog)field(dashboard(), "dialog");
+        if (open != null && open.isShowing()) {
+            View close = findDescription(dialogRoot(), "Close add widget");
+            if (close == null) close = findDescription(dialogRoot(), "Close widget options");
+            require(close != null, "Refused Lock left an unclosable sheet");
+            click(close);
+        }
+        main(() -> require(!types().contains("lock"), "Closing the palette added Lock"));
+    }
+    private static String bodyText(Object tile) {
+        StringBuilder text = new StringBuilder();
+        for (TextView view : all((View)field(tile, "body"), TextView.class))
+            if (view.isShown() && view.length() > 0) text.append(view.getText()).append('\n');
+        return text.toString();
+    }
+    private boolean goneOrAbsent(String name) {
+        Object view = optionalField(activity, name);
+        return !(view instanceof View) || ((View)view).getVisibility() == View.GONE;
+    }
+    private static Object optionalField(Object value, String name) {
+        try { Field field = value.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(value); }
+        catch (ReflectiveOperationException error) { return null; }
+    }
     private void verifyCompactConnection() {
         main(() -> {
             ScooterProfiles.Profile profile = activity.service().profiles.active();
@@ -600,8 +709,7 @@ public final class DashboardValidation extends Instrumentation {
                     android.text.style.ImageSpan[] spinners = ((android.text.Spanned)text).getSpans(0, text.length(), android.text.style.ImageSpan.class);
                     require(spinners.length == 1 && spinners[0].getDrawable().getBounds().width() > 0,
                             state + " lacks one inline loading indicator");
-                    require(((View)field(activity, "lockHint")).getVisibility() == View.GONE
-                            && ((View)field(activity, "connectionDetail")).getVisibility() == View.GONE,
+                    require(goneOrAbsent("lockHint") && goneOrAbsent("connectionDetail"),
                             state + " added an explanatory text block to the compact connection card");
                 }
             } finally {
@@ -696,8 +804,8 @@ public final class DashboardValidation extends Instrumentation {
             require(!activity.service().readingFresh("battery_percent") && !activity.service().featureFresh("headlight"),
                     "Cache must not provide command freshness");
             Map<?, ?> stats = (Map<?, ?>)field(tile("scooter"), "amounts");
-            require(stats.keySet().equals(new HashSet<>(Arrays.asList("odometer_km", "remaining_range_km", "driving_mode"))),
-                    "My Scooter's defaults should contain odometer, estimated range and drive mode");
+            require(stats.keySet().equals(new HashSet<>(Arrays.asList("odometer_km", "driving_mode"))),
+                    "A newly added My Scooter card should contain odometer and drive mode");
             TextView odometer = (TextView)stats.get("odometer_km"), mode = (TextView)stats.get("driving_mode");
             require("100.00 mi".contentEquals(odometer.getText()) && "3 (raw)".contentEquals(mode.getText()),
                     "My Scooter did not format its cached odometer and unknown-model mode: "
@@ -725,7 +833,8 @@ public final class DashboardValidation extends Instrumentation {
             require(dashboard().isEditing(), "Expected dashboard Edit mode");
             for (Object tile : tiles()) assertDisabledActions((View)field(tile, "body"));
             require(!((View)field(activity, "connectionAction")).isEnabled(), "Connection remains interactive during Edit");
-            require(!((View)field(activity, "lockControl")).isEnabled(), "Lock remains interactive during Edit");
+            View lockControl = (View)field(activity, "lockControl");
+            require(lockControl == null || !lockControl.isEnabled(), "Lock remains interactive during Edit");
         }); assertNoScooterWork();
     }
     private void assertDisabledActions(View view) {
@@ -845,18 +954,18 @@ public final class DashboardValidation extends Instrumentation {
                     View body = (View)field(object, "body");
                     require(viewport != null && viewport.getHeight() > 0 && body.getWidth() > 0 && body.getHeight() > 0,
                             context + ": content has no usable viewport");
-                    if (Arrays.asList("lock", "metric", "gauge", "ride").contains(widget.type))
+                    if (Arrays.asList("lock", "lockbar", "metric", "gauge", "ride").contains(widget.type))
                         assertBalancedContent((ViewGroup)body, viewport, context);
-                    if (widget.type.equals("lock")) {
+                    if (widget.type.equals("lock") || widget.type.equals("lockbar")) {
                         View slider = (View)field(activity, "lockControl");
-                        Rect bounds = relativeBounds(slider, body);
+                        boolean sliderShown = slider != null && slider.isShown();
+                        Rect bounds = sliderShown ? relativeBounds(slider, body) : new Rect();
                         // The bar shows once connected; offline the card offers Connect instead.
-                        require(!slider.isShown() || (Math.abs(bounds.width() - body.getWidth()) <= 1 && bounds.left <= 1),
+                        require(!sliderShown || (Math.abs(bounds.width() - body.getWidth()) <= 1 && bounds.left <= 1),
                                 context + ": lock bar does not span its card");
-                        require(!slider.isShown() || bounds.height() >= activity.ui().dp(48),
+                        require(!sliderShown || bounds.height() >= activity.ui().dp(48),
                                 context + ": lock bar lost its full-size touch target");
-                        require(((View)field(activity, "lockHint")).getVisibility() == View.GONE
-                                && ((View)field(activity, "connectionDetail")).getVisibility() == View.GONE,
+                        require(goneOrAbsent("lockHint") && goneOrAbsent("connectionDetail"),
                                 context + ": compact lock card contains a redundant explanation");
                     }
                     for (TextView text : all(body, TextView.class))

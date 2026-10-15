@@ -49,6 +49,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             history.execSQL("CREATE TABLE readings(profile TEXT, wall INTEGER, power REAL)");
             history.execSQL("INSERT INTO readings VALUES('alpha',1700000000000,721.5)");
             history.execSQL("INSERT INTO readings VALUES('beta',1700000000100,-61.25)");
+            newHomeWidgetTypes();
             allWidgetsExample();
             releaseDefaultsPreserveExistingData();
             fullRoundTrip();
@@ -89,6 +90,45 @@ public final class DashboardSlotsValidation extends Instrumentation {
         }
     }
 
+    /** The redesigned Home's four types are appended so every older type index stays stable. */
+    private void newHomeWidgetTypes() {
+        String[] added = {"lockbar", "overview", "tiles", "shortcuts"};
+        String[] names = {"Lock bar", "Battery overview", "Reading tiles", "Setting tiles"};
+        int base = DashboardConfig.TYPES.length - added.length;
+        require(base == 15 && DashboardConfig.TYPES[0].equals("lock") && DashboardConfig.TYPES[1].equals("scooter")
+                        && DashboardConfig.NAMES.length == DashboardConfig.TYPES.length
+                        && DashboardConfig.DESCRIPTIONS.length == DashboardConfig.TYPES.length,
+                "New widget types must be appended after the fifteen existing types");
+        int[] defaultHeights = {1, 4, 2, 1}, minimumHeights = {1, 3, 1, 1};
+        for (int i = 0; i < added.length; i++) {
+            require(DashboardConfig.TYPES[base + i].equals(added[i]) && DashboardConfig.NAMES[base + i].equals(names[i])
+                            && !DashboardConfig.DESCRIPTIONS[base + i].trim().isEmpty(),
+                    "Catalog entry changed for " + added[i]);
+            DashboardConfig.Widget widget = new DashboardConfig.Widget(added[i]);
+            require(widget.title.equals(names[i]) && widget.metric.equals("power_w") && widget.windowMs == 86400000L
+                            && widget.showDisconnect && widget.note.isEmpty(),
+                    "Constructor options changed for " + added[i]);
+            require(widget.defaultHeight() == defaultHeights[i] && widget.minimumHeight() == minimumHeights[i],
+                    "Default/minimum height changed for " + added[i]);
+            widget.showDisconnect = false;
+            require(widget.minimumHeight() == minimumHeights[i], "Disconnect option changed " + added[i] + " minimum height");
+            for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++)
+                require(widget.defaultWidth(columns) == columns, added[i] + " must default to full width");
+            // Like most cards, each fits half of a 344 dp two-column phone grid.
+            require(widget.minimumWidth(2, 344, 10, 1) == 1, added[i] + " no longer fits half a phone grid");
+        }
+        require(new DashboardConfig.Widget("overview").keys.equals(Arrays.asList("odometer_km", "driving_mode")),
+                "Battery overview default readings changed");
+        require(new DashboardConfig.Widget("tiles").keys.equals(Arrays.asList("power_w", "temperature_c", "battery_health_percent")),
+                "Reading tiles default readings changed");
+        require(new DashboardConfig.Widget("shortcuts").quickActions.equals(
+                        Arrays.asList("feature:maximum_speed", "feature:timed_charging")),
+                "Setting tiles default shortcuts changed");
+        require(new DashboardConfig.Widget("lockbar").quickActions.equals(local.navee.offlinelock.QuickAccessActions.defaultIds()),
+                "Lock bar must keep the generic shortcut defaults");
+        checks.add("Lock bar, Battery overview, Reading tiles and Setting tiles append to the catalog with their constructor readings/shortcuts, full-width defaults and 1/4/2/1-row heights");
+    }
+
     private void allWidgetsExample() throws Exception {
         String profile = "example-fresh", exampleKey = slotKey(profile, 2);
         DashboardConfig config = new DashboardConfig(preferences, profile);
@@ -97,7 +137,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                 "Saving the example changed fresh active columns");
         require(!config.slotExists(0) && !config.slotExists(1), "Example occupied another saved slot");
         require(config.slot(2) != null && config.slot(2).name.equals("All widgets")
-                        && config.slot(2).widgetCount == 15 && config.slot(2).columns == 6,
+                        && config.slot(2).widgetCount == DashboardConfig.TYPES.length && config.slot(2).columns == 6,
                 "Fresh third slot does not contain the complete named example");
         String seeded = preferences.getString(exampleKey, "");
         JSONObject snapshot = new JSONObject(seeded);
@@ -194,7 +234,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             float width = new float[] {0, 280, 312, 500, 640, 640, 600}[columns];
             for (float scale : new float[] {1, 1.4f}) {
                 cells = config.layout(columns, null, width, 10, scale);
-                require(cells.size() == 15, "Measured example lost a widget");
+                require(cells.size() == DashboardConfig.TYPES.length, "Measured example lost a widget");
                 for (int i = 0; i < cells.size(); i++) {
                     DashboardConfig.Widget widget = config.widgets.get(i);
                     DashboardLayout.Cell cell = cells.get(i);
@@ -209,8 +249,13 @@ public final class DashboardSlotsValidation extends Instrumentation {
         }
         require(geometry.equals(geometry(config, 1, 6)) && seeded.equals(preferences.getString(exampleKey, "")),
                 "Temporary window/font sizing changed the saved example");
-        DashboardLayout.Cell scooter = config.widgets.get(0).layouts.get(2), lock = config.widgets.get(1).layouts.get(2);
-        require(scooter.x == 0 && scooter.y == 0 && scooter.w == 2 && scooter.h == 3
+        DashboardLayout.Cell scooter = null, lock = null;
+        for (DashboardConfig.Widget widget : config.widgets) {
+            if (widget.type.equals("scooter")) scooter = widget.layouts.get(2);
+            if (widget.type.equals("lock")) lock = widget.layouts.get(2);
+        }
+        require(scooter != null && lock != null
+                        && scooter.x == 0 && scooter.y == 0 && scooter.w == 2 && scooter.h == 3
                         && lock.x == 0 && lock.y == 3 && lock.w == 1 && lock.h == 4,
                 "Compact example no longer keeps scooter and connection near the top");
         config.widgets.get(0).title = "My edited example"; config.save();
@@ -255,7 +300,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
 
     static void assertAllWidgetsExample(DashboardConfig config,
             java.util.function.BiConsumer<Boolean, String> check) {
-        check.accept(config.widgets.size() == 15, "Example must contain every widget type exactly once");
+        check.accept(config.widgets.size() == DashboardConfig.TYPES.length, "Example must contain every widget type exactly once");
         java.util.HashSet<String> types = new java.util.HashSet<>();
         for (DashboardConfig.Widget widget : config.widgets) {
             check.accept(types.add(widget.type), "Example repeats a widget type");
@@ -284,6 +329,17 @@ public final class DashboardSlotsValidation extends Instrumentation {
                     check.accept(widget.quickActions.equals(Arrays.asList("lights", "controls", "stats", "rides")), "Example shortcuts changed"); break;
                 case "lock":
                     check.accept(widget.showDisconnect, "Example hides manual disconnect"); break;
+                case "lockbar":
+                    check.accept(widget.showDisconnect, "Example lock bar options changed"); break;
+                case "overview":
+                    check.accept(widget.keys.size() <= 4,
+                            "Example battery overview has too many readings"); break;
+                case "tiles":
+                    check.accept(widget.keys.size() >= 1 && widget.keys.size() <= 4,
+                            "Example reading tiles need one to four readings"); break;
+                case "shortcuts":
+                    check.accept(widget.quickActions.size() >= 1 && widget.quickActions.size() <= 4,
+                            "Example setting tiles need one to four shortcuts"); break;
                 case "note":
                     check.accept(widget.note.length() > 0 && widget.note.length() < 160, "Example explanation is missing or too long"); break;
             }
@@ -331,40 +387,41 @@ public final class DashboardSlotsValidation extends Instrumentation {
                 "Restoring the backup failed to recover custom widgets and columns after default reset");
         fresh.reset();
         String five = geometry(fresh, 5, 5);
-        for (int columns = 1; columns <= 4; columns++) {
+        int defaultCount = fresh.widgets.size();
+        require(defaultCount == 5, "Release default must hold exactly five widgets");
+        for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
             ArrayList<DashboardLayout.Cell> captured = new ArrayList<>();
+            for (int i = 0; i < defaultCount; i++)
+                captured.add(fresh.widgets.get(i).layouts.get(columns).copy());
+            // The lock bar is always the first, top-left card so Connect needs no scrolling.
+            DashboardLayout.Cell lockBar = captured.get(0);
+            require(fresh.widgets.get(0).type.equals("lockbar") && lockBar.x == 0 && lockBar.y == 0,
+                    "Lock bar is not the top-left default card at " + columns + " columns");
+            int occupied = 0;
+            for (int i = 0; i < defaultCount; i++) occupied += captured.get(i).w * captured.get(i).h;
             int end = 0;
-            for (int i = 0; i < 6; i++) {
-                DashboardLayout.Cell cell = fresh.widgets.get(i).layouts.get(columns).copy();
-                captured.add(cell); end = Math.max(end, cell.y + cell.h);
-            }
-            for (int i = 6; i < 10; i++) {
-                DashboardLayout.Cell cell = fresh.widgets.get(i).layouts.get(columns);
-                DashboardConfig.Widget widget = fresh.widgets.get(i);
-                if (columns == 2 && (widget.type.equals("quick") || widget.type.equals("charging"))) {
-                    require(matchesTwoColumnGap(widget, cell), "Two-column supplemental card lost its safe gap");
-                    require(widget.minimumWidth(2, 312, 10, 1) == 1 && widget.minimumHeight(146) <= 4,
-                            "Two-column gap cannot contain the card at narrow default size");
-                } else {
-                    require(cell != null && cell.y >= end && cell.x == 0 && cell.w == columns,
-                            "Supplemental default must follow captured cards at " + columns + " columns");
-                    end = cell.y + cell.h;
-                }
-            }
+            for (DashboardLayout.Cell cell : captured) end = Math.max(end, cell.y + cell.h);
             java.util.List<DashboardLayout.Cell> settled = fresh.layout(columns, null);
-            for (int i = 0; i < 6; i++) {
+            require(settled.size() == defaultCount, "Default layout lost a widget at " + columns + " columns");
+            for (int i = 0; i < defaultCount; i++) {
                 DashboardLayout.Cell old = captured.get(i), cell = settled.get(i);
                 require(cell.x == old.x && cell.y == old.y && cell.w == old.w && cell.h == old.h,
-                        "Fallback cards displaced the captured " + fresh.widgets.get(i).type + " at " + columns + " columns");
+                        "Layout settling displaced the default " + fresh.widgets.get(i).type + " at " + columns + " columns");
             }
             for (int i = 0; i < settled.size(); i++)
                 for (int j = 0; j < i; j++)
                     require(!DashboardLayout.overlaps(settled.get(i), settled.get(j)),
-                            "Fallback default cards overlap at " + columns + " columns");
+                            "Default cards overlap at " + columns + " columns");
+            if (columns <= 5) {
+                // One full-width stack with no gaps between cards.
+                require(occupied == columns * end, "Default stack leaves a gap at " + columns + " columns");
+                for (DashboardLayout.Cell cell : captured)
+                    require(cell.x == 0 && cell.w == columns, "Default stack card is not full width at " + columns + " columns");
+            }
         }
         for (int columns = 1; columns <= 6; columns++) {
             java.util.List<DashboardLayout.Cell> cells = fresh.layout(columns, null, columns * 80, 10, 1.4f);
-            require(cells.size() == 10, "Adaptive fallback lost a default widget");
+            require(cells.size() == defaultCount, "Adaptive fallback lost a default widget");
             for (int i = 0; i < cells.size(); i++) {
                 DashboardLayout.Cell cell = cells.get(i);
                 require(cell.x >= 0 && cell.y >= 0 && cell.x + cell.w <= columns,
@@ -377,24 +434,19 @@ public final class DashboardSlotsValidation extends Instrumentation {
                         && preferences.getInt("dashboard_columns", -1) == 5,
                 "Fallback sizing rewrote the captured five-column layout or preference");
         require(preferences.edit().clear().commit(), "Could not reset isolated default fixture");
-        checks.add("Captured ten-widget options/layouts and fresh IDs match; narrow fallbacks retain early lock access; five-column defaults preserve upgrades, Adaptive choices, other profiles and slots");
+        checks.add("Five-widget Home default (lock bar, battery overview, reading tiles, setting tiles, recorder) options/1–6-column layouts and fresh IDs match; lock bar stays top-left; five-column defaults preserve upgrades, Adaptive choices, other profiles and slots");
     }
 
-    /** Golden sanitized release capture, independent of the production default factory. */
+    /** Golden sanitized release default, independent of the production default factory. */
     static void assertCapturedDefaults(DashboardConfig configuration,
             java.util.function.BiConsumer<Boolean, String> check) {
         try {
             JSONArray expected = new JSONArray(
-                    "[{\"type\":\"lock\",\"title\":\"Lock & connection\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,4,1,4],\"2\":[0,4,1,4],\"3\":[2,0,1,4],\"4\":[2,3,2,4],\"5\":[0,3,2,4],\"6\":[4,0,2,4]}}"
-                    + ",{\"type\":\"scooter\",\"title\":\"Your scooter\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"remaining_range_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,0,1,4],\"2\":[0,0,2,4],\"3\":[0,0,2,4],\"4\":[0,0,3,3],\"5\":[0,0,3,3],\"6\":[0,0,4,4]}}"
-                    + ",{\"type\":\"battery\",\"title\":\"Battery overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,4],\"2\":[0,8,1,4],\"3\":[2,4,1,5],\"4\":[2,7,2,5],\"5\":[2,3,3,4],\"6\":[3,4,3,5]}}"
-                    + ",{\"type\":\"live\",\"title\":\"Live trend\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":900000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,12,1,5],\"2\":[0,12,2,5],\"3\":[0,4,2,5],\"4\":[0,3,2,5],\"5\":[0,13,5,4],\"6\":[0,4,3,5]}}"
-                    + ",{\"type\":\"capacity\",\"title\":\"Capacity experiment\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":7776000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,17,1,6],\"2\":[0,17,2,6],\"3\":[0,13,3,6],\"4\":[0,12,4,6],\"5\":[0,22,5,5],\"6\":[0,13,6,6]}}"
-                    + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,23,1,4],\"2\":[0,23,2,4],\"3\":[0,9,1,4],\"4\":[0,8,2,4],\"5\":[0,7,5,1],\"6\":[0,9,3,4]}}"
-                    + ",{\"type\":\"quick\",\"title\":\"Quick access\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[3,0,2,3]}}"
-                    + ",{\"type\":\"health\",\"title\":\"Battery health\",\"metric\":\"battery_health_percent\",\"note\":\"\",\"color\":0,\"window\":2592000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[0,8,5,5]}}"
-                    + ",{\"type\":\"history\",\"title\":\"History chart\",\"metric\":\"battery_percent\",\"note\":\"\",\"color\":0,\"window\":604800000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[0,17,5,5]}}"
-                    + ",{\"type\":\"charging\",\"title\":\"Charging\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"5\":[0,27,5,4]}}]");
+                    "[{\"type\":\"lockbar\",\"title\":\"Lock bar\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,0,1,1],\"2\":[0,0,2,1],\"3\":[0,0,3,1],\"4\":[0,0,4,1],\"5\":[0,0,5,1],\"6\":[0,0,3,1]}}"
+                    + ",{\"type\":\"overview\",\"title\":\"Battery overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,1,1,4],\"2\":[0,1,2,4],\"3\":[0,1,3,4],\"4\":[0,1,4,4],\"5\":[0,1,5,4],\"6\":[0,1,3,4]}}"
+                    + ",{\"type\":\"tiles\",\"title\":\"Reading tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"power_w\",\"temperature_c\",\"battery_health_percent\"],\"layouts\":{\"1\":[0,5,1,2],\"2\":[0,5,2,2],\"3\":[0,5,3,2],\"4\":[0,5,4,2],\"5\":[0,5,5,2],\"6\":[3,0,3,2]}}"
+                    + ",{\"type\":\"shortcuts\",\"title\":\"Setting tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,7,1,1],\"2\":[0,7,2,1],\"3\":[0,7,3,1],\"4\":[0,7,4,1],\"5\":[0,7,5,1],\"6\":[3,2,3,1]}}"
+                    + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,1],\"2\":[0,8,2,1],\"3\":[0,8,3,1],\"4\":[0,8,4,1],\"5\":[0,8,5,1],\"6\":[3,3,3,1]}}]");
             check.accept(configuration.widgets.size() == expected.length(), "Captured default widget count changed");
             java.util.HashSet<String> ids = new java.util.HashSet<>();
             for (int i = 0; i < expected.length(); i++) {
@@ -414,34 +466,18 @@ public final class DashboardSlotsValidation extends Instrumentation {
                                 && new JSONArray(widget.quickActions).toString().equals(wanted.getJSONArray("quickActions").toString()),
                         "Captured readings or shortcut order changed for " + widget.type);
                 JSONObject layouts = wanted.getJSONObject("layouts");
-                boolean supplemental = i >= 6; // Only these cards lacked captured smaller-grid positions.
-                check.accept(widget.layouts.size() == layouts.length() + (supplemental ? 4 : 0),
-                        "Captured/supplemental layout set changed for " + widget.type);
-                for (int columns = 1; columns <= 6; columns++) {
-                    JSONArray rectangle = layouts.optJSONArray(Integer.toString(columns));
+                // Every default card has an explicit rectangle for every supported column count.
+                check.accept(widget.layouts.size() == layouts.length() && layouts.length() == DashboardConfig.MAX_COLUMNS,
+                        "Default layout set changed for " + widget.type);
+                for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
+                    JSONArray rectangle = layouts.getJSONArray(Integer.toString(columns));
                     DashboardLayout.Cell cell = widget.layouts.get(columns);
-                    if (rectangle == null) {
-                        boolean gapCard = columns == 2 && (widget.type.equals("quick") || widget.type.equals("charging"));
-                        check.accept(supplemental && columns <= 4
-                                        ? cell != null && cell.id.equals(widget.id) && (gapCard
-                                                ? matchesTwoColumnGap(widget, cell)
-                                                : cell.x == 0 && cell.w == columns && cell.y > 0)
-                                        : cell == null,
-                                "Unexpected supplemental rectangle for " + widget.type + " at " + columns + " columns");
-                        continue;
-                    }
                     check.accept(cell != null && cell.id.equals(widget.id) && cell.x == rectangle.getInt(0)
                                     && cell.y == rectangle.getInt(1) && cell.w == rectangle.getInt(2) && cell.h == rectangle.getInt(3),
                             "Captured " + columns + "-column rectangle changed for " + widget.type);
                 }
             }
         } catch (Exception failure) { throw new AssertionError("Default capture mismatch", failure); }
-    }
-
-    private static boolean matchesTwoColumnGap(DashboardConfig.Widget widget, DashboardLayout.Cell cell) {
-        return cell != null && cell.x == 1 && cell.w == 1 && cell.h == 4
-                && (widget.type.equals("quick") && cell.y == 4
-                        || widget.type.equals("charging") && cell.y == 8);
     }
 
     private void fullRoundTrip() throws Exception {
@@ -469,7 +505,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
         reopened.save();
         require(signature(new DashboardConfig(preferences, "alpha")).equals(expected), "close/save overwrote restored state");
         require(preferences.getString(slotKey("alpha", 0), "").equals(snapshot), "Restoration changed the stored snapshot");
-        checks.add("All 15 widget types, disconnect preferences, options, IDs and independent 1–6-column rectangles survive save/recreation/restore/close");
+        checks.add("All " + DashboardConfig.TYPES.length + " widget types, disconnect preferences, options, IDs and independent 1–6-column rectangles survive save/recreation/restore/close");
     }
 
     private void overwriteAndReset() throws Exception {
@@ -483,7 +519,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(config.saveSlot(0, "Alternate", 4), "Could not replace slot one");
         require(preferences.getString(slotKey("alpha", 1), "").equals(secondSnapshot), "Overwriting slot one changed slot two");
         config.reset();
-        require(config.widgets.size() == 10 && preferences.getInt("dashboard_columns", -1) == 5, "Default reset failed");
+        require(config.widgets.size() == 5 && preferences.getInt("dashboard_columns", -1) == 5, "Default reset failed");
         require(config.slot(0) != null && config.slot(1) != null, "Default reset erased saved slots");
         require(config.restoreSlot(0) && signature(config).equals(replacement), "Reset damaged alternate layout");
         require(preferences.getInt("dashboard_columns", -1) == 4, "Explicit column choice was not restored");
@@ -639,19 +675,23 @@ public final class DashboardSlotsValidation extends Instrumentation {
     private void sixColumnPersistence() throws Exception {
         DashboardConfig config = new DashboardConfig(preferences, "six-columns");
         config.layout(6, null);
-        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1);
-        require(lock.type.equals("lock") && scooter.type.equals("scooter"), "Unexpected default widget order");
-        require(scooter.layouts.get(6).x == 0 && scooter.layouts.get(6).w == 4
-                        && lock.layouts.get(6).x == 4 && lock.layouts.get(6).w == 2,
-                "Six-column defaults lost the two-thirds scooter/one-third lock split");
-        require(scooter.layouts.get(4).w == 3 && scooter.layouts.get(4).h == 3
-                        && lock.layouts.get(4).x == 2 && lock.layouts.get(4).y == 3
-                        && lock.layouts.get(4).w == 2,
-                "Adding six-column defaults changed the captured four-column defaults");
-        require(lock.minimumHeight() == 4, "Lock with Disconnect must reserve room for its action button");
+        DashboardConfig.Widget lock = config.widgets.get(0), overview = config.widgets.get(1);
+        DashboardConfig.Widget tiles = config.widgets.get(2);
+        require(lock.type.equals("lockbar") && overview.type.equals("overview") && tiles.type.equals("tiles"),
+                "Unexpected default widget order");
+        require(lock.layouts.get(6).x == 0 && lock.layouts.get(6).y == 0 && lock.layouts.get(6).w == 3
+                        && overview.layouts.get(6).x == 0 && overview.layouts.get(6).y == 1 && overview.layouts.get(6).w == 3
+                        && tiles.layouts.get(6).x == 3 && tiles.layouts.get(6).y == 0 && tiles.layouts.get(6).w == 3,
+                "Six-column defaults lost the two-column lock/overview beside tiles arrangement");
+        require(lock.layouts.get(4).x == 0 && lock.layouts.get(4).w == 4 && lock.layouts.get(4).h == 1
+                        && overview.layouts.get(4).x == 0 && overview.layouts.get(4).y == 1
+                        && overview.layouts.get(4).w == 4 && overview.layouts.get(4).h == 4,
+                "Adding six-column defaults changed the four-column full-width stack");
+        require(lock.minimumHeight() == 1, "Lock bar must fit one grid row with Disconnect enabled");
         lock.showDisconnect = false;
-        require(lock.minimumHeight() == 3, "Hiding Disconnect must allow the compact three-row lock");
-        lock.layouts.get(6).h = 3;
+        require(lock.minimumHeight() == 1, "Hiding Disconnect changed the one-row lock bar minimum");
+        require(overview.minimumHeight() == 3, "Battery overview minimum height changed");
+        overview.layouts.get(6).h = 3;
         String expected = signature(config);
         require(config.saveSlot(1, "Six-column split", 6), "Six-column snapshot could not be saved");
         require(config.slot(1).columns == 6, "Six-column metadata was truncated");
@@ -666,14 +706,15 @@ public final class DashboardSlotsValidation extends Instrumentation {
         reopened.save();
         require(signature(new DashboardConfig(preferences, "six-columns")).equals(expected),
                 "Six-column geometry or disconnect preference changed on save/recreation");
-        require(reopened.layout(6, null).get(0).h == 3,
-                "Restoring Disconnect=false no longer permits its compact saved lock height");
+        java.util.List<DashboardLayout.Cell> restoredSix = reopened.layout(6, null);
+        require(restoredSix.get(0).h == 1 && restoredSix.get(1).h == 3,
+                "Restoring no longer keeps the one-row lock bar and compact saved overview height");
         require(preferences.getString(slotKey("six-columns", 1), "").equals(saved),
                 "Restoring or saving the current layout rewrote its saved snapshot");
         require(reopened.saveSlot(2, "Five-column split", 5) && reopened.restoreSlot(2)
                         && preferences.getInt("dashboard_columns", -1) == 5,
                 "Five-column preference could not round-trip");
-        checks.add("Explicit five/six-column slots preserve every layout and Disconnect=false; default six-column scooter/lock uses 4+2 without changing 1–4");
+        checks.add("Explicit five/six-column slots preserve every layout and Disconnect=false; default six columns place lock bar/overview beside tiles without changing the 1–4 stack");
     }
 
     private void legacyFourColumnSlots() throws Exception {
@@ -726,16 +767,17 @@ public final class DashboardSlotsValidation extends Instrumentation {
         String expectedSlot = preferences.getString(slotKey("width-constraints", 0), "");
         String stored = preferences.getString("dashboard_v1_width-constraints", "");
         java.util.List<DashboardLayout.Cell> wide = config.layout(6, null, 900, 10, 1);
-        java.util.List<DashboardLayout.Cell> narrow = config.layout(6, null, 280, 10, 1.4f);
+        java.util.List<DashboardLayout.Cell> narrow = config.layout(6, null, 280, 10, 2f);
+        // The default lock bar is half of six columns; 2x text needs four of them at 280 dp.
         require(narrow.get(0).w > wide.get(0).w,
-                "Narrow/large-text fixture did not actually broaden the lock widget");
+                "Narrow/large-text fixture did not actually broaden the lock bar");
         require(signature(config).equals(expected), "Temporary width constraints mutated stored cell geometry");
         require(preferences.getString("dashboard_v1_width-constraints", "").equals(stored)
                         && preferences.getString(slotKey("width-constraints", 0), "").equals(expectedSlot),
                 "Temporary width constraints wrote to preferences or saved slots");
         for (int i = 0; i < narrow.size(); i++) {
             DashboardLayout.Cell cell = narrow.get(i);
-            require(cell.w >= config.widgets.get(i).minimumWidth(6, 280, 10, 1.4f)
+            require(cell.w >= config.widgets.get(i).minimumWidth(6, 280, 10, 2f)
                             && cell.x >= 0 && cell.x + cell.w <= 6,
                     "Narrow layout violated a card's minimum span or bounds");
             for (int j = 0; j < i; j++)
@@ -771,13 +813,13 @@ public final class DashboardSlotsValidation extends Instrumentation {
         DashboardConfig config = new DashboardConfig(preferences, "edit-history");
         DashboardEditHistory history = new DashboardEditHistory();
         Map<String, ?> diskBefore = new LinkedHashMap<>(preferences.getAll());
-        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1);
+        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1); // lock bar, battery overview
         String initialGeometry = geometry(config, 1, 6);
         DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
         // One completed action may move neighbors and resize the active widget.
         lock.layouts.get(6).x = 3; lock.layouts.get(6).w = 3;
         lock.layouts.get(6).y = 4; lock.layouts.get(6).h = 5;
-        scooter.layouts.get(6).w = 3;
+        scooter.layouts.get(6).w = 2; // default overview is three columns wide
         String editedGeometry = geometry(config, 1, 6);
         require(history.record(before, config) && history.canUndo() && !history.canRedo(),
                 "Movement/resize was not recorded as one history step");
@@ -839,7 +881,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
     private void editHistoryNoOpsAndBounds() throws Exception {
         DashboardConfig config = new DashboardConfig(preferences, "edit-history-bounds");
         DashboardEditHistory history = new DashboardEditHistory(2);
-        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1);
+        DashboardConfig.Widget lock = config.widgets.get(0), scooter = config.widgets.get(1); // lock bar, battery overview
         require(!history.canUndo() && !history.canRedo() && !history.undo(config) && !history.redo(config),
                 "Empty history performed an action");
         DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
