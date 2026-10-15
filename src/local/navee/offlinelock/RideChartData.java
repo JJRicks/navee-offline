@@ -104,6 +104,28 @@ public final class RideChartData {
         if (powerW == null || speedKmh == null || !Double.isFinite(powerW) || !Double.isFinite(speedKmh) || speedKmh < 3) return null;
         return powerW / speedKmh * (miles ? RideStore.KM_PER_MILE : 1);
     }
+    /** Confirmed sub-3 km/h stretches, in chart time. Missing power is not evidence
+     * of low speed; missing speed, source gaps and backwards clocks break a span. */
+    public static double[] lowSpeedSpans(Series speed) {
+        if (speed == null || !"speed_kmh".equals(speed.key)) return new double[0];
+        double threshold = "mph".equals(speed.unit) ? 3 / RideStore.KM_PER_MILE : 3;
+        ArrayList<Double> spans = new ArrayList<>();
+        Value previous = null; boolean extend = false;
+        for (Value value : speed.values) {
+            checkCanceled();
+            boolean below = speed.connects(previous, value)
+                    && previous.value >= 0 && value.value >= 0
+                    && previous.value < threshold && value.value < threshold;
+            if (below) {
+                if (extend) spans.set(spans.size() - 1, (double) value.time);
+                else { spans.add((double) previous.time); spans.add((double) value.time); }
+            }
+            extend = below; previous = value;
+        }
+        double[] result = new double[spans.size()];
+        for (int i = 0; i < result.length; i++) result[i] = spans.get(i);
+        return result;
+    }
     private static final class ClockIndex {
         final List<RideStore.Point> points;
         ClockIndex(List<RideStore.Point> source) { points = new ArrayList<>(source); points.sort(Comparator.comparingLong(p -> p.monotonicMs)); }

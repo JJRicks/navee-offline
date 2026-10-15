@@ -97,6 +97,27 @@ public final class RideChartDataTest {
         check(bootPhone.size()==1&&bootPhone.get(0).time==bootPoints.get(2).elapsedMs+500,"Indexed alignment disambiguates repeated monotonic clocks by matching the correct boot's wall offset");
         phoneStore.start("unmatched",900000,1000,"pocket");phoneStore.appendBatch("unmatched",PhoneRideStore.row("GPS",900500,1500,43.82,-111.78,2,5,.1,1500,2),"");
         check(RideChartData.build(bootPoints,phoneStore.loadSnapshot("unmatched"),false,true).get(2).values.isEmpty(),"Unmatched phone clock epoch is excluded instead of assigned a fabricated elapsed timestamp");
+        List<RideChartData.Value> slow = Arrays.asList(
+                new RideChartData.Value(0, 1d, 0), new RideChartData.Value(1000, 2d, 0),
+                new RideChartData.Value(2000, 0d, 0), new RideChartData.Value(3000, 3d, 0),
+                new RideChartData.Value(4000, null, 0), new RideChartData.Value(5000, 1d, 0),
+                new RideChartData.Value(6000, 1d, 1), new RideChartData.Value(7000, 2d, 1),
+                new RideChartData.Value(90000, 2d, 1), new RideChartData.Value(91000, 2d, 1));
+        double[] slowExpected = {0, 2000, 6000, 7000, 90000, 91000};
+        check(Arrays.equals(slowExpected, RideChartData.lowSpeedSpans(new RideChartData.Series(1, "km/h", slow))),
+                "Low-speed shading excludes threshold, missing readings, segment boundaries and long gaps");
+        List<RideChartData.Value> slowMiles = new ArrayList<>();
+        for (RideChartData.Value value : slow) slowMiles.add(new RideChartData.Value(value.time,
+                value.value == null ? null : value.value / RideStore.KM_PER_MILE, value.segment));
+        check(Arrays.equals(slowExpected, RideChartData.lowSpeedSpans(new RideChartData.Series(1, "mph", slowMiles))),
+                "Low-speed shading uses identical physical threshold in miles");
+        check(RideChartData.lowSpeedSpans(new RideChartData.Series(1, "km/h", segmented)).length == 0,
+                "Missing electrical readings at riding speed are not labeled below walking pace");
+        check(RideChartData.lowSpeedSpans(new RideChartData.Series(7, "Wh/km", sparse)).length == 0,
+                "Missing efficiency cannot be used as evidence of low speed");
+        check(RideChartData.lowSpeedSpans(new RideChartData.Series(1, "km/h", Arrays.asList(
+                new RideChartData.Value(2000, 1d, 0), new RideChartData.Value(1000, 1d, 0)))).length == 0,
+                "Reversed timestamps cannot hatch an unobserved interval");
         Thread.currentThread().interrupt(); boolean canceled = false;
         try { RideChartData.build(points, null, false, true); } catch (java.util.concurrent.CancellationException expected) { canceled = true; } finally { Thread.interrupted(); }
         check(canceled, "Full chart preparation honors cancellation before posting UI data");

@@ -1181,7 +1181,6 @@ public final class MainActivity extends Activity implements ScreenHost {
             LinearLayout card=design.card();card.setGravity(Gravity.CENTER_HORIZONTAL);card.setPadding(design.dp(18),design.dp(22),design.dp(18),design.dp(18));
             if(hasBluetoothPermission()){
                 Spinner spinner=new Spinner();card.addView(spinner,new LinearLayout.LayoutParams(design.dp(28),design.dp(28)));
-                TextView loading=design.caption("Loading…");loading.setGravity(Gravity.CENTER);loading.setPadding(0,design.dp(10),0,0);card.addView(loading,new LinearLayout.LayoutParams(-1,-2));
             }else{
                 TextView allow=design.button("Allow Nearby devices",MainActivity.this::requestBluetooth);
                 android.graphics.drawable.Drawable glyph=new android.graphics.drawable.Drawable(){
@@ -1195,9 +1194,6 @@ public final class MainActivity extends Activity implements ScreenHost {
                 LinearLayout.LayoutParams allowSize=new LinearLayout.LayoutParams(-2,-2);allowSize.bottomMargin=design.dp(6);card.addView(allow,allowSize);
                 TextView needed=design.caption("Needed to connect");needed.setGravity(Gravity.CENTER);card.addView(needed,new LinearLayout.LayoutParams(-1,-2));
             }
-            // The privacy fact stays as one line; the longer explanation is gone.
-            TextView local=design.caption("Everything stays on your phone");local.setGravity(Gravity.CENTER);local.setPadding(0,design.dp(14),0,0);
-            card.addView(local,new LinearLayout.LayoutParams(-1,-2));
             LinearLayout.LayoutParams top=new LinearLayout.LayoutParams(-1,-2);top.topMargin=design.dp(12);view.addView(card,top);
         }
         @Override public View view(){return view;}

@@ -50,7 +50,8 @@ public final class RideChartView extends View {
         if (!Double.isFinite(inspectedTime)) inspectedTime = lastSampleTime();
         else inspectedTime = Math.min(inspectedTime, duration);
         hatches.clear();
-        for (RideChartData.Series s : series) if ("wh_per_distance".equals(s.key)) hatches.add(belowLimit(s));
+        if (selected.contains("wh_per_distance")) for (RideChartData.Series s : all)
+            if ("speed_kmh".equals(s.key)) hatches.add(RideChartData.lowSpeedSpans(s));
         setMinimumWidth(ui.dp(220)); notifyInspection(); requestLayout(); invalidate();
     }
     /** The latest time every selected series has a real reading at or after; NaN when none has data. */
@@ -60,19 +61,6 @@ public final class RideChartView extends View {
             RideChartData.Value value = s.values.get(i);
             if (value.value != null && Double.isFinite(value.value)) { result = Double.isFinite(result) ? Math.min(result, value.time) : value.time; break; }
         }
-        return result;
-    }
-    /** Energy / distance has no value below walking pace: [start, end] time pairs of those stretches, hatched in the plot. */
-    private static double[] belowLimit(RideChartData.Series s) {
-        ArrayList<Double> runs = new ArrayList<>(); Double start = null; long previous = 0;
-        for (RideChartData.Value value : s.values) {
-            boolean missing = value.value == null || !Double.isFinite(value.value);
-            if (missing && start == null) start = (double) value.time;
-            else if (!missing && start != null) { runs.add(start); runs.add((double) value.time); start = null; }
-            previous = value.time;
-        }
-        if (start != null) { runs.add(start); runs.add((double) previous); }
-        double[] result = new double[runs.size()]; for (int i = 0; i < result.length; i++) result[i] = runs.get(i);
         return result;
     }
     private final List<double[]> hatches = new ArrayList<>();
