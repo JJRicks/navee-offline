@@ -107,19 +107,28 @@
       strong.textContent = `${power.toLocaleString('en-US')} W`;
       readout.append(strong, ` · ${speed} mph · ${grade >= 0 ? '+' : ''}${grade.toFixed(0)}% grade`);
     };
+    let frameId = 0, began = 0, live = false;
+    const loop = now => {
+      if (reduceMotion.matches) { frameId = 0; place(0.62); return; }
+      if (!document.hidden) {
+        const cycle = ((now - began) / 9000) % 2;
+        place(cycle < 1 ? cycle : 2 - cycle);
+      }
+      frameId = requestAnimationFrame(loop);
+    };
     const start = () => {
+      live = true;
       card.classList.add('live');
       if (reduceMotion.matches) { place(0.62); return; }
-      const began = performance.now();
-      const frame = now => {
-        if (!document.hidden) {
-          const cycle = ((now - began) / 9000) % 2;
-          place(cycle < 1 ? cycle : 2 - cycle);
-        }
-        requestAnimationFrame(frame);
-      };
-      requestAnimationFrame(frame);
+      began = performance.now();
+      frameId = requestAnimationFrame(loop);
     };
+    // Follow the reduced-motion preference if it changes while the page is open.
+    reduceMotion.addEventListener('change', () => {
+      if (!live) return;
+      if (reduceMotion.matches) { cancelAnimationFrame(frameId); frameId = 0; place(0.62); }
+      else if (!frameId) { began = performance.now(); frameId = requestAnimationFrame(loop); }
+    });
     if (reduceMotion.matches || !('IntersectionObserver' in window)) { start(); return; }
     const observer = new IntersectionObserver(entries => {
       if (!entries.some(entry => entry.isIntersecting)) return;
@@ -254,6 +263,13 @@
     document.addEventListener('visibilitychange', () => {
       if (document.hidden) { cancelAnimationFrame(frameId); frameId = 0; }
       else if (!reduceMotion.matches && !frameId) { last = 0; frameId = requestAnimationFrame(draw); }
+    });
+    reduceMotion.addEventListener('change', () => {
+      cancelAnimationFrame(frameId);
+      frameId = 0;
+      last = 0;
+      if (reduceMotion.matches) { arcs = []; draw(performance.now()); }
+      else frameId = requestAnimationFrame(draw);
     });
     if (reduceMotion.matches) draw(performance.now());
     else frameId = requestAnimationFrame(draw);
