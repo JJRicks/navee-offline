@@ -69,6 +69,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     private static final String MORE_AWAY_AT="more_away_elapsed", MORE_AWAY_BOOT="more_away_boot";
     private static final java.util.Set<String> preparingExports=java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     private final Handler handler=new Handler(Looper.getMainLooper());
+    private final ConnectionFeedbackState connectionFeedback=new ConnectionFeedbackState();
+    private final ConnectionHapticPlayer connectionHaptics=new ConnectionHapticPlayer();
     // Volt order: Scooter is the raised centre button of the floating tab bar.
     private final String[] pages={"home","stats","controls","rides","more"};
     private final String[] names={"Home","Live Stats","Scooter","Rides","More"};
@@ -130,12 +132,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         @Override public void onServiceConnected(ComponentName name,IBinder binder){
             if(destroyed || enteringMaintenance || startupRedirect)return;
             scooterService=((ScooterService.LocalBinder)binder).service();bound=true;binding=false;
+            observeConnectionFeedback(true);
             scooterService.listen(serviceChanged);scooterService.visible(resumed);
             if(resumed){maybeApplyOwnerImport();if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}
             rebuild();
         }
         @Override public void onServiceDisconnected(ComponentName name){
-            scooterService=null;bound=false;binding=false;rebuild();
+            scooterService=null;bound=false;binding=false;observeConnectionFeedback(true);rebuild();
         }
     };
     @Override public void onCreate(Bundle saved){
@@ -181,6 +184,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     @Override public void onResume(){
         super.onResume();if(startupRedirect || enteringMaintenance)return;resumed=true;ScooterService.setUiVisible(true);fold.start();
+        observeConnectionFeedback(true);
         if(selectedPage.equals("more")){boolean expired=expireMoreSection(true);markMoreActive();if(expired)rebuild();}
         if(selectedPage.equals("stats")){boolean expired=expireStatsSection(true);markStatsActive();if(expired)rebuild();}
         if(hasBluetoothPermission()){ensureService();if(bound&&scooterService!=null)startService(new Intent(this,ScooterService.class));}
@@ -189,6 +193,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         finishRidePermission();
     }
     @Override public void onPause(){
+        connectionHaptics.cancel();
         if(startupRedirect || enteringMaintenance){super.onPause();return;}
         if(selectedPage.equals("more"))markMoreAway();
         if(selectedPage.equals("stats"))markStatsAway();
@@ -197,6 +202,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         super.onPause();
     }
     @Override public void onDestroy(){
+        connectionHaptics.cancel();
         if(startupRedirect){destroyed=true;super.onDestroy();return;}
         if(Build.VERSION.SDK_INT>=33&&systemBack!=null)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(systemBack);
         destroyed=true;closeQuickMenu();pendingRideLocation=null;if(controlDialog!=null)controlDialog.dismiss();bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
@@ -227,6 +233,26 @@ public final class MainActivity extends Activity implements ScreenHost {
         finish();
     }
     @Override public void onConfigurationChanged(Configuration next){super.onConfigurationChanged(next);rebuild();}
+    @Override public void onWindowFocusChanged(boolean focused){
+        super.onWindowFocusChanged(focused);
+        // Returning to the app (or dismissing a dialog) is not a new scooter connection.
+        observeConnectionFeedback(true);
+    }
+    private void observeConnectionFeedback(boolean baseline){
+        if(Looper.myLooper()!=Looper.getMainLooper()){
+            handler.post(()->observeConnectionFeedback(baseline));return;
+        }
+        BleController ble=scooterService==null||scooterService.simulating()?null:scooterService.ble;
+        // READY means authentication, serial and first status succeeded. Unlike ready(),
+        // it does not flicker when a telemetry reading becomes stale.
+        boolean connected=ble!=null&&ble.state()==BleController.State.READY&&ble.connected();
+        boolean focused=resumed&&!destroyed&&!startupRedirect&&!enteringMaintenance&&hasWindowFocus();
+        if(baseline){connectionFeedback.baseline(ble,connected);connectionHaptics.cancel();return;}
+        ConnectionFeedbackState.Event event=connectionFeedback.observe(ble,connected,focused);
+        if(!focused||ble==null)connectionHaptics.cancel();
+        else if(event!=ConnectionFeedbackState.Event.NONE)
+            connectionHaptics.play(getWindow().getDecorView(),event==ConnectionFeedbackState.Event.CONNECTED);
+    }
     private final Runnable pulse=new Runnable(){@Override public void run(){
         if(!resumed||destroyed||enteringMaintenance)return;maybeApplyOwnerImport();automaticRefresh();maybeLaunchSave();handler.postDelayed(this,1000);
     }};
@@ -255,6 +281,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void automaticRefresh(){
         if(destroyed||design==null)return;
         if(Looper.myLooper()!=Looper.getMainLooper()){handler.post(this::automaticRefresh);return;}
+        observeConnectionFeedback(false);
         if (displayedSimulation != (scooterService != null && scooterService.simulating())) {
             handler.removeCallbacks(settingsRebuild); handler.post(settingsRebuild); return;
         }
@@ -1667,7 +1694,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(scooterService==null)scooterService=ScooterService.currentForMaintenance();
         String unavailable=scooterService==null?null:scooterService.dataMaintenanceUnavailable();
         if(unavailable!=null){toast(unavailable);return;}
-        enteringMaintenance=true;resumed=false;pendingConnect=pendingScan=false;
+        enteringMaintenance=true;resumed=false;connectionHaptics.cancel();pendingConnect=pendingScan=false;
         closeQuickMenu();if(scanDialog!=null)scanDialog.dismiss();if(controlDialog!=null)controlDialog.dismiss();
         if(screen!=null){screen.close();screen=null;}onboarding=null;
         preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
