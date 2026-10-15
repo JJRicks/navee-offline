@@ -609,6 +609,15 @@ public final class DashboardValidation extends Instrumentation {
             require(connect.getHeight() >= activity.ui().dp(48) - 1, "Lock bar Connect lost its 48 dp touch target");
             require(((View)lockBar).getHeight() <= Math.round(((Number)invoke(grid(), "rowHeight")).floatValue()) + 1,
                     "Default Lock bar grew beyond one grid row");
+            // Frameless: no widget card or padding; the offline row is the card and fills the cell.
+            require(dashboard().isEditing() || ((View)lockBar).getBackground() == null,
+                    "Lock bar kept the widget card chrome around its own card");
+            View row = ((ViewGroup)lockBody).getChildAt(0);
+            Rect rowBox = relativeBounds(row, (View)lockBar);
+            require(dashboard().isEditing() || (rowBox.left <= 1 && rowBox.top <= 1
+                            && Math.abs(rowBox.width() - ((View)lockBar).getWidth()) <= 1
+                            && Math.abs(rowBox.height() - ((View)lockBar).getHeight()) <= 1),
+                    "Offline Lock bar row does not fill its frameless cell: " + rowBox);
 
             String overview = bodyText(tile("overview")).toLowerCase(Locale.ROOT);
             require(overview.contains("73") && overview.contains("%"), "Scooter overview lacks its cached percentage");
@@ -994,9 +1003,9 @@ public final class DashboardValidation extends Instrumentation {
                 String type = widgetById(entry.getKey()).type;
                 require(sameCell(a.cell, b.cell) && a.outer.equals(b.outer),
                         type + ": entering Edit changed the card's position or size");
-                // Reading and setting tiles are frameless: Edit deliberately adds the widget card's
+                // Reading/setting tiles and the Lock bar are frameless: Edit deliberately adds the widget card's
                 // padding around them so the handles read as one widget. Every other type stays put.
-                if (type.equals("tiles") || type.equals("shortcuts")) continue;
+                if (type.equals("tiles") || type.equals("shortcuts") || type.equals("lockbar")) continue;
                 require(a.body.equals(b.body) && a.heading.equals(b.heading) && a.footer.equals(b.footer),
                         type + ": editing controls changed the content, heading or footer geometry");
                 require(a.textBounds.equals(b.textBounds) && a.textSizes.equals(b.textSizes),

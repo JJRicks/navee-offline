@@ -544,8 +544,18 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 require(bounds.left >= 0 && bounds.top >= 0 && bounds.right <= viewport.getWidth() && bounds.bottom <= viewport.getHeight(),
                         state + " action is clipped: " + bounds + " in " + viewport.getWidth() + "x" + viewport.getHeight());
                 require(action.getWidth() >= activity.ui().dp(48) && action.getHeight() >= activity.ui().dp(48), state + " action lost its touch target");
-                if (bar && (state.equals("locked") || state.equals("unlocked")))
+                if (bar && (state.equals("locked") || state.equals("unlocked"))) {
                     require(action.isShown(), "Connected Lock bar does not show its tap-or-slide LockControl");
+                    // The slider is the card: frameless, it fills the whole cell unless Disconnect sits beside it.
+                    if (!dashboard().isEditing()) {
+                        require(card.getBackground() == null, "Connected Lock bar kept the widget card chrome");
+                        Rect slider = relativeBounds(action, card);
+                        boolean beside = ((View)field(activity, "connectionAction")).isShown();
+                        require(slider.left <= 1 && slider.top <= 1 && Math.abs(slider.height() - card.getHeight()) <= 1
+                                        && (beside || Math.abs(slider.width() - card.getWidth()) <= 1),
+                                "Connected Lock bar slider does not fill its cell: " + slider + " in " + card.getWidth() + "x" + card.getHeight());
+                    }
+                }
                 if (bar && state.equals("disconnected")) {
                     boolean unknown = false, connect = false;
                     for (TextView text : texts(body)) if (text.isShown()) {
