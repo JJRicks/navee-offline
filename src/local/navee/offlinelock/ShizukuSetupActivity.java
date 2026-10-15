@@ -147,7 +147,8 @@ public final class ShizukuSetupActivity extends Activity {
         steps(3);
         text("Capture from your scooter", 22, true);
         status();
-        text("NAVEE must connect first.", 16, false);
+        text("Connect to your parked scooter in NAVEE first.", 16, false);
+        text("Capture restarts NAVEE and temporarily enables logging. Keep Shizuku running until cleanup finishes.", 15, false);
         CheckBox agree = new CheckBox(this); agree.setText("I own this scooter or have permission.");
         agree.setTextColor(ui.text); agree.setTextSize(15 * ui.textScale); agree.setChecked(consent);
         agree.setPadding(0, ui.dp(12), 0, ui.dp(12)); agree.setMinHeight(ui.dp(48)); content.addView(agree);

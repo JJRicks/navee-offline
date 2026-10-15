@@ -158,7 +158,7 @@ final class ShizukuCaptureClient {
                 boolean wasCancelled = sessionCancelled || !busy;
                 busy = false; phase = 0; owner = null;
                 if (clean && !journal.edit().clear().commit()) cleanResultFailure();
-                else if (!clean) message = "NAVEE logging still on";
+                else if (!clean) message = "Logging cleanup unconfirmed";
                 else if (!wasCancelled && outcome == OwnerCaptureEngine.OK && identity != null
                         && identity.matches("[0-9A-Fa-f]{12}") && (role == 0 || role == 1)) {
                     owner = new OwnerIdentityParser.Result(identity.toUpperCase(java.util.Locale.ROOT), role);

@@ -7,6 +7,7 @@ import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.BluetoothManager;
 import android.content.Context;
 import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
@@ -100,6 +101,27 @@ public final class BackupUiValidation extends Instrumentation {
             require((backup.getWindow().getAttributes().flags&android.view.WindowManager.LayoutParams.FLAG_SECURE)!=0,"Backup screenshot protection missing");
             onMain(()->root(backup).findViewWithTag("full-restore-choose").performClick());
             require(secret.getError()!=null&&!Boolean.TRUE.equals(field(backup,"waitingForPicker")),"Empty password opened picker");
+            // Exercise the actual encryption-to-save-picker transition. Cancelling the picker
+            // must leave Close Volt enabled; otherwise the new busy-state button strands export.
+            IntentFilter saves=new IntentFilter(Intent.ACTION_CREATE_DOCUMENT);
+            saves.addCategory(Intent.CATEGORY_OPENABLE);
+            try{saves.addDataType("application/octet-stream");}catch(IntentFilter.MalformedMimeTypeException impossible){throw new AssertionError(impossible);}
+            ActivityMonitor savePicker=addMonitor(saves,new ActivityResult(Activity.RESULT_CANCELED,null),true);
+            onMain(()->{
+                setField(backup,"restore",false);
+                ((android.widget.LinearLayout)field(backup,"content")).removeAllViews();
+                invoke(backup,"form",new Class<?>[]{});
+                ((EditText)field(backup,"password")).setText("Synthetic backup UI test");
+                ((EditText)field(backup,"repeat")).setText("Synthetic backup UI test");
+                root(backup).findViewWithTag("full-backup-create").performClick();
+                require(!((TextView)field(backup,"closeAction")).isEnabled(),"Close Volt stayed enabled while encrypting");
+            });
+            await(()->savePicker.getHits()>0&&!Boolean.TRUE.equals(field(backup,"waitingForPicker")),"Encrypted backup did not reach the cancelled save picker");
+            require(((TextView)field(backup,"closeAction")).isEnabled(),"Close Volt stayed disabled after cancelling save picker");
+            require("No file selected".contentEquals(((TextView)field(backup,"status")).getText()),"Picker cancellation status missing");
+            require(((File)field(backup,"exported")).isFile(),"Cancelled picker discarded encrypted backup before retry");
+            removeMonitor(savePicker);
+            checks.add("Encryption disables Close only while busy; canceling the save picker re-enables Close and preserves the encrypted file for retry");
             CountDownLatch workStarted=new CountDownLatch(1);
             Runnable synthetic=()->{workStarted.countDown();try{releaseWork.await(10,TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}};
             onMain(()->invoke(backup,"submit",new Class<?>[]{Runnable.class},synthetic));
@@ -145,6 +167,7 @@ public final class BackupUiValidation extends Instrumentation {
         if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView found=text(group.getChildAt(i),wanted);if(found!=null)return found;}}return null;}
     private void clickText(View root,String wanted){View found=text(root,wanted);require(found!=null,"Missing text "+wanted);while(!found.isClickable()&&found.getParent()instanceof View)found=(View)found.getParent();require(found.performClick(),"Could not click "+wanted);}
     private Object field(Object object,String name){try{Field f=object.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(object);}catch(Exception e){throw new RuntimeException(e);}}
+    private void setField(Object object,String name,Object value){try{Field f=object.getClass().getDeclaredField(name);f.setAccessible(true);f.set(object,value);}catch(Exception e){throw new RuntimeException(e);}}
     private Object invoke(Object object,String name,Class<?>[] types,Object...args){try{Method m=object.getClass().getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(object,args);}catch(Exception e){throw new RuntimeException(e);}}
     private void onMain(Runnable action){AtomicReference<Throwable> error=new AtomicReference<>();runOnMainSync(()->{try{action.run();}catch(Throwable e){error.set(e);}});if(error.get()!=null)throw new RuntimeException(error.get());waitForIdleSync();}
     private void await(BooleanSupplier ready,String message){long limit=SystemClock.elapsedRealtime()+10000;while(SystemClock.elapsedRealtime()<limit){if(ready.getAsBoolean())return;SystemClock.sleep(30);}throw new AssertionError(message);}

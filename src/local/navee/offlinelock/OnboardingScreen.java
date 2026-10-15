@@ -1205,7 +1205,7 @@ public final class OnboardingScreen implements AppScreen {
             if (service == null) message = needsNearby ? "" : "Starting…";
             else if (!configured || pendingOwnerFile().isFile()) message = "Waiting for your owner profile…";
             else if (state == BleController.State.SCANNING)
-                message = service.ble.discoveries().isEmpty() ? "Searching…" : "";
+                message = ""; // The active checklist row already shows that discovery is in progress.
             else if ((state == BleController.State.DISCONNECTED || state == BleController.State.WAITING)
                     && prefs.getBoolean(KEY_TRIED, false)) {
                 // After an attempt, the controller's message is the problem to show (scan timeout, failure).

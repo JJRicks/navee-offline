@@ -38,6 +38,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(()->activity.service()!=null,"Service missing");service=activity.service();await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Charge model load did not finish");
             main(()->{invoke(activity,"select",new Class<?>[]{String.class},"more");invoke(field(activity,"screen"),"selectSection",new Class<?>[]{String.class},"Developer");});settle();
+            verifyCaptureConfirmation();
             main(()->{
                 View selector=root().findViewWithTag("charge-charger-selector");require(selector!=null,"Charger selector missing");
                 require(!root().findViewWithTag("charge-capture-action").isEnabled(),"Disconnected capture action is enabled");
@@ -134,6 +135,41 @@ public final class ChargeCaptureValidation extends Instrumentation {
             result.putString("result","PASS");
         }catch(Throwable error){result.putString("result","FAIL");result.putString("error",error.toString());error.printStackTrace();try{if(activity!=null)screenshot("failure");}catch(Throwable ignored){}}
         finally{result.putInt("assertions",checks);result.putBoolean("real_bluetooth_capture_tested",false);if(activity!=null)main(()->{activity.finish();getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});finish("PASS".equals(result.getString("result"))?0:1,result);}
+    }
+    /** Opening and cancelling the new charger picker must not write setup preferences. */
+    private void verifyCaptureConfirmation(){
+        main(()->{
+            MoreScreen more=(MoreScreen)field(activity,"screen");
+            ChargeSessionStore.Charger previous=service.chargeCharger();
+            invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
+            android.app.AlertDialog dialog=lastDialog(more);
+            View selector=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-selector");
+            require(selector!=null,"Charge confirmation has no charger choice");
+            @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
+            choices.get(1).performClick();
+            require(service.chargeCharger()==previous,"Unconfirmed charger choice changed estimates");
+            require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Confirmation did not reflect its local choice");
+            findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
+            require(service.chargeCharger()==previous&&!service.isChargeRecording()&&files().length==0,"Cancelling charge confirmation changed capture state");
+
+            invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
+            dialog=lastDialog(more);
+            ScooterProfiles.Profile second=service.profiles.create("Consent target fixture","222222222222",0);
+            findText(dialog.getWindow().getDecorView(),"Start recording").performClick();
+            require(service.chargeCharger()==null&&!service.isChargeRecording()&&files().length==0,"Stale charge consent affected a different scooter");
+            service.profiles.select(profile);service.profiles.remove(second.id);
+            require(service.chargeCharger()==previous,"Stale consent changed original scooter estimates");
+        });
+        await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Consent fixture model reload did not finish");
+    }
+    private android.app.AlertDialog lastDialog(MoreScreen more){
+        @SuppressWarnings("unchecked") List<android.app.AlertDialog> dialogs=(List<android.app.AlertDialog>)field(more,"dialogs");
+        require(!dialogs.isEmpty(),"Charge confirmation missing");return dialogs.get(dialogs.size()-1);
+    }
+    private TextView findText(View view,String text){
+        if(view instanceof TextView&&text.contentEquals(((TextView)view).getText()))return(TextView)view;
+        if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView found=findText(group.getChildAt(i),text);if(found!=null)return found;}}
+        return null;
     }
     /** Fault injection stays below the real-start gate: no adapter or GATT is enabled. */
     private void verifyRecoveryTransitions(){

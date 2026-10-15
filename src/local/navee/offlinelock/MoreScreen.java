@@ -1752,24 +1752,32 @@ public final class MoreScreen implements AppScreen {
      * Older recordings beyond the 20 kept are dropped.
      */
     private void recordChargeDialog(ScooterService s) {
+        ScooterProfiles.Profile profile = active();
+        if (profile == null) { host.toast("Choose a scooter first."); return; }
+        final String profileId = profile.id;
+        final ChargeSessionStore.Charger[] selected = {chosenCharger};
         LinearLayout box = dialogBox("", "Saved on phone · stops at 100% · keeps the last 20");
         TextView heading = (TextView) box.getChildAt(0);
-        Runnable title = () -> heading.setText("Record with " + (chosenCharger == ChargeSessionStore.Charger.STOCK ? "Stock" : "High-speed") + " charger?");
+        Runnable title = () -> heading.setText("Record with " + (selected[0] == ChargeSessionStore.Charger.STOCK ? "Stock" : "High-speed") + " charger?");
         title.run();
+        // A choice in a confirmation panel is provisional until Start. Cancel must not change
+        // future estimates, and an open panel must never start a different scooter's recording.
         SegmentedSelector picker = new SegmentedSelector(ui, "Attached charger", new String[]{"Stock", "High-speed"}, choice -> {
-            ScooterService current = service(); if (current == null || current.isChargeRecording()) return;
-            chosenCharger = choice == 0 ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED;
-            current.setChargeCharger(chosenCharger); title.run();
-            if (chargeChargerSelector != null) chargeChargerSelector.select(choice, false);
-            refreshDeveloper();
+            selected[0] = choice == 0 ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED;
+            title.run();
         });
-        picker.select(chosenCharger == ChargeSessionStore.Charger.STOCK ? 0 : 1, false);
+        picker.setTag("charge-confirmation-selector");
+        picker.select(selected[0] == ChargeSessionStore.Charger.STOCK ? 0 : 1, false);
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2); pp.topMargin = ui.dp(6); pp.bottomMargin = ui.dp(6);
         box.addView(picker, pp);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
         dialogButtons(box, "Cancel", dialog::dismiss, "Start recording", () -> {
             dialog.dismiss();
-            if (!s.startChargeRecording(chosenCharger)) host.toast(s.chargeCaptureStatus());
+            ScooterProfiles.Profile current = active();
+            if (closed || service() != s || current == null || !profileId.equals(current.id)) {
+                host.toast("Scooter changed · reopen"); return;
+            }
+            if (!s.startChargeRecording(selected[0])) host.toast(s.chargeCaptureStatus());
             refreshDeveloper();
         });
         show(dialog, picker::finishMotion);

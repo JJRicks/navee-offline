@@ -155,6 +155,7 @@ public final class BackupActivity extends Activity {
         if(busy||waitingForPicker||terminal||isDestroyed()||isFinishing())return;
         if(exported==null||!exported.isFile()){retry("The encrypted backup is unavailable. Create it again.");return;}
         status.setText("");
+        if(closeAction!=null)closeAction.setEnabled(true);
         action.setText("Save encrypted backup");action.setEnabled(true);action.setOnClickListener(v->launchSave());
         Intent picker=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream");
         picker.putExtra(Intent.EXTRA_TITLE,"volt-"+new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm",java.util.Locale.ROOT).format(new java.util.Date())+".voltbackup");
@@ -182,6 +183,7 @@ public final class BackupActivity extends Activity {
     }
     private void confirmRestore(){
         if(staged==null)return;
+        if(closeAction!=null)closeAction.setEnabled(true);
         String date=java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(staged.createdAtMs));
         status.setText("Backup checked · "+date+"\n"+staged.profileCount+" scooter profiles · "+staged.fileCount+" data files");
         confirmation=new AlertDialog.Builder(this).setTitle("Replace all saved app data?")
