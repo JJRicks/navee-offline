@@ -112,11 +112,13 @@ public final class BackupUiValidation extends Instrumentation {
             BackupActivity resumed=(BackupActivity)replacement;current=resumed;
             await(()->text(root(resumed),"Backup session interrupted")!=null,"Recreation did not fence previous session");
             require(root(resumed).findViewWithTag("full-restore-choose")==null,"Recreated session permits another import");
+            await(()->!((android.widget.TextView)field(resumed,"closeAction")).isEnabled(),"Close Volt stayed enabled during active work");
             onMain(()->invoke(resumed,"requestClose",new Class<?>[]{}));
             require(!resumed.isFinishing(),"Close killed an active backup operation");
             releaseWork.countDown();
             await(()->!Boolean.TRUE.equals(field(resumed,"busy")),"Interrupted session never became closable");
             require(Boolean.TRUE.equals(field(resumed,"terminal")),"Interrupted session resumed mutable forms");
+            require(((android.widget.TextView)field(resumed,"closeAction")).isEnabled(),"Close Volt stayed disabled after work finished");
             removeMonitor(backupMonitor);
             checks.add("Password is not saved or screenshot-visible; recreation waits for active work, blocks a second operation and only permits closing/reopening afterward");
             result.putString("result","PASS");

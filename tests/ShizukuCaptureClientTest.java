@@ -25,6 +25,7 @@ public final class ShizukuCaptureClientTest {
         matchingJournalOnly();
         staleBindingsAndTimeout();
         staleDeathAndResult();
+        discardClearsStatus();
         System.out.println("ShizukuCaptureClientTest: " + checks + " checks passed");
     }
 
@@ -119,6 +120,18 @@ public final class ShizukuCaptureClientTest {
         Handler.drain();
         check(!f.client.busy && !f.client.pendingCleanup(), "confirmed clean completion clears journal");
         check(f.client.owner == null, "cancelled capture never exposes owner for import");
+    }
+
+    private static void discardClearsStatus() throws Exception {
+        Fixture f = new Fixture(false);
+        f.client.start(false);
+        Remote remote = new Remote(); f.binding().onServiceConnected(null, remote);
+        check(remote.callback.prepareCleanup(remote.token, ""), "capture journals before reading");
+        remote.callback.completed(remote.token, OwnerCaptureEngine.TIMED_OUT, true, null, 0);
+        Handler.drain();
+        check(!f.client.message.isEmpty(), "timed out capture reports a status");
+        f.client.discard();
+        check(f.client.owner == null && f.client.message.isEmpty(), "discard leaves no stale status for the capture step");
     }
 
     private static void matchingJournalOnly() throws Exception {

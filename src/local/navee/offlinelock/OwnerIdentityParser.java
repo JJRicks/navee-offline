@@ -42,7 +42,7 @@ public final class OwnerIdentityParser {
             explicitId = value;
         }
         if (count(ID_KEY, input) != identityFields)
-            throw new IllegalArgumentException("Owner identity must contain exactly 12 hexadecimal characters.");
+            throw new IllegalArgumentException("Need 12 hex characters");
         if (explicitId != null) return new Result(explicitId, explicitRole(input));
 
         Result found = null;
@@ -72,8 +72,7 @@ public final class OwnerIdentityParser {
                 ambiguous();
             found = captured;
         }
-        if (found == null) throw new IllegalArgumentException(
-                "No valid owner identity found. Import your private setup backup or a fresh NAVEE authentication capture.");
+        if (found == null) throw new IllegalArgumentException("No owner identity in file");
         return found;
     }
 
@@ -88,7 +87,7 @@ public final class OwnerIdentityParser {
             role = value;
         }
         if (count(ROLE_KEY, input) != roleFields)
-            throw new IllegalArgumentException("Owner setup role must be 0 (owner) or 1 (shared user).");
+            throw new IllegalArgumentException("Unsupported owner role");
         Matcher shared = SHARED_FIELD.matcher(input);
         while (shared.find()) {
             int value = "ON".equalsIgnoreCase(shared.group(1)) ? 1 : 0;
