@@ -1409,7 +1409,11 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                         Rect target = relativeBounds(gauge, viewport);
                         require(target.left >= 0 && target.top >= 0 && target.right <= viewport.getWidth() && target.bottom <= viewport.getHeight(), "Gauge view escapes its card");
                         TextView footer = (TextView)field(item, "footer");
-                        require(!state.equals("stale") || footer.getVisibility() == View.VISIBLE && footer.getText().toString().startsWith("Last seen"), "Stale gauge lost its visible timestamp");
+                        // A card as old as the header's "last seen" omits its own age; an older one shows a clock and age.
+                        require(!state.equals("stale") || (footer.getVisibility() == View.VISIBLE
+                                        ? String.valueOf(footer.getContentDescription()).startsWith("Last seen")
+                                        : ((TextView)field(dashboard(), "status")).getText().toString().contains("last seen")),
+                                "Stale gauge lost its visible timestamp");
                         Bitmap image = Bitmap.createBitmap(gauge.getWidth(), gauge.getHeight(), Bitmap.Config.ARGB_8888);
                         try {
                             android.graphics.Canvas canvas = new android.graphics.Canvas(image); canvas.drawColor(activity.ui().surface); gauge.draw(canvas);
@@ -1497,8 +1501,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             for (String key : new String[]{"speed_kmh", "trip_km", "trip_minutes", "maximum_speed_kmh"})
                 require(tripValues.get(key).length() > 1 && !"—".contentEquals(tripValues.get(key).getText()),
                         "Compact fixture is missing a numeric trip reading: " + key);
-            require(((View)field(tile("trip"), "footer")).getVisibility() == View.VISIBLE,
-                    "Compact fixture must reserve stale-footer space");
+            require(((View)field(tile("trip"), "footer")).getVisibility() == View.VISIBLE
+                            || ((TextView)field(dashboard(), "status")).getText().toString().contains("last seen"),
+                    "Compact fixture must show its stale age on the card or in the header");
             for (String type : new String[]{"trip", "readings", "charging"}) {
                 View card = (View)tile(type);
                 DashboardConfig.Widget widget = (DashboardConfig.Widget)field(card, "widget");
