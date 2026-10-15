@@ -1,5 +1,5 @@
 VOLT — UT5 MAX FEATURE AVAILABILITY
-Current version: 0.12.1 (versionCode 25)
+Current version: 0.13.0 (versionCode 26)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -7,11 +7,13 @@ The app talks directly to the scooter over Bluetooth. Optional map tiles use
 internet; authentication, controls and recording require no server. First-time
 owner setup is covered in SETUP.txt.
 
-0.12.1 adds optional haptic feedback for tabs, choices, switches, favourites,
-dashboard editing and confirmed lock/ride actions. App preferences can turn it
-off; Android's Touch feedback setting remains respected. Thumb swipes now
-commit switch changes. Crease posture changes keep the current layout steady,
-while physical hinges still separate content. More opens at a stable split.
+0.13.0 introduces the Volt name and lightning-bolt icon, centered narrow-screen
+five-column layouts with whole-word compact captions, expanded ride maps, and
+automatic ride-name keyboard focus. The Location row opens Android app settings.
+Quick access toggles and foreground connection changes add optional haptics.
+The new normal VIBRATE permission supports shaped effects; both app and system
+haptic preferences apply, with a fallback on older hardware. Setup/recovery
+pages share Volt's dark/red theme with bundled local fonts.
 No new scooter command or decoded telemetry field is introduced by this pass.
 See VERIFICATION.txt for executed checks and physical validation limits.
 

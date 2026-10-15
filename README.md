@@ -2,18 +2,18 @@
 
 A native Android companion for an already activated, owner-bound **NAVEE UT5 MAX**. Bluetooth connection, lock/unlock, scooter settings, diagnostics, and ride recording work locally. An optional USGS Topo basemap uses internet access; controls and recordings require no server or account. Route geometry is drawn locally even when map tiles are unavailable.
 
-Current application version: **0.12.1** (versionCode 25). Independent project; not affiliated with NAVEE. Volt was previously called Navee Offline; the Android package and saved data stay compatible with existing installations.
+Current application version: **0.13.0** (versionCode 26). Independent project; not affiliated with NAVEE. Volt was previously called Navee Offline; the Android package and saved data stay compatible with existing installations.
 
 Download the signed APK from [GitHub Releases](https://github.com/JJRicks/navee-offline/releases/latest). Install it over the earlier official APK to keep scooter setup, dashboards, and recordings. See [CHANGELOG.md](CHANGELOG.md) for release changes and [RELEASING.md](RELEASING.md) for the release process.
 
 ## What is here
 
-Version 0.12.1 adds subtle, optional haptic feedback for navigation, settings,
-favourites and dashboard editing. Switch thumb swipes now save correctly.
-Half-folding a crease-based screen keeps the current layout steady, and More's
-split no longer shifts after opening. Existing dashboards and recordings stay
-intact. See [VERIFICATION.txt](VERIFICATION.txt) for executed checks and remaining
-physical test limits.
+Version 0.13.0 introduces the Volt name and lightning-bolt icon, centered
+five-column dashboards on narrow foldable screens, full-screen ride maps and
+quicker ride naming. Quick access toggles and foreground connection changes
+now have optional haptic feedback. The USB setup site matches the app's dark/red
+theme. Existing setup, dashboards and recordings stay intact. See
+[VERIFICATION.txt](VERIFICATION.txt) for checks and remaining physical test limits.
 
 - **Home:** an editable dashboard for each scooter, with automatic connection, a large lock switch, battery overview, charts, and shortcuts.
 - **Scooter:** compact grouped settings for riding, battery, lights, dashboard/sounds, and security. Rename your scooter here or use its widget's pencil while editing Home.
@@ -65,12 +65,21 @@ animations are disabled.
 
 Subtle haptics confirm the moments that benefit from them:
 - switching tabs or segmented choices, or choosing a Top speed preset;
-- flipping a switch or star;
+- flipping a switch or star, or sending an accepted Quick access toggle;
 - picking up and moving a dashboard widget or favourite;
 - the lock slider crossing its midpoint;
-- the scooter confirming a lock change, or a ride starting or being saved.
+- the scooter confirming a lock change, or a ride starting or being saved;
+- a successful scooter connection while Volt is focused (a two-part thunk), or
+  a disconnect (three fading ticks).
 
 Ordinary taps and scrolling stay quiet. **More → App preferences → Haptic feedback** turns them off (on by default), and Android's own Touch feedback setting still applies.
+
+Connection cues stay silent during simulation, when another window has focus,
+and when returning to the app after a connection changed in the background.
+Devices without the required vibration primitives use a short fallback. The
+normal Android VIBRATE permission enables these effects without an extra prompt.
+Quick access feedback marks an accepted command; the displayed setting still
+waits for the scooter's readback.
 
 Half-folding a foldable into book or tabletop posture leaves the screen exactly as it is, with no reload, re-split or replayed animation. Only a physical hinge that hides part of the screen moves content away from it.
 

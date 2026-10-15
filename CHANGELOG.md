@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.13.0 — 2026-10-14
 
 - Rename the app to Volt in the launcher, onboarding, About, notifications and user documentation. Keep the existing Android package, setup, saved data and repository identity.
 - Give the dashboard equal left/right margins. Retain five-column layouts on narrow cover screens, fit compact lock text and editor controls, and preserve the saved placement instead of silently switching to two columns.
@@ -8,6 +8,12 @@
 - Expand ride maps into a full-screen view with zoom, route-color and reading controls. Keep a separate recenter button and preserve the inspected position and selection when opening or closing the expanded map.
 - Make the Location permission row open Volt's Android app settings, with directions to Permissions → Location.
 - Match the USB setup and recovery website to Volt's dark/red theme, rounded controls and locally bundled Saira fonts.
+- Keep narrow widget captions readable with whole-word labels, abbreviations and accessible icons. Give readings space before hiding the scooter image; keep compact recorder/editor targets separate and restore right-edge grid dots.
+- Add optional directional haptics to accepted Quick access on/off commands, respecting app and Android preferences.
+- Give the launcher a stylized lightning-bolt icon with adaptive and monochrome variants.
+- Add a two-part connection thunk and fading disconnect ticks while Volt is focused. Background events, returning to the app, and simulated connections stay silent; unsupported hardware uses a short fallback.
+
+Install over the previous official APK to keep setup, dashboards and recordings. Physical haptic feel and Galaxy Fold hardware checks remain for owner testing. Existing experimental battery/sensor and setup-capture validation limits still apply; see VERIFICATION.txt.
 
 ## 0.12.1 — 2026-10-14
 

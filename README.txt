@@ -1,4 +1,4 @@
-VOLT — VERSION 0.12.1 (versionCode 25)
+VOLT — VERSION 0.13.0 (versionCode 26)
 
 A local Android companion for an already activated and owner-bound NAVEE UT5 MAX.
 Daily connection, locking, scooter settings, diagnostics and ride recording use
@@ -11,12 +11,13 @@ The named controls target the US UT5 MAX, model/PID 2538. Different models,
 regions and firmware can expose different fields and behavior. The accompanying
 verification report identifies controls and phone configurations actually tested.
 
-0.12.1 adds subtle haptics for navigation, settings, favourites and dashboard
-editing, with an on-by-default Haptic feedback switch in App preferences.
-Switch thumb swipes now save correctly. Half-folding a crease-based screen
-keeps the current layout steady, and More no longer changes its split width
-after opening. Install over the previous official APK to retain your setup,
-dashboards and recordings. See CHANGELOG.md and VERIFICATION.txt for details.
+0.13.0 introduces the Volt name and lightning-bolt launcher icon, centered
+five-column cover-screen layouts, whole-word compact captions, expanded ride
+maps, and automatic ride-name keyboard focus. Quick access toggles and focused
+connection/disconnect events add optional haptics; app and Android preferences
+are respected. The USB setup site now shares Volt's dark/red theme.
+Install over the previous official APK to retain setup, dashboards and recordings.
+See CHANGELOG.md and VERIFICATION.txt for details and physical test limits.
 
 GET CONNECTED
 

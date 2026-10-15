@@ -1,3 +1,53 @@
+RELEASE VALIDATION 0.13.0 (versionCode 26)
+October 14, 2026
+
+Independently reviewed scope:
+- PR #28 at 710cdd417e9b208f1c774b9258beaff03f4224cd: Volt branding,
+  centered narrow dashboards and caption fitting, ride naming/full-screen maps,
+  Location settings entry, and matching setup/recovery website.
+- PR #29 at f0ed8d2a74e0b9b7f882beb7c03fe4b7c4c152b3: accepted Quick access
+  toggle haptics and adaptive/monochrome lightning-bolt launcher icon.
+- PR #30 at 63a90d7ee023ff6a901fe86814a17be687af8713: focus-gated verified
+  connection/disconnect cues, lifecycle cancellation, and hardware fallback.
+- Claude independently reported no further changes requested on all three exact
+  heads. They merged in order as bae225a, 7ecfa9e and d334380. Release metadata
+  changes only the manifest version and documentation after that combined tree.
+
+Executed release checks:
+- Pinned dependencies verified. All 23 core suites / 54,116 checks and all
+  11 owner-capture cleanup tests passed; combined main GitHub CI passed.
+- Official APK build, v2/v3 signature and 16 KiB alignment passed. Label is Volt,
+  version is 0.13.0/code 26, and the app is non-debuggable. Signing certificate
+  matches official 0.12.1; SHA256 is retained with release assets.
+- Pixel 10 Pro Fold updated in place over USB from 0.12.1 to 0.13.0. Installed
+  APK bytes exactly match the official build; process and MainActivity resumed.
+  Home renders the existing profile/dashboard. No app data was cleared.
+- The combined functionality passed five isolated native dashboard cases:
+  minimum widgets at 320/344dp, editor at 344dp, all widgets/editor at 725dp.
+- Site deployed from d334380 with the three bundled Saira fonts and strict
+  self-hosted font policy. All 56 web, 27 deployment and 15 legacy-audit tests
+  passed. Six-width local/public browser checks passed, along with exact public
+  asset bytes/headers, loaded fonts, consent/cancel, upload/script blocking and
+  legacy recovery. Capture JS is unchanged. Previous HTTPS release retained.
+
+Evidence is in work/release-0.13.0 in the owner's workspace. APK/source download,
+checksum and tagged-source matching are recorded separately in the release
+verification JSON after packaging. Private signing material, phone screenshots
+and test output are excluded from the tracked-source archive.
+
+Limits:
+- Physical haptic feel and Galaxy Fold hardware behavior remain for owner
+  testing. Native probes exercise synthetic transitions, not a real GATT link.
+- Foreground connection changes under another focused window intentionally stay
+  silent. Rapid edge-of-range reconnects currently play each cue; any cooldown
+  remains a future behavior change, not part of this reviewed release.
+- Minimum-height widgets can still scroll. Older uncommitted native haptic
+  probes and optional caption style/pluralization cleanup remain follow-ups.
+- No scooter control was deliberately issued in release validation. Successful
+  physical owner capture and prior experimental battery/sensor limits remain.
+
+HISTORICAL PR VALIDATION FOLLOWS
+
 PR28 NARROW-CARD REVIEW FOLLOW-UP
 October 14, 2026
 
