@@ -34,6 +34,10 @@ final class ShizukuCaptureClient {
     volatile boolean busy;
     int phase;
     String message = "";
+    /** Set when Android won't show Shizuku's prompt again: Volt has to be allowed inside Shizuku. */
+    boolean allowInShizuku;
+    /** When NAVEE capture began (monotonic ms), for the setup screen's 90-second countdown; 0 if not capturing. */
+    long captureSinceMs;
     OwnerIdentityParser.Result owner;
     private OwnerIdentityParser.Result approved;
     private ShizukuCaptureClient(Context context) {
@@ -44,8 +48,9 @@ final class ShizukuCaptureClient {
         Shizuku.addBinderDeadListener(() -> lost());
         Shizuku.addRequestPermissionResultListener((request, grant) -> {
             if (request == REQUEST_PERMISSION) {
-                message = grant == PackageManager.PERMISSION_GRANTED ? "Access granted. Capture still needs your approval."
-                        : "Access was not granted. You can retry or use another setup method.";
+                // Granted moves the screen to the capture step by itself; only a refusal needs words.
+                message = grant == PackageManager.PERMISSION_GRANTED ? "" : "Access denied";
+                allowInShizuku = false;
                 changed();
             }
         });
@@ -58,33 +63,47 @@ final class ShizukuCaptureClient {
         try { return Shizuku.pingBinder() && Shizuku.getVersion() >= 13 && Shizuku.getUid() == 2000; }
         catch (RuntimeException ignored) { return false; }
     }
+    /** True once Shizuku's service answers, even if it is too old or runs as root. */
+    boolean running() {
+        try { return Shizuku.pingBinder(); } catch (RuntimeException ignored) { return false; }
+    }
+    /** Why {@link #available()} is false, as a short status; empty when it is available. */
+    String unavailableReason() {
+        try {
+            if (!Shizuku.pingBinder()) return "Shizuku isn't running";
+            if (Shizuku.getVersion() < 13) return "Update Shizuku";
+            if (Shizuku.getUid() != 2000) return "Root Shizuku isn't supported. Start it with wireless debugging.";
+            return "";
+        } catch (RuntimeException ignored) { return "Shizuku isn't running"; }
+    }
     boolean permitted() {
         try { return available() && Shizuku.checkSelfPermission() == PackageManager.PERMISSION_GRANTED; }
         catch (RuntimeException ignored) { return false; }
     }
     void requestPermission() {
-        if (!available()) { message = "Start Shizuku using wireless debugging, then return here."; changed(); return; }
+        if (!available()) { message = unavailableReason(); changed(); return; }
         try {
             if (Shizuku.shouldShowRequestPermissionRationale()) {
-                message = "Open Shizuku › Authorized applications and allow Volt, then return here.";
+                message = "Allow Volt in Shizuku"; allowInShizuku = true;
             } else Shizuku.requestPermission(REQUEST_PERMISSION);
-        } catch (RuntimeException ignored) { message = "Shizuku disconnected. Start it again and retry."; }
+        } catch (RuntimeException ignored) { message = "Shizuku stopped"; }
         changed();
     }
     void start(boolean recovery) {
         if (busy || !permitted() || (!recovery && pendingCleanup())) return;
         owner = null; approved = null; message = ""; sessionCancelled = false; busy = true; phase = OwnerCaptureEngine.PREPARING;
+        captureSinceMs = 0; allowInShizuku = false;
         byte[] random = new byte[32]; new SecureRandom().nextBytes(random);
         String session = recovery ? journal.getString("token", "") : Protocol.hex(random).toLowerCase(java.util.Locale.ROOT);
         String original = recovery ? journal.getString("original", null) : null;
         if (!OwnerCaptureEngine.validToken(session) || (recovery && original != null && !OwnerCaptureEngine.validProperty(original))) {
-            busy = false; message = "Cleanup record is invalid. Use the computer helper's recovery instructions before capturing again."; changed(); return;
+            busy = false; message = "Cleanup unknown. Use computer recovery."; changed(); return;
         }
         token = session; recoveryAttempt = recovery; remoteDispatched = false;
         // Reserve a non-secret recovery token before the shell process can acquire its lock.
         // Even a process kill between mkdir and the original-property callback stays recoverable.
         if (!recovery && !journal.edit().putBoolean("pending", true).putString("token", session).remove("original").commit()) {
-            busy = false; message = "Could not save the cleanup record. No capture was started."; changed(); return;
+            busy = false; message = "Couldn't start. Nothing changed."; changed(); return;
         }
         ServiceConnection connection = new ServiceConnection() {
             @Override public void onServiceConnected(ComponentName name, IBinder binder) {
@@ -107,8 +126,7 @@ final class ShizukuCaptureClient {
             if (binding == connection && busy && remote == null) {
                 discardUnsentJournal();
                 busy = false; phase = 0;
-                message = pendingCleanup() ? "Shizuku could not start the helper. Restart it and restore the saved logging setting."
-                        : "Shizuku could not start the helper. No capture was started. Restart Shizuku and retry.";
+                message = "Helper didn't start";
                 unbind(); changed();
             }
         }, 15000);
@@ -125,7 +143,12 @@ final class ShizukuCaptureClient {
             }
         }
         @Override public void progress(String session, int next) {
-            authorize(); handler.post(() -> { if (busy && token.equals(session)) { phase = next; changed(); } });
+            authorize(); handler.post(() -> {
+                if (busy && token.equals(session)) {
+                    if (next == OwnerCaptureEngine.CONNECT_NAVEE && phase != next) captureSinceMs = System.nanoTime() / 1000000L;
+                    phase = next; changed();
+                }
+            });
         }
         @Override public void completed(String session, int outcome, boolean clean, String identity, int role) {
             authorize();
@@ -135,31 +158,31 @@ final class ShizukuCaptureClient {
                 boolean wasCancelled = sessionCancelled || !busy;
                 busy = false; phase = 0; owner = null;
                 if (clean && !journal.edit().clear().commit()) cleanResultFailure();
-                else if (!clean) message = "Cleanup needs your attention. Start Shizuku again, then restore NAVEE logging below.";
+                else if (!clean) message = "NAVEE logging still on";
                 else if (!wasCancelled && outcome == OwnerCaptureEngine.OK && identity != null
                         && identity.matches("[0-9A-Fa-f]{12}") && (role == 0 || role == 1)) {
                     owner = new OwnerIdentityParser.Result(identity.toUpperCase(java.util.Locale.ROOT), role);
-                    message = "Owner setup found. NAVEE logging was restored.";
-                } else if (outcome == OwnerCaptureEngine.TIMED_OUT) message = "No setup found within 90 seconds. NAVEE logging was restored. Connect in NAVEE and retry.";
-                else if (outcome == OwnerCaptureEngine.CONFLICT) message = "More than one owner setup appeared. NAVEE logging was restored. Connect just one scooter and retry.";
-                else if (outcome == OwnerCaptureEngine.BUSY) message = "Another capture helper owns the setup lock. Finish or recover that session first.";
-                else if (outcome == OwnerCaptureEngine.CANCELLED || wasCancelled) message = "Setup stopped. NAVEE logging was restored.";
-                else message = "Capture did not finish. NAVEE logging was restored. Check NAVEE can connect and retry.";
+                    // The Ready screen shows this result itself.
+                    message = "";
+                } else if (outcome == OwnerCaptureEngine.TIMED_OUT) message = "Nothing found in 90 s";
+                else if (outcome == OwnerCaptureEngine.CONFLICT) message = "Several scooters. Connect one.";
+                else if (outcome == OwnerCaptureEngine.BUSY) message = "Another capture is running";
+                else if (outcome == OwnerCaptureEngine.CANCELLED || wasCancelled) message = "Stopped";
+                else message = "Capture failed";
                 unbind(); changed();
             });
         }
     };
-    private void cleanResultFailure() { message = "Cleanup finished, but its local receipt could not be saved. Restore logging again before importing."; }
+    private void cleanResultFailure() { message = "Restore logging again"; }
     void cancel() {
         owner = null; sessionCancelled = true;
         if (busy) {
-            phase = OwnerCaptureEngine.CLEANING; message = "Stopping capture and restoring NAVEE logging…";
+            phase = OwnerCaptureEngine.CLEANING; message = "Restoring NAVEE…";
             if (remote != null) {
                 try { remote.cancel(token); } catch (Exception ignored) { lost(); }
             } else {
                 discardUnsentJournal(); busy = false; phase = 0;
-                message = pendingCleanup() ? "Setup stopped. The previous session still needs logging restored."
-                        : "Setup stopped. No capture was started.";
+                message = "Stopped";
                 unbind();
             }
         }
@@ -174,8 +197,7 @@ final class ShizukuCaptureClient {
     private void lost() {
         discardUnsentJournal();
         remote = null; busy = false; owner = null;
-        message = pendingCleanup() ? "Shizuku disconnected before cleanup was confirmed. Restart it and restore logging."
-                : "Shizuku disconnected. Start it again and retry.";
+        message = pendingCleanup() ? "Shizuku lost. Restore logging." : "Shizuku stopped";
         unbind(); changed();
     }
     private void unbind() {
@@ -187,5 +209,6 @@ final class ShizukuCaptureClient {
         approved = owner; owner = null; return true;
     }
     OwnerIdentityParser.Result takeApproved() { OwnerIdentityParser.Result value = approved; approved = null; return value; }
-    void discard() { owner = null; changed(); }
+    /** Drops an unimported capture; its status line goes with it so step 3 doesn't show a stale result. */
+    void discard() { owner = null; message = ""; changed(); }
 }
