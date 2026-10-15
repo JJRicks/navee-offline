@@ -69,7 +69,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private static final String MORE_AWAY_AT="more_away_elapsed", MORE_AWAY_BOOT="more_away_boot";
     private static final java.util.Set<String> preparingExports=java.util.Collections.synchronizedSet(new java.util.HashSet<String>());
     private final Handler handler=new Handler(Looper.getMainLooper());
-    private final ConnectionFeedbackState connectionFeedback=new ConnectionFeedbackState();
+    private final ConnectionFeedbackState connectionFeedback=new ConnectionFeedbackState(SystemClock::elapsedRealtime);
     private final ConnectionHapticPlayer connectionHaptics=new ConnectionHapticPlayer();
     // Volt order: Scooter is the raised centre button of the floating tab bar.
     private final String[] pages={"home","stats","controls","rides","more"};

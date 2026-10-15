@@ -76,6 +76,9 @@ Ordinary taps and scrolling stay quiet. **More → App preferences → Haptic fe
 
 Connection cues stay silent during simulation, when another window has focus,
 and when returning to the app after a connection changed in the background.
+The first connection and loss cue are immediate. After a drop, rapid reconnects
+and repeated losses stay quiet for five seconds; another loss restarts that
+quiet period. Expiring the period never replays a missed cue or delays Bluetooth.
 Devices without the required vibration primitives use a short fallback. The
 normal Android VIBRATE permission enables these effects without an extra prompt.
 Quick access feedback marks an accepted command; the displayed setting still

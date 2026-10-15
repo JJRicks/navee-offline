@@ -77,6 +77,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             String mode = arguments.getString("mode", "all");
             if (mode.equals("example")) {
                 verifyAllWidgetsExample();
+            } else if (mode.equals("compact")) {
+                verifyCompactReadingHeights();
             } else if (mode.equals("narrow")) {
                 verifyMinimumWidthContents();
             } else if (mode.equals("chart")) {
@@ -360,7 +362,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             double rawSchedule = (schedule.getTimeInMillis() + java.util.TimeZone.getDefault().getOffset(System.currentTimeMillis())) / 1000d;
             reading(values, "scheduled_charge_time_raw", "Fixture schedule", "", rawSchedule, wall);
             TelemetryHistory store = new TelemetryHistory(getTargetContext()); history.set(store);
-            if (Arrays.asList("example", "narrow").contains(arguments.getString("mode", "all"))) {
+            if (Arrays.asList("example", "narrow", "compact").contains(arguments.getString("mode", "all"))) {
                 // Fixture-only samples make the example's extra cards legible without a
                 // real scooter, synthetic rides, or changes to production example data.
                 reading(values, "speed_kmh", "18.4 km/h", "km/h", 18.4d, wall);
@@ -1262,6 +1264,138 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             config.save(); invoke(dashboard(), "render");
         }); settleMotion();
     }
+    /** Tiny cards keep one complete reading; ordinary heights show the full list without scrolling. */
+    private void verifyCompactReadingHeights() throws Exception {
+        main(() -> settings().edit().putInt("dashboard_columns", 5).commit());
+        seedEveryWidget(); stopUiPulse();
+        main(() -> {
+            require(((Number)field(grid(), "columns")).intValue() == 5, "Compact fixture lost five columns");
+            float density = activity.getResources().getDisplayMetrics().density;
+            float available = grid().getWidth() / density;
+            float scale = activity.ui().textScale * activity.getResources().getConfiguration().fontScale;
+            float rowHeight = ((Number)invoke(grid(), "rowHeight")).floatValue();
+            @SuppressWarnings("unchecked") Map<String, TextView> tripValues =
+                    (Map<String, TextView>)field(tile("trip"), "amounts");
+            for (String key : new String[]{"speed_kmh", "trip_km", "trip_minutes", "maximum_speed_kmh"})
+                require(tripValues.get(key).length() > 1 && !"—".contentEquals(tripValues.get(key).getText()),
+                        "Compact fixture is missing a numeric trip reading: " + key);
+            require(((View)field(tile("trip"), "footer")).getVisibility() == View.VISIBLE,
+                    "Compact fixture must reserve stale-footer space");
+            for (String type : new String[]{"trip", "readings", "charging"}) {
+                View card = (View)tile(type);
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(card, "widget");
+                int originalWidth = card.getWidth(), originalHeight = card.getHeight();
+                String saved = cellText(widget.layouts.get(5));
+                int span = widget.minimumWidth(5, available, 10, scale);
+                int width = Math.round(density * (span * (available + 10) / 5 - 10));
+                int minimumHeight = Math.round(widget.minimumHeight(width / density) * rowHeight) - activity.ui().dp(10);
+                try {
+                    measureCard(card, width, minimumHeight);
+                    ScrollView viewport = (ScrollView)field(card, "viewport");
+                    ViewGroup body = (ViewGroup)field(card, "body");
+                    ViewGroup group = (ViewGroup)body.getChildAt(0);
+                    ViewGroup row = (ViewGroup)group.getChildAt(0);
+                    View first = row.getChildAt(0);
+                    for (TextView text : texts(first)) assertText(text, viewport, "Complete first " + type + " reading");
+                    for (TextView text : texts(body)) {
+                        if (text.getClass().getSimpleName().equals("FittedValue"))
+                            require(text.getTextSize() + 1 >= 12 * activity.ui().textScale
+                                            * activity.getResources().getDisplayMetrics().scaledDensity,
+                                    type + " reduced a value below its existing readable floor");
+                    }
+                    saveCardBitmap(card, "compact-" + type + "-minimum");
+                    overlayGeometry.add(type + " minimum card=" + width + "x" + minimumHeight
+                            + " first=" + relativeBounds(first, viewport) + " viewport=" + viewport.getHeight());
+                    if (!type.equals("charging")) {
+                        require(viewport.canScrollVertically(1), type + " lost scrolling for the remaining short-card readings");
+                        viewport.scrollTo(0, body.getHeight());
+                        measureCard(card, width, Math.round(widget.defaultHeight() * rowHeight) - activity.ui().dp(10));
+                        require(!viewport.canScrollVertically(1) && !viewport.canScrollVertically(-1),
+                                type + " ordinary-height card still needs internal scrolling");
+                        for (TextView text : texts(body)) assertText(text, viewport, "Complete ordinary-height " + type);
+                        saveCardBitmap(card, "compact-" + type + "-ordinary");
+                    }
+                    // Giving the card its room back must restore the original typography.
+                    measureCard(card, activity.ui().dp(600), activity.ui().dp(600));
+                    TextView restoredValue = (TextView)((ViewGroup)first).getChildAt(type.equals("trip") ? 0 : 1);
+                    float normal = Math.round((type.equals("trip") ? 20 : 26) * activity.ui().textScale)
+                            * activity.getResources().getDisplayMetrics().scaledDensity;
+                    require(Math.abs(restoredValue.getTextSize() - normal) <= 1,
+                            type + " did not restore its full-size value after expanding");
+                    require(cellText(widget.layouts.get(5)).equals(saved), type + " measurement changed its saved grid rectangle");
+                } finally { measureCard(card, originalWidth, originalHeight); }
+            }
+        });
+        check("Minimum-height trip, reading and charging cards show their first complete reading; ordinary trip/reading cards fit all values without shrinking below the readable floor or changing saved rectangles");
+        verifyLiveReadingHeights();
+        verifyChangingCaptions();
+    }
+
+    /** Live cards have no stale footer: those extra pixels can expose rounding and font fallback errors. */
+    private void verifyLiveReadingHeights() {
+        Map<String, TelemetryHistory.Reading> live = new LinkedHashMap<>();
+        main(() -> {
+            for (TelemetryHistory.Reading reading : activity.service().displayReadings().values())
+                live.put(reading.key, new TelemetryHistory.Reading(reading.key, reading.label, reading.group,
+                        reading.value, reading.unit, reading.number, System.currentTimeMillis(), true));
+            float density = activity.getResources().getDisplayMetrics().density;
+            float available = grid().getWidth() / density;
+            float scale = activity.ui().textScale * activity.getResources().getConfiguration().fontScale;
+            float rowHeight = ((Number)invoke(grid(), "rowHeight")).floatValue();
+            for (String type : new String[]{"readings", "trip"}) {
+                View card = (View)tile(type);
+                DashboardConfig.Widget widget = (DashboardConfig.Widget)field(card, "widget");
+                ScrollView viewport = (ScrollView)field(card, "viewport");
+                ViewGroup body = (ViewGroup)field(card, "body");
+                int originalWidth = card.getWidth(), originalHeight = card.getHeight();
+                String saved = cellText(widget.layouts.get(5));
+                invoke(card, "refresh", new Class<?>[]{Map.class}, live);
+                require(((View)field(card, "footer")).getVisibility() == View.GONE,
+                        "Live " + type + " fixture must not reserve footer space");
+                try {
+                    // Actual narrow phone, five-column and half-width fold spans.
+                    for (int columns : new int[]{2, 4, 5}) {
+                        int span = Math.max(columns == 4 ? 2 : 1, widget.minimumWidth(columns, available, 10, scale));
+                        int width = Math.round(density * (span * (available + 10) / columns - 10));
+                        measureCard(card, width, Math.round(widget.defaultHeight() * rowHeight) - activity.ui().dp(10));
+                        require(!viewport.canScrollVertically(1) && !viewport.canScrollVertically(-1),
+                                "Live " + type + " ordinary-height card still scrolls at " + columns
+                                + " columns: body=" + body.getHeight() + " viewport=" + viewport.getHeight()
+                                + " cardWidth=" + width);
+                        for (TextView text : texts(body)) assertText(text, viewport, "Complete live " + type);
+                        overlayGeometry.add("live " + type + " columns=" + columns + " card=" + width
+                                + "x" + card.getHeight() + " body=" + body.getHeight() + " viewport=" + viewport.getHeight());
+                        saveCardBitmap(card, "compact-live-" + type + "-" + columns + "-columns");
+                    }
+                    require(cellText(widget.layouts.get(5)).equals(saved), "Live measurement changed its saved rectangle");
+                } finally {
+                    invoke(card, "refresh", new Class<?>[]{Map.class}, activity.service().displayReadings());
+                    measureCard(card, originalWidth, originalHeight);
+                }
+            }
+        });
+        // Leave the live values in the real grid after sizing. Measurement must
+        // settle rather than keep scheduling another layout via candidate fonts.
+        main(() -> {
+            for (String type : new String[]{"readings", "trip"})
+                invoke(tile(type), "refresh", new Class<?>[]{Map.class}, live);
+            grid().requestLayout();
+        });
+        settleMotion();
+        final int[] layouts = {0};
+        android.view.ViewTreeObserver.OnGlobalLayoutListener listener = () -> layouts[0]++;
+        main(() -> grid().getViewTreeObserver().addOnGlobalLayoutListener(listener));
+        SystemClock.sleep(750);
+        waitForIdleSync();
+        main(() -> {
+            grid().getViewTreeObserver().removeOnGlobalLayoutListener(listener);
+            require(layouts[0] <= 2, "Stable live values kept scheduling layouts: " + layouts[0]);
+            overlayGeometry.add("stable live layout passes in 750ms=" + layouts[0]);
+            for (String type : new String[]{"readings", "trip"})
+                invoke(tile(type), "refresh", new Class<?>[]{Map.class}, activity.service().displayReadings());
+        });
+        check("Live numeric Trip and Readings cards fit their real TextView layouts without a stale footer or internal scrolling across narrow and unfolded spans; stable live measurement settles without a layout loop");
+    }
     /** Inspect the actual smallest five-column cells, rather than comfortable default spans. */
     private void verifyMinimumWidthContents() throws Exception {
         main(() -> settings().edit().putInt("dashboard_columns", 5).commit());
@@ -1339,12 +1473,12 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             TextView odometer = (TextView)((LinearLayout)((List<?>)field(scooter, "scooterStats")).get(0)).getChildAt(0);
             try {
                 int fullWidth = (int)Math.ceil(odometer.getPaint().measureText("Odometer")) + 2;
-                int shortWidth = (int)Math.ceil(odometer.getPaint().measureText("Odo")) + 2;
+                int shortWidth = (int)Math.ceil(odometer.getPaint().measureText("Odo.")) + 2;
                 for (int width : new int[]{fullWidth, shortWidth, activity.ui().dp(16), fullWidth}) {
                     odometer.forceLayout();
                     odometer.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
                             View.MeasureSpec.makeMeasureSpec(0, View.MeasureSpec.UNSPECIFIED));
-                    String expected = width == fullWidth ? "Odometer" : width == shortWidth ? "Odo" : "";
+                    String expected = width == fullWidth ? "Odometer" : width == shortWidth ? "Odo." : "";
                     require(expected.contentEquals(odometer.getText()), "Caption did not use/restore whole-word text tier");
                     require((odometer.getCompoundDrawablesRelative()[0] != null) == expected.isEmpty(),
                             "Caption icon fallback is missing or remained after widening");
@@ -1359,12 +1493,13 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
                 int width = card.getWidth(), height = card.getHeight(); long originalWindow = widget.windowMs;
                 try {
-                    for (long window : new long[]{120000L, 172800000L}) {
+                    for (long window : new long[]{60000L, 120000L, 3600000L, 86400000L, 172800000L}) {
                         widget.windowMs = window;
                         invoke(item, "drawChart", new Class<?>[]{Map.class, String.class}, values, widget.metric);
                         measureCard(card, activity.ui().dp(600), height);
                         TextView caption = (TextView)field(item, "subtitle");
-                        String expected = window == 120000L ? "2 minutes" : "2 days";
+                        String expected = window == 60000L ? "1 minute" : window == 120000L ? "2 minutes"
+                                : window == 3600000L ? "1 hour" : window == 86400000L ? "1 day" : "2 days";
                         require(caption.getText().toString().contains(expected)
                                         && caption.getContentDescription().toString().contains(expected),
                                 type + " measure restored the old chart-window caption");

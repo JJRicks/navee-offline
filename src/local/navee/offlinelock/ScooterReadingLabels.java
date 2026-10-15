@@ -27,7 +27,7 @@ final class ScooterReadingLabels {
             case "trip_minutes": return "Time";
             case "maximum_speed_kmh": return "Top speed";
             case "average_speed_kmh": return "Avg. speed";
-            case "odometer_km": return "Odo";
+            case "odometer_km": return "Odo.";
             case "driving_mode": return "Mode";
             case "lock_status": return "Lock";
             case "charge_limit_percent": return "Limit";

@@ -1,4 +1,72 @@
-RELEASE VALIDATION 0.13.0 (versionCode 26)
+PR #31 REVIEW-FEEDBACK VALIDATION (unreleased)
+October 14, 2026
+
+- Reproduced the reported live Readings overflow against 3d6ff46: at 411dp,
+  the default-height one-column card had an 802px body in a 797px viewport.
+  The stale-only fixture had not caught this. The new live regression fails
+  on that original PR head and passes after the fix.
+- Fitted values now measure their actual TextView layouts at each candidate
+  size, including platform fallback line spacing, padding and styled units.
+  Unconstrained height prevents a clipped value from counting as a fit.
+  Readable font floors and saved widget rectangles remain unchanged.
+- Six compact native cases passed: 344dp with normal/140%/200% system font,
+  360dp with 140% app text, 411dp normal and unfolded 725dp normal. Each covers
+  live and stale Trip/Readings, minimum-height Charging, ordinary heights,
+  supported 2/4/5-column spans and expansion restoring full-size typography.
+  Every stable-live probe recorded zero further global layouts in 750ms.
+  Shared-widget regressions also passed at narrow 344dp and unfolded 725dp.
+- Compact checks are now included in the standard responsive matrix. An
+  initial 200% stress fixture forced an unsupported span; its correction uses
+  the widget's real minimum width, as the dashboard does.
+- App and validation APK builds passed signature/alignment checks using only
+  a disposable signer. Source input hashes are recorded with the evidence.
+  The focused connection-haptics fixture also exercises the actual activity
+  observer/player's quiet period, expiry without replay and later loss cue.
+  It passed 82 assertions with no cleanup errors; feedback timing is unchanged.
+
+Evidence: work/pr31-feedback-evidence in the owner's workspace. Screenshots
+were checked for complete live tiles, including the previously clipped bottom.
+Short cards still scroll when their contents cannot fit at the readable floor;
+a partial following row remains a scrolling cue. Changing that presentation is
+deferred. No owner phone, scooter connection, version, release or deployment was
+used or changed. Hardware vibration feel remains a physical-device check.
+
+OPTIONAL REVIEW FOLLOW-UPS (unreleased)
+October 14, 2026
+
+- Short Trip, Readings and Charging cards fit their available content height
+  without changing saved grid rectangles or existing readable font floors.
+  Singular chart-window captions and the Odo. abbreviation are consistent.
+- Connection feedback has a five-second quiet period after a loss. The first
+  connect/drop remains immediate; repeated losses extend the quiet period, and
+  hidden or suppressed changes never replay. Bluetooth timing is unchanged.
+- All 23 core suites / 54,172 assertions passed, including 194 deterministic
+  connection-state checks using an injected elapsed clock.
+- The combined app and standard validation APK built with a disposable signer;
+  signature/alignment checks passed. All 125 recorded source inputs match the
+  tested files. No official key or phone was used.
+- Native Quick access haptic checks passed 55 assertions; connection checks
+  passed 75. These cover effects, preferences, lifecycle cancellation, actual
+  dialog focus, hidden changes and no replay. Cleanup reported no errors.
+  The portable emulator-only runner and reproduction instructions are now in
+  android-tests/HAPTICS.md. Physical-device rejection was separately exercised.
+- Four responsive cases passed: compact 344dp at normal/140% system font,
+  minimum-width 344dp widgets and unfolded 725dp widgets. Both compact cases
+  passed again with populated numeric trip readings. Screenshots were checked
+  for complete first readings and normal-height lists without internal scroll.
+- The same compact fixture reproduces the clipped Speed label on 0.13.0.
+  A copied baseline APK was re-signed only for the disposable runner; its
+  non-signature payload remained unchanged.
+
+Evidence: work/review-polish-followups in the owner's workspace, including
+core.log and haptics/RESULTS.md. An initial native test assumed a dialog's show()
+call transferred focus synchronously. It now asserts cancellation at actual
+focus loss; immediate-cancel coverage still requires exactly one initial pulse.
+Actual motor feel and older-device fallback remain physical hardware checks.
+Very small cards retain scrolling when complete contents cannot fit readably.
+No release version, owner installation or website deployment changed.
+
+HISTORICAL RELEASE VALIDATION 0.13.0 (versionCode 26)
 October 14, 2026
 
 Independently reviewed scope:
