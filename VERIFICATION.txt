@@ -26,6 +26,26 @@ October 14, 2026
   sensitive-pattern/whitespace checks passed. No new behavior or hardware tests.
 - No public visibility change, v1.0 publication, phone install or website deploy.
 
+PUBLIC-LAUNCH DOCUMENTATION REVIEW FOLLOW-UP (unreleased)
+October 14, 2026
+
+- Restored permissions for all 14 manifest declarations, including Android 8–11
+  precise Location for Bluetooth separately from optional ride GPS. Clarified
+  helper preview/testing evidence without guessing a tester's capture method.
+- Restored the export journal format, contributor source map, source exclusions,
+  per-control evidence links, and sensor/connection reference details.
+- Added ignore patterns for ride JSON, diagnostics, recovery notes, dashboard and
+  charge exports. The issue form names sensitive files and links the reporting
+  policy without assuming GitHub private reporting is enabled.
+- Validation: 42 changed-document links/anchors, 15 representative ignored export
+  paths, all 14 manifest permissions, 12 source-map paths, issue YAML parsing and
+  whitespace passed. No tracked file is shadowed by the new ignore patterns.
+- This follow-up changes documentation and ignore rules only. App/helper code,
+  photo placeholder and historical artifacts remain intact. Native/core tests
+  were not repeated for these edits; the branch dependency has separate evidence.
+- Basemap wording here matches this branch's default-on code. The separately
+  reviewed opt-in follow-up changes both the behavior and wording before release.
+
 OPTIONAL REVIEW FOLLOW-UPS (unreleased)
 October 14, 2026
 

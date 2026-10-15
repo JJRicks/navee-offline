@@ -2,6 +2,19 @@
 
 Implementation invariants and native test guidance for contributors. Start with [CONTRIBUTING.md](../CONTRIBUTING.md) for the contribution workflow.
 
+## Source map
+
+| Location | Purpose |
+| --- | --- |
+| `src/local/navee/offlinelock/` | Native screens, Bluetooth authentication/controls, telemetry, profiles, recording and storage |
+| `res/`, `AndroidManifest.xml` | Android resources, permissions, app version and component declarations |
+| `build.sh` | SDK-only APK build, signing and verification |
+| `tests/` | Core Java/Python tests and runner |
+| `android-tests/` | Separate guarded device/emulator instrumentation and fixture runners |
+| `setup/capture-owner.py`, `setup/owner-capture-guard.sh` | Computer owner-capture helper and on-phone capture cleanup guard |
+| `setup/web/` | Static Chrome/USB setup wizard, pinned browser ADB bundle, recovery and security tests |
+| `docs/`, `FEATURES.txt`, `VERIFICATION.txt` | User/technical references, per-control evidence and dated validation history |
+
 ## Device checks
 
 `android-tests/ParkedValidation.java` is a separate, explicitly invoked instrumentation runner. Its modes include real lock/settings writes and stationary recording sessions; choose a mode only when those actions are intended and the owner is present with a safely parked scooter. Navigation/background modes perform different checks and have documented guards. Read the chosen mode before running it.
@@ -24,6 +37,10 @@ Preserve the app's confirmed-state lock behavior, permission/lifecycle guards, f
 For a bug report, include app version, phone model, Android version, the relevant screen, expected behavior, and the minimal exception or steps needed to reproduce it. Remove owner identities, serials, addresses, account credentials, and unrelated phone data before attaching logs. Full Android bug reports and ride journals contain private data and are not source files.
 
 Keep signing keys, passwords, owner setup/backup files, captures, local paths, and recordings outside Git. `.gitignore` covers common filenames, but review staged files before pushing. The optional `local-build.env` is a local shell configuration file, not a shared project requirement.
+
+OEM decompiled files, phone reports, private recordings, owner setup files and
+release signing keys are excluded from distributed source. Use synthetic fixtures
+when contributing protocol, recording or recovery tests.
 
 Historical verification is in `VERIFICATION.txt`. Release changes are listed in `CHANGELOG.md`; do not describe a feature as hardware-tested merely because it compiles or receives a Bluetooth acknowledgment.
 

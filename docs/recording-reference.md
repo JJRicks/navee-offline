@@ -89,6 +89,27 @@ restart until you open the app again. A storage failure visibly needs attention:
 free space and retry Stop to save the session. Recording cannot collect scooter
 data while it sleeps or is outside Bluetooth range.
 
+## Ride exports and journal format
+
+CSV/JSON exports use Android's file picker; you choose the destination. Volt does
+not upload them. A cloud-backed document provider controls any subsequent sync.
+See [Privacy](../PRIVACY.md#exports-are-different) before sharing an export.
+
+The long-form scooter sensor CSV includes schema version, UTC date,
+wall/monotonic timestamps, frame ID, sensor key, numeric/text value, unit, source
+command, sensor time/age, current-direction interpretation and recording events.
+`BEGIN` / `SENSOR` / `COMMIT` preserve sample boundaries; only committed frames
+are accepted during replay. `GAP` / `HEARTBEAT` / `RECOVER` describe missing
+exposure and process recovery without inventing samples. Analysis JSON contains
+unit-explicit quantities, coverage and session metadata. `null` means
+insufficient evidence, not zero.
+
+Phone and motion journals are separate from the scooter journal. Combined JSON
+can include precise route coordinates; GPX contains time and position. Inline
+charts keep a lightweight selection of real samples, while fullscreen ride
+charts load the complete committed source. Viewport drawing retains peaks and
+gaps efficiently. Raw journals remain available for export.
+
 ## Background connections and foldable phones
 
 More offers dark/light/system appearance, text scale, miles/km/both units and

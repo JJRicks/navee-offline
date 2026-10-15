@@ -7,6 +7,11 @@ Volt is an independent community app, **not affiliated with, sponsored by, or
 endorsed by NAVEE or its app vendor**. NAVEE names and marks identify compatible
 hardware; no trademark rights are granted by this project.
 
+The existing `navee-offline` repository name, Android package and map User-Agent
+identifier are retained for stable project links, in-place app upgrades and
+provider identification. User-facing branding is Volt; the retained identifiers
+do not imply NAVEE endorsement. A rename is not part of this preparation.
+
 ## Preparation audit — 14 October 2026
 
 A targeted scan covered 176 reachable commits, 971 unique file blobs and 107

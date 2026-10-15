@@ -14,10 +14,10 @@ Current release: **0.13.0**. Public v1.0 preparation is in progress; this branch
 - **Your dashboard:** movable, resizable widgets, live trends, gauges, quick controls, separate layouts for different screen widths, and three saved layout slots per scooter.
 - **Live diagnostics:** searchable readings and charts, favourites, battery power, temperatures, odometer and timestamped last-seen values.
 - **Ride recording:** scooter telemetry plus optional GPS, barometer and experimental motion data; full-screen route maps, inspectable charts and CSV/JSON/GPX exports.
-- **Battery insights:** charge recordings, charging-time estimates and an experimental usable-energy estimate based on recorded rides.
+- **Battery insights:** charge recordings through Developer options, charging-time estimates and an experimental usable-energy estimate based on recorded rides.
 - **Local ownership:** multiple scooter profiles, dashboard import/export and password-encrypted full backups.
 
-Bluetooth controls and recordings work without a Volt server. Optional map tiles need internet access; route geometry can still be drawn locally without them. The map provider receives requests for the viewed area. See [Privacy](PRIVACY.md) for storage, permissions and network behavior.
+Bluetooth controls and recordings work without a Volt server. Optional map tiles are **on by default** in this branch and need internet access; turn Basemap off in App preferences → Map settings to draw the route locally without them. The map provider receives requests for the viewed area. See [Privacy](PRIVACY.md) for storage, permissions and network behavior.
 
 ## Compatibility
 
@@ -35,13 +35,13 @@ Volt does not activate a new scooter, bypass ownership, or replace NAVEE account
 1. Download the APK from [this project's Releases](https://github.com/JJRicks/navee-offline/releases/latest) and install it. An update signed with the same project key retains app data.
 2. Have your phone and powered-on, safely parked scooter nearby. Confirm the NAVEE app can connect to it.
 3. Follow Volt's onboarding and choose an owner-setup method:
-   - **Chrome/USB:** use [pairscooter.jjricks.com](https://pairscooter.jjricks.com/) on a computer with desktop Chrome or Edge and a USB data cable. [Details and self-hosting](setup/web/README.md).
-   - **Shizuku on the phone:** Android 11+ with shell-backed Shizuku 13+. [Setup guide](setup/SHIZUKU.md).
-   - **Computer ADB:** use the included capture helper. [Instructions](SETUP.txt).
+   - **Computer ADB:** the established capture route, using the included helper. [Instructions](SETUP.txt).
+   - **Chrome/USB testing preview:** use [pairscooter.jjricks.com](https://pairscooter.jjricks.com/) on a computer with desktop Chrome or Edge and a USB data cable. [Details and self-hosting](setup/web/README.md).
+   - **Shizuku on the phone:** Android 11+ with shell-backed Shizuku 13+; real-device validation is limited. [Setup guide](setup/SHIZUKU.md).
    - **Existing setup or full backup:** import it through onboarding.
 4. Approve the requested permissions, close NAVEE after setup so it releases Bluetooth, and connect in Volt.
 
-The capture helpers require broad Android debugging access with explicit consent. They process the Bluetooth owner identity locally; no NAVEE or Google password is entered into Volt or the website. The browser helper currently supports the main personal Android user only. Helpers remain compatibility-sensitive; read their cleanup and recovery instructions before use.
+The capture helpers require broad Android debugging access with explicit consent. They process the Bluetooth owner identity locally; no NAVEE or Google password is entered into Volt or the website. The browser helper currently supports the main personal Android user only. Controlled phone checks of the two new helpers exercised timeout and cleanup with the scooter out of range. A tester subsequently reported successful onboarding, but did not identify the helper used; successful real-scooter capture has not been confirmed separately for each new path. Read their cleanup and recovery instructions before use.
 
 Everyday use needs no computer, ADB or Shizuku. Launch can reconnect to the last scooter automatically. Opening the app never automatically locks or unlocks it.
 
@@ -85,11 +85,13 @@ Bug reports, compatibility reports and pull requests are welcome. Start with [Co
 
 Reported battery health and rated capacity are scooter readings, not independent capacity tests. The capacity experiment, charging ETA, hill grade and phone acceleration are estimates affected by coverage, temperature, load and sensor quality. An unverified energy counter is explicitly labelled and is not used to prove battery capacity. Missing measurements remain gaps.
 
-Tests cover protocol handling, storage, layout and lifecycle behavior; they do not validate every phone, scooter, firmware or riding condition. [Verification history](VERIFICATION.txt) records what was actually exercised. [The user guide](docs/user-guide.md) explains the readings and their limits.
+Tests cover protocol handling, storage, layout and lifecycle behavior; they do not validate every phone, scooter, firmware or riding condition. [Feature availability](FEATURES.txt) records per-control evidence and scope, including the absence of arbitrary command, ownership-reset or firmware-write controls. [Verification history](VERIFICATION.txt) records what was actually exercised. [The user guide](docs/user-guide.md) explains the readings and their limits.
 
 ## License and acknowledgements
 
 Application source is under the [MIT License](LICENSE). Third-party components, fonts, maps and the placeholder scooter photo have separate terms described in [NOTICE](NOTICE). The photo's redistribution permission has not been established; it must be replaced or cleared before a public release.
+
+OEM decompiled files, phone reports, private recordings, owner setup files and release signing keys are excluded from distributed source. Keep them outside Git; review staged files even when ignore rules cover their usual names.
 
 Protocol research builds on [pepperonas/navee-st3-pro](https://github.com/pepperonas/navee-st3-pro), with its attribution retained. Thank you to the project's testers and contributors.
 

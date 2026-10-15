@@ -2,7 +2,7 @@
 
 Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
 
-For installation, compatibility and quick setup, start with the [README](../README.md). Details on the handlebar fallback, electrical readings, data gaps and background behavior are in the [connection and recording reference](recording-reference.md).
+For installation, compatibility and quick setup, start with the [README](../README.md). Details on the handlebar fallback, electrical readings, data gaps and background behavior are in the [connection and recording reference](recording-reference.md). [Feature availability](../FEATURES.txt) lists per-control evidence and the supported scope.
 
 ## App preferences and UI preview
 
@@ -93,7 +93,7 @@ The 15 choices are Lock & connection, Your scooter, Battery overview, Big readin
 
 New dashboards and **Layout → Restore default widgets** use a ten-widget preset and its widget options, including maximum-speed and scheduled-charging Quick access shortcuts. The preset retains five columns on supported narrow cover screens, including the Galaxy Fold 5 at its default display settings. Only windows with less than 280 dp of dashboard width use fewer columns. Existing current layouts, custom options and all three saved slots are preserved by the update; restoring defaults is an explicit action.
 
-**Your scooter** places a larger photo on the left and stacks configurable readings vertically on the right. A newly added card starts with odometer and drive mode; the full default dashboard also includes estimated range. Values grow into the available space, with a moderate size cap and automatic shrinking in compact cards. Reported charges and battery throughput remain in Stats and can still be selected for a custom widget. The former four-reading default is updated once to these two readings; other custom lists and saved card positions/sizes are preserved. New scooter cards use four rows and can shrink to three. Use the pencil beside its name while editing Home to rename the local profile. On the UT5 MAX (PID 2538), owner-observed mode codes 11, 2, and 3 display as WALK, ECO, and SPORT; other codes and models retain raw labels. Raw diagnostics and ride exports remain unchanged. The battery cell uses a compact **%** label.
+**Your scooter** places a larger photo on the left and stacks up to 12 configurable readings vertically on the right. A newly added card starts with odometer and drive mode; the full default dashboard also includes estimated range. Values grow into the available space, with a moderate size cap and automatic shrinking in compact cards. Reported charges and battery throughput remain in Stats and can still be selected for a custom widget. The former four-reading default is updated once to these two readings; other custom lists and saved card positions/sizes are preserved. New scooter cards use four rows and can shrink to three. Use the pencil beside its name while editing Home to rename the local profile. On the UT5 MAX (PID 2538), owner-observed mode codes 11, 2, and 3 display as WALK, ECO, and SPORT; other codes and models retain raw labels. Raw diagnostics and ride exports remain unchanged. The battery cell uses a compact **%** label.
 
 Live SPORT is pale blue in the dark theme and a readable darker blue in the light theme; ECO is green, and WALK uses a green pedestrian icon. Last-known modes stay grey, with their mode names retained for accessibility.
 
@@ -157,11 +157,26 @@ Each owner needs their own Bluetooth owner identity from their already-bound NAV
 
 The Shizuku route guides installation/start, explicit permission for broad debugging access, capture consent, and a separate import confirmation. It accepts shell-backed Shizuku 13+ only, reads fresh authentication frames from NAVEE's verified Android UID, restores the previous logging setting and stops NAVEE before making the identity available. The identity remains in memory until an explicit import; it is not uploaded or copied to Downloads. A detached safety guard and non-secret cleanup journal handle interruption. See [setup/SHIZUKU.md](../setup/SHIZUKU.md) for its permissions, lifecycle and limitations. Never run the legacy computer capture helper simultaneously with another capture method.
 
-The Chrome/USB helper remains a testing preview in this app release. A successful real-scooter capture through either new helper is still awaiting validation; the available phone checks were performed with the scooter out of range. A developer can also run the static helper locally using the linked instructions, or use the existing desktop helper. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
+The Chrome/USB helper remains a testing preview in this app release. Controlled phone checks of Chrome/USB and Shizuku exercised timeout and cleanup with the scooter out of range. A tester later reported successful onboarding without identifying which helper was used, so successful real-scooter capture is not yet confirmed separately for each new path. The computer ADB helper is the established capture route. A developer can also run the static browser helper locally using the linked instructions. Browser capture currently supports the main personal Android user only, not work profiles or secondary users.
 
 On first launch the app opens a step-by-step setup: choose the desktop helper, Shizuku, the Chrome/USB preview, import a backup file or enter a 12-character identity, then follow the selected route through capture, import, Nearby devices and connecting. On wide and unfolded screens, a step list appears beside the current numbered step. The tab bar appears once setup is finished. **More → My scooters → Run setup again** reopens it. These helpers use NAVEE already signed in on the phone; they add no NAVEE or Google account sign-in to this app or the setup website.
 
 See [SETUP.txt](../SETUP.txt) for the capture helper and private backup/import instructions.
+
+## Connect and use the lock
+
+On Android 12+, allow Nearby devices. Android 8–11 instead needs precise Location
+permission for Bluetooth scanning/connection, even if ride GPS is off. Close
+NAVEE so it releases Bluetooth before connecting in Volt. Automatic launch
+connection can reconnect to the last scooter; it never changes the electronic
+lock by itself.
+
+The lock switch needs a fresh authenticated connection and confirmed lock state.
+Dragging sends the requested change without an extra confirmation dialog; the
+displayed result follows the scooter's response. A connection failure does not
+replay a pending setting change. Retry Connect after checking power/range;
+Disconnect ends the local session. See the [connection reference](recording-reference.md)
+for background timeout and handlebar fallback behavior.
 
 ## Phone recordings and maps
 
@@ -170,6 +185,14 @@ See [SETUP.txt](../SETUP.txt) for the capture helper and private backup/import i
 Start from **Rides → Start recording** while the app is visible. The ride-name field is focused with its current name selected and the keyboard opened, ready to replace it. Choose precise location for a useful route; denying location still permits scooter and motion recording. GPS and phone sensors stop when the recording stops. Active ride/charge capture uses an immediate ongoing notification with Stop, foreground-service protection and a renewed bounded CPU wake lock. **More → App preferences → Background recording** explains notification/battery settings. The normal ten-second idle timeout still applies outside recordings. Android may let an ongoing notification be dismissed while unlocked; force stop, lost Bluetooth, and manufacturer battery policies remain limits.
 
 The phone journal is separate from the scooter energy accumulator. GPS continues through a Bluetooth gap. Missing or poor fixes split the route; grade uses a distance window, preferably barometric elevation, with stricter limits for GPS altitude. Implausible altitude excursions are excluded from derived elevation, grade and ascent while raw measurements are retained. GPS and scooter speed derivatives are separate from the phone's raw and gravity-free acceleration. Pocket movement, vibration, pressure changes, and GPS error remain limitations.
+
+**Phone sensors** offers GPS, motion recording and **Pocket / Mounted** placement.
+Placement is recorded as context; it does not calibrate the phone's axes to the
+scooter. Raw acceleration includes gravity; linear acceleration removes gravity;
+earth-frame east/north/up components require fresh orientation data. Speed-derived
+GPS/scooter acceleration is separate and is expressed in m/s². Phone movement and
+bumps can dominate the sensor readings. Route comparison shows measured distance,
+ascent/descent and energy; it does not plan or declare an optimal route.
 
 Saved rides bring route, phone sensors and scooter readings together. The expandable graph supports power, wheel/GPS speed, voltage, battery, relative elevation, GPS acceleration and instantaneous energy per distance. Tap or slide to inspect original values and actual sample times, pinch to zoom, and pan with two fingers or the time labels. Each series has its own scale. Inline graphs use a lightweight preview; fullscreen loads the full committed recording asynchronously, including short peaks skipped by the preview. Loading failures retain the preview and offer Retry. Rename with the pencil beside the ride title. New rides use positive current as battery draw; older recordings retain their original interpretation.
 
