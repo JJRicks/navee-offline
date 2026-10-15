@@ -956,6 +956,17 @@ public final class OnboardingScreen implements AppScreen {
         content.addView(found, gp);
         nameField = nameInput(prefs.getString(KEY_PENDING_NAME, summary[0]));
         fine(SHIZUKU.equals(path()) ? "Stored privately. Revoke Shizuku now." : "This file unlocks your scooter. Keep it private.");
+        // The picked file is still in Downloads after import; offer to remove that copy right here.
+        if (!SHIZUKU.equals(path()) && host.activity() instanceof MainActivity
+                && ((MainActivity) host.activity()).hasPickedOwnerFile()) {
+            TextView delete = link("Delete Downloads copy", () -> {
+                boolean deleted = ((MainActivity) host.activity()).deletePickedOwnerFile();
+                host.toast(deleted ? "Downloads copy deleted" : "Couldn't delete · remove it in Files");
+                if (deleted) render();
+            });
+            delete.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            content.addView(delete, new LinearLayout.LayoutParams(-2, -2));
+        }
         primary("Save and continue", () -> {
             String name = nameField.getText().toString().trim();
             if (applied) {

@@ -1777,11 +1777,7 @@ public final class MoreScreen implements AppScreen {
     /** "Charge curve 1/2": qualified recordings for the chosen charger, out of the two a curve needs. */
     private void refreshChargeCurve(ScooterService s) {
         if (chargeCurve == null) return;
-        String summary = s == null ? "" : s.chargeLearningSummary();
-        int qualified = -1;
-        // ScooterService reports "N qualified … charges · M recordings stored"; read the leading count.
-        int space = summary.indexOf(' ');
-        if (space > 0) try { qualified = Integer.parseInt(summary.substring(0, space)); } catch (NumberFormatException loading) { qualified = -1; }
+        int qualified = s == null ? -1 : s.qualifiedChargeCurves();
         int shown = Math.max(0, Math.min(2, qualified));
         chargeCurveValue.setText(qualified < 0 ? "…" : qualified >= 2 ? "2/2 ✓" : shown + "/2");
         chargeCurveValue.setTextColor(qualified >= 2 ? ui.ok : ui.text);

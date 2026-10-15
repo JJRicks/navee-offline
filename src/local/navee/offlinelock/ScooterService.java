@@ -261,8 +261,9 @@ public final class ScooterService extends Service {
             return "Reconnecting · "+Math.max(1,(chargeRecovery.remainingMs(SystemClock.elapsedRealtime())+999)/1000)+"s";
         return (chargeStore.charger()==ChargeSessionStore.Charger.STOCK?"Stock charger":"High-speed charger")+" · "+chargeStore.sampleCount()+" local samples";
     }
-    /** Qualified charge sessions behind the selected charger's learned curve (the count in chargeLearningSummary). */
+    /** Qualified charge sessions behind the selected charger's learned curve (the count in chargeLearningSummary); -1 while loading. */
     public int qualifiedChargeCurves(){
+        if(chargeModelLoading)return -1;
         ChargeSessionStore.Charger charger=chargeCharger();
         ChargeSessionStore.Curve curve=chargeSnapshot==null||charger==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
         return curve==null?0:curve.qualifiedSessions;

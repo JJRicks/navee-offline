@@ -1587,7 +1587,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             this.feature=feature;inline=inlineChoice(feature);
             String detail=rowDetail(feature);
             row=new SettingLine(inline?null:rowIcon(feature),shortLabel(feature),detail);card=row.card;name=row.name;value=row.value;action=row.line;
-            haystack=normalize(feature.label+" "+shortLabel(feature)+" "+feature.description+" "+feature.key+" "+(detail==null?"":detail));
+            haystack=normalize(feature.searchText()+" "+shortLabel(feature)+" "+feature.key+" "+(detail==null?"":detail));
             // Result state lives on the row line: a red chip for a failed change, a spinner while one is pending.
             result=failureChip();LinearLayout.LayoutParams chipSize=new LinearLayout.LayoutParams(-2,-2);chipSize.setMarginStart(design.dp(8));row.line.addView(result,1,chipSize);
             spinner=new Spinner();spinner.setVisibility(View.GONE);row.line.addView(spinner,2,rowSpinnerSize());
@@ -2142,6 +2142,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==ShizukuSetupActivity.REQUEST){
+            if(result==ShizukuSetupActivity.RESULT_IMPORT_BACKUP&&onboarding!=null){onboarding.showImport();return;}
             OwnerIdentityParser.Result owner=ShizukuCaptureClient.get(this).takeApproved();
             if(result==RESULT_OK&&owner!=null){try{
                 if(pendingOwnerFile().exists())throw new IllegalStateException();
@@ -2179,6 +2180,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     /** The document the rider picked for the last owner import, so its Downloads copy can be removed. */
     private Uri pickedOwnerUri;
+    /** True while the owner-setup document picked during this session can still be offered for deletion. */
+    public boolean hasPickedOwnerFile(){return pickedOwnerUri!=null;}
     /** Deletes the picked owner-setup document; false when nothing was picked or the provider cannot delete it. */
     public boolean deletePickedOwnerFile(){
         Uri uri=pickedOwnerUri;if(uri==null)return false;
