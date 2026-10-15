@@ -1,0 +1,38 @@
+name: Bug report
+description: Report a reproducible problem or device compatibility issue.
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Volt is an independent project, not NAVEE support. For security issues, follow SECURITY.md.
+        Remove owner keys, serials, Bluetooth addresses, precise locations and private data from screenshots/logs. Do not attach full phone bug reports or backups.
+  - type: input
+    id: version
+    attributes:
+      label: Volt version
+      placeholder: Version from More → About & permissions
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone and Android version
+      description: For layout issues, include folded/unfolded state and font/display scaling.
+    validations:
+      required: true
+  - type: input
+    id: scooter
+    attributes:
+      label: Scooter model, region and firmware
+      description: If relevant and known. Do not include a serial number or owner identity.
+  - type: textarea
+    id: reproduction
+    attributes:
+      label: Steps, expected behavior and actual result
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Sanitized screenshots or minimal logs
+      description: Optional. Review attachments for private data before submitting.

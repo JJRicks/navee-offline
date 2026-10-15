@@ -6,7 +6,7 @@ an internet connection.
 
 The one-time setup identity is six bytes (12 hexadecimal characters). It is
 Bluetooth owner information, not your NAVEE password or a cloud login token.
-Each friend should capture their own account's identity for their own scooter.
+Each owner should capture their own account's identity for their own scooter.
 
 GUIDED CHROME + USB OPTION
 
@@ -97,7 +97,7 @@ If several phones are attached, run adb devices to find yours, then use:
 
 To choose a new computer backup filename:
 
-    python3 setup/capture-owner.py --output ollie-owner.json --push
+    python3 setup/capture-owner.py --output scooter-owner-setup.json --push
 
 Without --push, the helper only saves the private JSON on your computer; copy
 it to your phone manually. Existing computer files are never overwritten.

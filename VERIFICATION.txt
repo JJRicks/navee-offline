@@ -1,3 +1,31 @@
+PUBLIC-LAUNCH DOCUMENTATION PREPARATION (unreleased)
+October 14, 2026
+
+- Refreshed the README and contributor entry points; preserved detailed user,
+  recording and implementation guidance in docs/. Added privacy/security docs,
+  public-release readiness, dependency/photo notices and GitHub templates.
+- Strengthened independent/not-affiliated wording in the app and both setup
+  pages; corrected map privacy copy to reflect Basemap being enabled by default.
+  Android changes are display strings only. No version or signing-key change.
+- Targeted audit covered 176 reachable commits, 971 blobs, 107 refs including
+  31 PR heads, 12 releases/34 assets, and 219 retained Actions log archives.
+  No actual owner credentials, private keys or recorded routes were detected.
+  This is bounded evidence, not a guarantee against unknown/encoded secrets.
+- Current PR descriptions were sanitized with permission; historical revisions
+  and work-session links remain by maintainer choice. External destinations
+  returned generic pages/access challenges, so their underlying contents were
+  not verified. Public artifacts themselves are acceptable to the maintainer.
+- The manufacturer-sourced photo remains a temporary placeholder; public
+  distribution needs an original replacement or verified permission, including
+  a decision for copies in older Git/release history.
+- Validation: Android build/signature/alignment passed with a disposable test
+  key; 56 browser-helper tests and site build passed. Existing browser checks
+  passed at 320, 344, 390, 768, 1000 and 1280 px, including consent/cancel, focus,
+  contrast, reduced motion and blocked script/upload/service-worker paths.
+  Fifty local Markdown links, capture-helper Python syntax and changed-file
+  sensitive-pattern/whitespace checks passed. No new behavior or hardware tests.
+- No public visibility change, v1.0 publication, phone install or website deploy.
+
 OPTIONAL REVIEW FOLLOW-UPS (unreleased)
 October 14, 2026
 
@@ -860,7 +888,7 @@ Validation for this update:
   Physical two-finger feel still needs the owner's hands-on check.
 - The final signed 0.7.2 APK (code 18) passes signature/alignment verification,
   matches the 0.7.0 signing identity, and excludes instrumentation code.
-- A public Rexburg USGS tile returned HTTP 200 with valid imagery. An in-place
+- A public USGS tile returned HTTP 200 with valid imagery. An in-place
   0.7.2 installation on the Pixel rendered the saved ride over the USGS map.
   The final build adding pinch zoom was then installed and reopened successfully.
   The phone's data and network settings were preserved; no scooter command was
@@ -1509,7 +1537,7 @@ IMPLEMENTED SCOPE (HISTORICAL 0.3.0 BASELINE)
    window-layout callbacks. Native renders were inspected at 1080x2364 outer,
    2076x2152 inner and 2152x2076 rotated half-open sizes. These were app View
    renders while the phone was physically folded/asleep, not physical hinge
-   movements or camera/display photographs. Ollie's phone was not available.
+   movements or camera/display photographs. The second test phone was not available.
 
 6. First-time setup and profiles
    In-app owner setup guidance, bounded validated text/file import, private

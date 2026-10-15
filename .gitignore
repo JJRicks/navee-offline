@@ -23,11 +23,19 @@
 *owner*setup*.json
 *owner*setup*.txt
 *owner*backup*.json
+*owner*.json
 *provisioning*.json
 *.csv
 *.log
 *.zip
 *.voltbackup
+*.gpx
+*.geojson
+*.sqlite
+*.sqlite3
+*.db
+*.db-wal
+*.db-shm
 bugreport-*
 /recordings/
 
