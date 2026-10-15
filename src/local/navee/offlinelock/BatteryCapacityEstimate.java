@@ -33,7 +33,15 @@ public final class BatteryCapacityEstimate {
     }
 
     public static final class Result {
-        public final String profileId, status, method, limitations;
+        /**
+         * {@code label} is the short UI state; {@code status} and {@code limitations} are the full
+         * diagnostic wording, kept for tooltips, exports and tests rather than card captions.
+         */
+        public final String profileId, label, status, limitations;
+        /** Short (four words or fewer) most common rejection reason, or null when none. */
+        public final String reason;
+        /** Battery points in the larger evidence group, toward {@link #MIN_TOTAL_DROP}. */
+        public final double progressPoints;
         public final Double estimatedUsableWh,
                 throughputEquivalentWh,
                 percentOfAdvertised,
@@ -91,6 +99,20 @@ public final class BatteryCapacityEstimate {
                     presented.elapsed == 0 ? 0 : (double) presented.covered / presented.elapsed;
             minimumTemperatureC = presented.minTemperature;
             maximumTemperatureC = presented.maxTemperature;
+            progressPoints = Math.max(confirmed.drop, proxy.drop);
+            reason = rejected.isEmpty() ? null : shortReason(mostCommon(rejected));
+            if (unavailable != null) label = unavailable;
+            else if (estimatedUsableWh != null) label = "Experimental estimate";
+            else if (throughputEquivalentWh != null) label = "Proxy · not health";
+            else if (confirmed.count + proxy.count > 0)
+                label =
+                        String.format(
+                                Locale.US,
+                                "%.0f / %.0f pts",
+                                Math.floor(progressPoints),
+                                MIN_TOTAL_DROP);
+            else if (!rejected.isEmpty()) label = "No usable rides yet";
+            else label = "Record a longer ride";
             if (unavailable != null) status = unavailable;
             else if (estimatedUsableWh != null)
                 status =
@@ -110,9 +132,6 @@ public final class BatteryCapacityEstimate {
                                 proxy.drop);
             else if (!rejected.isEmpty()) status = "No qualifying rides: " + mostCommon(rejected);
             else status = "Record a ride with at least a 5-point battery drop";
-            method =
-                    "100 × summed recorded Wh ÷ summed battery percentage-point drop. Confirmed net"
-                        + " energy and unconfirmed absolute throughput use separate groups.";
             StringBuilder notes =
                     new StringBuilder(
                             "Experimental SOC-based energy equivalent, not measured pack capacity"
@@ -298,6 +317,27 @@ public final class BatteryCapacityEstimate {
 
     private static Double max(Double a, Double b) {
         return !finite(b) ? a : a == null ? b : Math.max(a, b);
+    }
+
+    /** Four words or fewer for each rejection reason, for the card's details. */
+    public static String shortReason(String reason) {
+        if (reason == null) return null;
+        switch (reason) {
+            case "recording clock changed": return "Clock changed";
+            case "recording has gaps or recovery": return "Recording gaps";
+            case "current direction changed during the ride": return "Current direction changed";
+            case "record at least 1 minute": return "Under 1 minute";
+            case "battery end readings are missing": return "Battery ends missing";
+            case "battery drop is below 5 percentage points": return "Drop under 5%";
+            case "electrical coverage is below 95%": return "Coverage under 95%";
+            case "at least 30 seconds of measured movement is needed": return "Too little movement";
+            case "measured energy is unavailable": return "No energy reading";
+            case "net measured energy is not positive": return "No net energy";
+            case "endpoint power and battery readings are missing": return "End readings missing";
+            case "power and battery readings do not align with both ride ends": return "Ends misaligned";
+            case "battery gauge rebounded or rose while recording": return "Battery gauge rose";
+            default: return "Insufficient data";
+        }
     }
 
     private static String mostCommon(Map<String, Integer> values) {
