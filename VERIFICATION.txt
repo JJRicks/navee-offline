@@ -1,3 +1,27 @@
+VOLT 1.2.1 — UNIFIED CHARGE CHARTS (versionCode 31)
+October 15, 2026
+
+- All deterministic core suites pass: 77,300 assertions/checks. App and separate
+  native runner builds pass signature/alignment verification.
+- Charge UI: 226 assertions each at 344x882 dp dark/100% system font,
+  725x604 dp light/140%, and 600x344 dp dark/140%. Includes colored category
+  toggles, shared estimated/observed finish scales, raw inspection, fullscreen
+  state retention, pinch zoom, usable plot geometry, accessible sample stepping,
+  midnight/date labels, 12/24-hour clocks, Fahrenheit and legacy recordings.
+- Existing ride analysis: 181 assertions each at 344x882 dp dark/100% and
+  725x604 dp light/140%, including full-detail samples and axis scrolling.
+- Capture guards: 11 passed. Browser-helper tests: 56 passed; web build passed.
+- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews completed.
+  Accessibility, preference-type validation and clock-label findings were fixed
+  and rechecked; no outstanding actionable findings remain.
+- GitHub Actions jobs could not start because of an account billing/spending-limit
+  restriction. Remote CI is not green; the owner authorized release using the
+  completed local checks and independent reviews.
+- All chart validation used synthetic emulator records. No new physical charge
+  validation is claimed; the recorder and estimation algorithm are unchanged.
+
+See docs/validation/charge-estimate-history.md.
+
 VOLT 1.2.0 — CHARGE PREDICTION HISTORY AND TOGGLE CUES (versionCode 30)
 October 15, 2026
 

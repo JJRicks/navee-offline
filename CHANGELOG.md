@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.2.1 — 2026-10-15
 
 - Show charge recordings in one ride-style chart with colored category toggles, fullscreen, pinch zoom, panning and raw-sample inspection.
 - Compare saved finish predictions against the observed finish on a shared scale. Show power, battery level and countdown by default, with voltage, current, temperature and saved charging limits available alongside them.
 - Keep graph selections, zoom and inspected samples when opening or closing fullscreen; preserve missing-data gaps and older recordings.
+
+Install over the previous Volt APK to preserve setup and recordings. Older charge recordings retain their saved readings; estimates are shown only when recorded. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
 
 ## 1.2.0 — 2026-10-15
 
