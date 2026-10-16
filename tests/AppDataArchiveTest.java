@@ -49,7 +49,7 @@ public final class AppDataArchiveTest {
     private static Store fixture(File root)throws Exception {
         Store s=new Store(root);Map<String,Map<String,Object>> values=empty();
         Map<String,Object> app=values.get("app_settings");app.put("dashboard_v1_owner","{\"widgets\":[\"battery\",\"scooter\"]}");app.put("dashboard_slot_v1_owner_2","paired folded + unfolded");
-        app.put("enabled",true);app.put("small",12);app.put("long",9223372036854775807L);app.put("float",1.125f);app.put("set",new LinkedHashSet<>(Arrays.asList("one","two")));app.put("unicode","Scooter 🛴 — café");
+        app.put("range_source_owner","learned");app.put("enabled",true);app.put("small",12);app.put("long",9223372036854775807L);app.put("float",1.125f);app.put("set",new LinkedHashSet<>(Arrays.asList("one","two")));app.put("unicode","Scooter 🛴 — café");
         values.get("profiles").put("items","[{\"identity\":\"A1B2C3D4E5F6\",\"id\":\"owner\"}]");values.get("profiles").put("active","owner");
         values.get("scooter").put("identity","A1B2C3D4E5F6");values.get("control_evidence").put("owner","last verified command");values.get("onboarding").put("onboarding_done",true);s.preferences(values);
         byte[] random=new byte[250000];new Random(1234).nextBytes(random);
@@ -146,6 +146,10 @@ public final class AppDataArchiveTest {
             badTypes.get("app_settings").put("charge_chart_series",new HashSet<String>(Arrays.asList("power_w","estimated_finish")));
             AppDataArchive.validatePreferenceTypes(badTypes);
             check(true,"charge category set accepted");
+            badTypes.get("app_settings").clear();badTypes.get("app_settings").put("range_source_owner",true);
+            rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"wrong learned-range source type rejected");
+            badTypes.get("app_settings").put("range_source_owner","learned");AppDataArchive.validatePreferenceTypes(badTypes);
+            check(true,"learned-range source accepted");
             badTypes.get("app_settings").clear();badTypes.get("app_settings").put("text_scale",Float.NaN);
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"nonfinite text scale rejected");
             basemapPreferences(root);

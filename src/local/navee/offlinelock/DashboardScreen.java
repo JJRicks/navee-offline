@@ -727,7 +727,9 @@ public final class DashboardScreen implements AppScreen {
             last = Math.max(last, r.capturedWallMs);
         refreshHeader(current, readings);
         chargingHero.refresh(readings);
-        for (Tile tile : tiles) tile.refresh(readings);
+        Map<String, TelemetryHistory.Reading> forecast = service == null ? readings : service.dashboardReadings();
+        for (Tile tile : tiles) tile.refresh(tile.widget.type.equals("scooter") || tile.widget.type.equals("battery")
+                || tile.widget.type.equals("overview") ? forecast : readings);
         grid.updateEditorMotion();
     }
 
