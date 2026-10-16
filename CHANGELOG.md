@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Keep lock-slider thumbs inside short or tall cards, preserve separate edit/resize touch targets in one-row widgets, and wrap reading tiles when their numbers need more space.
+- Keep widget content stationary when entering edit mode and use the recorder’s icon-only action when a compact card cannot fit its label.
 
 - New default Home for fresh installs, new scooter profiles and **Restore default widgets**: Scooter overview, Lock bar directly beneath it, Reading tiles, Setting tiles and Ride recorder. Existing dashboards and saved slots are unchanged.
 - Add four widgets: **Lock bar** (one-row lock with Connect; connected, the slider is the card), **Scooter overview** (charge, range, photo, charge bar and readings), **Reading tiles** and **Setting tiles** (one to four small cards). Every earlier widget stays available in Add widget, and the All widgets example includes the new ones.
