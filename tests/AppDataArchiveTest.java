@@ -149,6 +149,9 @@ public final class AppDataArchiveTest {
             badTypes.get("app_settings").clear();badTypes.get("app_settings").put("range_source_owner",true);
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"wrong learned-range source type rejected");
             badTypes.get("app_settings").put("range_source_owner","learned");AppDataArchive.validatePreferenceTypes(badTypes);
+            badTypes.get("app_settings").put("range_learned_intro_seen","yes");
+            rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"wrong range intro flag type rejected");
+            badTypes.get("app_settings").put("range_learned_intro_seen",true);AppDataArchive.validatePreferenceTypes(badTypes);
             check(true,"learned-range source accepted");
             badTypes.get("app_settings").clear();badTypes.get("app_settings").put("text_scale",Float.NaN);
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"nonfinite text scale rejected");

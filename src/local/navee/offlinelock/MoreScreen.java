@@ -900,9 +900,6 @@ public final class MoreScreen implements AppScreen {
         Row map = row(display, "map", "Map settings", null, this::mapSettings);
         valueRefreshers.add(() -> map.value(basemapSummary()));
         row(display, "grid", "Dashboard backups", null, this::dashboardBackups);
-        Row range = row(display, "route", "Range estimate", "For this scooter’s dashboard", this::rangeEstimate);
-        range.view.setTag("preference-range-estimate");
-        valueRefreshers.add(() -> range.value(service().usesLearnedRange() ? "Learned from rides" : "Scooter"));
         label("Connection & recording");
         LinearLayout connection = group();
         Row rate = row(connection, "clock", "Telemetry refresh", null, this::telemetryRate);
@@ -921,43 +918,6 @@ public final class MoreScreen implements AppScreen {
             background.value.setContentDescription(unrestricted ? "Battery use unrestricted"
                     : "Battery optimized; long recordings may stop. Opens battery settings");
         });
-    }
-    private void rangeEstimate() {
-        ScooterService s = service(); ScooterProfiles.Profile profile = active();
-        if (s == null || profile == null) { host.toast("Choose a scooter first"); return; }
-        String profileId = profile.id;
-        LinearLayout box = dialogBox("Range estimate", "For " + profile.name);
-        TextView details = ui.caption("Checking recorded rides…");
-        SegmentedSelector choice = new SegmentedSelector(ui, "Range source", new String[]{"Scooter", "Learned"}, index -> {
-            if (closed || active() == null || !profileId.equals(active().id)) return;
-            s.useLearnedRange(index == 1); refresh();
-        });
-        choice.setTag("range-source-selector"); choice.select(s.usesLearnedRange() ? 1 : 0, false);
-        box.addView(choice, new LinearLayout.LayoutParams(-1, -2));
-        details.setTag("range-learning-evidence"); details.setPadding(0, ui.dp(18), 0, ui.dp(8)); box.addView(details);
-        TextView explanation = ui.caption("Uses completed rides from this scooter on this phone. Applies to Scooter and Battery widgets; other readings stay as reported. Falls back to the scooter’s estimate until there’s enough history.\n\nExperimental: estimates similar riding, not battery capacity. Hills, speed and weather affect range.");
-        box.addView(explanation);
-        ScrollView scroller = new ScrollView(host.activity()); scroller.addView(box);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(scroller).setNegativeButton("Close", null).create();
-        show(dialog);
-        s.requestLearnedRangeEstimate(result -> {
-            if (closed || !dialog.isShowing() || active() == null || !profileId.equals(active().id)) return;
-            String distance = DisplayUnits.metricText(String.format(Locale.US, "%.1f km", result.distanceKm), settings().getString("units", "mi"));
-            String text = String.format(Locale.US, "%d usable rides · %s · %.0f battery points", result.rides, distance, result.batteryPoints);
-            if (result.fullRangeKm == null) text += "\n" + result.reason + String.format(Locale.US, "\nNeeds %d rides, %.0f battery points and %s in the last %d days.", LearnedRangeEstimate.MIN_RIDES, LearnedRangeEstimate.MIN_BATTERY_POINTS,
-                    DisplayUnits.metricText(String.format(Locale.US, "%.0f km", LearnedRangeEstimate.MIN_DISTANCE_KM), settings().getString("units", "mi")), LearnedRangeEstimate.WINDOW_DAYS);
-            else text += "\nAbout " + rangeDistance(result.fullRangeKm) + " per full battery, based on recent riding.";
-            if (result.minimumBatteryPercent != null) text += String.format(Locale.US, "\nObserved battery levels: %.0f–%.0f%%", result.minimumBatteryPercent, result.maximumBatteryPercent);
-            if (result.minimumTemperatureC != null) text += "\nRecorded battery temperature: " + DisplayTemperature.range(result.minimumTemperatureC, result.maximumTemperatureC, settings().getString("temperature_unit", "c"), 0);
-            if (result.rejectedRides > 0) text += String.format(Locale.US, "\n%d recordings too short or incomplete for learning.", result.rejectedRides);
-            details.setText(text);
-        });
-    }
-
-    private String rangeDistance(double km) {
-        String metric = String.format(Locale.US, "%.0f km", km), miles = String.format(Locale.US, "%.0f mi", km / RideStore.KM_PER_MILE);
-        String units = settings().getString("units", "mi");
-        return "km".equals(units) ? metric : "dual".equals(units) ? miles + " / " + metric : miles;
     }
     private boolean batteryUnrestricted() {
         try {

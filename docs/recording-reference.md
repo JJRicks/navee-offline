@@ -40,18 +40,24 @@ calculation. A 100% health value does not measure actual usable energy or
 guarantee advertised range. Lifetime throughput is not current-ride consumption.
 Observed voltage change alone does not establish sag, cell balance or a fault.
 This decoded protocol has no confirmed cell-voltage array or motor/controller
-temperature. Range predictions come from the scooter's selected estimate mode.
+temperature. Raw range readings come from the scooter's selected estimate mode.
 
 New ride recordings use positive current as battery draw; older journals keep
 their original direction interpretation. The obsolete direction picker is gone.
 Unconfirmed old intervals remain absolute throughput, not net consumption.
 Returned/input energy may include wall charging; it is not necessarily regen.
 
-Follow riding mode selects a supported firmware range estimator when fresh
-reports confirm the scooter is stationary. Fixed choices disable following for
-that scooter. Eco falls back to D-mode where firmware lacks an Eco estimator.
-All range displays still use the scooter's own prediction, not measured capacity
-or automatic Boost detection. Unconfirmed attempts are bounded across reconnects.
+**Scooter → Range estimate → Scooter's estimate** enables drive-mode following,
+which selects a supported firmware range estimator when fresh reports confirm
+the scooter is stationary. Eco falls back to D-mode where firmware lacks an Eco
+estimator. Unconfirmed attempts are bounded across reconnects.
+
+The optional **Volt's estimate (learned)** uses that scooter's completed rides
+for range in Scooter overview, Your scooter and Battery overview. Other reading
+widgets, Live Stats, charts and exports retain the firmware prediction. Both
+sources are estimates, not measured capacity or automatic Boost detection.
+See [range learned from your rides](user-guide.md#range-learned-from-your-rides)
+for the evidence threshold, fallback and limitations.
 
 ## Recording integrity
 

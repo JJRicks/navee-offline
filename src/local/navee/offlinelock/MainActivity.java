@@ -328,6 +328,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         for (ControlRow row : quickMenuRows) row.refresh();
         if (quickMoreScreen != null) quickMoreScreen.refresh();
         if (choiceSheet != null) choiceSheet.refresh();
+        if (rangeSourceSheet != null) rangeSourceSheet.refresh();
         if(resumed&&scooterService!=null&&scooterService.isRecording()&&Build.VERSION.SDK_INT>=33&&checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS)!=PackageManager.PERMISSION_GRANTED&&!preferences.getBoolean("notification_prompted",false)){preferences.edit().putBoolean("notification_prompted",true).apply();requestPermissions(new String[]{Manifest.permission.POST_NOTIFICATIONS},NOTIFICATION_PERMISSION);}
         boolean awake=resumed&&preferences.getBoolean("keep_screen_awake",true)&&scooterService!=null&&scooterService.isRecording();
         if(awake)getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);else getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
@@ -1440,6 +1441,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         ScooterCommands.Feature feature = entry.feature();
         if (feature == null) return;
+        if (feature.key.equals("range_algorithm")) { closeQuickMenu(); showRangeSource(); return; }
         if (feature.experimental) { showQuickMore("Lab", feature); return; }
         if (feature.sensitive || feature.key.equals("proximity_key")) {
             showQuickMore("Security", null); return;
@@ -1643,6 +1645,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             String detail=rowDetail(feature);
             row=new SettingLine(inline?null:rowIcon(feature),shortLabel(feature),detail);card=row.card;name=row.name;value=row.value;action=row.line;
             haystack=normalize(feature.searchText()+" "+shortLabel(feature)+" "+feature.key+" "+(detail==null?"":detail));
+            if(feature.key.equals("range_algorithm"))action.setTag("scooter-range-estimate");
             // Result state lives on the row line: a red chip for a failed change, a spinner while one is pending.
             result=failureChip();LinearLayout.LayoutParams chipSize=new LinearLayout.LayoutParams(-2,-2);chipSize.setMarginStart(design.dp(8));row.line.addView(result,1,chipSize);
             spinner=new Spinner();spinner.setVisibility(View.GONE);row.line.addView(spinner,2,rowSpinnerSize());
@@ -1679,6 +1682,14 @@ public final class MainActivity extends Activity implements ScreenHost {
             }else{toggle=null;row.chevron(()->{if(parkedBlocked)toast("Stop to change");else editFeature(feature);});}
         }
         void refresh(){
+            if(feature.key.equals("range_algorithm")){
+                boolean editable=scooterService!=null&&scooterService.profiles.active()!=null;
+                String source=editable&&scooterService.usesLearnedRange()?"Volt (learned)":"Scooter";
+                parkedBlocked=false;name.setTextColor(editable?design.text:design.muted);action.setEnabled(editable);
+                row.line.setAlpha(1f);value.setText(source);value.setTextColor(design.muted);row.setSub(null);
+                spinner.setVisibility(View.GONE);result.setVisibility(View.GONE);
+                action.setContentDescription("Range estimate, "+source+", opens choices");return;
+            }
             BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&!ble.readOnlyModel()&&liveActual!=null&&scooterService.featureFresh(feature.key);
             String shown;
             if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&!ble.readOnlyModel()&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.clock(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));}
@@ -1922,6 +1933,121 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
         return dialog;
     }
+    private static final String RANGE_INTRO_SEEN="range_learned_intro_seen";
+    private RangeSourceSheet rangeSourceSheet;
+    private void showRangeSource(){
+        if(scooterService==null||scooterService.profiles.active()==null){toast("Choose a scooter first");return;}
+        if(controlDialog!=null)controlDialog.dismiss();
+        rangeSourceSheet=new RangeSourceSheet();
+    }
+    /** Local source choice; the scooter option retains the guarded drive-mode follower. */
+    private final class RangeSourceSheet {
+        final String profile=scooterService.profiles.active().id;
+        final AlertDialog dialog;
+        final ArrayList<LinearLayout> options=new ArrayList<>();
+        final ArrayList<RadioDot> dots=new ArrayList<>();
+        final ArrayList<TextView> names=new ArrayList<>();
+        final TextView status;
+        final View progress;
+        final LinearLayout statusRow;
+        AlertDialog intro;
+        boolean pending;
+        int requestId;
+        long requestedRevision=-1;
+        LearnedRangeEstimate.Result result;
+        RangeSourceSheet(){
+            final AlertDialog[] self=new AlertDialog[1];
+            LinearLayout body=sheetContent("Range estimate",null,()->{if(self[0]!=null)self[0].dismiss();});
+            body.setTag("range-source-sheet");
+            LinearLayout list=design.groupCard();body.addView(list,new LinearLayout.LayoutParams(-1,-2));
+            String[] labels={"Scooter's estimate","Volt's estimate (learned)"};
+            for(int i=0;i<labels.length;i++){
+                if(i>0)design.divider(list);
+                final boolean learned=i==1;
+                LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);
+                option.setMinimumHeight(design.dp(64));option.setPadding(design.dp(4),design.dp(12),design.dp(4),design.dp(12));
+                TextView name=design.text(labels[i],16,false);name.setMaxLines(3);
+                option.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+                RadioDot dot=new RadioDot();LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(design.dp(24),design.dp(24));dp.leftMargin=design.dp(14);option.addView(dot,dp);
+                option.setTag(learned?"range-source-volt":"range-source-scooter");
+                option.setClickable(true);option.setFocusable(true);option.setBackground(rowRipple());option.setContentDescription(labels[i]);
+                name.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                dot.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                option.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View v,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(v,info);info.setClassName(android.widget.RadioButton.class.getName());info.setCheckable(true);info.setChecked(dot.checked);}});
+                option.setOnClickListener(v->choose(learned));list.addView(option);options.add(option);dots.add(dot);names.add(name);
+            }
+            statusRow=row();statusRow.setGravity(Gravity.CENTER_VERTICAL);statusRow.setPadding(design.dp(4),design.dp(14),design.dp(4),0);
+            progress=new Spinner();LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(design.dp(16),design.dp(16));sp.rightMargin=design.dp(10);statusRow.addView(progress,sp);
+            status=design.caption("");status.setTag("range-learning-status");status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+            statusRow.addView(status,new LinearLayout.LayoutParams(0,-2,1));body.addView(statusRow);
+            dialog=showSheet(body);self[0]=dialog;controlDialog=dialog;
+            dialog.setOnDismissListener(d->{requestId++;if(intro!=null)intro.dismiss();if(rangeSourceSheet==this)rangeSourceSheet=null;if(controlDialog==dialog)controlDialog=null;});
+            refresh();
+            request();
+        }
+        boolean current(){return !destroyed&&scooterService!=null&&scooterService.profiles.active()!=null&&profile.equals(scooterService.profiles.active().id);}
+        void choose(boolean learned){
+            if(!current()){dialog.dismiss();return;}
+            Haptics.tick(options.get(learned?1:0));
+            if(learned&&scooterService.simulating()){toast("Exit simulation to use saved rides.");return;}
+            if(learned&&requestedRevision!=scooterService.learnedRangeRevision())request();
+            if(learned&&(pending||result==null)){toast("Checking saved rides…");return;}
+            if(learned&&result.status==LearnedRangeEstimate.Status.UNAVAILABLE){request();return;}
+            if(learned&&result.status==LearnedRangeEstimate.Status.INSUFFICIENT){
+                showExplanation(false);return;
+            }
+            scooterService.useLearnedRange(learned);
+            // An explicit scooter choice means following drive mode. Opening the picker or
+            // choosing Volt preserves an existing fixed firmware preference without writes.
+            if(!learned&&!scooterService.followsRidingMode())scooterService.followRidingMode(true);
+            if(learned&&!preferences.getBoolean(RANGE_INTRO_SEEN,false))showExplanation(true);
+            refresh();
+        }
+        void showExplanation(boolean firstUse){
+            if(intro!=null&&intro.isShowing())return;
+            final AlertDialog[] shown=new AlertDialog[1];
+            LinearLayout body=sheetContent(firstUse?"Volt's estimate":"More rides needed",null,()->{if(shown[0]!=null)shown[0].dismiss();});
+            body.setTag(firstUse?"range-learned-intro":"range-more-rides");
+            LinearLayout message=row();message.setGravity(Gravity.TOP);message.setPadding(design.dp(16),design.dp(16),design.dp(16),design.dp(16));
+            message.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?24:14),18,Ui.withAlpha(design.accent,50)));
+            message.addView(design.icon("route",26,design.accent),new LinearLayout.LayoutParams(design.dp(26),design.dp(26)));
+            TextView words=design.text(firstUse?"Volt uses your recorded rides to learn how far you can go. It improves as you record more rides.":"Record a few more rides so Volt can learn your range. Use your scooter's estimate for now.",15,false);
+            LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(0,-2,1);wp.leftMargin=design.dp(14);message.addView(words,wp);body.addView(message);
+            TextView gotIt=design.button("Got it",()->{if(shown[0]!=null)shown[0].dismiss();});gotIt.setTag("range-intro-done");
+            LinearLayout.LayoutParams bp=new LinearLayout.LayoutParams(-1,-2);bp.topMargin=design.dp(16);body.addView(gotIt,bp);
+            intro=showSheet(body);shown[0]=intro;if(firstUse)preferences.edit().putBoolean(RANGE_INTRO_SEEN,true).apply();
+            intro.setOnDismissListener(d->intro=null);
+        }
+        void request(){
+            if(pending||!current()||!dialog.isShowing())return;
+            pending=true;result=null;requestedRevision=scooterService.learnedRangeRevision();int id=++requestId;refresh();
+            java.util.function.Consumer<LearnedRangeEstimate.Result> done=next->{
+                if(id!=requestId||!current()||!dialog.isShowing())return;
+                result=next;pending=false;requestedRevision=scooterService.learnedRangeRevision();refresh();
+            };
+            scooterService.requestLearnedRangeEstimate(done);
+        }
+        void refresh(){
+            if(!current()){dialog.dismiss();return;}
+            if(!pending&&requestedRevision>=0&&requestedRevision!=scooterService.learnedRangeRevision()){request();return;}
+            boolean learned=scooterService.usesLearnedRange();
+            boolean ready=!pending&&result!=null&&result.status==LearnedRangeEstimate.Status.READY;
+            for(int i=0;i<options.size();i++){
+                boolean on=learned==(i==1);dots.get(i).set(on);names.get(i).setTypeface(on?design.semibold():design.regular());
+                boolean unavailable=i==1&&!ready;
+                names.get(i).setTextColor(unavailable?design.muted:design.text);
+                dots.get(i).setAlpha(unavailable?.45f:1f);
+                String state=on?"Selected":"Not selected";
+                if(unavailable)state+=scooterService.simulating()?", unavailable in simulation":pending||result==null?", checking saved rides":result.status==LearnedRangeEstimate.Status.INSUFFICIENT?", more rides needed":", tap to retry";
+                if(Build.VERSION.SDK_INT>=30)options.get(i).setStateDescription(state);
+            }
+            String message=scooterService.simulating()?"Exit simulation to use saved rides.":pending?"Checking saved rides…":result==null?"":result.status==LearnedRangeEstimate.Status.UNAVAILABLE?"Couldn't read saved rides. Tap Volt's estimate to retry."
+                    :learned&&result.status==LearnedRangeEstimate.Status.INSUFFICIENT?"Using scooter's estimate for now.":"";
+            status.setText(message);progress.setVisibility(pending?View.VISIBLE:View.GONE);
+            statusRow.setVisibility(!message.isEmpty()?View.VISIBLE:View.GONE);
+        }
+    }
+
     /** Local per-scooter estimate preference: never sends a charger command or starts capture. */
     private void showChargerEstimateChoice(){
         if(scooterService==null||scooterService.profiles.active()==null||scooterService.isChargeRecording())return;
@@ -1945,6 +2071,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         controlDialog=showSheet(content);sheet[0]=controlDialog;
     }
     private void editFeature(ScooterCommands.Feature feature){
+        if(feature.key.equals("range_algorithm")){showRangeSource();return;}
         if(feature.type==ScooterCommands.Type.TIME){showChargingTime();return;}
         if(feature.type!=ScooterCommands.Type.SLIDER){showChoice(feature);return;}
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;

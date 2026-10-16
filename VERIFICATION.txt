@@ -1,3 +1,26 @@
+VOLT 1.3.1 — SIMPLER RANGE SELECTION (versionCode 36)
+October 16, 2026
+
+- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews are clean after
+  fixes for open-picker history changes, immediate taps during invalidation,
+  simulation wording and documentation consistency.
+- All 34 core suites pass: 80,719 checks. Includes unchanged admission-rule
+  regressions and a constrained-memory reproduction where the full-detail
+  loader fails but the streamed analysis succeeds.
+- Native picker/service tests pass 156 assertions at both 344x882 dp dark/default
+  font and 725x604 dp light/140% font. Covers loading, grey/tappable insufficient
+  history, intro once, offline shortcuts, legacy fixed-mode preservation,
+  explicit drive-mode following, read-error retry, profile switches, stale
+  callbacks, simulation and completing a ride with the picker still open.
+- Original and streamed analysis agree across a private read-only set of 14
+  recordings. No recordings or owner data are committed. The reported transient
+  failure is plausibly explained by the reproduced memory guard, but no incident
+  log establishes its exact cause. Future range accuracy still needs riding.
+- GitHub Actions remains limited by the existing account billing/spending
+  restriction; the owner authorized local tests and independent agent reviews.
+
+See docs/validation/learned-range.md for the unchanged calculation and limits.
+
 VOLT 1.3.0 — RIDE BACKUPS AND LEARNED RANGE (versionCode 35)
 October 16, 2026
 

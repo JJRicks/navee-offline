@@ -423,6 +423,44 @@ public final class RideStore {
         return Collections.unmodifiableList(result);
     }
 
+    /** A concurrent file change may be retried once; permanent storage errors are not retried. */
+    static final class JournalChangedException extends IOException {
+        JournalChangedException() { super("Ride history changed while reading"); }
+    }
+    /**
+     * Analyze committed samples in a single streaming pass per completed journal. The bounded
+     * preview is never used for quality decisions, and no full-detail list or raw routes survive.
+     * This is read-only: an unfinished/invalid journal is omitted, never recovered or rewritten.
+     */
+    LearnedRangeEstimate.Result learnedRange(String profile, long now) throws IOException {
+        List<LearnedRangeEstimate.Evidence> evidence = new ArrayList<>();
+        int unreadable = 0;
+        File[] files = directory.listFiles();
+        if (files == null) throw new IOException("Cannot list rides");
+        for (File source : files) if (isJournal(source)) {
+            if (Thread.currentThread().isInterrupted()) throw new java.io.InterruptedIOException("Range analysis canceled");
+            String id = source.getName().substring(0, source.getName().length() - 4);
+            synchronized (this) { if (active != null && active.id.equals(id)) continue; }
+            long length = source.length(), modified = source.lastModified();
+            LearnedRangeEstimate.Inspector inspector = new LearnedRangeEstimate.Inspector();
+            Accumulator parsed;
+            try { parsed = read(source, false, inspector); }
+            catch (java.io.InterruptedIOException canceled) { throw canceled; }
+            catch (IOException error) {
+                if (!source.isFile() || source.length() != length || source.lastModified() != modified)
+                    throw new JournalChangedException();
+                unreadable++; continue;
+            }
+            if (!source.isFile() || source.length() != length || source.lastModified() != modified)
+                throw new JournalChangedException();
+            if (parsed == null) { unreadable++; continue; }
+            if (!profile.equals(parsed.scooterId) || parsed.lastWall < now - LearnedRangeEstimate.WINDOW_DAYS * 86400000L) continue;
+            if (!parsed.stopped) { unreadable++; continue; }
+            evidence.add(inspector.finish(new Summary(parsed)));
+        }
+        return LearnedRangeEstimate.calculate(profile, evidence, now, unreadable);
+    }
+
     public synchronized boolean delete(String id) throws IOException {
         if (active != null && active.id.equals(id)) throw new IllegalStateException("Stop recording before deleting");
         File f = file(id); if (!f.exists()) return false;
@@ -488,6 +526,7 @@ public final class RideStore {
         double movingThroughputWh, stationaryThroughputWh, unknownMotionThroughputWh;
         final ArrayList<Point> points = new ArrayList<Point>();
         boolean keepAllPoints;
+        LearnedRangeEstimate.Inspector rangeInspector;
         Accumulator(String id, String scooterId, String label, long wall, long mono) {
             this.id = id; this.scooterId = scooterId; this.label = label;
             startWall = lastWall = wall; lastMono = mono;
@@ -556,6 +595,7 @@ public final class RideStore {
             previousPower = power; previousSpeed = speed; samples++;
             Point point = new Point(wall, mono, elapsed, (int)Math.min(Integer.MAX_VALUE, gaps), voltage, power, speed, soc, odo, number(m, "charging_state", mono));
             lastPoint = point;
+            if (rangeInspector != null) rangeInspector.accept(point);
             if (keepAllPoints) points.add(point);
             else if ((samples - 1) % pointStride == 0) {
                 if (points.size() >= MAX_TREND_POINTS) {
@@ -585,7 +625,8 @@ public final class RideStore {
     }
 
     private static Accumulator read(File file) throws IOException { return read(file, false); }
-    private static Accumulator read(File file, boolean keepAll) throws IOException {
+    private static Accumulator read(File file, boolean keepAll) throws IOException { return read(file, keepAll, null); }
+    private static Accumulator read(File file, boolean keepAll, LearnedRangeEstimate.Inspector inspector) throws IOException {
         if (!file.isFile()) return null;
         String id = file.getName().substring(0, file.getName().length() - 4);
         Reader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
@@ -606,6 +647,7 @@ public final class RideStore {
                     if (a == null && acceptedStartRecord(r)) {
                         a = new Accumulator(id, r.get(6), r.get(8), wall, mono);
                         a.keepAllPoints = keepAll;
+                        a.rangeInspector = inspector;
                         a.direction = direction(r.get(13));
                     } else if (a != null && "RENAME".equals(event)) {
                         a.label = trim(r.get(14), 200);
