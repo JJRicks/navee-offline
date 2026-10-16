@@ -1470,19 +1470,24 @@ public final class DashboardValidation extends Instrumentation {
             Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile),
                     optionsBounds = relativeBounds(options, tile), duplicateBounds = relativeBounds(duplicate, tile),
                     removeBounds = relativeBounds(remove, tile);
-            int resizeTouch = activity.ui().dp(48), inlineTouch = Math.min(activity.ui().dp(52), tile.getWidth() / 4),
-                    tolerance = activity.ui().dp(24);
+            boolean twoRows = tile.getWidth() < activity.ui().dp(144);
+            int resizeTouch = activity.ui().dp(48), inlineTouch = twoRows
+                    ? Math.min(activity.ui().dp(48), tile.getWidth() / 2)
+                    : Math.min(activity.ui().dp(52), tile.getWidth() / 4);
+            int tolerance = activity.ui().dp(24);
             require(inlineTouch >= activity.ui().dp(36) - 1, "Inline editor targets fell below the compact size floor");
             require(corner.getWidth() >= resizeTouch && corner.getHeight() >= resizeTouch, "Resize hit area is smaller than 48 dp");
             require(cornerBounds.right >= tile.getWidth() - tolerance && cornerBounds.bottom >= tile.getHeight() - tolerance,
                     "Resize target is not in the widget's bottom-right corner");
             require(gripBounds.left == 0 && gripBounds.top == 0,
                     "Move grip is not in the widget's top-left corner");
-            require(optionsBounds.left == gripBounds.right && duplicateBounds.left == optionsBounds.right
-                            && optionsBounds.top == gripBounds.top && duplicateBounds.top == gripBounds.top,
-                    "Gear and copy actions must share one inline row beside the move grip");
-            require(removeBounds.right == tile.getWidth() && removeBounds.top == gripBounds.top,
-                    "Trash action is not in the widget's top-right corner");
+            require(optionsBounds.left == gripBounds.right && optionsBounds.top == gripBounds.top
+                            && duplicateBounds.left == (twoRows ? 0 : optionsBounds.right)
+                            && duplicateBounds.top == (twoRows ? gripBounds.bottom : gripBounds.top),
+                    "Editor actions did not follow the available one- or two-row arrangement");
+            require(removeBounds.right == tile.getWidth()
+                            && removeBounds.top == (twoRows ? gripBounds.bottom : gripBounds.top),
+                    "Trash action is not on the right edge of its editor row");
             List<Rect> occupied = new ArrayList<>();
             for (View control : new View[] {grip, options, duplicate, remove}) {
                 require(control.getWidth() == inlineTouch && control.getHeight() == inlineTouch,
@@ -1582,8 +1587,13 @@ public final class DashboardValidation extends Instrumentation {
         int columns = ((Number)field(grid(), "columns")).intValue();
         require(columns >= 2, "Gesture fixture requires at least two dashboard columns");
         String neighbor = widget("note").id;
-        setSize(id, 1, 3); setSize(neighbor, 1, 3);
-        int span = cell(id).w; // The grid clamps the requested width to a safe type minimum.
+        int minimum = ((Number)invoke(grid(), "minimumWidth",
+                new Class<?>[]{DashboardConfig.Widget.class}, widgetById(id))).intValue();
+        int neighborMinimum = ((Number)invoke(grid(), "minimumWidth",
+                new Class<?>[]{DashboardConfig.Widget.class}, widgetById(neighbor))).intValue();
+        // NumberPicker wraps an out-of-range value; request each legal minimum explicitly.
+        setSize(id, minimum, 3); setSize(neighbor, neighborMinimum, 3);
+        int span = cell(id).w;
         require(span + cell(neighbor).w <= columns, "Gesture fixture needs room for two safe card spans");
         setPosition(id, 1, 1); setPosition(neighbor, span + 1, 1);
         scrollHomeTop(); awaitSettledLayout(); assertGrid();
@@ -1753,18 +1763,23 @@ public final class DashboardValidation extends Instrumentation {
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
         require(Math.abs(widgetById(id).maximum - 20 * 1.609344) < .000001, "mph gauge maximum was not stored in canonical units");
         openOptions(id);
-        require(findText(dialogRoot(), "20.00 mph") != null, "Gauge scale summary does not follow mph units");
+        require(findText(dialogRoot(), "20 mph") != null, "Gauge scale summary does not follow mph units");
         clickText(dialogRoot(), "Scale maximum");
         require(Math.abs(Double.parseDouble(first(dialogRoot(), EditText.class).getText().toString()) - 20) < .000001,
                 "Gauge scale editor did not convert the saved maximum back to mph");
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
         require(Math.abs(widgetById(id).maximum - 20 * 1.609344) < .000001, "Saving an unchanged mph scale changed its range");
+        DashboardScreen imperialScreen = dashboard();
         main(() -> settings().edit().putString("units", "km").apply());
-        await(() -> dashboard().isEditing() && settings().getString("units", "").equals("km") && grid().getWidth() > 0,
+        await(() -> dashboard() != imperialScreen && dashboard().isEditing()
+                        && settings().getString("units", "").equals("km") && grid().getWidth() > 0,
                 4000, "Metric dashboard did not rebuild"); waitForIdleSync();
-        openOptions(id); require(findText(dialogRoot(), "32.19 km/h") != null, "Gauge scale summary does not convert to km/h"); closeDialog();
+        openOptions(id); require(findText(dialogRoot(), "32.2 km/h") != null, "Gauge scale summary does not convert to km/h"); closeDialog();
         require(Math.abs(widgetById(id).maximum - 20 * 1.609344) < .000001, "Changing display units altered the gauge range");
-        main(() -> settings().edit().putString("units", "mi").apply()); waitForIdleSync();
+        DashboardScreen metricScreen = dashboard();
+        main(() -> settings().edit().putString("units", "mi").apply());
+        await(() -> dashboard() != metricScreen && dashboard().isEditing() && grid().getWidth() > 0,
+                4000, "Imperial dashboard did not rebuild");
         awaitDashboard();
     }
     private void verifyTwoMinuteChart() {

@@ -7,6 +7,9 @@ October 15, 2026
   a draggable grip with named actions on tap, so no touch targets overlap.
 - Fit Reading tile columns to actual numeric tokens at their existing readable
   minimum, using the card's existing scrolling if more rows are required.
+- Reserve the footer’s original text height plus padding before its first fit,
+  keeping card content at the same height when edit controls appear. Compact
+  recorder actions measure their actual labels before choosing the icon fallback.
 - Core suites: 26 passed, 57,457 assertions/checks, including 307 new geometry
   checks across card aspect ratios and display densities. App and separate
   instrumentation runner built and passed APK signature/alignment checks.
