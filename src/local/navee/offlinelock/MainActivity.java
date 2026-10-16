@@ -16,6 +16,7 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.net.Uri;
 import android.os.Build;
@@ -772,8 +773,14 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private View navigation(boolean rail){
         LinearLayout nav=rail?column():row();nav.setGravity(rail?Gravity.TOP|Gravity.CENTER_HORIZONTAL:Gravity.CENTER);nav.setBackgroundColor(design.bg);nav.setPadding(design.dp(rail?8:4),design.dp(rail?20:6),design.dp(rail?8:4),design.dp(rail?12:6));
-        for(int i=0;i<pages.length;i++){final String page=pages[i];View item=design.nav(names[i],icons[i],selectedPage.equals(page),()->select(page));LinearLayout.LayoutParams p=rail?new LinearLayout.LayoutParams(-1,design.dp(78)):new LinearLayout.LayoutParams(0,-2,1);if(rail)p.bottomMargin=design.dp(8);nav.addView(item,p);}
-        return nav;
+        View selected=null;
+        for(int i=0;i<pages.length;i++){final String page=pages[i];View item=design.nav(names[i],icons[i],selectedPage.equals(page),()->select(page));LinearLayout.LayoutParams p=rail?new LinearLayout.LayoutParams(-1,-2):new LinearLayout.LayoutParams(0,-2,1);if(rail){item.setMinimumHeight(design.dp(78));p.bottomMargin=design.dp(8);}nav.addView(item,p);if(selectedPage.equals(page))selected=item;}
+        if(!rail)return nav;
+        // App text and Android font size compound. Let two-line captions determine each
+        // item's height, and keep every destination reachable in a short or large-text rail.
+        ScrollView scroller=new ScrollView(this);scroller.setFillViewport(false);scroller.setVerticalScrollBarEnabled(false);scroller.addView(nav,new ScrollView.LayoutParams(-1,-2));
+        View current=selected;if(current!=null)scroller.post(()->current.requestRectangleOnScreen(new Rect(0,0,current.getWidth(),current.getHeight()),true));
+        return scroller;
     }
     private void select(String page){
         if(page.equals("lights")){preferences.edit().putString("scooter_section","Lights").apply();page="controls";if(page.equals(selectedPage)){rebuild();return;}}
