@@ -265,6 +265,7 @@ public final class DashboardValidation extends Instrumentation {
             result.putBoolean("native_drag_gesture_tested", true); cleanup(); finish(0, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL"); result.putString("error", error.getClass().getSimpleName() + ": " + error.getMessage());
+            result.putString("stack", android.util.Log.getStackTraceString(error));
             result.putStringArrayList("completed_checks", new ArrayList<>(checks));
             try { if (admitted && activity != null && !activity.isDestroyed()) screenshot("failure"); } catch (Throwable ignored) { }
             result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
@@ -1942,7 +1943,7 @@ public final class DashboardValidation extends Instrumentation {
     }
     private void click(View target) {
         View actionable = target; while (!actionable.isClickable() && actionable.getParent() instanceof View) actionable = (View)actionable.getParent();
-        final View button = actionable; require(button.isClickable() && button.isEnabled(), "UI action is disabled"); reveal(button);
+        final View button = actionable; require(button.isClickable() && button.isEnabled(), "UI action is disabled: " + spoken(button) + " (" + button.getClass().getSimpleName() + ")"); reveal(button);
         main(() -> require(button.performClick(), "UI action did not dispatch")); waitForIdleSync();
     }
     private void reveal(View view) { main(() -> view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true)); waitForIdleSync(); }
