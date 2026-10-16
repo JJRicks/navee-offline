@@ -192,7 +192,10 @@ public final class RidesScreen implements AppScreen {
 
         LinearLayout comparison = ui.card(); comparison.setPadding(ui.dp(12), ui.dp(4), ui.dp(12), ui.dp(4));
         compareRow = navRow("compare", "Compare two rides", "", "", this::chooseComparison);
-        comparison.addView(compareRow.view); page.addView(comparison);
+        comparison.addView(compareRow.view);
+        ui.divider(comparison);
+        Row backups = navRow("download", "Ride backups", "", "", this::rideBackups);
+        backups.view.setTag("ride-backups-menu");comparison.addView(backups.view);page.addView(comparison);
 
         LinearLayout head = horizontal(); head.setGravity(Gravity.CENTER_VERTICAL);
         head.addView(ui.sectionLabel("History"), new LinearLayout.LayoutParams(0, -2, 1));
@@ -207,6 +210,15 @@ public final class RidesScreen implements AppScreen {
         } else { detailScroll = null; detailPane = null; root = scroll; }
         refresh();
         if (wide) Motion.scrollBeforeDraw(scroll, wideListScroll);
+    }
+    private void rideBackups() {
+        LinearLayout box = dialogBody("Ride backups", "Complete recordings, routes and phone sensors");
+        TextView export = ui.button("Back up saved rides", null), restore = ui.secondaryButton("Restore rides", null);
+        box.addView(export); LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.topMargin = ui.dp(10); box.addView(restore, spacing);
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Close", null).create();
+        export.setOnClickListener(v -> { dialog.dismiss(); host.rideBackup(false); });
+        restore.setOnClickListener(v -> { dialog.dismiss(); host.rideBackup(true); });
+        show(dialog, DIALOG, null);
     }
     private LinearLayout vertical() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.VERTICAL); return result; }
     private LinearLayout horizontal() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.HORIZONTAL); return result; }

@@ -9,6 +9,7 @@ import java.io.IOException;
 import java.io.InputStreamReader;
 import java.io.OutputStreamWriter;
 import java.io.Reader;
+import java.io.Writer;
 import java.text.SimpleDateFormat;
 import java.util.ArrayList;
 import java.util.Collections;
@@ -583,8 +584,8 @@ public final class RideStore {
                 ? sample.number : null;
     }
 
-    private Accumulator read(File file) throws IOException { return read(file, false); }
-    private Accumulator read(File file, boolean keepAll) throws IOException {
+    private static Accumulator read(File file) throws IOException { return read(file, false); }
+    private static Accumulator read(File file, boolean keepAll) throws IOException {
         if (!file.isFile()) return null;
         String id = file.getName().substring(0, file.getName().length() - 4);
         Reader reader = new BufferedReader(new InputStreamReader(new FileInputStream(file), "UTF-8"));
@@ -602,7 +603,7 @@ public final class RideStore {
                 String event = r.get(1);
                 try {
                     long wall = Long.parseLong(r.get(3)), mono = Long.parseLong(r.get(4));
-                    if ("START".equals(event) && a == null) {
+                    if (a == null && acceptedStartRecord(r)) {
                         a = new Accumulator(id, r.get(6), r.get(8), wall, mono);
                         a.keepAllPoints = keepAll;
                         a.direction = direction(r.get(13));
@@ -634,6 +635,46 @@ public final class RideStore {
         } finally { reader.close(); }
         return a;
     }
+    /** Read a staged journal without recovery or any writes to its containing folder. */
+    static Summary inspectJournal(File source) throws IOException {
+        Accumulator parsed = read(source);
+        if (parsed == null || !parsed.stopped) throw new IOException("The backup contains an unfinished or unreadable ride.");
+        return new Summary(parsed);
+    }
+
+    /** The reader ignores unsupported schemas and START records with invalid clocks. */
+    private static boolean acceptedStartRecord(List<String> record) {
+        if (record.size() != 15 || !"1".equals(record.get(0)) || !"START".equals(record.get(1))) return false;
+        try {
+            Long.parseLong(record.get(3)); Long.parseLong(record.get(4));
+            return true;
+        } catch (NumberFormatException ignored) { return false; }
+    }
+
+    /** Only used on private staging after the rider explicitly chooses a destination scooter. */
+    static void reassignJournal(File source, String profile) throws IOException {
+        if (profile == null || profile.isEmpty() || profile.length() > 160)
+            throw new IOException("Choose a destination scooter.");
+        File temporary = new File(source.getPath() + ".mapping");
+        boolean mapped = false;
+        try (Reader in = new BufferedReader(new InputStreamReader(new FileInputStream(source), "UTF-8"));
+                FileOutputStream bytes = new FileOutputStream(temporary);
+                Writer out = new BufferedWriter(new OutputStreamWriter(bytes, "UTF-8"))) {
+            List<String> record;
+            while ((record = csvRecord(in)) != null) {
+                if (!mapped && acceptedStartRecord(record)) {
+                    record.set(6, profile); mapped = true;
+                }
+                out.write(csvRow(record));
+            }
+            out.flush(); bytes.getFD().sync();
+        } catch (IOException failure) { temporary.delete(); throw failure; }
+        try {
+            if (!mapped || !profile.equals(inspectJournal(temporary).scooterId) || !temporary.renameTo(source))
+                throw new IOException("Could not associate the restored ride.");
+        } catch (IOException failure) { temporary.delete(); throw failure; }
+    }
+
     private static CurrentDirection direction(String value) {
         try { return CurrentDirection.valueOf(value); }
         catch (IllegalArgumentException ignored) { return CurrentDirection.UNCONFIRMED; }

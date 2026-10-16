@@ -5,7 +5,7 @@ import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.LinkOption;
 
-/** Encrypted exports left behind when the process died before its normal cleanup. */
+/** Private exports left behind when the process died before its normal cleanup. */
 final class BackupExportCache {
     private BackupExportCache() { }
 
@@ -35,8 +35,10 @@ final class BackupExportCache {
 
     private static boolean isExport(File file) {
         String name = file.getName();
-        return name.startsWith("volt-encrypted-") && name.endsWith(".voltbackup")
-                && name.length() > "volt-encrypted-.voltbackup".length()
+        return ((name.startsWith("volt-encrypted-") && name.endsWith(".voltbackup")
+                && name.length() > "volt-encrypted-.voltbackup".length())
+                || (name.startsWith("volt-rides-") && name.endsWith(".voltrides")
+                && name.length() > "volt-rides-.voltrides".length()))
                 && Files.isRegularFile(file.toPath(), LinkOption.NOFOLLOW_LINKS);
     }
 }

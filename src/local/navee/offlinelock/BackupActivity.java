@@ -47,6 +47,10 @@ public final class BackupActivity extends Activity {
     private android.window.OnBackInvokedCallback backCallback;
 
     @Override public void onCreate(Bundle state) {
+        Intent active=DataMaintenance.preparedTransfer();
+        if(DataMaintenance.active()&&(active==null||!getComponentName().equals(active.getComponent()))){
+            super.onCreate(state);startActivity((active==null?new Intent(this,MainActivity.class):active).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));finish();return;
+        }
         setTheme(R.style.VoltDark); super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         ui=new Ui(this,true,1f);
@@ -62,7 +66,7 @@ public final class BackupActivity extends Activity {
         restore=getIntent().getBooleanExtra("restore",false);
         boolean priorSession=sessionStarted;sessionStarted=true;
         if(priorSession || state!=null){
-            DataMaintenance.enter();heading("Backup session interrupted");status=paragraph("");progress=new ProgressBar(this);content.addView(progress);
+            DataMaintenance.enter();DataMaintenance.preparedTransfer(new Intent(this,BackupActivity.class));heading("Backup session interrupted");status=paragraph("");progress=new ProgressBar(this);content.addView(progress);
             terminal=true;closeAction=button("Close Volt",this::requestClose);
             // Passwords and staged approval are deliberately never carried through recreation.
             // Let an already approved operation finish, then require a fresh process/models.
@@ -72,14 +76,14 @@ public final class BackupActivity extends Activity {
             return;
         }
         if(getIntent().getBooleanExtra("recovery",false)){
-            DataMaintenance.enter();heading("Recovering your app data");status=paragraph("Keep Volt open while the previous restore is rolled back.");
+            DataMaintenance.enter();DataMaintenance.preparedTransfer(new Intent(this,BackupActivity.class));heading("Recovering your app data");status=paragraph("Keep Volt open while the previous restore is rolled back.");
             progress=new ProgressBar(this);content.addView(progress);busy=true;
-            submit(()->{try{AppDataBackup.recover(this);show(()->done("Your previous app data was recovered. Close and reopen Volt."));}
+            submit(()->{try{AppDataBackup.recover(this);RideBackup.recover(this);show(()->done("Your previous app data was recovered. Close and reopen Volt."));}
                 catch(Exception failure){show(()->done("Recovery failed. Free space, reopen. Don't clear storage."));}});
             return;
         }
         if(!DataMaintenance.active()){
-            DataMaintenance.enter();heading("Backup session ended");status=paragraph("");progress=new ProgressBar(this);content.addView(progress);
+            DataMaintenance.enter();DataMaintenance.preparedTransfer(new Intent(this,BackupActivity.class));heading("Backup session ended");status=paragraph("");progress=new ProgressBar(this);content.addView(progress);
             done("Reopen Volt to continue.");return;
         }
         String preparationError=getIntent().getStringExtra("preparation_error");
