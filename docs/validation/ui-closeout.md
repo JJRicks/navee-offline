@@ -23,6 +23,17 @@ implementation, with focused cross-review of the resulting fixes.
   full-detail spikes, and bound hatch drawing when a long ride is heavily zoomed.
 - Exercise combined system/app large-text layouts on the unfolded window.
 
+## Results
+
+The 29 deterministic core suites pass (64,080 checks), as do the app and runner
+builds. The native narrow-screen dashboard journey and saved-layout/Undo journey
+pass in full. Charge, organization, backup, rides, battery and live-stat checks
+pass on the narrow window; charge, rides and organization also pass on the larger
+window with enlarged fonts. Both final ride-analysis variants pass 181 checks.
+The final fixes preserve card ages and note height across entering Edit, reserve
+fullscreen graph room from its current container measurement, and let navigation
+captions grow without hiding destinations.
+
 ## Test limits
 
 Native tests use disposable Android emulators, synthetic profiles/readings and
