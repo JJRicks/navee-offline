@@ -1,4 +1,4 @@
-UNRELEASED — HOME AGE FOOTER CLEANUP
+VOLT 1.2.4 — HOME AGE FOOTER CLEANUP (versionCode 34)
 October 16, 2026
 
 - Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews found no actionable

@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.2.4 — 2026-10-16
 
 - Remove the clock/age footers from Scooter Overview and Reading tiles, including while connecting. Keep cached values muted and the disconnected header's Last seen time.
+
+Install over your existing Volt APK to preserve setup and recordings. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
 
 ## 1.2.3 — 2026-10-16
 
