@@ -750,8 +750,9 @@ public final class DashboardScreen implements AppScreen {
         // Last seen is the newer of the last connection and the newest captured reading.
         for (TelemetryHistory.Reading r : readings.values())
             if (r != null && r.value != null) lastConnected = Math.max(lastConnected, r.capturedWallMs);
-        // While editing the status line is hidden, so stale cards show their own age.
-        headerSeenMs = !editing && !ready && !connecting ? lastConnected : 0;
+        // Keep the same age reference while editing even though its status line is hidden.
+        // Revealing duplicate card footers would resize their content beneath the edit handles.
+        headerSeenMs = !ready && !connecting ? lastConnected : 0;
         // Done, undo/redo, the jiggle and the edit tools already show edit mode.
         status.setVisibility(editing ? View.GONE : View.VISIBLE);
         if (editing) {
