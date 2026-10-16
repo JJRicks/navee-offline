@@ -180,7 +180,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
             require(files().length==0&&service.chargeCharger()==null,"Default estimate fixture already has owner training/setup");
             Map<String,TelemetryHistory.Reading> readings=new LinkedHashMap<>();
             String[] keys={"charging_state","voltage_v","current_a","battery_percent","rated_capacity_ah","charge_limit_percent"};
-            double[] numbers={1,54,-110d/54,99,15.3,100};
+            double[] numbers={1,53.814,-110d/53.814,99,15.3,100};
             for(int i=0;i<keys.length;i++)readings.put(keys[i],new TelemetryHistory.Reading(keys[i],keys[i],"Battery","fixture","",numbers[i],1000,true));
             ScooterProfiles.Profile active=service.profiles.active();String serial=active.serial;
             Object snapshot=field(service,"chargeSnapshot");
@@ -191,18 +191,19 @@ public final class ChargeCaptureValidation extends Instrumentation {
                         "Fresh UT5 MAX needs recordings, manual selection or developer options for its default estimate");
                 require(estimate.remainingMinutesToFull>20&&estimate.remainingMinutesToFull<30,"UT5 MAX default missed its long 99% finish");
                 Object dashboard=field(activity,"screen");
-                TextView etaValue=new TextView(activity),sourceTag=new TextView(activity);
-                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,sourceTag,estimate);
-                require("stock reference".contentEquals(sourceTag.getText()),"Bundled estimate is mislabeled as personal learning or current rate");
+                TextView etaValue=new TextView(activity),stateTag=new TextView(activity);
+                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,stateTag,estimate);
+                require(etaValue.getText().toString().startsWith("≈")&&stateTag.getVisibility()==View.GONE,"Available estimate is missing or crowded by a source badge");
                 Map<String,TelemetryHistory.Reading> uncapped=new LinkedHashMap<>(readings);uncapped.remove("charge_limit_percent");
                 ChargingEstimate.Result unknownLimit=service.chargingEstimate(uncapped);
                 String[] captions=(String[])invoke(dashboard,"chargeTimeLabels",new Class<?>[]{ChargingEstimate.Result.class,boolean.class},unknownLimit,true);
                 for(String caption:captions)require(caption.contains("if uncapped"),"A visible compact charge label omits its unknown-cutoff condition");
                 uncapped.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-.01,1000,true));
                 ChargingEstimate.Result lowCurrent=service.chargingEstimate(uncapped);
-                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,sourceTag,lowCurrent);
-                require("—".contentEquals(etaValue.getText())&&"Low current".contentEquals(sourceTag.getText()),"Low-current UI invents a time or loses its reason");
-                readings.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-48d/54,1000,true));
+                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,stateTag,lowCurrent);
+                require("—".contentEquals(etaValue.getText())&&"Low current".contentEquals(stateTag.getText()),"Low-current UI invents a time or loses its reason");
+                readings.put("voltage_v",new TelemetryHistory.Reading("voltage_v","Voltage","Battery","fixture","",54.335,1000,true));
+                readings.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-48d/54.335,1000,true));
                 ChargingEstimate.Result taper=service.chargingEstimate(readings);
                 require(taper.referenceToFull&&taper.remainingMinutesToFull>2&&taper.remainingMinutesToFull<9,
                         "Default taper does not progress while SOC stays at 99%");

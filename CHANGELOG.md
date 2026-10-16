@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Refine the UT5 MAX default charging estimate with a second observed finish and paired voltage/power matching for the long 99% stage. Keep the live-current bulk model and rated capacity.
+- Let a completed charge learn from a sufficiently long, uninterrupted finishing segment after an earlier gap, without joining missing data or qualifying unreliable earlier intervals.
+- Simplify charging on Home by removing estimate-source badges and the charger row; keep power, estimated time and meaningful unavailable/low-current states. Charger selection remains in Scooter settings and charge capture.
+- Save the updated estimator version with future predictions; preserve existing recordings.
+
 ## 1.2.2 — 2026-10-15
 
 - Restore horizontal padding around the Lock bar's Connect and Cancel buttons, including after connection-state changes.

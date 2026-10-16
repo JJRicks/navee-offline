@@ -1278,7 +1278,7 @@ public final class DashboardScreen implements AppScreen {
     }
 
 
-    /** A small pill beside a value (a source tag, or a short state such as Low current). */
+    /** A small pill beside a value for a short state such as Low current. */
     private TextView tagChip() {
         TextView chip = ui.text("", 11, false);
         chip.setTypeface(ui.medium());
@@ -1291,7 +1291,7 @@ public final class DashboardScreen implements AppScreen {
         return chip;
     }
 
-    /** A tappable pill (a 48 dp target around a smaller visible shape), e.g. Set reference or the charger. */
+    /** A tappable pill (a 48 dp target around a smaller visible shape), e.g. Set reference. */
     private TextView actionPill(String label, String glyph, int color, Runnable action) {
         TextView chip = ui.text(label, 12.5f, false);
         chip.setTypeface(ui.medium());
@@ -1332,89 +1332,26 @@ public final class DashboardScreen implements AppScreen {
     }
 
     /**
-     * The time slot: "≈ 1h 20m" tagged learned or current rate, otherwise a short state. Low current
+     * The time slot: "≈ 1h 20m", otherwise a short state. Low current
      * keeps the dash with an orange chip beside it. Without a tag slot, the state replaces the dash.
      */
     private void showChargeTime(TextView value, TextView tag, ChargingEstimate.Result estimate) {
         boolean limit = estimate.targetPercent != null && estimate.targetPercent < 100;
         Double minutes = limit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull;
-        boolean learned = limit ? estimate.learnedToLimit : estimate.learnedToFull;
-        boolean reference = limit ? estimate.referenceToLimit : estimate.referenceToFull;
         boolean low = ChargingEstimate.LOW_CURRENT.equals(estimate.label);
         String state = estimate.label == null || estimate.label.isEmpty() ? "—" : estimate.label;
         value.setText(minutes != null ? duration(minutes) : low && tag != null ? "—" : state);
         value.setTextColor(minutes == null ? ui.muted : ui.text);
         if (tag != null)
-            styleTag(tag, minutes != null ? (learned ? "learned" : reference ? "stock reference" : "current rate") : low ? state : null,
+            styleTag(tag, minutes == null && low ? state : null,
                     minutes == null && low);
-    }
-
-    /**
-     * "From 6 past charges" and the selected charger as a tappable chip. Shown only when saved charges
-     * were consulted; the charger is chosen by the owner, never detected.
-     */
-    private final class ChargerRow extends LinearLayout {
-        final TextView source, chip;
-
-        ChargerRow() {
-            super(host.activity());
-            setOrientation(HORIZONTAL);
-            setGravity(Gravity.CENTER_VERTICAL);
-            setVisibility(GONE);
-            source = ui.caption("");
-            addView(source, new LinearLayout.LayoutParams(0, -2, 1));
-            chip = actionPill("", "power", ui.blue, this::choose);
-            LinearLayout.LayoutParams chipSpace = new LinearLayout.LayoutParams(-2, -2);
-            chipSpace.setMarginStart(ui.dp(8));
-            addView(chip, chipSpace);
-        }
-
-        void refresh(ChargingEstimate.Result estimate) {
-            ChargeSessionStore.Charger charger = service == null ? null : service.chargeCharger();
-            boolean reference = estimate.referenceToLimit || estimate.referenceToFull;
-            if (charger == null && reference) charger = ChargeSessionStore.Charger.STOCK;
-            boolean consulted = reference || estimate.learnedSessions > 0
-                    || "Charger mismatch · rate estimate".equals(estimate.label)
-                    || "Rate-based estimate".equals(estimate.label);
-            boolean show = estimate.charging && charger != null && consulted;
-            setVisibility(show ? VISIBLE : GONE);
-            if (!show) return;
-            String name = charger == ChargeSessionStore.Charger.STOCK ? "Stock charger" : "High-speed charger";
-            if (!estimate.label.contentEquals(source.getText())) source.setText(estimate.label);
-            if (!(name + " ▾").contentEquals(chip.getText())) chip.setText(name + " ▾");
-            chip.setContentDescription(name + ". Change charger");
-            chip.setTooltipText("Change charger");
-            boolean changeable = !editing && !service.isChargeRecording();
-            chip.setEnabled(changeable);
-            chip.setAlpha(changeable ? 1f : .5f);
-        }
-
-        private void choose() {
-            if (service == null || editing || service.isChargeRecording()) return;
-            ScooterProfiles.Profile original = service.profiles.active();
-            if (original == null) return;
-            String profileId = original.id;
-            PopupMenu menu = new PopupMenu(host.activity(), chip);
-            menu.getMenu().add(0, 1, 0, "Stock charger");
-            menu.getMenu().add(0, 2, 1, "High-speed charger");
-            menu.setOnMenuItemClickListener(item -> {
-                if (service == null || closed || editing || service.isChargeRecording()
-                        || service.profiles.active() == null
-                        || !profileId.equals(service.profiles.active().id)) return false;
-                service.setChargeCharger(item.getItemId() == 1
-                        ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED);
-                DashboardScreen.this.refresh();
-                return true;
-            });
-            menu.show();
-        }
     }
 
     /** Compact, labeled metric cards shared by charging and the reading-list widget. */
     private final class InfoCell extends LinearLayout {
         final TextView label, value;
         final View labelIcon;
-        /** Optional pill beside the value: the estimate's source or a short state. */
+        /** Optional pill beside the value for a short state. */
         TextView tag;
         int heightBudget = Integer.MAX_VALUE;
         InfoCell(String icon, String title) {
@@ -1587,7 +1524,6 @@ public final class DashboardScreen implements AppScreen {
     private final class ChargingHero extends LinearLayout {
         final TextView chip, percent, etaLabel, eta, etaTag, power;
         final InfoCell timeCell;
-        final ChargerRow chargerRow;
         final ImageView photo;
         final Stage stage;
         double level = Double.NaN, limit = 100;
@@ -1635,11 +1571,6 @@ public final class DashboardScreen implements AppScreen {
             eta = timeCell.value;
             etaTag = timeCell.addTag();
             rows.addView(tiles, new LinearLayout.LayoutParams(-1, -2));
-            // The full estimate status is the time tile's long-press tooltip, not a paragraph.
-            chargerRow = new ChargerRow();
-            LinearLayout.LayoutParams chargerSpace = new LinearLayout.LayoutParams(-1, -2);
-            chargerSpace.topMargin = ui.dp(4);
-            rows.addView(chargerRow, chargerSpace);
             addView(rows, new LinearLayout.LayoutParams(-1, -2));
         }
 
@@ -1726,7 +1657,6 @@ public final class DashboardScreen implements AppScreen {
                     : String.format(Locale.US, "%.0f W", estimate.inputWatts);
             power.setText(watts == null ? "—" : watts);
             power.setTextColor(watts == null ? ui.muted : ui.ok);
-            chargerRow.refresh(estimate);
             stage.setContentDescription(
                     (Double.isNaN(level) ? "Charge not reported" : "Charge " + Math.round(level) + " percent")
                             + (hasLimit ? ", charge limit " + Math.round(limit) + " percent" : ""));
@@ -1826,7 +1756,6 @@ public final class DashboardScreen implements AppScreen {
                 chargingEtaLabel,
                 chargingEtaTag,
                 chargingTemperature;
-        ChargerRow chargerRow;
         LinearLayout batteryData, chargingData;
         boolean capacityPending, dragging, showsRange;
         View resizeControl;
@@ -3299,10 +3228,6 @@ public final class DashboardScreen implements AppScreen {
             container.addView(tiles, new LinearLayout.LayoutParams(-1, -2));
             // Muted dashes and the time slot's short state replace explanatory notes;
             // the full status is the time tile's long-press tooltip.
-            chargerRow = new ChargerRow();
-            LinearLayout.LayoutParams chargerSpace = new LinearLayout.LayoutParams(-1, -2);
-            chargerSpace.topMargin = ui.dp(4);
-            container.addView(chargerRow, chargerSpace);
         }
 
         private void refreshCharging(Map<String, TelemetryHistory.Reading> values) {
@@ -3328,7 +3253,6 @@ public final class DashboardScreen implements AppScreen {
                             + (chargingEtaTag != null && chargingEtaTag.getVisibility() == View.VISIBLE
                                     ? " (" + chargingEtaTag.getText() + ")" : ""),
                     estimate.status);
-            if (chargerRow != null) chargerRow.refresh(estimate);
             if (chargingTemperature != null) {
                 TelemetryHistory.Reading temperature = values.get("temperature_c");
                 chargingTemperature.setText(format(temperature));

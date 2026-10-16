@@ -13,39 +13,63 @@ public final class StockChargeReferenceTest {
             ChargeSessionStore.Charger charger,ChargeSessionStore.Curve personal){
         return ChargingEstimate.forScooter(baseline(soc,watts,target),live(soc),live(15.3),pid,charger,personal);
     }
+    private static ChargingEstimate.Result taper(double volts,double watts){
+        ChargingEstimate.Result baseline=ChargingEstimate.calculate(live(1d),live(volts),live(-watts/volts),live(99d),live(15.3),live(100d));
+        return ChargingEstimate.forScooter(baseline,live(99d),live(15.3),2538,null,null);
+    }
+    private static ChargingEstimate.Result runtimeTaper(double watts,StockChargeReferenceGate gate,long frame){
+        ChargingEstimate.Result baseline=ChargingEstimate.calculate(live(1d),live(54.387),live(-watts/54.387),live(99d),live(15.3),live(100d));
+        return ChargingEstimate.forScooter(baseline,live(99d),live(15.3),2538,null,null,gate,"test",frame,frame);
+    }
     public static void main(String[] args)throws Exception{
         ChargingEstimate.Result fresh=estimate(95,114,100d,2538,null,null);
-        near(41.03345,fresh.remainingMinutesToFull,.01,"First-use default includes the observed finishing tail");
+        near((41.03345+47.36630)/2,fresh.remainingMinutesToFull,.01,"First-use default averages compatible observed finishing tails");
         check(fresh.referenceToFull&&fresh.referenceToLimit&&!fresh.learnedToFull&&!fresh.learnedToLimit&&fresh.learnedSessions==0,
                 "Bundled evidence is never claimed as the user's saved charges");
         check(fresh.status.contains("Experimental UT5 MAX stock-charger")&&fresh.status.contains("does not identify")&&fresh.status.contains("balancing"),
                 "Experimental default, charger uncertainty and endpoint are visible");
         near(fresh.remainingMinutesToFull,estimate(95,114,100d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToFull,0,
                 "Explicit stock and no manual choice use the same default");
-        double early=estimate(99,110,100d,2538,null,null).remainingMinutesToFull;
-        double middle=estimate(99,88,100d,2538,null,null).remainingMinutesToFull;
-        double late=estimate(99,48,100d,2538,null,null).remainingMinutesToFull;
-        check(early>20&&middle>13&&middle<18&&late<8&&early>middle&&middle>late,"Default progresses through the 99% taper without personal recordings");
-        near(42.38310,estimate(92,114,100d,2538,null,null).remainingMinutesToFull,.01,
+        double early=taper(53.814,110).remainingMinutesToFull;
+        double middle=taper(54.172,88).remainingMinutesToFull;
+        double late=taper(54.335,48).remainingMinutesToFull;
+        check(early>25&&middle>13&&middle<20&&late<8&&early>middle&&middle>late,"Default progresses through the paired voltage/power taper without personal recordings");
+        check(taper(53.8,104).remainingMinutesToFull>taper(54.12,104).remainingMinutesToFull+5,
+                "The same power at an earlier voltage cannot be mistaken for a later taper stage");
+        check(!taper(52,104).referenceToFull&&!taper(56,104).referenceToFull,"Distant voltages cannot extrapolate a finishing trajectory");
+        StockChargeReferenceGate taperGate=new StockChargeReferenceGate();
+        check(runtimeTaper(32,taperGate,1000).referenceToFull,"Compatible late-taper power admits the runtime reference");
+        check(runtimeTaper(31,taperGate,2000).referenceToFull&&runtimeTaper(31,taperGate,3000).referenceToFull,
+                "Two brief late-taper power misses retain the existing 20% grace through the matcher");
+        check(!runtimeTaper(31,taperGate,4000).referenceToFull,"The third late-taper miss still expires grace");
+        check(!taper(54.387,31).referenceToFull,"A stateless taper cannot enter through runtime-only grace");
+        near((42.38310+48.70993)/2,estimate(92,114,100d,2538,null,null).remainingMinutesToFull,.01,
                 "Default preserves the rapid 91–95% gauge transition");
         double bulk=15.3*.39/(100d/54)*60;
         ChargingEstimate.Result half=estimate(50,100,100d,2538,null,null);
-        near(bulk+51.2855,half.remainingMinutesToFull,.0001,"Before 89%, rated Ah/live amps model bulk and observed finishing time is appended");
+        near(bulk+(51.2855+49.88757)/2,half.remainingMinutesToFull,.0001,"Before 89%, rated Ah/live amps model bulk and compatible observed finishing time is appended");
         check(half.status.contains("Bulk time uses rated Ah"),"Unobserved middle range is described as a model");
         ChargingEstimate.Result cutoff80=estimate(50,100,80d,2538,null,null);
         near(baseline(50,100,80d).remainingMinutesToLimit,cutoff80.remainingMinutesToLimit,0,"80% cutoff does not include a full-charge tail");
         check(!cutoff80.referenceToLimit&&cutoff80.referenceToFull,"Each target records its actual source");
         ChargingEstimate.Result cutoff95=estimate(50,100,95d,2538,null,null);
-        near(bulk+51.2855-41.03345,cutoff95.remainingMinutesToLimit,.0001,"A cutoff inside the reference uses only time to that cutoff");
+        near(bulk+(51.2855+49.88757-41.03345-47.36630)/2,cutoff95.remainingMinutesToLimit,.0001,"A cutoff uses the same compatible trajectories for both boundaries");
         check(cutoff95.referenceToLimit&&cutoff95.status.contains("higher charge limit"),"Inside-reference cutoff is explicit and full time remains hypothetical");
         ChargingEstimate.Result closeCutoff=estimate(95,114,98d,2538,null,null);
-        near(41.03345-28.39457,closeCutoff.remainingMinutesToLimit,.01,"Near-full lower cutoff subtracts its observed boundary");
+        near((41.03345+47.36630-28.39457-33.75782)/2,closeCutoff.remainingMinutesToLimit,.01,"Near-full lower cutoff subtracts each observed boundary before averaging");
         double justBelow=estimate(88.999,114,100d,2538,null,null).remainingMinutesToFull;
         double atBoundary=estimate(89,114,100d,2538,null,null).remainingMinutesToFull;
         near(atBoundary,justBelow,.01,"Bulk and observed stages share a continuous 89% anchor");
         near(estimate(89,114,90d,2538,null,null).remainingMinutesToLimit,
                 estimate(88.999,114,90d,2538,null,null).remainingMinutesToLimit,.01,
                 "Lower-cutoff estimates also stay continuous at the bulk/reference boundary");
+        for(double watts:new double[]{100,114,130}){
+            near(estimate(89,watts,100d,2538,null,null).remainingMinutesToFull,
+                    estimate(88.999,watts,100d,2538,null,null).remainingMinutesToFull,.01,
+                    "The selected compatible subset is continuous at 89% for different live power");
+        }
+        near(41.03345,estimate(95,130,100d,2538,null,null).remainingMinutesToFull,.01,
+                "One compatible trajectory remains available when the other has different power");
         double previous=-1;
         for(double target:new double[]{88.5,88.9,89,89.001,89.1,89.5,90,95,99,100}){
             double time=estimate(88.5,114,target,2538,null,null).remainingMinutesToLimit;

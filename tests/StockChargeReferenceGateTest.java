@@ -96,6 +96,18 @@ public final class StockChargeReferenceGateTest {
     }
 
     private static void verifyComposition() throws Exception {
+        StockChargeReferenceGate taperGate = new StockChargeReferenceGate();
+        for (int i = 0; i < 4; i++) {
+            double watts = i == 0 ? 32 : 31, volts = 54.387;
+            long frame = (i + 1) * 1000;
+            ChargingEstimate.Result base = ChargingEstimate.calculate(live(1d, frame), live(volts, frame),
+                    live(-watts / volts, frame), live(99d, frame), live(15.3, frame), live(100d, frame));
+            ChargingEstimate.Result result = ChargingEstimate.forScooter(base, live(99d, frame), live(15.3, frame),
+                    2538, null, null, taperGate, SCOPE, frame, frame);
+            check(result.referenceToFull == (i < 3), "The 99% matcher honors two-frame grace, then expires");
+            if (i < 3) check(result.remainingMinutesToFull < 1, "An accepted taper grace cannot jump to a sixteen-minute live-rate ETA");
+            else near(base.remainingMinutesToFull, result.remainingMinutesToFull, 0, "Expired taper grace uses the fresh baseline");
+        }
         for (double[] edge : new double[][]{{95, 95, 94.5}, {98, 93, 92.5}}) {
             StockChargeReferenceGate gate = new StockChargeReferenceGate();
             ChargingEstimate.Result first = estimate(gate, edge[0], edge[1], 100d, 1000, 1000);
@@ -148,7 +160,7 @@ public final class StockChargeReferenceGateTest {
         gate = new StockChargeReferenceGate();
         estimate(gate, 95, 95, 98d, 1000, 1000);
         ChargingEstimate.Result lowerCutoff = estimate(gate, 95, 94.5, 98d, 2000, 2000);
-        near(41.03345 - 28.39457, lowerCutoff.remainingMinutesToLimit, .00001,
+        near((41.03345 + 47.36630 - 28.39457 - 33.75782) / 2, lowerCutoff.remainingMinutesToLimit, .00001,
                 "A lower configured cutoff excludes the finishing time after that boundary");
         check(lowerCutoff.referenceToFull && lowerCutoff.referenceToLimit && lowerCutoff.status.contains("higher charge limit"),
                 "Per-target reference flags and hypothetical-full explanation remain accurate");

@@ -127,10 +127,15 @@ public final class ChargeSessionStore {
         }
         /** Complete observed finishes can provide a provisional estimate after just one charge. */
         public Duration estimateFinishing(double soc, Double liveWatts) {
+            return estimateFinishing(soc, liveWatts, null);
+        }
+        /** Paired voltage disambiguates a low-power bulk plateau from a later taper stage. */
+        public Duration estimateFinishing(double soc, Double liveWatts, Double liveVolts) {
             if (!between(soc, 0, 100) || liveWatts == null || !Double.isFinite(liveWatts) || liveWatts < 1) return null;
+            if (liveVolts != null && (!Double.isFinite(liveVolts) || liveVolts <= 0)) return null;
             List<Double> estimates = new ArrayList<>();
             for (FinishingCurve curve : finishing) {
-                Double value = curve.estimate(soc, liveWatts);
+                Double value = curve.estimate(soc, liveWatts, liveVolts);
                 if (value != null) estimates.add(value);
             }
             if (estimates.isEmpty()) return null;
@@ -384,28 +389,38 @@ public final class ChargeSessionStore {
      */
     private static final class FinishingCurve {
         final List<Point> points;
-        FinishingCurve(List<Point> points) { this.points = new ArrayList<>(points); }
+        final boolean recoveredAfterBreak;
+        FinishingCurve(List<Point> points, boolean recoveredAfterBreak) {
+            this.points = new ArrayList<>(points); this.recoveredAfterBreak = recoveredAfterBreak;
+        }
 
         static FinishingCurve from(Session session) {
             List<Point> points = session.points;
             if (session.stop != Stop.COMPLETE || points.size() < 61 || points.get(points.size()-1).soc != 100) return null;
             int start = -1;
+            boolean recoveredAfterBreak = false;
             for (int i = 1; i < points.size(); i++) {
                 Point before = points.get(i-1), point = points.get(i);
-                if (start < 0 && point.soc > before.soc) start = i;
-                if (start < 0) continue;
                 if (point.gap || point.mono <= before.mono || point.mono - before.mono > MAX_GAP_MS
                         || Math.abs((point.wall-before.wall)-(point.mono-before.mono)) > 2000
                         || point.soc < before.soc || point.soc-before.soc > 1
-                        || point.soc != Math.floor(point.soc) || before.soc >= 100
-                        || (point.soc < 100 && point.power < 1)) return null;
+                        || point.soc != Math.floor(point.soc) || before.soc != Math.floor(before.soc)
+                        || before.soc >= 100 || before.power < 1
+                        || (point.soc < 100 && point.power < 1)) {
+                    start = -1;
+                    recoveredAfterBreak = true;
+                    continue;
+                }
+                // A break invalidates only the prefix. Wait for a later observed rise so the
+                // first partially recorded SOC bin after a reconnect is never included.
+                if (start < 0 && point.soc > before.soc) start = i;
             }
-            if (start < 0 || 100-points.get(start).soc < 10
+            if (start < 0 || points.size()-start < 61 || 100-points.get(start).soc < 10
                     || points.get(points.size()-1).mono-points.get(start).mono < 600000) return null;
-            return new FinishingCurve(points.subList(start, points.size()));
+            return new FinishingCurve(points.subList(start, points.size()), recoveredAfterBreak);
         }
 
-        Double estimate(double soc, double liveWatts) {
+        Double estimate(double soc, double liveWatts, Double liveVolts) {
             if (soc != Math.floor(soc) || soc < points.get(0).soc || soc >= 100) return null;
             List<Point> stage = new ArrayList<>(); Point next = null;
             for (Point point : points) {
@@ -429,6 +444,14 @@ public final class ChargeSessionStore {
                 // only for short intervals, without presenting a fabricated exact countdown.
                 if (next.mono-stage.get(0).mono > 600000) return null;
                 at = (stage.get(0).mono + next.mono) / 2d;
+            } else if (liveVolts != null) {
+                double[][] samples = new double[stage.size()][3];
+                long finish = points.get(points.size()-1).mono;
+                for (int i = 0; i < stage.size(); i++) {
+                    Point point = stage.get(i);
+                    samples[i] = new double[] {point.power, point.voltage, (finish-point.mono)/60000d};
+                }
+                return ChargeTaperMatcher.estimate(liveWatts, liveVolts, samples);
             } else {
                 double closest = Double.POSITIVE_INFINITY;
                 for (Point point : stage) closest = Math.min(closest, Math.abs(point.power-liveWatts));
@@ -479,7 +502,14 @@ public final class ChargeSessionStore {
                 previous=point;
             }
             long elapsed=points.get(points.size()-1).mono-points.get(0).mono;
-            return result.finishing!=null || bins>=MIN_BINS&&elapsed>=600000&&covered>=elapsed*.9?result:null;
+            boolean binsQualified=bins>=MIN_BINS&&elapsed>=600000&&covered>=elapsed*.9
+                    || result.finishing!=null&&!result.finishing.recoveredAfterBreak;
+            if(!binsQualified){
+                // A valid finishing suffix does not qualify the rest of a sparse recording
+                // for the independent per-SOC model, including bins before a long gap.
+                Arrays.fill(result.minutes,Double.NaN);Arrays.fill(result.watts,Double.NaN);
+            }
+            return result.finishing!=null || binsQualified?result:null;
         }
     }
     private static Session read(File file)throws IOException{
