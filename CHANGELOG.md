@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.0 — 2026-10-16
+
+- Back up and restore complete ride recordings from Rides, including any recorded routes and phone motion, names and notes.
+- Preview a safe merge: skip identical rides, retain local conflicts, and explicitly choose the destination scooter for unknown profiles. Validate archives and recover interrupted transfers before reopening the recording stores.
+- Add an optional per-scooter Learned range source in App preferences. Use recent usable rides to refine Scooter overview, Your scooter and Battery overview, with the scooter's estimate as the fallback and default.
+- Keep learning local to each scooter, rebuild estimates from restored rides, and preserve the original range in raw readings, generic widgets, charts and exports.
+
+Install over your existing Volt APK to preserve setup and recordings. Ride-only backups are unencrypted and may contain private routes; the existing full app backup is password-protected. Learned range is a preliminary estimate for similar riding, not a capacity measurement or guaranteed distance. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
+
 ## 1.2.4 — 2026-10-16
 
 - Remove the clock/age footers from Scooter Overview and Reading tiles, including while connecting. Keep cached values muted and the disconnected header's Last seen time.

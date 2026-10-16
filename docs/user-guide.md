@@ -8,11 +8,19 @@ For installation, compatibility and quick setup, start with the [README](../READ
 
 Open **More → App preferences → Units** for distance/speed, temperature and time format. These settings and Appearance use rounded selectors with a sliding highlight; some narrow controls scroll sideways. Celsius/Fahrenheit changes displayed readings and chart/gauge scales; stored telemetry stays in Celsius. Map settings and Background recording guidance also live in App preferences.
 
+**More → App preferences → Range estimate** offers **Scooter** (the default) or **Learned**, saved separately for each scooter. [Learned range](#range-learned-from-your-rides) uses that scooter's completed recordings for a preliminary dashboard estimate.
+
 For UI testing, open **More → About & permissions** and tap the **Volt version seven times**. **Developer options** then appears in More. Its **Simulate scooter as connected** switch supplies sample readings, local control responses and generated chart previews. A persistent sample-data banner includes **Exit**. Simulation closes the real Bluetooth connection, cannot start a ride or phone sensors, and never saves fake telemetry into your history, last-seen cache or battery analysis. Finish any active recording before enabling it. It is temporary and turns off when the service/app process restarts; normal profile and dashboard settings remain yours. Use **Hide developer options** to hide the menu again.
 
 ## Back up and restore
 
 **More → App preferences → Dashboard backups** (also **Home → Edit → Layout → Export/Import**) saves a shareable JSON file containing the selected scooter’s current dashboard, all three saved slots, widget parameters and every saved column-count arrangement. Import asks before replacing these layouts and the shared column preference. Other scooters and recorded data are kept. Files contain no scooter setup keys or readings; personal notes and custom titles are included.
+
+**Rides → Ride backups → Back up saved rides** saves every completed ride with its full scooter readings, any recorded GPS route and phone motion, names and notes. Save the `.voltrides` file outside Volt. It is an **unencrypted ZIP** containing private ride data; keep it somewhere you trust. It excludes pairing credentials, app settings and charge recordings.
+
+Choose **Rides → Ride backups → Restore rides** to add recordings from a `.voltrides` file. Review the preview before confirming: identical rides are skipped, and conflicts keep the recording already on this phone. Known scooter profiles keep their association; for an unknown profile, explicitly choose the existing scooter those rides belong to. This also determines which scooter can learn from them.
+
+After clearing app storage, set up the scooter before restoring a ride backup. Finish active recordings and pending saves first. Volt disconnects and pauses during the transfer; use **Close Volt** and reopen it afterwards, including after cancelling from the transfer screen. [Ride backup details](ride-backups.md).
 
 For a complete backup, enable Developer options by tapping the version seven times in **More → About & permissions**. Choose **Developer options → Export all app data**, create a password of at least eight characters, and save the encrypted `.voltbackup` file outside Volt. The password is not stored or recoverable. This includes all scooter profiles and their private setup identities, cached parameters, historical readings, rides and phone sensor/route data, charge recordings, preferences, current dashboards and saved slots. Basemap choice and its privacy acknowledgement are included. It does not change the scooter’s firmware settings.
 
@@ -159,7 +167,17 @@ The usual ten-second idle background timeout is unchanged. History does not prol
 
 **Readings** keeps its dynamic reading count, search and categories; the redundant favourites-only filter is removed. **Charts** uses the same searchable categories and offers every numerical parameter retained for the selected scooter or currently reported. One **Window** picker applies to all charts: 2 minutes, 10 minutes, 1 hour, 6 hours, 24 hours, 7 days, 30 days or All. All eight choices appear together, including on narrow screens. Stars add charts to **Overview**, where readings and charts share a reorderable favourites list. Tap the Reorder icon, then drag a row by its handle; dropping saves the order, while a cancelled drag restores the starting arrangement. Screen-reader Move up/Move down actions remain available. Each graph expands for inspection. Only visible charts load data; missing intervals remain gaps, and older retained history may be summarized.
 
-**Follow riding mode** selects the supported firmware range estimator for the current mode when fresh state confirms the scooter is stationary. Fixed choices disable following for that scooter. Missing Eco support falls back to the firmware's D-mode estimator, with an explanation in the picker. Range displays still use the scooter's prediction; they do not measure usable capacity or automatically detect Boost. Unconfirmed automatic attempts are bounded across reconnects.
+**Follow riding mode** selects the supported firmware range estimator for the current mode when fresh state confirms the scooter is stationary. Fixed choices disable following for that scooter. Missing Eco support falls back to the firmware's D-mode estimator, with an explanation in the picker. These firmware readings use the scooter's prediction; they do not measure usable capacity or automatically detect Boost. Unconfirmed automatic attempts are bounded across reconnects.
+
+## Range learned from your rides
+
+Choose **More → App preferences → Range estimate → Learned** to use your selected scooter's completed rides for its dashboard range. **Scooter** is the default, and the choice is saved separately for each scooter. Learning stays on this phone and uses only recordings associated with that scooter, including restored rides. Volt ships no other rider's range baseline.
+
+Learning starts with at least **three usable rides, 20 battery percentage points consumed and 3 km recorded within the last 90 days**. The preference sheet shows usable rides, distance, battery points and the battery levels and temperatures represented. Short, incomplete or otherwise unsuitable recordings may be excluded. Until enough history is available, or when the battery level is missing, the widgets use the scooter's estimate. A last-known battery level keeps the resulting estimate grey and historical.
+
+The choice applies to **Scooter overview**, **Your scooter** and **Battery overview**. Live Stats, generic reading widgets, gauges, charts and exported telemetry retain the scooter's reported range. Choosing Learned sends no scooter command and does not change **Follow riding mode**.
+
+Volt divides the accepted rides' total distance by their total battery-percentage drop, then applies that rate to the displayed battery level. Treat the result as a **preliminary estimate for similar riding**, not a guaranteed distance to empty or a capacity/health measurement. Hills, speed, payload, weather and battery-gauge rounding can change actual range; battery levels absent from your recordings are extrapolated. [Calculation, screening rules and validation](validation/learned-range.md).
 
 ## Lights
 

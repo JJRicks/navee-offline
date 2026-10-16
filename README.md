@@ -22,8 +22,8 @@ An Android companion for the **NAVEE UT5 MAX**. Connect over Bluetooth, control 
 | 🔒 **Local controls** | Lock/unlock and supported riding, lighting and charging settings. |
 | 🧩 **Your dashboard** | Movable, resizable widgets, quick controls and saved layouts for folded and unfolded screens. |
 | 📊 **Live insights** | Searchable readings, charts, favourites and last-seen values. |
-| 🗺️ **Ride recordings** | Optional GPS routes, phone sensors, energy readings and exports. |
-| 🔋 **Battery insights** | Power, temperature, charging estimates and experimental capacity estimates. |
+| 🗺️ **Ride recordings** | Optional GPS routes, phone sensors, energy readings and complete ride backups. |
+| 🔋 **Battery insights** | Optional range learned from your rides, charging estimates and experimental capacity estimates. |
 
 ## Install & connect
 
@@ -38,7 +38,7 @@ First-time capture needs your working NAVEE account and Android debugging access
 ## Good to know
 
 - **Local by default.** Controls and recording work offline. **Basemap** starts off; the switch below a ride map explains provider access before enabling online tiles and remembers your choice. Existing saved choices are kept. [Privacy →](PRIVACY.md)
-- **Keep a backup.** Export before clearing app data or switching to a differently signed build. Owner setup files are credentials—keep them private. [Backup & restore →](docs/user-guide.md#back-up-and-restore)
+- **Keep a backup.** Save your recordings with [Ride backups](docs/ride-backups.md); [full app backups](docs/user-guide.md#back-up-and-restore) also preserve setup and settings. Export before clearing app data, and keep backup files private.
 - **Estimates have limits.** Range, charging time, usable capacity and phone motion are estimates; reported battery health is not an independent capacity test. [Understanding readings →](docs/recording-reference.md)
 
 ## Go further

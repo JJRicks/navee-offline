@@ -1,3 +1,31 @@
+VOLT 1.3.0 — RIDE BACKUPS AND LEARNED RANGE (versionCode 35)
+October 16, 2026
+
+- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews are clean for both
+  feature PRs. Backup follow-up fixes cover destination-close failure/retry,
+  parser-matched scooter reassignment, and shared transfer-session routing.
+- All 34 core suites pass: 80,693 checks, including 60 ride-archive checks.
+  Eleven capture guards pass on unchanged guard sources. App and native runner
+  builds pass signature/alignment checks.
+- Native ride transfers pass 46 assertions at both 344x882 dp dark/default font
+  and 725x604 dp light/140% system font. Separate cold-process runs pass six
+  checks each, rebuilding learned range from restored synthetic ride journals.
+- Learned-range UI/service checks pass 40 assertions per size. Existing data
+  maintenance (73), full-backup UI (38), and encrypted export/clear-storage/
+  restore (29 + 42) checks pass, including file and preference preservation.
+- Full raw records, profile mapping, duplicate/conflict handling, interrupted
+  moves/rollback, save retries and repeated launches are tested on a disposable
+  emulator. Physical-phone restore and future range accuracy are not validated
+  by these tests. No real recordings are committed as fixtures or cleared.
+- The Learned source is opt-in per scooter and uses that profile's own recent
+  usable rides. It is a similar-riding forecast, not a capacity measurement.
+  Firmware range remains available and raw telemetry is unchanged.
+- GitHub Actions cannot start because of the existing account billing/spending
+  restriction. The owner authorized release based on local validation and both
+  independent reviews. No new physical scooter or charging test is claimed.
+
+See docs/ride-backups.md and docs/validation/learned-range.md.
+
 VOLT 1.2.4 — HOME AGE FOOTER CLEANUP (versionCode 34)
 October 16, 2026
 

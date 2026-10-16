@@ -1,6 +1,6 @@
 # Range learned from your own rides
 
-In **More → App preferences → Range estimate**, choose **Learned** to use a local forecast in Scooter overview, My Scooter, and battery widgets. The default remains **Scooter**. Each scooter has its own choice and learns only from that profile’s completed recordings on this phone. No owner’s coefficients or recordings ship with Volt.
+In **More → App preferences → Range estimate**, choose **Learned** to use a local forecast in Scooter overview, Your scooter, and Battery overview. The default remains **Scooter**. Each scooter has its own choice and learns only from that profile’s completed recordings on this phone. No owner's learned-range coefficients or ride recordings ship with Volt.
 
 Other numeric readings, gauges, charts, Live Stats, and exported telemetry retain the scooter’s original range. This choice does not send a command or change the firmware’s separate range-mode setting.
 
@@ -10,7 +10,7 @@ The estimate divides total recorded odometer distance by total battery percentag
 
 The preference sheet reports usable rides, recorded distance and battery points, plus the battery levels and temperatures actually represented. A stale battery reading produces a stale forecast. Simulation uses sample telemetry and never reads or trains on genuine history.
 
-This is a forecast for similar riding, not a measurement of physical capacity or battery health. Integer battery/odometer rounding, hills, speed, payload, wind, cold, and unobserved battery levels can change actual range. There is no fitted correction for a route, mode, or temperature without enough independent evidence. It does not predict a guaranteed distance to shutdown.
+This is a preliminary forecast for similar riding, not a measurement of physical capacity or battery health. Integer battery/odometer rounding, hills, speed, payload, wind, cold, and unobserved battery levels can change actual range. There is no fitted correction for a route, mode, or temperature without enough independent evidence. It does not predict a guaranteed distance to shutdown.
 
 ## Evidence admission
 
@@ -28,7 +28,7 @@ Duplicate ride IDs contribute once. Missing intervals and stationary recordings 
 
 ## Lifecycle and tests
 
-Analysis runs off the UI thread with per-profile caching. Completing/deleting a ride and the existing recording-data invalidation hook clear both capacity and range estimates. Full app restore recreates the service; ride-only restore must call `invalidateCapacityEstimate()` after import. Cached evidence also ages out daily. Preference changes affect display only. No learned range is written into raw telemetry, ride journals or the history database.
+Analysis runs off the UI thread with per-profile caching. Completing/deleting a ride and the existing recording-data invalidation hook clear both capacity and range estimates. Full app restore and [ride-only restore](../ride-backups.md) pause the app for data maintenance and require it to close and reopen. Both recreate the service and its models, so restored rides are analyzed with fresh caches; no explicit post-import invalidation call is needed. Ride-only restore preserves known profile associations and requires an explicit destination for unknown profiles. Identical recordings with the same ID are skipped and local conflicts are retained, avoiding duplicate learning contributions. Cached evidence also ages out daily. Preference changes affect display only. No learned range is written into raw telemetry, ride journals or the history database.
 
 `LearnedRangeEstimateTest` uses synthetic committed journals to check pooling, profile/date isolation, duplicates, short efficient legs, evidence thresholds, missing data, clock/reset/gap rejection, charging hidden in long recordings, full-detail admission, and unavailable/zero battery behavior.
 

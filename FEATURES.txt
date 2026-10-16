@@ -1,5 +1,5 @@
 VOLT — UT5 MAX FEATURE AVAILABILITY
-Current version: 1.2.4 (versionCode 34)
+Current version: 1.3.0 (versionCode 35)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -374,6 +374,47 @@ one/all scooters' connected history. Disabling keeps the last-known cache.
 Clearing removes the selected timelines and cache, preserving explicit rides
 and owner setup. Fresh data can accumulate again while connected. Connected
 history does not extend the fixed ten-second idle background deadline.
+
+
+RANGE LEARNED FROM YOUR RIDES
+
+More > App preferences > Range estimate offers Scooter (default) or Learned,
+saved separately for each scooter. Learned uses only that profile's completed
+ride recordings on this phone; no other rider's range baseline ships with Volt.
+It divides total accepted odometer distance by total battery-percentage points
+used, then applies that rate to the displayed battery level.
+
+Needs at least three usable rides, 20 battery points and 3 km within 90 days.
+Full journals are checked for movement, fresh battery/distance endpoints,
+coverage, gaps, clock changes, charging and gauge rebounds. The preference
+sheet shows accepted evidence and the battery levels/temperatures represented.
+Insufficient history or a missing battery level leaves the scooter's estimate;
+a stale battery level produces a stale estimate.
+
+Applies to Scooter overview, Your scooter and Battery overview. Generic reading
+widgets, gauges, charts, Live Stats and raw exports keep the reported range.
+The preference sends no scooter command or change to Follow riding mode.
+This is a preliminary estimate for similar riding, with no guaranteed distance
+to empty or capacity/health claim. Hills, speed, payload, weather, rounding and
+unobserved battery levels limit accuracy. See docs/validation/learned-range.md.
+
+
+RIDE BACKUP AND RESTORE
+
+Rides > Ride backups > Back up saved rides saves complete raw scooter journals
+and any recorded GPS/phone-motion data, names and notes in a .voltrides file.
+This unencrypted ZIP contains private ride data; pairing credentials, app
+settings and charge recordings are excluded. Save it outside Volt and keep it
+private. Encrypted full .voltbackup files are a separate format.
+
+Restore rides previews a merge: identical recordings are skipped and conflicts
+keep the local recording. Known scooter profiles keep their association;
+unknown profiles need an explicit destination scooter, also used for learning.
+After clearing app storage, set up the scooter before restoring ride backups.
+Finish active recordings/pending saves first. Transfers disconnect and pause
+Volt until it closes and reopens, including after cancellation from the transfer
+screen. Reopening recreates the recording stores and estimate models.
+See docs/ride-backups.md and docs/user-guide.md for the steps and recovery limits.
 
 
 EXPERIMENTAL CAPACITY WIDGET
