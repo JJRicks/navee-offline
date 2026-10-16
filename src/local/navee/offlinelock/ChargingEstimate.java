@@ -3,7 +3,7 @@ package local.navee.offlinelock;
 /** Fresh battery-side charging measurements, model defaults and optional personal charge curves. */
 public final class ChargingEstimate {
     /** Bump whenever the prediction algorithm/reference changes; independent of app versions. */
-    public static final String ESTIMATOR_VERSION = "ut5-reference-personal-v1";
+    public static final String ESTIMATOR_VERSION = "ut5-reference-personal-v2";
     public static final double MINIMUM_ETA_CURRENT_A = 0.05;
     /** Short UI label when measured current is too low for a time estimate. */
     public static final String LOW_CURRENT = "Low current";
@@ -184,7 +184,7 @@ public final class ChargingEstimate {
         Double limit=baseline.targetPercent==null?null:Ut5MaxStockChargeReference.estimate(
                 soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
         if(full==null&&limit==null)return baseline;
-        String status="Experimental UT5 MAX stock-charger estimate based on an observed charge; live power is compatible. ";
+        String status="Experimental UT5 MAX stock-charger estimate based on observed charges; live power is compatible. ";
         if(soc.number<89)status+="Bulk time uses rated Ah and current charging rate. ";
         if(limit==null&&baseline.targetPercent!=null)status+="Time to the limit uses the current rate. ";
         status+="This does not identify the charger. Time to displayed 100%; balancing may continue.";
@@ -205,7 +205,8 @@ public final class ChargingEstimate {
                 ||!valid(soc)||!Double.isFinite(soc.number)||soc.number<0||soc.number>100||curve==null)return baseline;
         // Prefer the finishing trajectory even after a second recording becomes available:
         // a SOC-only average would otherwise freeze the ETA throughout a long 99% plateau.
-        ChargeSessionStore.Duration finishing=curve.estimateFinishing(soc.number,baseline.inputWatts);
+        Double volts=baseline.inputAmps==null||baseline.inputAmps<=0?null:baseline.inputWatts/baseline.inputAmps;
+        ChargeSessionStore.Duration finishing=curve.estimateFinishing(soc.number,baseline.inputWatts,volts);
         ChargeSessionStore.Curve.PowerMatch power=curve.powerMatch(soc.number,baseline.inputWatts);
         if(finishing!=null){
             ChargeSessionStore.Duration limit=baseline.targetPercent==null?null:baseline.targetPercent==100

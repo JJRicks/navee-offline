@@ -23,10 +23,14 @@ public final class CompletedChargeEstimateTest {
     private static ChargeSessionStore store()throws Exception{return new ChargeSessionStore(Files.createTempDirectory("finishing-charge-test-").toFile());}
     private static void record(ChargeSessionStore store,String profile,ChargeSessionStore.Charger charger,List<double[]> points,
             ChargeSessionStore.Stop stop,int gap,int clockJump)throws Exception{
+        record(store,profile,charger,points,stop,new int[]{gap},clockJump);
+    }
+    private static void record(ChargeSessionStore store,String profile,ChargeSessionStore.Charger charger,List<double[]> points,
+            ChargeSessionStore.Stop stop,int[] gaps,int clockJump)throws Exception{
         store.start(profile,charger,WALL,MONO);
         for(int i=0;i<points.size();i++){
             double[] p=points.get(i);long mono=MONO+(long)p[0];
-            if(i==gap)store.markGap();
+            for(int gap:gaps)if(i==gap)store.markGap();
             ChargeSessionStore.Frame frame=new ChargeSessionStore.Frame(WALL+(long)p[0]+(clockJump>=0&&i>=clockJump?4000:0),mono,
                     value(p[1]==100?0:1,mono),value(p[1],mono),value(p[2],mono),value(p[3],mono),value(23,mono));
             if(p[1]==100)check(store.sampleCompletion(frame),"Final measurement saved");
@@ -34,12 +38,21 @@ public final class CompletedChargeEstimateTest {
         }
         store.stop(stop);
     }
+    private static List<double[]> steadyTrace(int samplesPerPercent,long interval){
+        List<double[]> points=new ArrayList<>();
+        for(int i=0;i<=40*samplesPerPercent;i++)
+            points.add(new double[]{i*interval,60+i/samplesPerPercent,54,-2});
+        return points;
+    }
     private static ChargeSessionStore.Curve curve(ChargeSessionStore store)throws Exception{
         return store.snapshot().curves.get(ChargeSessionStore.key("sample",ChargeSessionStore.Charger.STOCK));
     }
     private static ChargingEstimate.Result estimate(ChargeSessionStore.Curve curve,double soc,double watts,Double cutoff){
+        // Representative paired voltages from the recorded 99% stages, rather than an
+        // arbitrary fixed voltage that would contradict the phase being exercised.
+        double volts=soc==99?(watts>=100?53.814:watts>=70?54.172:watts>=45?54.335:54.374):54;
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(new ChargingEstimate.Value(1d,true,100),
-                new ChargingEstimate.Value(54d,true,100),new ChargingEstimate.Value(-watts/54,true,100),
+                new ChargingEstimate.Value(volts,true,100),new ChargingEstimate.Value(-watts/volts,true,100),
                 new ChargingEstimate.Value(soc,true,100),new ChargingEstimate.Value(15.3,true,100),
                 new ChargingEstimate.Value(cutoff,true,100));
         return ChargingEstimate.withObservedCurve(baseline,new ChargingEstimate.Value(soc,true,100),curve);
@@ -73,16 +86,48 @@ public final class CompletedChargeEstimateTest {
         check(ChargingEstimate.withObservedCurve(stale,new ChargingEstimate.Value(95d,true,100),one).remainingMinutesToFull==null,"Finishing history never bypasses stale electrical gate");
         record(store,"sample",ChargeSessionStore.Charger.STOCK,trace(),ChargeSessionStore.Stop.COMPLETE,-1,-1);
         ChargeSessionStore.Curve two=curve(store);
+        List<double[]> nineBins=trace();nineBins.removeIf(point->point[1]<89);
+        ChargeSessionStore continuousShortBins=store();
+        for(int i=0;i<2;i++)record(continuousShortBins,"sample",ChargeSessionStore.Charger.STOCK,nineBins,ChargeSessionStore.Stop.COMPLETE,-1,-1);
+        check(curve(continuousShortBins).estimate(95,96)!=null,"An uninterrupted finish with only nine eligible legacy bins retains its previous lower-cutoff evidence");
         check(estimate(two,99,48,100d).learnedSessions==2,"Two compatible complete finishes are counted");
         range(estimate(two,99,48,100d).remainingMinutesToFull,3,8,"Legacy SOC average cannot replace live taper progress after the second charge");
         for(ChargeSessionStore.Stop stop:new ChargeSessionStore.Stop[]{ChargeSessionStore.Stop.STOPPED,ChargeSessionStore.Stop.DISCONNECTED,ChargeSessionStore.Stop.CHARGING_ENDED,ChargeSessionStore.Stop.INTERRUPTED}){
             ChargeSessionStore incomplete=store();record(incomplete,"sample",ChargeSessionStore.Charger.STOCK,trace(),stop,-1,-1);
             check(!estimate(curve(incomplete),99,88,100d).learnedToFull,"A non-complete stop cannot supply finishing evidence");
         }
+        ChargeSessionStore earlyGap=store();record(earlyGap,"sample",ChargeSessionStore.Charger.STOCK,trace(),ChargeSessionStore.Stop.COMPLETE,40,-1);
+        ChargeSessionStore.Curve afterGap=curve(earlyGap);
+        check(afterGap!=null&&!afterGap.hasFinishingCoverage(89)&&afterGap.hasFinishingCoverage(90),"An early gap retains only complete SOC bins after the next observed rise");
+        range(estimate(afterGap,95,114,100d).remainingMinutesToFull,38,42,"A valid uninterrupted suffix preserves the observed finishing time");
+        check(estimate(afterGap,95,114,100d).learnedToFull,"Earlier missing data does not erase a valid completed suffix");
+        ChargeSessionStore multipleGaps=store();record(multipleGaps,"sample",ChargeSessionStore.Charger.STOCK,steadyTrace(6,10000),ChargeSessionStore.Stop.COMPLETE,new int[]{12,60},-1);
+        ChargeSessionStore.Curve afterLastGap=curve(multipleGaps);
+        check(afterLastGap!=null&&!afterLastGap.hasFinishingCoverage(70)&&afterLastGap.hasFinishingCoverage(71),"Gaps at 62% and 70% retain only the observed 71–100% suffix");
+        check(estimate(afterLastGap,95,108,100d).learnedToFull,"The final complete suffix can provide a provisional estimate");
+        List<double[]> sparseTrace=new ArrayList<>();
+        for(int i=0;i<=18;i++)sparseTrace.add(new double[]{i*10000L,49+i/6,54,-2});
+        for(int i=0;i<=66;i++)sparseTrace.add(new double[]{1200000L+i*10000L,89+i/6,54,-2});
+        ChargeSessionStore sparse=store();
+        for(int i=0;i<2;i++)record(sparse,"sample",ChargeSessionStore.Charger.STOCK,sparseTrace,ChargeSessionStore.Stop.COMPLETE,19,-1);
+        ChargeSessionStore.Curve sparseCurve=curve(sparse);
+        check(sparseCurve!=null&&sparseCurve.hasFinishingCoverage(90)&&!sparseCurve.hasFinishingCoverage(50),"A sparse recording retains its qualifying continuous finish only");
+        check(sparseCurve.estimate(50,51)==null&&sparseCurve.powerMatch(50,108d)==ChargeSessionStore.Curve.PowerMatch.UNKNOWN,"Two recovered tails cannot qualify pre-gap timing or power bins");
+        check(sparseCurve.estimateFinishing(95,108d,54d)!=null,"Clearing unqualified legacy bins preserves the valid finishing suffix");
+        ChargeSessionStore shortSuffix=store();record(shortSuffix,"sample",ChargeSessionStore.Charger.STOCK,steadyTrace(2,20000),ChargeSessionStore.Stop.COMPLETE,20,-1);
+        check(!estimate(curve(shortSuffix),95,108,100d).learnedToFull,"A long total session cannot qualify a suffix with fewer than 61 retained samples");
+        ChargeSessionStore minimumSuffix=store();record(minimumSuffix,"sample",ChargeSessionStore.Charger.STOCK,steadyTrace(6,10000),ChargeSessionStore.Stop.COMPLETE,174,-1);
+        check(estimate(curve(minimumSuffix),95,108,100d).learnedToFull,"A suffix with exactly 61 samples, 10 SOC points and 10 minutes qualifies");
         ChargeSessionStore gap=store();record(gap,"sample",ChargeSessionStore.Charger.STOCK,trace(),ChargeSessionStore.Stop.COMPLETE,100,-1);
-        check(!estimate(curve(gap),99,88,100d).learnedToFull,"An internal recording gap excludes the finishing trajectory");
+        check(!estimate(curve(gap),99,88,100d).learnedToFull,"A late recording gap leaves too little SOC span for finishing evidence");
+        ChargeSessionStore terminalGap=store();record(terminalGap,"sample",ChargeSessionStore.Charger.STOCK,trace(),ChargeSessionStore.Stop.COMPLETE,trace().size()-1,-1);
+        check(!estimate(curve(terminalGap),99,88,100d).learnedToFull,"A gap at the 100% endpoint cannot establish an observed finish");
+        ChargeSessionStore earlyClock=store();record(earlyClock,"sample",ChargeSessionStore.Charger.STOCK,trace(),ChargeSessionStore.Stop.COMPLETE,-1,40);
+        ChargeSessionStore.Curve afterClock=curve(earlyClock);
+        check(afterClock!=null&&!afterClock.hasFinishingCoverage(89)&&afterClock.hasFinishingCoverage(90),"A clock discontinuity resets coverage before a new complete SOC bin");
+        check(estimate(afterClock,95,114,100d).learnedToFull,"A stable completed suffix after an early clock jump remains usable");
         ChargeSessionStore clock=store();record(clock,"sample",ChargeSessionStore.Charger.STOCK,trace(),ChargeSessionStore.Stop.COMPLETE,-1,100);
-        check(!estimate(curve(clock),99,88,100d).learnedToFull,"A wall-clock discontinuity excludes the finishing trajectory");
+        check(!estimate(curve(clock),99,88,100d).learnedToFull,"A late wall-clock discontinuity cannot borrow coverage from the preceding segment");
         List<double[]> missing=trace();missing.remove(missing.size()-1);
         ChargeSessionStore unfinished=store();record(unfinished,"sample",ChargeSessionStore.Charger.STOCK,missing,ChargeSessionStore.Stop.COMPLETE,-1,-1);
         check(!estimate(curve(unfinished),99,88,100d).learnedToFull,"Stop reason alone cannot invent an observed 100% endpoint");
@@ -98,9 +143,14 @@ public final class CompletedChargeEstimateTest {
         List<double[]> shortSpan=trace();shortSpan.removeIf(point->point[1]<95);
         ChargeSessionStore shortCapture=store();record(shortCapture,"sample",ChargeSessionStore.Charger.STOCK,shortSpan,ChargeSessionStore.Stop.COMPLETE,-1,-1);
         check(!estimate(curve(shortCapture),99,88,100d).learnedToFull,"A tiny completed SOC span cannot supply finishing evidence");
+        List<double[]> earlyRollback=trace();earlyRollback.get(40)[1]-=1;
+        ChargeSessionStore earlyRolledBack=store();record(earlyRolledBack,"sample",ChargeSessionStore.Charger.STOCK,earlyRollback,ChargeSessionStore.Stop.COMPLETE,-1,-1);
+        ChargeSessionStore.Curve afterRollback=curve(earlyRolledBack);
+        check(afterRollback!=null&&!afterRollback.hasFinishingCoverage(88)&&afterRollback.hasFinishingCoverage(89),"An SOC reversal resets coverage and waits for a later valid rise");
+        check(estimate(afterRollback,95,114,100d).learnedToFull,"The uninterrupted suffix after an early reversal can qualify independently");
         List<double[]> rollback=trace();rollback.get(150)[1]-=1;
         ChargeSessionStore rolledBack=store();record(rolledBack,"sample",ChargeSessionStore.Charger.STOCK,rollback,ChargeSessionStore.Stop.COMPLETE,-1,-1);
-        check(!estimate(curve(rolledBack),99,88,100d).learnedToFull,"An SOC rollback excludes the finishing trajectory");
+        check(!estimate(curve(rolledBack),99,88,100d).learnedToFull,"A late SOC rollback leaves an insufficient finishing suffix");
         List<double[]> skipped=trace();skipped.removeIf(point->point[1]==92);
         ChargeSessionStore skippedSoc=store();record(skippedSoc,"sample",ChargeSessionStore.Charger.STOCK,skipped,ChargeSessionStore.Stop.COMPLETE,-1,-1);
         check(!estimate(curve(skippedSoc),99,88,100d).learnedToFull,"A skipped SOC step cannot manufacture a complete trajectory");

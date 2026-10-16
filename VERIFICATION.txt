@@ -1,3 +1,22 @@
+UNRELEASED — CHARGING ESTIMATE CALIBRATION AND DASHBOARD CLEANUP
+October 16, 2026
+
+- All 32 deterministic core suites pass; final affected-fixture rerun included:
+  80,598 checks/assertions. App and native runner build/signature/alignment pass.
+- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews completed. Fixed
+  and rechecked bounded 99% power-grace and recovered-prefix eligibility issues.
+- Native charge capture: 174 assertions each at 344x882 dark/normal system font
+  and 725x604 light/140% system font. Battery/dashboard: 81/78 assertions at the
+  same dimensions, using normal/140% app text. Saved-layout checks also pass.
+- Historical recording: 60–100% in 179.54 minutes, first saved forecast 167.03;
+  saved predictions average 4.64 minutes absolute error. Cross-capture 99% tests
+  improve 4.54→2.34 and 3.71→2.21 minutes. Latest-session default replay improves
+  4.47→3.32 minutes, but includes that session in calibration. Not a future-charge
+  accuracy guarantee. Rated 15.3 Ah remains unchanged.
+- Emulator checks use synthetic profiles with Bluetooth disabled. The Pixel
+  export was read only; no sideload or new physical charging test is claimed.
+  See docs/validation/charge-finishing-estimates.md for evidence and limits.
+
 VOLT 1.2.2 — LOCK BAR BUTTON PADDING (versionCode 32)
 October 15, 2026
 
