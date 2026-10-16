@@ -1842,7 +1842,7 @@ public final class DashboardValidation extends Instrumentation {
                 assertBatteryMode(batteryTile, true, "Fresh active charging state");
                 preview.remove("charge_limit_percent");
                 invoke(chargeTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
-                require("Time to 100%".equals(spoken((TextView)field(chargeTile, "chargingEtaLabel")))
+                require("Time to 100% if uncapped".equals(spoken((TextView)field(chargeTile, "chargingEtaLabel")))
                         && "≈ 3h 38m".contentEquals(((TextView)field(chargeTile, "chargingEta")).getText()),
                         "Unknown cutoff did not keep the hypothetical full estimate separate");
                 require(String.valueOf(((TextView)field(chargeTile, "chargingEta")).getContentDescription()).contains("cutoff unknown"),
