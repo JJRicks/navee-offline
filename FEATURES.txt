@@ -245,8 +245,10 @@ grip, options gear, Duplicate copy icon and red Remove trash icon use matching
 squares with centered glyphs, arranged in two rows on compact cards. Below 96 dp,
 narrow Quick access rails show only Move and Options; Options opens
 Edit/Duplicate/Remove. Separate 48 dp targets
-remain usable on three-row rails. Tap the dots for Move or corner for Size as
-accessible alternatives.
+remain usable on three-row rails. Short Lock bars reserve their own resize lane;
+on the narrowest one-row cards, tapping the move grip opens Move/Edit/Duplicate/
+Remove, while dragging it still moves the card. Tap the corner for Size as an
+accessible alternative.
 Size and Move remain accessible by tapping the corner and grip. Menus, grips, resize corners
 and the scooter-name pencil appear only in global dashboard edit mode. The
 rename pencil sits directly beside the scooter name. Local

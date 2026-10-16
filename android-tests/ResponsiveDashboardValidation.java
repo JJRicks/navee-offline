@@ -77,7 +77,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().containsKey("odometer_km"), "Cached fixture did not load");
             stopUiPulse(); settle();
             String mode = arguments.getString("mode", "all");
-            if (mode.equals("example")) {
+            if (mode.equals("closeout")) {
+                verifyCloseoutGeometry();
+            } else if (mode.equals("example")) {
                 verifyAllWidgetsExample();
             } else if (mode.equals("compact")) {
                 verifyCompactReadingHeights();
@@ -585,6 +587,90 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         }
         main(() -> invoke(activity, "updateHeader")); settle();
     }
+    /** Small/tall legal cards exercise drawing, text and editor hit areas with the real Android view tree. */
+    private void verifyCloseoutGeometry() {
+        main(() -> {
+            View lockCard = (View)tile("lockbar"), readingCard = (View)tile("tiles");
+            int oldLockW=lockCard.getWidth(), oldLockH=lockCard.getHeight();
+            int oldReadingW=readingCard.getWidth(), oldReadingH=readingCard.getHeight();
+            View slider=(View)field(activity,"lockControl");
+            try {
+                setVisibilityIfPresent("lockOffline",View.GONE);
+                setVisibilityIfPresent("lockReady",View.VISIBLE);
+                ((View)field(activity,"connectionAction")).setVisibility(View.GONE);
+                invoke(slider,"update",new Class<?>[]{Boolean.class,boolean.class},false,true);
+                for(int[] size:new int[][]{{117,182},{150,182},{312,374},{312,54}}) {
+                    measureCard(lockCard,activity.ui().dp(size[0]),activity.ui().dp(size[1]));
+                    local.navee.offlinelock.LockSliderGeometry geometry=
+                            (local.navee.offlinelock.LockSliderGeometry)invoke(slider,"sliderGeometry");
+                    require(slider.getWidth()>0 && slider.getHeight()>0,"Connected slider was not measured");
+                    require(geometry.travel>=slider.getWidth()/2f,"Tall slider lost horizontal travel");
+                    for(float position:new float[]{0,.5f,1}) {
+                        float center=geometry.centerFor(position);
+                        require(center-geometry.radius>=0 && center+geometry.radius<=slider.getWidth(),"Slider thumb clips horizontally");
+                        require(slider.getHeight()/2f-geometry.radius>=0,"Slider thumb clips vertically");
+                    }
+                    invoke(slider,"stopMotion");
+                    long now=SystemClock.uptimeMillis();
+                    for(int event:new int[]{android.view.MotionEvent.ACTION_DOWN,android.view.MotionEvent.ACTION_MOVE,android.view.MotionEvent.ACTION_CANCEL}) {
+                        android.view.MotionEvent touch=android.view.MotionEvent.obtain(now,now,event,
+                                geometry.centerFor(event==android.view.MotionEvent.ACTION_DOWN?0:1),slider.getHeight()/2f,0);
+                        try{slider.onTouchEvent(touch);}finally{touch.recycle();}
+                        if(event==android.view.MotionEvent.ACTION_MOVE)
+                            require(((Number)field(slider,"position")).floatValue()>.95f && Boolean.FALSE.equals(field(slider,"value")),
+                                    "Tall switch drag must reach the right without changing confirmed state");
+                    }
+                    invoke(slider,"stopMotion");
+                    saveCardBitmap(lockCard,"closeout-lock-"+size[0]+"x"+size[1]);
+                }
+                Object readings=field(readingCard,"readingTiles");
+                List<?> values=(List<?>)field(readings,"values");
+                require(values.size()==3,"Reading tile regression expects the default three readings");
+                String[] samples={"-123.4 W","100 %","23 °C"};
+                for(int i=0;i<values.size();i++)((TextView)values.get(i)).setText(samples[i]);
+                for(int[] size:new int[][]{{117,54},{150,54},{312,54},{117,182},{312,182}}) {
+                    measureCard(readingCard,activity.ui().dp(size[0]),activity.ui().dp(size[1]));
+                    for(Object item:values) {
+                        TextView value=(TextView)item;
+                        android.text.Layout layout=value.getLayout();
+                        require(layout!=null,"Reading has no text layout");
+                        float usable=value.getWidth()-value.getCompoundPaddingLeft()-value.getCompoundPaddingRight();
+                        for(int line=0;line<layout.getLineCount();line++)
+                            require(layout.getLineMax(line)<=usable+1,"Numeric reading clips horizontally: "+value.getText());
+                        require(layout.getLineEnd(layout.getLineCount()-1)==value.length(),"Numeric reading lost characters");
+                    }
+                    saveCardBitmap(readingCard,"closeout-readings-"+size[0]+"x"+size[1]);
+                }
+            } finally {
+                invoke(slider,"stopMotion"); invoke(activity,"updateHeader");
+                measureCard(lockCard,oldLockW,oldLockH);measureCard(readingCard,oldReadingW,oldReadingH);
+            }
+        });
+        check("Tall lock bars retain visible thumbs, real sideways travel and cancellable drags; minimum Reading tiles preserve every numeric character");
+        main(()->invoke(dashboard(),"toggleEditing"));settleMotion();
+        main(()->{
+            View card=(View)tile("lockbar");int width=card.getWidth(),height=card.getHeight();
+            try {
+                for(int[] size:new int[][]{{117,54},{150,54},{192,54},{312,54},{117,182},{312,374}}){
+                    measureCard(card,activity.ui().dp(size[0]),activity.ui().dp(size[1]));
+                    drawEditorFrame(card);assertEditorControls();
+                    saveCardBitmap(card,"closeout-editor-"+size[0]+"x"+size[1]);
+                }
+                measureCard(card,activity.ui().dp(117),activity.ui().dp(54));
+                View bar=card.findViewWithTag("widget-editor-bar");
+                ((View)field(bar,"grip")).performClick();
+                android.widget.PopupMenu menu=(android.widget.PopupMenu)field(bar,"actionsMenu");
+                require(menu!=null && menu.getMenu().size()==4,"Narrow Move target lost its named widget actions");
+                require(menu.getMenu().findItem(4).isEnabled() && menu.getMenu().findItem(1).isEnabled()
+                        && !menu.getMenu().findItem(2).isEnabled() && menu.getMenu().findItem(3).isEnabled(),
+                        "Narrow action menu changed Move/Edit/Delete or allowed duplicating Lock");
+                menu.dismiss();
+            }finally{measureCard(card,width,height);}
+        });
+        check("One-row Lock bars keep separate move/menu and resize targets across narrow and wide spans");
+        main(()->invoke(dashboard(),"toggleEditing"));settleMotion();
+    }
+
     /** View-only checks: never fake a GATT, tap an action, or submit a lock command. */
     private void verifyLockMotionAndDisconnect() {
         main(() -> {
@@ -612,6 +698,10 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 setVisibilityIfPresent("lockOffline", View.GONE);
                 setVisibilityIfPresent("lockReady", View.VISIBLE);
                 invoke(slider, "update", new Class<?>[] {Boolean.class, boolean.class}, false, true);
+                // GONE children retain no current dimensions. Lay out the parent after
+                // exposing the connected view, as Android does before a user's gesture.
+                View lockCard = (View)lockTile();
+                measureCard(lockCard, lockCard.getWidth(), lockCard.getHeight());
                 invoke(slider, "stopMotion");
                 require(((Number)field(slider, "position")).floatValue() == 0, "Unlocked thumb did not settle left");
                 invoke(slider, "update", new Class<?>[] {Boolean.class, boolean.class}, true, true);
@@ -628,7 +718,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 invoke(slider, "update", new Class<?>[] {Boolean.class, boolean.class}, false, true);
                 invoke(slider, "stopMotion");
                 long when = SystemClock.uptimeMillis();
-                float y = slider.getHeight()/2f, start = slider.getHeight()/2f, end = slider.getWidth()-slider.getHeight()/2f;
+                local.navee.offlinelock.LockSliderGeometry geometry =
+                        (local.navee.offlinelock.LockSliderGeometry)invoke(slider, "sliderGeometry");
+                float y = slider.getHeight()/2f, start = geometry.centerFor(0), end = geometry.centerFor(1);
                 for (int event : new int[] {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_CANCEL}) {
                     android.view.MotionEvent touch = android.view.MotionEvent.obtain(when, when, event, event == android.view.MotionEvent.ACTION_DOWN ? start : end, y, 0);
                     try { slider.onTouchEvent(touch); } finally { touch.recycle(); }
@@ -1877,8 +1969,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             ViewGroup card = (ViewGroup)item;
             DashboardConfig.Widget widget = (DashboardConfig.Widget)field(item, "widget");
             List<View> controls = editorControls(card);
-            boolean compactActions = controls.size() == 3;
-            require(compactActions || controls.size() == 5, "Expected accessible editor actions on " + widget.title + ", got " + controls.size());
+            boolean singleAction = controls.size() == 2, compactActions = controls.size() == 3;
+            require(singleAction || compactActions || controls.size() == 5, "Expected accessible editor actions on " + widget.title + ", got " + controls.size());
             ArrayList<Rect> occupied = new ArrayList<>();
             View grip = described(card, "Move "), options = described(card, "Options for "),
                     duplicate = described(card, "Duplicate "), remove = described(card, "Remove ");
@@ -1890,7 +1982,11 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(inlineTarget >= activity.ui().dp(36) - 1, "Inline controls fell below the compact target floor");
             require(gripBounds.left == 0 && gripBounds.top == 0, "Move handle left its top-left anchor");
             boolean wrapped = compactActions || duplicateBounds.top > 0;
-            if (wrapped) {
+            if (singleAction) {
+                require(inlineTarget == activity.ui().dp(48) && options.getVisibility() == View.GONE
+                                && duplicate.getVisibility() == View.GONE && remove.getVisibility() == View.GONE,
+                        "One-row narrow editor must keep a full Move/menu target and Resize");
+            } else if (wrapped) {
                 require(inlineTarget == activity.ui().dp(48), "Wrapped editor did not retain full 48dp targets");
                 if (compactActions) {
                     require((optionBounds.left == 0 && optionBounds.top == gripBounds.bottom)
@@ -1905,8 +2001,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                             "Compact editor must keep Move/Edit above Duplicate/Remove, with Remove at the right");
                 }
             } else {
-                int resizeLane = ((Boolean)field(item, "compactRecorder")) && card.getHeight() < activity.ui().dp(96)
-                        ? activity.ui().dp(48) : 0;
+                int resizeLane = card.getHeight() < activity.ui().dp(96) ? activity.ui().dp(48) : 0;
                 require(inlineTarget == Math.min(activity.ui().dp(52), (card.getWidth() - resizeLane) / 4),
                         "Inline controls lost their equal available-width targets");
                 require(optionBounds.left == gripBounds.right && duplicateBounds.left == optionBounds.right

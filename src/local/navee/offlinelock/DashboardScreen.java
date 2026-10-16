@@ -1760,12 +1760,13 @@ public final class DashboardScreen implements AppScreen {
         private final class EditorBar extends ViewGroup {
             final View grip, editButton, duplicateButton, removeButton;
             int target, controlColumns, resizeInset;
-            boolean compactRail;
+            boolean compactRail, singleAction;
             PopupMenu actionsMenu;
 
             EditorBar(View grip) {
                 super(host.activity());
                 this.grip = grip;
+                grip.setOnClickListener(v -> { if (singleAction) showActions(); else position(widget); });
                 editButton = overlay("gear", "Options for " + widget.title, () -> options(widget));
                 editButton.setOnClickListener(v -> {
                     if (compactRail) showActions(); else options(widget);
@@ -1781,7 +1782,8 @@ public final class DashboardScreen implements AppScreen {
 
             private void showActions() {
                 if (actionsMenu != null) actionsMenu.dismiss();
-                actionsMenu = new PopupMenu(host.activity(), editButton);
+                actionsMenu = new PopupMenu(host.activity(), singleAction ? grip : editButton);
+                if (singleAction) actionsMenu.getMenu().add(0, 4, 0, "Move widget").setIcon(glyphDrawable("grip", ui.text, 20));
                 actionsMenu.getMenu().add(0, 1, 0, "Edit widget").setIcon(glyphDrawable("gear", ui.text, 20));
                 actionsMenu.getMenu().add(0, 2, 1, "Duplicate widget").setIcon(glyphDrawable("copy", ui.text, 20))
                         .setEnabled(!lockType(widget.type) && config.widgets.size() < 32);
@@ -1792,7 +1794,8 @@ public final class DashboardScreen implements AppScreen {
                 if (android.os.Build.VERSION.SDK_INT >= 29) actionsMenu.setForceShowIcon(true);
                 actionsMenu.setOnMenuItemClickListener(item -> {
                     if (!editing) return false;
-                    if (item.getItemId() == 1) options(widget);
+                    if (item.getItemId() == 4) position(widget);
+                    else if (item.getItemId() == 1) options(widget);
                     else if (item.getItemId() == 2) duplicateWidget(widget);
                     else if (item.getItemId() == 3) removeWidget(widget);
                     else return false;
@@ -1808,15 +1811,20 @@ public final class DashboardScreen implements AppScreen {
 
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 int width = MeasureSpec.getSize(widthSpec);
-                // Only physically short recorders need a separate resize lane. Large text also
-                // uses compact recorder content, but must not steal width from a taller editor.
-                resizeInset = compactRecorder && MeasureSpec.getSize(heightSpec) < ui.dp(96) ? ui.dp(48) : 0;
+                // Any physically short card needs a dedicated corner lane. Lock bars can
+                // be one row high too; a content-specific condition made Options overlap Resize.
+                // Taller cards retain the full width for their normal editor controls.
+                resizeInset = MeasureSpec.getSize(heightSpec) < ui.dp(96) ? ui.dp(48) : 0;
                 int available = Math.max(1, width - resizeInset);
+                singleAction = resizeInset > 0 && available < ui.dp(96);
+                editButton.setVisibility(singleAction ? GONE : VISIBLE);
+                grip.setTooltipText(singleAction ? "Move or edit widget" : "Move widget");
                 controlColumns = available < ui.dp(144) ? (available >= ui.dp(96) ? 2 : 1) : 4;
                 target = Math.min(ui.dp(controlColumns < 4 ? 48 : 52), available / controlColumns);
                 // A short two-column card cannot fit two action rows above Resize.
                 // Use the existing named action menu instead of overlapping tap targets.
-                compactRail = (widget.type.equals("quick") && available < ui.dp(96))
+                compactRail = singleAction || (resizeInset > 0 && controlColumns < 4)
+                        || (widget.type.equals("quick") && available < ui.dp(96))
                         || (resizeInset == 0 && target * (4 / controlColumns)
                                 > MeasureSpec.getSize(heightSpec) - ui.dp(48));
                 duplicateButton.setVisibility(compactRail ? GONE : VISIBLE);
@@ -1824,10 +1832,11 @@ public final class DashboardScreen implements AppScreen {
                 for (int i = 0; i < getChildCount(); i++)
                     getChildAt(i).measure(MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY),
                             MeasureSpec.makeMeasureSpec(target, MeasureSpec.EXACTLY));
-                setMeasuredDimension(width, target * (((compactRail ? 2 : 4) + controlColumns - 1) / controlColumns));
+                setMeasuredDimension(width, singleAction ? target : target * (((compactRail ? 2 : 4) + controlColumns - 1) / controlColumns));
             }
 
             @Override protected void onLayout(boolean changed, int left, int top, int right, int bottom) {
+                if (singleAction) { grip.layout(0, 0, target, target); return; }
                 if (controlColumns < 4) {
                     for (int i = 0; i < (compactRail ? 2 : 4); i++) {
                         int x = (i % controlColumns) * target, y = (i / controlColumns) * target;
@@ -2160,8 +2169,11 @@ public final class DashboardScreen implements AppScreen {
 
             @Override
             protected void onMeasure(int widthSpec, int heightSpec) {
-                boolean iconOnly = MeasureSpec.getSize(widthSpec) < ui.dp(92 * ui.textScale
-                        * getResources().getConfiguration().fontScale);
+                int availableWidth = MeasureSpec.getSize(widthSpec);
+                boolean iconOnly = availableWidth < ui.dp(92 * ui.textScale
+                        * getResources().getConfiguration().fontScale)
+                        || (compactRecorder && availableWidth < ui.dp(44)
+                                + rideTitle.getPaint().measureText(rideTitle.getText().toString()));
                 boolean narrow = !compactRecorder && MeasureSpec.getSize(widthSpec) < ui.dp(170 * ui.textScale);
                 setMinimumHeight(ui.dp(compactRecorder ? 48 : 56));
                 setPadding(0, compactRecorder ? 0 : ui.dp(4), ui.dp(4), compactRecorder ? 0 : ui.dp(4));
@@ -2651,7 +2663,7 @@ public final class DashboardScreen implements AppScreen {
             final ArrayList<LinearLayout> heads = new ArrayList<>();
             final ArrayList<FittedValue> values = new ArrayList<>();
             final ArrayList<String> keys = new ArrayList<>();
-            int budget, columns = 1, rowHeight, mode = -1, fittedWidth = -1, fittedBudget = -1;
+            int budget, columns = 1, rowHeight, mode = -1, fittedWidth = -1, fittedBudget = -1, fittedColumns = -1;
 
             ReadingTiles(List<String> readings) {
                 super(host.activity());
@@ -2706,7 +2718,8 @@ public final class DashboardScreen implements AppScreen {
                     nameSize.weight = inline ? 1 : 0;
                     nameSize.topMargin = next == FULL ? ui.dp(6) : 0;
                     int vertical = ui.dp(next == FULL ? 12 : 4);
-                    cells.get(i).setPadding(ui.dp(14), vertical, ui.dp(12), vertical);
+                    LinearLayout cell = cells.get(i);
+                    cell.setPadding(cell.getPaddingLeft(), vertical, cell.getPaddingRight(), vertical);
                     icon.requestLayout();
                     name.requestLayout();
                 }
@@ -2726,16 +2739,34 @@ public final class DashboardScreen implements AppScreen {
                     if ((count + next - 1) / next > maxRows) break;
                     columns = next;
                 }
+                // Height may force values-only cells, but must never force a numeric token
+                // into fewer pixels than it needs at the readable floor. Allow another row
+                // (and normal card scrolling) rather than clipping digits or hiding readings.
+                float required = 0;
+                for (FittedValue value : values) {
+                    android.text.TextPaint probe = new android.text.TextPaint(value.getPaint());
+                    probe.setTextSize(value.minimumSp * getResources().getDisplayMetrics().scaledDensity);
+                    for (String token : value.getText().toString().split("\\s+"))
+                        required = Math.max(required, probe.measureText(token));
+                }
+                required += ui.dp(12);
+                while (columns > 1 && (width - (columns - 1) * gap) / columns < required)
+                    columns = columns == 4 ? 2 : columns - 1;
                 int rows = (count + columns - 1) / columns;
                 int cellWidth = Math.max(1, (width - (columns - 1) * gap) / columns);
-                boolean cramped = columns > 1 && cellWidth < minimum;
+                boolean cramped = cellWidth < minimum;
+                int horizontal = Math.min(ui.dp(cramped ? 6 : 14),
+                        Math.max(0, (cellWidth - (int)Math.ceil(required - ui.dp(12))) / 2));
+                for (LinearLayout cell : cells)
+                    cell.setPadding(horizontal, cell.getPaddingTop(), horizontal, cell.getPaddingBottom());
                 int perRow = budget > 0 ? (budget - (rows - 1) * gap) / rows : Integer.MAX_VALUE;
                 int natural;
-                if (width == fittedWidth && budget == fittedBudget) natural = measureCells(cellWidth, -1);
+                if (width == fittedWidth && budget == fittedBudget && columns == fittedColumns) natural = measureCells(cellWidth, -1);
                 else {
                     // Search only when the space changes, so value budgets settle instead of re-requesting layout.
                     fittedWidth = width;
                     fittedBudget = budget;
+                    fittedColumns = columns;
                     natural = 0;
                     // Too narrow for a label: values only (each value's description keeps its label).
                     for (int next = cramped ? VALUE : FULL; next <= VALUE; next++) {
