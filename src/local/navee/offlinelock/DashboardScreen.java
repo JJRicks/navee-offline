@@ -2326,6 +2326,8 @@ public final class DashboardScreen implements AppScreen {
                     break;
                 case "note":
                     subtitle = ui.text(widget.note.isEmpty() ? "Empty note" : widget.note, 15, false);
+                    // Reserve the edit tap target in both modes so short notes never move.
+                    subtitle.setMinHeight(ui.dp(48));
                     if (widget.note.isEmpty()) {
                         subtitle.setTextColor(ui.muted);
                         subtitle.setCompoundDrawablesRelative(glyphDrawable("note", ui.muted, 18), null, null, null);
@@ -2337,7 +2339,6 @@ public final class DashboardScreen implements AppScreen {
                         subtitle.setTag(EDIT_ACTION);
                         subtitle.setClickable(true);
                         subtitle.setFocusable(true);
-                        subtitle.setMinHeight(ui.dp(48));
                         subtitle.setContentDescription((widget.note.isEmpty() ? "Empty note" : widget.note)
                                 + ". Edit note");
                         subtitle.setOnClickListener(v -> editText(widget, "Note", widget.note,
