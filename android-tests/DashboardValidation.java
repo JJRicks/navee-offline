@@ -315,6 +315,12 @@ public final class DashboardValidation extends Instrumentation {
         // Restoring defaults acts at once and offers Undo instead of a confirmation.
         clickText(dialogRoot(), "Restore default widgets");
         require(config().widgets.size() == DEFAULT_TYPES.length, "Restore default widgets did not apply");
+        // A fold/rotation rebuild must not strand the newly restored default without its Undo.
+        recreateActivity();
+        require(dashboard().isEditing(), "Activity recreation exited dashboard editing");
+        await(() -> field(dashboard(), "notice") instanceof android.widget.PopupWindow
+                        && ((android.widget.PopupWindow)field(dashboard(), "notice")).isShowing(),
+                4000, "Restoring defaults lost its Undo offer after activity recreation");
         main(() -> {
             android.widget.PopupWindow notice = (android.widget.PopupWindow)field(dashboard(), "notice");
             require(notice != null && notice.isShowing(), "Defaults restored notice is missing");
@@ -657,7 +663,7 @@ public final class DashboardValidation extends Instrumentation {
             Map<String, TelemetryHistory.Reading> cached = activity.service().displayReadings();
             long older = System.currentTimeMillis() - 2 * 86400000L;
             for (String type : new String[] {"overview", "tiles"}) {
-                Map<String, TelemetryHistory.Reading> changed = new HashMap<>(cached);
+                Map<String, TelemetryHistory.Reading> changed = new LinkedHashMap<>(cached);
                 String key = type.equals("overview") ? "battery_percent" : "power_w";
                 TelemetryHistory.Reading reading = cached.get(key);
                 require(reading != null, "Missing age fixture " + key);
