@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.1.0 — 2026-10-15
 
 - Improve UT5 MAX stock-charger time estimates by default, combining live charging current with an experimental recorded finishing curve. Personal recordings can refine estimates; other models and incompatible charging power keep the live-rate fallback.
 - Simplify Home, Scooter, Rides, preferences and setup screens with concise labels, status chips, icons and tooltips. Keep stale-data ages, charging assumptions, capture consent and privacy choices visible where they matter.
@@ -14,6 +14,8 @@
 - Add four widgets: **Lock bar** (one-row lock with Connect; connected, the slider is the card), **Scooter overview** (charge, range, photo, charge bar and readings), **Reading tiles** and **Setting tiles** (one to four small cards). Every earlier widget stays available in Add widget, and the All widgets example includes the new ones.
 - The Home status line now shows the last-seen time (newer of the last connection and the newest reading); the separate "Last seen" line under the header is gone.
 - While editing Home, card content dims behind solid, high-contrast editor handles. The change animates in a short staggered fade (handles first when leaving), reverses smoothly if toggled mid-way and applies instantly with system animations off. A card being moved or resized returns to full opacity until it is dropped.
+
+Install over the previous Volt APK to preserve setup, dashboards, saved slots and recordings. Charging estimates remain experimental. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
 
 ## 1.0.1 — 2026-10-15
 

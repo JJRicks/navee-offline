@@ -1,4 +1,4 @@
-HOME, CHARGING AND CONCISE UI INTEGRATION (PRs #37–39)
+VOLT 1.1.0 — HOME, CHARGING AND CONCISE UI (versionCode 29)
 October 15, 2026
 
 - Each PR received independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra review;
