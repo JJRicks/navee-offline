@@ -1,5 +1,5 @@
 VOLT — UT5 MAX FEATURE AVAILABILITY
-Current version: 1.1.0 (versionCode 29)
+Current version: 1.2.0 (versionCode 30)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 

@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased
+## 1.2.0 — 2026-10-15
 
 - Save charging-time predictions, estimator version and estimate sources with charge samples, including while recording in the background.
 - Inspect saved charges with Time remaining and Predicted finish graphs, raw sample values and an observed-100% comparison when the finish was captured. Older recordings remain readable without invented historical estimates.
 - Give direct-toggle setting tiles a power-button cue instead of a navigation arrow; keep arrows for settings that open another view.
+
+Install over the previous Volt APK to preserve setup and recordings. Saved predictions are available for new charge samples; older recordings remain readable. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
 
 ## 1.1.0 — 2026-10-15
 

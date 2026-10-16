@@ -1,4 +1,4 @@
-UNRELEASED — CHARGE PREDICTION HISTORY AND TOGGLE CUES
+VOLT 1.2.0 — CHARGE PREDICTION HISTORY AND TOGGLE CUES (versionCode 30)
 October 15, 2026
 
 - All 30 deterministic core suites pass (70,671 assertions/checks). App and
@@ -18,7 +18,7 @@ October 15, 2026
   font), including simulated Charge schedule Off/On, pending/edit/disconnected
   cues and zero real scooter mutations.
 - Tests use a disposable emulator and synthetic records. No physical charge,
-  phone install or release is part of this PR. Existing sessions cannot acquire
+  phone installation or new hardware validation is claimed. Existing sessions cannot acquire
   historical predictions retrospectively; the estimator itself is unchanged.
 
 See docs/validation/charge-estimate-history.md.
