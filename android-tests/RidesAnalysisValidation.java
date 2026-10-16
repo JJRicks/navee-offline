@@ -56,6 +56,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             View full = root(); RideChartView chart = (RideChartView)find(full, RideChartView.class);
             awaitFull(ancestor(chart, "ChartPanel"));
             check(chart != null && chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph has usable height");
+            int expandedChartHeight = chart.getHeight();
             main(() -> { ViewGroup choices = (ViewGroup)field(ancestor(chart,"ChartPanel"),"choices");
                 ScrollView overlays = (ScrollView)choices.getParent().getParent(); View last = choices.getChildAt(choices.getChildCount()-1);
                 overlays.scrollTo(0, Math.max(0,last.getBottom()-overlays.getHeight()));
@@ -67,6 +68,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(context.getSharedPreferences("app_settings", 0).getStringSet("ride_chart_series", Collections.emptySet()).size() == 5, "Series selection persists immediately");
             main(() -> verifyInspection(chart)); settle();
             check(chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph retains usable height after inspection labels appear: actual="+chart.getHeight()+", measured="+chart.getMeasuredHeight()+", controls="+((ScrollView)field(ancestor(chart,"ChartPanel"),"overlayScroll")).getHeight()+", limit="+field(ancestor(chart,"ChartPanel"),"overlayLimit"));
+            check(chart.getHeight() == expandedChartHeight, "Scrubbing keeps the fullscreen graph height stable across inspection layout passes");
             screenshot("expanded-inspection");
             double before = (double)field(chart, "to") - (double)field(chart, "from"); main(() -> chart.zoomBy(2)); settle();
             check((double)field(chart, "to") - (double)field(chart, "from") < before, "Fullscreen zoom changes time viewport");

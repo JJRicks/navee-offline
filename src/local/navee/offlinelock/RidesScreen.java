@@ -798,6 +798,7 @@ public final class RidesScreen implements AppScreen {
         final String rideId;
         final List<RideStore.Point> measured; PhoneRideStore.Track phone;
         final RideChartView chart; final Flow choices; final Set<String> chosen;
+        final android.widget.HorizontalScrollView chartScroll;
         final LinearLayout inspection; String inspectionSignature = "";
         final boolean full; List<RideChartData.Series> data;
         final TextView loadStatus; AlertDialog expandedDialog; java.util.concurrent.Future<?> fullLoad;
@@ -825,7 +826,7 @@ public final class RidesScreen implements AppScreen {
             } else addView(choices);
             chosen = new LinkedHashSet<>(preferences.getStringSet("ride_chart_series", RideChartData.defaults()));
             chart = new RideChartView(ui);
-            android.widget.HorizontalScrollView chartScroll = new android.widget.HorizontalScrollView(host.activity()); chartScroll.setFillViewport(true); chartScroll.addView(chart, new android.widget.HorizontalScrollView.LayoutParams(-1, full ? -1 : ui.dp(280)));
+            chartScroll = new android.widget.HorizontalScrollView(host.activity()); chartScroll.setFillViewport(true); chartScroll.addView(chart, new android.widget.HorizontalScrollView.LayoutParams(-1, full ? -1 : ui.dp(280)));
             addView(chartScroll, new LinearLayout.LayoutParams(-1, full ? 0 : ui.dp(280), full ? 1 : 0));
             inspection = horizontal(); inspection.setGravity(Gravity.CENTER_VERTICAL);
             // Reserve the same height before/after a touch so scrubbing never moves the plot.
@@ -847,10 +848,12 @@ public final class RidesScreen implements AppScreen {
                 overlayScroll.forceLayout();
             }
             super.onMeasure(width, height);
-            if (full && chart != null && chart.getMeasuredHeight() < ui.dp(200)) {
+            if (full && chartScroll != null && chartScroll.getMeasuredHeight() < ui.dp(200)) {
                 // Reserve graph room using actual available height, not a device-width
-                // breakpoint. Overlay choices remain reachable by scrolling.
-                overlayLimit = Math.max(ui.dp(48), overlayLimit - (ui.dp(200) - chart.getMeasuredHeight()));
+                // breakpoint. The nested MATCH_PARENT chart can still report its old
+                // height until its scroll container finishes measuring. Use the current
+                // container height; overlay choices remain reachable by scrolling.
+                overlayLimit = Math.max(ui.dp(48), overlayLimit - (ui.dp(200) - chartScroll.getMeasuredHeight()));
                 overlayScroll.getLayoutParams().height = overlayLimit;
                 overlayScroll.forceLayout();
                 super.onMeasure(width, height);
