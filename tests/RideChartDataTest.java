@@ -118,6 +118,46 @@ public final class RideChartDataTest {
         check(RideChartData.lowSpeedSpans(new RideChartData.Series(1, "km/h", Arrays.asList(
                 new RideChartData.Value(2000, 1d, 0), new RideChartData.Value(1000, 1d, 0)))).length == 0,
                 "Reversed timestamps cannot hatch an unobserved interval");
+        List<RideChartData.Value> customValues = new ArrayList<>(Arrays.asList(
+                new RideChartData.Value(0, 123.456789, 0), new RideChartData.Value(1000, 100d, 0),
+                new RideChartData.Value(2000, null, 0), new RideChartData.Value(3000, 75d, 1)));
+        ChartScale.Range customScale = ChartScale.range("charge_power", "W", true, 75, 124);
+        RideChartData.Series custom = new RideChartData.Series("charge_power", "Power", "W", 0xff56b4e9,
+                19, customValues, customScale);
+        check(custom.key.equals("charge_power") && custom.label.equals("Power") && custom.index == 19
+                && custom.color == 0xff56b4e9, "Custom series accepts independent identity and styling");
+        check(custom.scale == customScale && custom.min == customScale.min && custom.max == customScale.max,
+                "Custom series preserves its requested viewing range");
+        check(custom.available() && custom.endTime == 3000 && custom.typicalIntervalMs == 1000,
+                "Custom series uses the recorded sampling timeline");
+        near(123.456789, custom.sampleAt(0).value, "Custom inspection preserves exact recorded scalar");
+        check(custom.sampleAt(1500) == null && custom.sampleAt(2500) == null,
+                "Custom inspection does not bridge missing readings or segment gaps");
+        customValues.clear();
+        check(custom.values.size() == 4 && custom.sampleAt(0).value == 123.456789,
+                "Mutating the adapter source cannot alter immutable chart data");
+        boolean immutable = false;
+        try { custom.values.clear(); } catch (UnsupportedOperationException expected) { immutable = true; }
+        check(immutable, "Custom chart source is exposed read-only");
+        check(Arrays.equals(custom.drawIndices(0, 3000, 1), new int[]{-1, 1, -4}),
+                "Custom pixel buckets preserve gap-edge samples");
+        RideChartData.Series extreme = new RideChartData.Series("estimated_minutes", "Est. countdown", "min",
+                0xffe69f00, 0, Arrays.asList(new RideChartData.Value(0, -Double.MAX_VALUE, 0),
+                new RideChartData.Value(1000, Double.MAX_VALUE, 0)), null);
+        check(Double.isFinite(extreme.min) && Double.isFinite(extreme.max) && extreme.max > extreme.min,
+                "Extreme custom values receive finite viewing bounds");
+        for (int i = 0; i <= 4; i++) {
+            double fraction = i / 4d, tick = extreme.scale.at(fraction);
+            check(Double.isFinite(tick), "Extreme axis interpolation stays finite at " + fraction);
+            near(fraction, extreme.scale.fraction(tick), "Extreme sample placement remains meaningful at " + fraction);
+        }
+        check(extreme.sampleAt(1000).value == Double.MAX_VALUE, "Safe rendering never clamps the recorded scalar");
+        RideChartData.Series legacyExtreme = new RideChartData.Series(0, "W", extreme.values);
+        check(Double.isFinite(legacyExtreme.min) && Double.isFinite(legacyExtreme.max),
+                "Ride series also recover from overflowing imported bounds");
+        RideChartData.Series sameIndex = new RideChartData.Series("temperature", "Temperature", "°C", 0xffe69f00,
+                4, Arrays.asList(new RideChartData.Value(0, 20d, 0)), null);
+        check(sameIndex.min > 0 && sameIndex.max < 100, "Custom color index does not trigger the ride battery scale");
         Thread.currentThread().interrupt(); boolean canceled = false;
         try { RideChartData.build(points, null, false, true); } catch (java.util.concurrent.CancellationException expected) { canceled = true; } finally { Thread.interrupted(); }
         check(canceled, "Full chart preparation honors cancellation before posting UI data");

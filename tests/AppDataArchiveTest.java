@@ -141,6 +141,11 @@ public final class AppDataArchiveTest {
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"wrong startup theme type rejected");
             badTypes.get("app_settings").clear();badTypes.get("app_settings").put("stats_favourites","wrong");
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"wrong favourites type rejected");
+            badTypes.get("app_settings").clear();badTypes.get("app_settings").put("charge_chart_series","wrong");
+            rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"wrong charge category type rejected");
+            badTypes.get("app_settings").put("charge_chart_series",new HashSet<String>(Arrays.asList("power_w","estimated_finish")));
+            AppDataArchive.validatePreferenceTypes(badTypes);
+            check(true,"charge category set accepted");
             badTypes.get("app_settings").clear();badTypes.get("app_settings").put("text_scale",Float.NaN);
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"nonfinite text scale rejected");
             basemapPreferences(root);

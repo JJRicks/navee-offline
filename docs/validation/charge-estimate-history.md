@@ -38,20 +38,35 @@ scoped. App backups preserve the new files without a separate migration.
 
 ## Graph interpretation
 
-More → Developer options → Charge recordings lists saved charges. Both graph
-modes retain all recorded samples and offer touch/drag inspection and fullscreen:
+More → Developer options → Charge recordings lists saved charges. Each recording
+uses the same multi-series chart renderer as ride recordings: colored category
+toggles, fullscreen, pinch zoom, timeline panning, Fit and touch/drag inspection.
+Drawing uses pixel buckets that retain spikes; inspection keeps every raw sample.
+Selections are remembered separately from ride-chart selections. Opening/closing
+fullscreen preserves the chosen categories, zoom and inspected sample.
 
-- Time remaining compares the stored prediction with elapsed time to the observed
-  finish. An accurate line falls one minute per minute.
-- Predicted finish compares the sample time plus its stored prediction with a
-  constant observed-finish line. A stable prediction is horizontal.
+Power, battery percentage, estimated finish and estimated countdown start enabled.
+When the finish was observed, its horizontal reference line also starts enabled.
+Estimated and observed finish times share an axis range, as do estimated and actual
+countdowns. Other quantities use independent colored scales, as in ride graphs.
+The axis strip can be scrolled horizontally when the scales do not all fit.
+
+Optional categories include voltage, signed current, temperature, actual countdown,
+and saved charging-limit percentage and predictions when a lower limit was used.
+Clock labels respect the app's time format, showing seconds for short ranges and
+dates across midnight; temperature respects °C/°F. Short fullscreen windows
+scroll vertically rather than flattening the plot. Accessible previous/next
+actions step through real recorded samples. Raw sample
+inspection shows recorded estimator version and source beside saved predictions.
+An accurate countdown falls one minute per minute; a stable finish prediction is
+horizontal and converges toward the observed finish.
 
 The reference is the **observed arrival at displayed 100%**, not a claim that
 balancing or all charging current has ended. It requires `COMPLETE`, a terminal
 100% sample, and a valid preceding below-100% sample within 25 seconds without a
 gap. A stopped/interrupted recording or a reconnect already at 100% has no finish
 reference. A lower configured cutoff is never compared against a full-charge
-finish. It remains visible as a separate Saved limit prediction view.
+finish. It remains available through separate saved-limit categories.
 
 Elapsed time is monotonic. Dates and finish clocks use the session's starting
 wall-clock anchor plus elapsed time, so later phone-clock corrections do not look
@@ -69,7 +84,7 @@ connection gaps, conservative completion, profile isolation, immutable results,
 
 The isolated native runner `ChargeEstimateValidation` exercises the actual service
 snapshot method without an Activity-dependent calculation, offline list/detail,
-both graph modes, raw inspection, fullscreen, saved limits, legacy records, and
+category toggles, raw inspection, fullscreen zoom/state retention, saved limits, legacy records, and
 profile-switch dismissal. Run it with `android-tests/run-charge-capture.py --suite
 estimates` on a disposable emulator. The default `capture` suite retains existing
 screen-off/recovery/notification checks. Neither runner admits owner phones.
@@ -77,7 +92,7 @@ screen-off/recovery/notification checks. Neither runner admits owner phones.
 These tests validate the recording and comparison implementation with synthetic
 samples. They do not establish physical charging accuracy.
 
-Executed October 15, 2026:
+Original v1.2.0 validation, October 15, 2026:
 
 - All 30 core suites passed, including 6,591 new prediction-history checks
   (70,671 total assertions/checks).
@@ -93,3 +108,19 @@ Executed October 15, 2026:
 - App and native runner built and passed APK signature/alignment verification.
 - Independent Astra Ultra and Sol Ultra reviews completed, with numeric-range
   follow-up fixes verified before handoff.
+
+Unified-chart follow-up, October 15, 2026:
+
+- All core suites pass: 77,300 checks, including 6,605 adapter checks for
+  all 6,500 recorded samples, gap separation, observed comparisons and extreme
+  finite bounds; backup preference type rejection is covered.
+- Combined charge UI: 226 assertions each at 344×882 dp dark/100% system font,
+  725×604 dp light/140%, and 600×344 dp dark/140%. Covers the actual plot area,
+  category selection, fullscreen state retention, pinch zoom, raw inspection,
+  accessible sample stepping, midnight labels, 12/24-hour clocks and Fahrenheit.
+- Independent Astra Ultra and Sol Ultra reviews completed; verified feedback
+  about accessibility, backup validation and clock labels was addressed.
+- Existing ride analysis: 181 assertions each at 344×882 dp dark/100% and
+  725×604 dp light/140%, including full-detail loading, raw inspection, axis
+  scrolling and fullscreen interactions.
+- Emulator fixtures are synthetic. No owner phone or scooter was involved.

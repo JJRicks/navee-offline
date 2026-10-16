@@ -331,7 +331,7 @@ final class AppDataArchive {
         types(app,Boolean.class,"notification_prompted keep_screen_awake auto_connect background_connection phone_gps phone_motion history_enabled dashboard_editing developer_options map_basemap_enabled map_basemap_explained haptics_enabled");
         types(app,Integer.class,"poll_interval_ms dashboard_columns stats_chart_window more_wide_menu_scroll more_away_boot stats_away_boot");
         types(app,Long.class,"more_away_elapsed stats_away_elapsed");types(app,Float.class,"text_scale");
-        types(app,Set.class,"stats_favourites stats_chart_favourites ride_comparison ride_chart_series");
+        types(app,Set.class,"stats_favourites stats_chart_favourites ride_comparison ride_chart_series charge_chart_series");
         for(String key:app.keySet()) {
             if(key.startsWith("dashboard_v1_")||key.startsWith("dashboard_slot_v1_")||key.startsWith("charge_charger_"))type(app,key,String.class);
             if(key.startsWith("dashboard_empty_example_v1_")||key.startsWith("range_follow_mode_")||key.startsWith("stats_group_")||key.startsWith("stats_chart_group_"))type(app,key,Boolean.class);

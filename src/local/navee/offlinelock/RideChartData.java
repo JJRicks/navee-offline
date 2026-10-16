@@ -15,12 +15,25 @@ public final class RideChartData {
     public static final class Series {
         public final String key, label, unit; public final int color, index; public final List<Value> values;
         public final double min, max;
+        public final ChartScale.Range scale;
         public final long endTime;
         public final long typicalIntervalMs; private final boolean hasData, ordered;
         private double drawnFrom = Double.NaN, drawnTo; private int drawnColumns; private int[] drawn;
         Series(int index, String unit, List<Value> values) { this(index, unit, values, false); }
         Series(int index, String unit, List<Value> values, boolean fullDetail) {
-            this.index = index; key = KEYS[index]; label = LABELS[index]; this.unit = unit; color = COLORS[index]; this.values = Collections.unmodifiableList(values);
+            this(KEYS[index], LABELS[index], unit, COLORS[index], index, values, null, fullDetail, false);
+        }
+        /** A recorded series with its own label and scale, using the same inspection and
+         * gap-preserving pixel buckets as ride data. The caller cannot mutate its source list. */
+        public Series(String key, String label, String unit, int color, int index,
+                      List<Value> values, ChartScale.Range scale) {
+            this(key, label, unit, color, index, values, scale, false, true);
+        }
+        private Series(String key, String label, String unit, int color, int index,
+                       List<Value> values, ChartScale.Range requestedScale, boolean fullDetail, boolean custom) {
+            this.index = index; this.key = key; this.label = label; this.unit = unit; this.color = color;
+            this.values = Collections.unmodifiableList(custom ? new ArrayList<>(values) : values);
+            values = this.values;
             double low = Double.POSITIVE_INFINITY, high = Double.NEGATIVE_INFINITY;
             long end = 0;
             for (Value p : values) { checkCanceled(); end = Math.max(end, p.time); if (p.value != null && Double.isFinite(p.value)) { low = Math.min(low, p.value); high = Math.max(high, p.value); } }
@@ -29,10 +42,20 @@ public final class RideChartData {
             for(int i=1;i<values.size();i++){checkCanceled();if(fullDetail)RideStore.checkDetailMemory();long delta=values.get(i).time-values.get(i-1).time;if(delta<0)sorted=false;if(delta>0)intervals.add(delta);}
             ordered=sorted;Collections.sort(intervals);typicalIntervalMs=intervals.isEmpty()?1000:intervals.get(intervals.size()/2);
             if (!Double.isFinite(low)) { low = 0; high = 1; }
-            if (index == 4) { low = 0; high = 100; }
-            else if (high == low) { double pad = Math.max(1, Math.abs(high) * .05); low -= pad; high += pad; }
-            else { double pad = (high - low) * .06; low -= pad; high += pad; }
-            min = low; max = high;
+            if (custom) {
+                scale = requestedScale != null && Double.isFinite(requestedScale.min)
+                        && Double.isFinite(requestedScale.max) && requestedScale.max > requestedScale.min
+                        ? requestedScale : ChartScale.range(key, unit, false, low, high);
+            } else {
+                // Keep existing ride bounds while making pathological imported values safe.
+                double rawLow = low, rawHigh = high;
+                if (index == 4) { low = 0; high = 100; }
+                else if (high == low) { double pad = Math.max(1, Math.abs(high) * .05); low -= pad; high += pad; }
+                else { double pad = (high - low) * .06; low -= pad; high += pad; }
+                scale = Double.isFinite(low) && Double.isFinite(high) && high > low
+                        ? new ChartScale.Range(low, high) : ChartScale.range(key, unit, false, rawLow, rawHigh);
+            }
+            min = scale.min; max = scale.max;
         }
         public boolean available() { return hasData; }
         public boolean connects(Value left, Value right) {

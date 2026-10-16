@@ -4,26 +4,20 @@ import android.app.Dialog;
 import android.content.SharedPreferences;
 import android.content.res.ColorStateList;
 import android.graphics.Canvas;
-import android.graphics.DashPathEffect;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.RectF;
 import android.graphics.drawable.ColorDrawable;
 import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.view.Gravity;
-import android.view.MotionEvent;
 import android.view.View;
-import android.view.ViewConfiguration;
 import android.view.Window;
 import android.view.WindowInsets;
-import android.view.accessibility.AccessibilityNodeInfo;
 import android.widget.FrameLayout;
 import android.widget.LinearLayout;
 import android.widget.ScrollView;
 import android.widget.TextView;
 import java.text.SimpleDateFormat;
-import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Date;
 import java.util.List;
@@ -37,7 +31,6 @@ final class ChargeHistoryDialog {
     private final String profile;
     private Dialog dialog, expanded;
     private LinearLayout body;
-    private final List<SegmentedSelector> selectors = new ArrayList<>();
     private List<ChargeSessionStore.HistorySession> recordings = Collections.emptyList();
     private boolean closed;
     private int loadGeneration;
@@ -61,8 +54,6 @@ final class ChargeHistoryDialog {
     void close() {
         if (closed) return;
         closed = true; loadGeneration++;
-        for (SegmentedSelector selector : selectors) selector.finishMotion();
-        selectors.clear();
         if (expanded != null) expanded.dismiss();
         if (dialog != null && dialog.isShowing()) dialog.dismiss();
     }
@@ -91,7 +82,7 @@ final class ChargeHistoryDialog {
     }
     private void showList() {
         if (!available()) return;
-        settleSelectors(); body.removeAllViews(); body.addView(header("Charge recordings", false));
+        body.removeAllViews(); body.addView(header("Charge recordings", false));
         LinearLayout list = padded(); list.setTag("charge-history-list");
         if (recordings.isEmpty()) list.addView(ui.caption("No saved charge recordings yet."));
         for (ChargeSessionStore.HistorySession session : recordings) {
@@ -115,12 +106,12 @@ final class ChargeHistoryDialog {
     }
     private void showDetail(ChargeSessionStore.HistorySession session) {
         if (!available() || !profile.equals(session.profile)) return;
-        settleSelectors(); body.removeAllViews(); body.addView(header("Charge recording", true));
+        body.removeAllViews(); body.addView(header("Charge recording", true));
         LinearLayout contents = padded(); contents.setTag("charge-history-detail");
         contents.addView(ui.text(dateTime(session.startedWall), 20, true));
         TextView sub = ui.caption(charger(session.charger) + " · " + batterySpan(session));
         sub.setPadding(0, ui.dp(6), 0, ui.dp(12)); contents.addView(sub);
-        Panel panel = new Panel(session, false, false, false);
+        Panel panel = new Panel(session, false);
         contents.addView(panel, new LinearLayout.LayoutParams(-1, -2));
         body.addView(scroller(contents), new LinearLayout.LayoutParams(-1, 0, 1));
     }
@@ -130,9 +121,6 @@ final class ChargeHistoryDialog {
             if (first == null) first = point.batteryPercent; last = point.batteryPercent;
         }
         return first == null ? "No battery samples" : String.format(Locale.getDefault(), "%.0f%% → %.0f%%", first, last);
-    }
-    private void settleSelectors() {
-        for (SegmentedSelector selector : selectors) selector.finishMotion(); selectors.clear();
     }
     private String charger(ChargeSessionStore.Charger charger) {
         return charger == ChargeSessionStore.Charger.HIGH_SPEED ? "High-speed charger" : "Stock charger";
@@ -218,12 +206,6 @@ final class ChargeHistoryDialog {
         } else time = DisplayTime.clock(host.activity(), settings, wall);
         return date ? new SimpleDateFormat("MMM d", Locale.getDefault()).format(new Date(wall)) + " " + time : time;
     }
-    private boolean differentDay(long a, long b) {
-        SimpleDateFormat day = new SimpleDateFormat("yyyy-DDD", Locale.ROOT); return !day.format(new Date(a)).equals(day.format(new Date(b)));
-    }
-    private static String minutes(double value) {
-        return Math.abs(value) >= 1_000_000 ? Double.toString(value) + " min" : String.format(Locale.getDefault(), "%.2f min", value);
-    }
     private static String source(ChargeSessionStore.Source source) {
         return source == ChargeSessionStore.Source.PERSONAL ? "Personal curve" : source == ChargeSessionStore.Source.STOCK_REFERENCE ? "Stock reference" : source == ChargeSessionStore.Source.CURRENT_RATE ? "Current rate" : "Unavailable";
     }
@@ -231,233 +213,200 @@ final class ChargeHistoryDialog {
     private final class Panel extends LinearLayout {
         final ChargeSessionStore.HistorySession session;
         final boolean full;
+        final List<RideChartData.Series> data;
+        final List<ChargeEstimateHistory.Point> history;
+        final java.util.Set<String> chosen;
+        final Flow choices;
         final LinearLayout controls, trace;
         final ScrollView controlsScroll, traceScroll;
-        final SegmentedSelector modeSelector, targetSelector;
+        final RideChartView chart;
         final TextView note;
-        final Chart chart;
-        List<ChargeEstimateHistory.Point> points;
-        boolean finishMode, toLimit;
-        int selected;
-        Panel(ChargeSessionStore.HistorySession session, boolean full, boolean finishMode, boolean toLimit) {
-            super(host.activity()); this.session = session; this.full = full; this.finishMode = finishMode; this.toLimit = toLimit;
-            setOrientation(VERTICAL); setBackground(ui.shape(ui.surface, full ? 0 : 20, 0));
+        String inspectionSignature = "";
+
+        Panel(ChargeSessionStore.HistorySession session, boolean full) {
+            super(host.activity()); this.session = session; this.full = full;
+            data = ChargeChartData.build(session, "f".equals(settings.getString("temperature_unit", "c")));
+            history = ChargeEstimateHistory.build(session, false);
+            chosen = new java.util.LinkedHashSet<>(settings.getStringSet("charge_chart_series", ChargeChartData.defaults()));
+            setTag(tag("panel")); setOrientation(VERTICAL);
+            if (full) setMinimumHeight(ui.dp(520));
+            setBackground(ui.shape(ui.surface, full ? 0 : 20, 0));
             setPadding(ui.dp(12), ui.dp(12), ui.dp(12), ui.dp(12));
-            controls = column(); trace = column();
-            modeSelector = new SegmentedSelector(ui, "Charge graph", new String[]{"Time remaining", "Predicted finish"}, choice -> { this.finishMode = choice == 1; update(false); });
-            modeSelector.setTag(full ? "charge-history-fullscreen-mode" : "charge-history-mode"); modeSelector.setWrapChoices(true);
-            controls.addView(modeSelector, new LinearLayout.LayoutParams(-1, -2)); selectors.add(modeSelector);
-            boolean hasLimit = false;
-            for (ChargeSessionStore.HistoryPoint point : session.points) if (point.estimate != null && point.estimate.targetPercent != null && point.estimate.targetPercent < 100) hasLimit = true;
-            targetSelector = hasLimit ? new SegmentedSelector(ui, "Charge target", new String[]{"Full · 100%", "Saved limit"}, choice -> { this.toLimit = choice == 1; update(true); }) : null;
-            if (targetSelector != null) {
-                targetSelector.setTag(full ? "charge-history-fullscreen-target" : "charge-history-target"); targetSelector.setWrapChoices(true);
-                LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-1, -2); tp.topMargin = ui.dp(8); controls.addView(targetSelector, tp); selectors.add(targetSelector);
+            controls = column();
+            if (!full) {
+                LinearLayout heading = new LinearLayout(host.activity()); heading.setGravity(Gravity.CENTER_VERTICAL);
+                heading.addView(ui.text("Charge readings", 18, true), new LinearLayout.LayoutParams(0, -2, 1));
+                View expand = iconButton("fit", "Expand charge graph", this::expand);
+                expand.setTag("charge-history-expand"); heading.addView(expand); controls.addView(heading);
             }
-            LinearLayout legend = new LinearLayout(host.activity()); legend.setGravity(Gravity.CENTER_VERTICAL); legend.setPadding(0, ui.dp(8), 0, ui.dp(6));
-            TextView labels = ui.text("━ Estimated   ┄ Observed", 12, false); labels.setTextColor(ui.muted); legend.addView(labels, new LinearLayout.LayoutParams(0, -2, 1));
-            if (!full) { View expand = iconButton("fit", "Expand charge graph", this::expand); expand.setTag("charge-history-expand"); legend.addView(expand); }
-            controls.addView(legend);
-            note = ui.caption(""); note.setTag(full ? "charge-history-fullscreen-note" : "charge-history-note"); note.setPadding(0, 0, 0, ui.dp(8)); controls.addView(note);
-            chart = new Chart(this); chart.setTag(full ? "charge-history-fullscreen-chart" : "charge-history-chart");
-            trace.setTag(full ? "charge-history-fullscreen-trace" : "charge-history-trace"); trace.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8));
-            controlsScroll = full ? scroller(controls) : null; traceScroll = full ? scroller(trace) : null;
+            choices = new Flow(); choices.setTag(tag("choices")); choices.setPadding(0, ui.dp(8), 0, ui.dp(10)); controls.addView(choices);
+            note = ui.caption(comparisonNote()); note.setTag(tag("note")); note.setPadding(0, 0, 0, ui.dp(8)); controls.addView(note);
+            controlsScroll = full ? scroller(controls) : null;
+            if (full) addView(controlsScroll, new LinearLayout.LayoutParams(-1, ui.dp(112))); else addView(controls);
+            chart = new RideChartView(ui); chart.setTag(tag("chart"));
+            chart.setChartTitle("Charge chart", "Fit whole charge");
+            chart.setValueFormatter(new RideChartView.ValueFormatter() {
+                @Override public String axis(RideChartData.Series series, double value) {
+                    if ("Time".equals(series.unit)) return clock(Math.round(value), crossesDay(series), series.max - series.min < 240_000);
+                    double step = series.max / 4 - series.min / 4;
+                    int places = step > 0 ? Math.max(0, Math.min(6, (int)Math.ceil(-Math.log10(step)))) : 0;
+                    double number = Math.abs(value) < Math.pow(10, -places) / 2 ? 0 : value;
+                    return Math.abs(number) >= 1_000_000 ? String.format(Locale.getDefault(), "%.1e", number)
+                            : String.format(Locale.getDefault(), "%." + places + "f", number);
+                }
+                @Override public String sample(RideChartData.Series series, RideChartData.Value value) {
+                    if (value == null || value.value == null || !Double.isFinite(value.value)) return "—";
+                    if ("Time".equals(series.unit)) return sampleDateTime(Math.round(value.value));
+                    if (Math.abs(value.value) >= 1_000_000 || (value.value != 0 && Math.abs(value.value) < .005)) return Double.toString(value.value) + " " + series.unit;
+                    return RideChartView.sampleValue(series, value);
+                }
+            });
+            android.widget.HorizontalScrollView graph = new android.widget.HorizontalScrollView(host.activity());
+            graph.setFillViewport(true); graph.addView(chart, new android.widget.HorizontalScrollView.LayoutParams(-1, full ? -1 : ui.dp(280)));
+            addView(graph, new LinearLayout.LayoutParams(-1, full ? 0 : ui.dp(280), full ? 1 : 0));
+            trace = new LinearLayout(host.activity()); trace.setOrientation(HORIZONTAL); trace.setGravity(Gravity.TOP);
+            trace.setTag(tag("trace")); trace.setMinimumHeight(Math.max(ui.dp(86), (int)ui.sp(70) + ui.dp(12)));
+            android.widget.HorizontalScrollView readings = new android.widget.HorizontalScrollView(host.activity());
+            readings.setHorizontalScrollBarEnabled(false); readings.setHorizontalFadingEdgeEnabled(true); readings.setFadingEdgeLength(ui.dp(16));
+            readings.addView(trace, new android.widget.HorizontalScrollView.LayoutParams(-2, -2));
+            traceScroll = full ? scroller(readings) : null;
+            if (full) addView(traceScroll, new LinearLayout.LayoutParams(-1, ui.dp(104))); else addView(readings);
+            chart.setInspectionListener(this::inspect);
+            LinearLayout zoom = new LinearLayout(host.activity()); zoom.setGravity(Gravity.CENTER); zoom.setPadding(0, ui.dp(6), 0, 0);
+            TextView[] buttons = {ui.secondaryButton("−", () -> chart.zoomBy(.5)), ui.secondaryButton("Fit", chart::reset), ui.secondaryButton("+", () -> chart.zoomBy(2))};
+            String[] ids = {"zoom-out", "fit", "zoom-in"}, descriptions = {"Zoom out charge chart", "Fit whole charge", "Zoom in charge chart"};
+            for (int i = 0; i < buttons.length; i++) {
+                buttons[i].setTag(tag(ids[i])); buttons[i].setContentDescription(descriptions[i]);
+                LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(0, ui.dp(48), 1); p.setMargins(ui.dp(3), 0, ui.dp(3), 0); zoom.addView(buttons[i], p);
+            }
+            addView(zoom); update();
+        }
+        String tag(String suffix) { return (full ? "charge-history-fullscreen-" : "charge-history-") + suffix; }
+        String comparisonNote() {
+            boolean saved = false;
+            for (ChargeSessionStore.HistoryPoint point : session.points) saved |= point.estimate != null;
+            String comparison = session.observedCompleteMono == null ? "Finish not observed; no actual comparison."
+                    : "Observed 100% · " + dateTime(session.observedCompleteWall);
+            return (saved ? "" : "Estimates weren't saved in this recording.\n") + comparison;
+        }
+        @Override protected void onMeasure(int width, int height) {
             if (full) {
-                addView(controlsScroll, new LinearLayout.LayoutParams(-1, ui.dp(120)));
-                addView(chart, new LinearLayout.LayoutParams(-1, 0, 1));
-                addView(traceScroll, new LinearLayout.LayoutParams(-1, ui.dp(120)));
-            } else { addView(controls); addView(chart, new LinearLayout.LayoutParams(-1, ui.dp(280))); addView(trace); }
-            update(true);
-        }
-        @Override protected void onMeasure(int widthSpec, int heightSpec) {
-            if (full && MeasureSpec.getMode(heightSpec) != MeasureSpec.UNSPECIFIED) {
-                int available = Math.max(0, MeasureSpec.getSize(heightSpec) - getPaddingTop() - getPaddingBottom());
-                // Both text regions scroll independently. The plot retains the middle half of
-                // even a short landscape window rather than clipping large-text controls.
-                controlsScroll.getLayoutParams().height = Math.min(ui.dp(190), Math.round(available * .25f));
-                traceScroll.getLayoutParams().height = Math.min(ui.dp(160), Math.round(available * .25f));
+                if (MeasureSpec.getMode(height) == MeasureSpec.UNSPECIFIED || MeasureSpec.getSize(height) < getSuggestedMinimumHeight())
+                    height = MeasureSpec.makeMeasureSpec(getSuggestedMinimumHeight(), MeasureSpec.EXACTLY);
+                int available = Math.max(0, MeasureSpec.getSize(height) - getPaddingTop() - getPaddingBottom() - ui.dp(54));
+                // Controls and raw readings remain scrollable even in short landscape windows.
+                // Half the available height is always reserved for the plot.
+                controlsScroll.getLayoutParams().height = Math.min(ui.dp(150), Math.round(available * .25f));
+                traceScroll.getLayoutParams().height = Math.min(ui.dp(120), Math.round(available * .25f));
             }
-            super.onMeasure(widthSpec, heightSpec);
+            super.onMeasure(width, height);
         }
-        void update(boolean rebuild) {
-            if (rebuild) {
-                points = ChargeEstimateHistory.build(session, toLimit); selected = Math.max(0, points.size() - 1);
+        void update() {
+            choices.removeAllViews();
+            for (RideChartData.Series series : data) {
+                android.widget.CheckBox toggle = new android.widget.CheckBox(host.activity());
+                toggle.setTag((full ? "charge-fullscreen-series:" : "charge-series:") + series.key);
+                toggle.setButtonDrawable(null); toggle.setMinHeight(ui.dp(48));
+                toggle.setText(pattern(series) + series.label + (series.available() ? "" : " · no data"));
+                toggle.setTextSize(12 * ui.textScale); toggle.setTypeface(ui.semibold()); toggle.setPadding(ui.dp(10), ui.dp(8), ui.dp(10), ui.dp(8));
+                toggle.setChecked(chosen.contains(series.key));
+                toggle.setContentDescription(series.label + (series.available() ? "" : ", no samples recorded"));
+                Runnable style = () -> { toggle.setTextColor(toggle.isChecked() ? ui.text : ui.muted); toggle.setBackground(ui.shape(toggle.isChecked() ? Ui.withAlpha(series.color, 50) : ui.raised, 12, toggle.isChecked() ? series.color : ui.outline)); };
+                style.run(); toggle.setOnCheckedChangeListener((button, checked) -> {
+                    if (checked) chosen.add(series.key); else chosen.remove(series.key);
+                    settings.edit().putStringSet("charge_chart_series", new java.util.LinkedHashSet<>(chosen)).apply(); style.run(); plot();
+                }); choices.addView(toggle);
             }
-            modeSelector.select(finishMode ? 1 : 0, true); if (targetSelector != null) targetSelector.select(toLimit ? 1 : 0, true);
-            boolean saved = false, estimates = false, actual = false;
-            for (ChargeEstimateHistory.Point point : points) { saved |= point.estimate != null; estimates |= point.remainingMinutes != null; actual |= point.actualRemainingMinutes != null; }
-            String text = !saved ? "Estimates weren't saved in this recording." : !estimates ? "No estimate was available in these samples." : "";
-            String comparison = actual ? "Observed 100% · " + dateTime(session.observedCompleteWall)
-                    : toLimit ? "Limit completion was not observed; no actual comparison." : "Finish not observed; no actual comparison.";
-            note.setText(text.isEmpty() ? comparison : text + "\n" + comparison);
-            chart.invalidate(); inspect(selected);
+            plot();
         }
-        void inspect(int index) {
-            trace.removeAllViews();
-            if (points.isEmpty()) { trace.addView(ui.caption("No recorded samples.")); return; }
-            selected = Math.max(0, Math.min(points.size() - 1, index)); ChargeEstimateHistory.Point point = points.get(selected);
-            trace.addView(ui.caption("At " + sampleDateTime(point.wallMs)));
-            String predicted = finishMode ? point.predictedFinishWallMs == null ? "—" : sampleDateTime(point.predictedFinishWallMs)
-                    : point.remainingMinutes == null ? "—" : minutes(point.remainingMinutes);
-            String actual = finishMode ? point.actualFinishWallMs == null ? "—" : sampleDateTime(point.actualFinishWallMs)
-                    : point.actualRemainingMinutes == null ? "—" : minutes(point.actualRemainingMinutes);
-            TextView estimateLine = ui.text("Estimated  " + predicted, 15, true); estimateLine.setTextColor(ui.accent); trace.addView(estimateLine);
-            TextView actualLine = ui.text("Observed  " + actual, 14, false); actualLine.setTextColor(ui.blue); trace.addView(actualLine);
-            if (point.remainingMinutes != null && point.actualRemainingMinutes != null) {
-                double error = point.remainingMinutes - point.actualRemainingMinutes;
-                trace.addView(ui.caption(String.format(Locale.getDefault(), "Error  %+.2f min", error)));
+        void plot() {
+            for (RideChartData.Series series : data) chart.setAxisWidthDp(series.key,
+                    "Time".equals(series.unit) ? crossesDay(series) || series.max - series.min < 240_000 ? 96 : 84 : 48);
+            chart.set(data, chosen);
+        }
+        boolean crossesDay(RideChartData.Series series) {
+            SimpleDateFormat day = new SimpleDateFormat("yyyy-DDD", Locale.ROOT);
+            return !day.format(new Date(Math.round(series.min))).equals(day.format(new Date(Math.round(series.max))));
+        }
+        String pattern(RideChartData.Series series) { return series.index % 3 == 0 ? "━ " : series.index % 3 == 1 ? "┄ " : "⋯ "; }
+        void inspect(double time, List<RideChartData.Series> selected) {
+            StringBuilder signature = new StringBuilder();
+            for (RideChartData.Series series : selected) {
+                RideChartData.Value value = series.sampleAt(time);
+                signature.append(series.key).append(':').append(value == null ? "gap" : value.time + ":" + value.value).append('|');
             }
-            ChargeSessionStore.Estimate estimate = point.estimate;
-            if (estimate != null) {
-                String provenance = source(toLimit ? estimate.limitSource : estimate.fullSource) + " · Estimator " + estimate.version;
-                if (estimate.learnedSessions > 0) provenance += " · " + estimate.learnedSessions + " learned charge" + (estimate.learnedSessions == 1 ? "" : "s");
-                if (toLimit && estimate.targetPercent != null) provenance += String.format(Locale.getDefault(), " · %.0f%% target", estimate.targetPercent);
-                trace.addView(ui.caption(provenance));
-            } else trace.addView(ui.caption(point.actualGap ? "Connection gap" : "No saved estimate"));
-            chart.setContentDescription("Charge graph. " + (finishMode ? "Predicted finish. " : "Time remaining. ") + "At " + sampleDateTime(point.wallMs) + ". Estimated " + predicted + ". Observed " + actual);
-            chart.invalidate();
+            if (signature.toString().equals(inspectionSignature)) return;
+            inspectionSignature = signature.toString(); trace.removeAllViews();
+            for (RideChartData.Series series : selected) {
+                RideChartData.Value value = series.sampleAt(time);
+                LinearLayout cell = column(); cell.setMinimumWidth(ui.dp(124)); cell.setPadding(ui.dp(10), ui.dp(6), ui.dp(10), ui.dp(6));
+                TextView label = ui.text(pattern(series) + series.label, 12, false); label.setSingleLine(true); cell.addView(label);
+                TextView reading = ui.text(chart.formatSample(series, value), 17, true); reading.setSingleLine(true); cell.addView(reading);
+                TextView stamp = ui.caption(value == null || value.value == null ? "—" : "At " + RideChartView.sampleTime(value.time)); stamp.setSingleLine(true); cell.addView(stamp);
+                if (value != null && (series.key.startsWith("estimated_") || series.key.startsWith("limit_"))) {
+                    ChargeSessionStore.Estimate estimate = estimateAt(value.time);
+                    if (estimate != null) {
+                        boolean limit = series.key.startsWith("limit_");
+                        String detail = source(limit ? estimate.limitSource : estimate.fullSource) + " · Estimator " + estimate.version;
+                        if (estimate.learnedSessions > 0) detail += " · " + estimate.learnedSessions + " learned charges";
+                        if (limit && estimate.targetPercent != null) detail += String.format(Locale.getDefault(), " · %.0f%% target", estimate.targetPercent);
+                        TextView provenance = ui.caption(detail); provenance.setSingleLine(true); cell.addView(provenance);
+                    }
+                }
+                cell.setContentDescription(series.label + ": " + reading.getText() + ", " + stamp.getText()); trace.addView(cell);
+            }
+        }
+        ChargeSessionStore.Estimate estimateAt(long time) {
+            int low = 0, high = history.size() - 1;
+            while (low <= high) {
+                int mid = (low + high) >>> 1; ChargeEstimateHistory.Point point = history.get(mid);
+                long stamp = Math.round(point.elapsedMinutes * 60_000d);
+                if (stamp < time) low = mid + 1; else if (stamp > time) high = mid - 1; else return point.estimate;
+            }
+            return null;
         }
         void expand() {
             if (!available() || expanded != null) return;
             LinearLayout expandedBody = column(); expandedBody.setBackgroundColor(ui.bg); expandedBody.setTag("charge-history-fullscreen");
             LinearLayout heading = new LinearLayout(host.activity()); heading.setGravity(Gravity.CENTER_VERTICAL); heading.setPadding(ui.dp(16), ui.dp(4), ui.dp(6), ui.dp(4));
-            heading.addView(ui.text("Charge graph", 20, true), new LinearLayout.LayoutParams(0, -2, 1));
-            Panel child = new Panel(session, true, finishMode, toLimit); child.inspect(selected);
+            heading.addView(ui.text("Charge readings", 20, true), new LinearLayout.LayoutParams(0, -2, 1));
+            Panel child = new Panel(session, true); child.chart.restoreState(chart.getState());
             heading.addView(iconButton("close", "Close expanded charge graph", () -> { if (expanded != null) expanded.dismiss(); }));
-            expandedBody.addView(heading); expandedBody.addView(child, new LinearLayout.LayoutParams(-1, 0, 1));
+            ScrollView viewport = scroller(child); viewport.setFillViewport(true);
+            expandedBody.addView(heading); expandedBody.addView(viewport, new LinearLayout.LayoutParams(-1, 0, 1));
             expanded = page(expandedBody);
             expanded.setOnDismissListener(d -> {
-                child.modeSelector.finishMotion(); selectors.remove(child.modeSelector);
-                if (child.targetSelector != null) { child.targetSelector.finishMotion(); selectors.remove(child.targetSelector); }
                 expanded = null;
-                if (available()) { finishMode = child.finishMode; toLimit = child.toLimit; update(true); inspect(child.selected); }
+                if (available() && isAttachedToWindow()) {
+                    chosen.clear(); chosen.addAll(child.chosen); update(); chart.restoreState(child.chart.getState());
+                }
             });
         }
     }
 
-    /** A single shared scale makes prediction drift visible; missing samples never bridge a gap. */
-    private final class Chart extends View {
-        final Panel panel;
-        final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        final RectF plot = new RectF();
-        final int slop;
-        float downX, downY;
-        boolean scrolling;
-        double low, high, duration;
-        ChartScale.Range range;
-        static final int PREVIOUS_SAMPLE = 0x7e0c0001, NEXT_SAMPLE = 0x7e0c0002;
-        Chart(Panel panel) { super(host.activity()); this.panel = panel; slop = ViewConfiguration.get(host.activity()).getScaledTouchSlop(); setFocusable(true); setClickable(true); }
-        private Double value(ChargeEstimateHistory.Point point, boolean actual) {
-            if (!panel.finishMode) return actual ? point.actualRemainingMinutes : point.remainingMinutes;
-            Long wall = actual ? point.actualFinishWallMs : point.predictedFinishWallMs;
-            return wall == null ? null : wall.doubleValue();
-        }
-        @Override protected void onDraw(Canvas canvas) {
-            super.onDraw(canvas);
-            paint.setTypeface(ui.regular()); paint.setTextSize(Math.min(ui.sp(10), ui.dp(14))); paint.setStyle(Paint.Style.FILL);
-            low = Double.POSITIVE_INFINITY; high = Double.NEGATIVE_INFINITY; duration = 1;
-            for (ChargeEstimateHistory.Point point : panel.points) {
-                duration = Math.max(duration, point.elapsedMinutes);
-                for (boolean actual : new boolean[]{false, true}) { Double value = value(point, actual); if (value != null && Double.isFinite(value)) { low = Math.min(low, value); high = Math.max(high, value); } }
+    /** Same wrapping category layout as ride recordings, including RTL order. */
+    private final class Flow extends android.view.ViewGroup {
+        Flow() { super(host.activity()); }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            int width = MeasureSpec.getSize(widthSpec), available = Math.max(1, width - getPaddingLeft() - getPaddingRight());
+            int x = 0, y = getPaddingTop(), rowHeight = 0, gap = ui.dp(6);
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i);
+                child.measure(MeasureSpec.makeMeasureSpec(available, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                if (x > 0 && x + child.getMeasuredWidth() > available) { y += rowHeight + gap; x = 0; rowHeight = 0; }
+                x += child.getMeasuredWidth() + gap; rowHeight = Math.max(rowHeight, child.getMeasuredHeight());
             }
-            boolean available = Double.isFinite(low);
-            if (!available) { low = 0; high = 1; }
-            else if (panel.finishMode) { double padding = Math.max(30000, (high - low) * .08); low -= padding; high += padding; }
-            // ChartScale keeps extreme finite imported values bounded without changing
-            // the saved reading; its interpolation avoids overflow in ticks and geometry.
-            range = panel.finishMode ? new ChartScale.Range(low, high)
-                    : ChartScale.range("remaining_minutes", "min", true, low, Math.max(1, high));
-            low = range.min; high = range.max;
-            boolean dates = panel.finishMode && (differentDay((long)low, (long)high) || differentDay(panel.session.startedWall, (long)low));
-            float axisWidth = 0;
-            for (int i = 0; i <= 4; i++) axisWidth = Math.max(axisWidth, paint.measureText(axis(range.at(1 - i / 4d), dates)));
-            plot.set(Math.min(getWidth() * .43f, axisWidth + ui.dp(10)), ui.dp(16), getWidth() - ui.dp(8), getHeight() - ui.dp(34));
-            if (plot.width() <= 0 || plot.height() <= 0) return;
-            paint.setTextAlign(Paint.Align.RIGHT);
-            for (int i = 0; i <= 4; i++) {
-                float y = plot.top + plot.height() * i / 4;
-                paint.setColor(ui.outline); paint.setStrokeWidth(ui.dp(1)); canvas.drawLine(plot.left, y, plot.right, y, paint);
-                paint.setColor(ui.muted); canvas.drawText(available ? axis(range.at(1 - i / 4d), dates) : "—", plot.left - ui.dp(6), y + ui.dp(4), paint);
+            setMeasuredDimension(resolveSize(width, widthSpec), resolveSize(y + rowHeight + getPaddingBottom(), heightSpec));
+        }
+        @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
+            int available = getWidth() - getPaddingLeft() - getPaddingRight(), x = 0, y = getPaddingTop(), rowHeight = 0, gap = ui.dp(6);
+            boolean rtl = getLayoutDirection() == LAYOUT_DIRECTION_RTL;
+            for (int i = 0; i < getChildCount(); i++) {
+                View child = getChildAt(i); int w = child.getMeasuredWidth(), h = child.getMeasuredHeight();
+                if (x > 0 && x + w > available) { y += rowHeight + gap; x = 0; rowHeight = 0; }
+                int left = rtl ? getWidth() - getPaddingRight() - x - w : getPaddingLeft() + x;
+                child.layout(left, y, left + w, y + h); x += w + gap; rowHeight = Math.max(rowHeight, h);
             }
-            paint.setColor(ui.muted);
-            for (int i = 0; i <= 2; i++) {
-                paint.setTextAlign(i == 0 ? Paint.Align.LEFT : i == 2 ? Paint.Align.RIGHT : Paint.Align.CENTER);
-                canvas.drawText(elapsed(duration * i / 2), plot.left + plot.width() * i / 2, plot.bottom + ui.dp(23), paint);
-            }
-            if (!available) { paint.setTextAlign(Paint.Align.CENTER); canvas.drawText("No saved estimates", plot.centerX(), plot.centerY(), paint); return; }
-            canvas.save(); canvas.clipRect(plot);
-            drawSeries(canvas, true); drawSeries(canvas, false);
-            if (!panel.points.isEmpty()) {
-                ChargeEstimateHistory.Point selected = panel.points.get(panel.selected); float x = x(selected.elapsedMinutes);
-                paint.setStyle(Paint.Style.STROKE); paint.setPathEffect(null); paint.setColor(ui.muted); paint.setStrokeWidth(ui.dp(1)); canvas.drawLine(x, plot.top, x, plot.bottom, paint);
-                for (boolean actual : new boolean[]{true, false}) {
-                    Double value = value(selected, actual); if (value == null) continue;
-                    paint.setStyle(Paint.Style.FILL); paint.setColor(ui.surface); canvas.drawCircle(x, y(value), ui.dp(5), paint);
-                    paint.setColor(actual ? ui.blue : ui.accent); canvas.drawCircle(x, y(value), ui.dp(3), paint);
-                }
-            }
-            canvas.restore(); paint.setStyle(Paint.Style.FILL);
-        }
-        private String axis(double value, boolean date) {
-            if (panel.finishMode) return clock((long)value, date, high - low < 4 * 60000);
-            if (Math.abs(value) >= 1_000_000) return String.format(Locale.getDefault(), "%.1e min", value);
-            return String.format(Locale.getDefault(), high - low < 10 ? "%.1f min" : "%.0f min", value);
-        }
-        private String elapsed(double minutes) {
-            if (duration < 4) return String.format(Locale.getDefault(), "%.0f s", minutes * 60);
-            return minutes >= 60 ? String.format(Locale.getDefault(), "%.1f h", minutes / 60) : String.format(Locale.getDefault(), "%.0f min", minutes);
-        }
-        private float x(double elapsed) { return plot.left + (float)(elapsed / duration) * plot.width(); }
-        private float y(double value) { return plot.bottom - (float)range.fraction(value) * plot.height(); }
-        private void drawSeries(Canvas canvas, boolean actual) {
-            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2)); paint.setColor(actual ? ui.blue : ui.accent);
-            paint.setPathEffect(actual ? new DashPathEffect(new float[]{ui.dp(6), ui.dp(4)}, 0) : null);
-            Path path = new Path(); boolean started = false;
-            for (ChargeEstimateHistory.Point point : panel.points) {
-                Double value = value(point, actual);
-                if (actual ? point.actualGap : point.gap) started = false;
-                if (value == null || !Double.isFinite(value)) { started = false; continue; }
-                float x = x(point.elapsedMinutes), y = y(value);
-                if (started) path.lineTo(x, y); else { path.moveTo(x, y); canvas.drawPoint(x, y, paint); }
-                started = true;
-            }
-            canvas.drawPath(path, paint); paint.setPathEffect(null); paint.setStyle(Paint.Style.FILL);
-        }
-        private void inspect(float x) {
-            if (panel.points.isEmpty() || plot.width() <= 0) return;
-            double target = Math.max(0, Math.min(1, (x - plot.left) / plot.width())) * duration;
-            int nearest = 0; double delta = Double.POSITIVE_INFINITY;
-            for (int i = 0; i < panel.points.size(); i++) { double distance = Math.abs(panel.points.get(i).elapsedMinutes - target); if (distance < delta) { delta = distance; nearest = i; } }
-            panel.inspect(nearest);
-        }
-        @Override public boolean onTouchEvent(MotionEvent event) {
-            switch (event.getActionMasked()) {
-                case MotionEvent.ACTION_DOWN:
-                    downX = event.getX(); downY = event.getY(); scrolling = false;
-                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
-                    inspect(event.getX()); return true;
-                case MotionEvent.ACTION_MOVE:
-                    if (!scrolling && Math.abs(event.getY() - downY) > slop && Math.abs(event.getY() - downY) > Math.abs(event.getX() - downX)) {
-                        scrolling = true; if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
-                    }
-                    if (!scrolling) inspect(event.getX()); return true;
-                case MotionEvent.ACTION_UP:
-                    if (!scrolling) { inspect(event.getX()); performClick(); }
-                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false); return true;
-                case MotionEvent.ACTION_CANCEL:
-                    if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false); return true;
-                default: return true;
-            }
-        }
-        @Override public boolean performClick() { super.performClick(); return true; }
-        @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info) {
-            super.onInitializeAccessibilityNodeInfo(info);
-            info.addAction(new AccessibilityNodeInfo.AccessibilityAction(PREVIOUS_SAMPLE, "Previous recorded sample"));
-            info.addAction(new AccessibilityNodeInfo.AccessibilityAction(NEXT_SAMPLE, "Next recorded sample"));
-        }
-        @Override public boolean performAccessibilityAction(int action, android.os.Bundle arguments) {
-            if (action == PREVIOUS_SAMPLE || action == NEXT_SAMPLE) { panel.inspect(panel.selected + (action == NEXT_SAMPLE ? 1 : -1)); return true; }
-            return super.performAccessibilityAction(action, arguments);
         }
     }
 }
