@@ -1,3 +1,19 @@
+VOLT 1.2.2 — LOCK BAR BUTTON PADDING (versionCode 32)
+October 15, 2026
+
+- The reviewed UI patch passes independent GPT-6 Astra Ultra and GPT-6.1 Sol
+  Ultra review, plus app and native-runner build/signature/alignment checks.
+- Existing native responsive checks pass at 344x882 dp with normal text and
+  725x604 dp with 140% app text: disconnected, connecting and connected lock
+  states fit without clipping or hidden scrolling. Narrow rendering inspected.
+- All 77,300 deterministic core assertions/checks and 11 capture guard tests
+  pass. The first guard run hit a fixture startup timeout; rerunning with the
+  pinned JDK/Python tool paths passed all guards.
+- GitHub Actions remains unable to start because of an account billing/spending
+  restriction; local checks and independent reviews provide release validation.
+- Only button spacing changes. No new real-scooter or charging validation is
+  claimed; emulator fixtures do not issue hardware commands.
+
 VOLT 1.2.1 — UNIFIED CHARGE CHARTS (versionCode 31)
 October 15, 2026
 

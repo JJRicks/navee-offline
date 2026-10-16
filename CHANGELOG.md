@@ -1,8 +1,10 @@
 # Changelog
 
-## Unreleased
+## 1.2.2 — 2026-10-15
 
 - Restore horizontal padding around the Lock bar's Connect and Cancel buttons, including after connection-state changes.
+
+Install over the previous Volt APK to preserve setup and recordings. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
 
 ## 1.2.1 — 2026-10-15
 
