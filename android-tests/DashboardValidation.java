@@ -176,8 +176,11 @@ public final class DashboardValidation extends Instrumentation {
                 require(amount.getCurrentTextColor() == activity.ui().muted, "Cached big reading is presented as live");
                 require(((TextView)field(tile, "footer")).getText().toString().contains("Last seen"), "Cached widget lacks its stale-reading label");
             });
-            setSize(metricId, 1, 4); setPosition(metricId, 1, 1);
-            main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == 1 && cell(metricId).h == 4,
+            int columns = ((Number)field(grid(), "columns")).intValue();
+            int selectedWidth = Math.max(Math.min(3, columns), ((Number)invoke(grid(), "minimumWidth",
+                    new Class<?>[]{DashboardConfig.Widget.class}, widgetById(metricId))).intValue());
+            setSize(metricId, selectedWidth, 4); setPosition(metricId, 1, 1);
+            main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == selectedWidth && cell(metricId).h == 4,
                     "Size/Move options did not retain the selected rectangle"));
             assertGrid(); verifyEditAffordances(metricId); verifyOptionsContrast(metricId);
             resizeByOneRow(metricId); assertGrid(); assertEditInputsInert();
@@ -1007,7 +1010,8 @@ public final class DashboardValidation extends Instrumentation {
                 // padding around them so the handles read as one widget. Every other type stays put.
                 if (type.equals("tiles") || type.equals("shortcuts") || type.equals("lockbar")) continue;
                 require(a.body.equals(b.body) && a.heading.equals(b.heading) && a.footer.equals(b.footer),
-                        type + ": editing controls changed the content, heading or footer geometry");
+                        type + ": editing controls changed geometry: body " + a.body + " -> " + b.body
+                                + ", heading " + a.heading + " -> " + b.heading + ", footer " + a.footer + " -> " + b.footer);
                 require(a.textBounds.equals(b.textBounds) && a.textSizes.equals(b.textSizes),
                         type + ": entering Edit changed body text sizing, placement or added a configuration row; " + textDifferences(a, b));
             }
@@ -1520,9 +1524,11 @@ public final class DashboardValidation extends Instrumentation {
         require(columns >= 2, "Gesture fixture requires at least two dashboard columns");
         String neighbor = widget("note").id;
         setSize(id, 1, 3); setSize(neighbor, 1, 3);
-        setPosition(id, 1, 1); setPosition(neighbor, 2, 1);
+        int span = cell(id).w; // The grid clamps the requested width to a safe type minimum.
+        require(span + cell(neighbor).w <= columns, "Gesture fixture needs room for two safe card spans");
+        setPosition(id, 1, 1); setPosition(neighbor, span + 1, 1);
         scrollHomeTop(); awaitSettledLayout(); assertGrid();
-        require(cell(id).x == 0 && cell(id).y == 0 && cell(neighbor).x == 1 && cell(neighbor).y == 0,
+        require(cell(id).x == 0 && cell(id).y == 0 && cell(neighbor).x == span && cell(neighbor).y == 0,
                 "Gesture fixture did not put the two cards beside one another");
     }
     private Map<String, DashboardLayout.Cell> layoutSnapshot() {
