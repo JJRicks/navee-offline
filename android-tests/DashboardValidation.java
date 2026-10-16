@@ -1949,7 +1949,7 @@ public final class DashboardValidation extends Instrumentation {
     }
     private void click(View target) {
         View actionable = target; while (!actionable.isClickable() && actionable.getParent() instanceof View) actionable = (View)actionable.getParent();
-        final View button = actionable; require(button.isClickable() && button.isEnabled(), "UI action is disabled: " + spoken(button) + " (" + button.getClass().getSimpleName() + ")"); reveal(button);
+        final View button = actionable; require(button.isClickable() && button.isEnabled(), "UI action is disabled: " + String.valueOf(button.getContentDescription()) + (button instanceof TextView ? " / " + ((TextView)button).getText() : "") + " (" + button.getClass().getSimpleName() + ")"); reveal(button);
         main(() -> require(button.performClick(), "UI action did not dispatch")); waitForIdleSync();
     }
     private void reveal(View view) { main(() -> view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true)); waitForIdleSync(); }
