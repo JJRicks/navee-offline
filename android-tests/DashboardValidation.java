@@ -1931,7 +1931,7 @@ public final class DashboardValidation extends Instrumentation {
     private void scrollHomeTop() { main(() -> ((ScrollView)field(activity, "scroll")).scrollTo(0, 0)); waitForIdleSync(); }
     private void assertNavigationFits() {
         main(() -> { for (String name : DESTINATIONS) {
-            View item = findDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
+            View item = findActionableDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
             Rect visible = new Rect(); require(item.getGlobalVisibleRect(visible) && visible.width() >= item.getWidth() - 2
                     && visible.height() >= item.getHeight() - 2, "Navigation target is clipped: " + name);
             TextView caption = first(item, TextView.class);
@@ -1942,7 +1942,7 @@ public final class DashboardValidation extends Instrumentation {
                 require(item.getWidth() >= minimum && item.getHeight() >= minimum, "Navigation target smaller than 48dp: " + name); }
         }});
     }
-    private void clickDescription(String label) { View target = findDescription(root(), label); require(target != null, "Missing navigation " + label); click(target); }
+    private void clickDescription(String label) { View target = findActionableDescription(root(), label); require(target != null, "Missing navigation " + label); click(target); }
     private void clickText(View tree, String label) {
         TextView target = findActionableText(tree, tree, label);
         require(target != null, "Missing enabled UI action " + label); click(target);
@@ -1998,6 +1998,16 @@ public final class DashboardValidation extends Instrumentation {
     private static Object invoke(Object value, String name, Class<?>[] signature, Object... args) {
         try { Method method = value.getClass().getDeclaredMethod(name, signature); method.setAccessible(true); return method.invoke(value, args); }
         catch (ReflectiveOperationException error) { throw new IllegalStateException("Cannot invoke " + name + ": " + error.getCause(), error); }
+    }
+    /** Match the action itself, not a decorative image with the same accessible label. */
+    private static View findActionableDescription(View root, String description) {
+        if (root.isShown() && root.isClickable() && root.isEnabled()
+                && description.contentEquals(root.getContentDescription() == null ? "" : root.getContentDescription())) return root;
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) {
+            View found = findActionableDescription(((ViewGroup)root).getChildAt(i), description);
+            if (found != null) return found;
+        }
+        return null;
     }
     private static View findDescription(View root, String description) {
         if (root.isShown() && description.contentEquals(root.getContentDescription() == null ? "" : root.getContentDescription())) return root;
