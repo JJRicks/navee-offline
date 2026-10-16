@@ -767,6 +767,9 @@ public final class DashboardSlotsValidation extends Instrumentation {
 
     private void legacyFourColumnSlots() throws Exception {
         DashboardConfig config = fixture("legacy-four");
+        // Lock bar did not exist before showDisconnect. Keep the fixture's classic
+        // Lock, whose missing option defaults true, rather than using the new type.
+        config.widgets.removeIf(widget -> widget.type.equals("lockbar"));
         for (DashboardConfig.Widget widget : config.widgets) {
             widget.layouts.remove(5); widget.layouts.remove(6);
             widget.showDisconnect = true;

@@ -148,7 +148,7 @@ public final class DashboardValidation extends Instrumentation {
                     verifySingleLockControlPalette(row);
                     continue;
                 }
-                click(row); closeDialog();
+                click(row); clickText(dialogRoot(), "✓ Save");
                 await(() -> tileOrNull(type) != null && ((View)tile(type)).getWidth() > 0, 4000, "Added widget did not lay out: " + type);
                 assertGrid(); assertEditInputsInert();
             }
@@ -551,9 +551,9 @@ public final class DashboardValidation extends Instrumentation {
                     "Compact scooter readings changed after saving and reopening");
 
             DashboardConfig fresh = new DashboardConfig(isolated, "fresh-custom");
-            DashboardConfig.Widget custom = null;
-            for (DashboardConfig.Widget widget : fresh.widgets) if (widget.type.equals("scooter")) custom = widget;
-            require(custom != null, "Fresh configuration lacks a scooter widget");
+            // The photo card remains available but is no longer part of fresh Home.
+            DashboardConfig.Widget custom = new DashboardConfig.Widget("scooter");
+            fresh.widgets.add(custom);
             custom.keys.clear(); custom.keys.addAll(oldKeys); fresh.save();
             DashboardConfig reloaded = new DashboardConfig(isolated, "fresh-custom");
             DashboardConfig.Widget restored = null;
@@ -1238,7 +1238,16 @@ public final class DashboardValidation extends Instrumentation {
         for (int line = 0; line < layout.getLineCount(); line++)
             require((layout.getEllipsisCount(line) == 0 || mayEllipsize) && layout.getLineMax(line) <= layout.getWidth() + 1,
                     context + ": value is truncated or clipped horizontally: " + text);
-        float readableFloor = 12 * activity.ui().textScale * getTargetContext().getResources().getDisplayMetrics().scaledDensity;
+        float floorSp = 12;
+        // Existing Quick access captions use a 10sp floor; they are control labels,
+        // not the numerical readings covered by the general 12sp assertion.
+        View ancestor = value;
+        while (ancestor != body && ancestor.getParent() instanceof View) {
+            Object tag = ancestor.getTag();
+            if (tag instanceof String && ((String)tag).startsWith("quick-action:")) { floorSp = 10; break; }
+            ancestor = (View)ancestor.getParent();
+        }
+        float readableFloor = floorSp * activity.ui().textScale * getTargetContext().getResources().getDisplayMetrics().scaledDensity;
         // Compact timestamps deliberately shrink to preserve the full date and time on one line.
         if (value == field(activity, "connectionTitle")) readableFloor = value.getAutoSizeMinTextSize();
         require(value.getTextSize() >= readableFloor - .5f, context + ": value shrank below the readable text floor: " + text);
@@ -1431,7 +1440,7 @@ public final class DashboardValidation extends Instrumentation {
             Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile),
                     optionsBounds = relativeBounds(options, tile), duplicateBounds = relativeBounds(duplicate, tile),
                     removeBounds = relativeBounds(remove, tile);
-            int resizeTouch = activity.ui().dp(48), inlineTouch = Math.min(resizeTouch, tile.getWidth() / 4),
+            int resizeTouch = activity.ui().dp(48), inlineTouch = Math.min(activity.ui().dp(52), tile.getWidth() / 4),
                     tolerance = activity.ui().dp(24);
             require(inlineTouch >= activity.ui().dp(36) - 1, "Inline editor targets fell below the compact size floor");
             require(corner.getWidth() >= resizeTouch && corner.getHeight() >= resizeTouch, "Resize hit area is smaller than 48 dp");

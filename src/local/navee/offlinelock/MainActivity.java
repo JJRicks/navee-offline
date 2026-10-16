@@ -983,9 +983,12 @@ public final class MainActivity extends Activity implements ScreenHost {
         @Override public boolean onTouchEvent(MotionEvent event){
             if(!available)return false;
             if(event.getAction()==MotionEvent.ACTION_DOWN){cancelMotion();downX=event.getX();downY=event.getY();previewX=downX;dragging=false;dragSide=downX>getWidth()/2f;setPressed(true);return true;}
-            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){boolean side=event.getX()>getWidth()/2f;if(side!=dragSide)Haptics.tick(this);dragSide=side;previewX=event.getX();position=Math.max(0,Math.min(1,(previewX-getHeight()/2f)/Math.max(1,getWidth()-getHeight())));invalidate();}return true;}
+            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){boolean side=event.getX()>getWidth()/2f;if(side!=dragSide)Haptics.tick(this);dragSide=side;previewX=event.getX();position=sliderGeometry().positionFor(previewX);invalidate();}return true;}
             if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);releaseParent();if(dragged)apply(target);else performClick();settle(true);return true;}
             if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);releaseParent();settle(true);return true;}return true;
+        }
+        private LockSliderGeometry sliderGeometry(){
+            return new LockSliderGeometry(getWidth(),getHeight(),design.dp(58),design.dp(5));
         }
         /** The state word alone, centred on the bar's height; false when it cannot fit the lane. */
         private boolean drawState(Canvas canvas,String state,float left,float right,float h){
@@ -1012,8 +1015,11 @@ public final class MainActivity extends Activity implements ScreenHost {
             else paint.setColor(compact?design.surface:design.dark?design.bg:design.raised);
             canvas.drawRoundRect(track,r,r,paint);paint.setShader(null);
             paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(1));paint.setColor(unlocked&&available?Ui.withAlpha(design.accent,110):design.raised);canvas.drawRoundRect(track,r,r,paint);paint.setStyle(Paint.Style.FILL);
-            float knob=h/2-design.dp(5);
-            float cx=x+h/2+Math.max(0,w-h)*position;
+            // A tall card is still a horizontal switch. Keep the thumb and its travel
+            // independent of card height, and share that geometry with touch tracking.
+            LockSliderGeometry geometry=sliderGeometry();
+            float knob=geometry.radius;
+            float cx=geometry.centerFor(position);
             paint.setColor(!available?design.dim:locked?android.graphics.Color.WHITE:design.accent);canvas.drawCircle(cx,h/2,knob,paint);
             design.drawIcon(canvas,locked?"lock":"unlock",!available?design.surface:locked?design.bg:design.onAccent,cx,h/2,knob*0.95f);
             // The accessibility label keeps the full tap-or-slide action; the arrow shows the slide direction.
@@ -1024,7 +1030,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             words.setAlpha(Math.round(255*Math.max(0,1-4*Math.abs(position-(locked?1:0)))));
             boolean arrow=available&&value!=null&&!dragging;
             float lane=arrow?design.dp(18):design.dp(4);
-            float textLeft=locked||value==null?x+design.dp(18):x+h+lane,textRight=locked||value==null?x+w-h-lane:x+w-design.dp(18);
+            float textLeft=locked||value==null?x+design.dp(18):x+geometry.diameter+lane,textRight=locked||value==null?x+w-geometry.diameter-lane:x+w-design.dp(18);
             float textWidth=Math.max(0,textRight-textLeft);
             if(arrow){
                 // Points the way the knob slides: left to unlock, right to lock.

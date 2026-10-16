@@ -1,3 +1,22 @@
+HOME REDESIGN FOLLOW-UP GEOMETRY (PR #37)
+October 15, 2026
+
+- Fix the Lock bar thumb and touch mapping for cards taller than their width;
+  capped thumb size keeps real horizontal travel without changing saved layouts.
+- Reserve a separate resize lane on every one-row editor. Very narrow bars keep
+  a draggable grip with named actions on tap, so no touch targets overlap.
+- Fit Reading tile columns to actual numeric tokens at their existing readable
+  minimum, using the card's existing scrolling if more rows are required.
+- Core suites: 26 passed, 57,457 assertions/checks, including 307 new geometry
+  checks across card aspect ratios and display densities. App and separate
+  instrumentation runner built and passed APK signature/alignment checks.
+- The new emulator-only closeout mode checks native thumb bounds, cancellable
+  drags, full numeric text, separate editor targets and the narrow action menu.
+  Native cases passed at 344 dp with normal/140% Android font, plus constraints,
+  edit targets, compact readings, 725 dp cards and full editor journeys at both
+  344/725 dp. Saved-layout/migration validation passed 4,995 assertions.
+  No physical scooter commands are sent by these fixtures.
+
 CHARGE RECOVERY AND CONNECTION DIAGNOSTICS (1.0.1, versionCode 28)
 October 15, 2026
 
