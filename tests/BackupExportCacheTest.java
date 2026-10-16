@@ -13,6 +13,7 @@ public final class BackupExportCacheTest {
         try {
             Path cache = Files.createDirectory(root.resolve("cache"));
             Path orphan = Files.write(cache.resolve("volt-encrypted-123.voltbackup"), new byte[]{1,2,3});
+            Path rideOrphan = Files.write(cache.resolve("volt-rides-123.voltrides"), new byte[]{1,2,3});
             Path other = Files.write(cache.resolve("user-selected.voltbackup"), new byte[]{4});
             Path near = Files.write(cache.resolve("volt-encrypted-.voltbackup"), new byte[]{5});
             Path nested = Files.createDirectory(cache.resolve("nested"));
@@ -26,6 +27,7 @@ public final class BackupExportCacheTest {
             BackupExportCache.removeOrphans(cacheAlias.toFile());
             check(Files.exists(orphan), "Linked cache cleanup leaves its target alone");
             BackupExportCache.removeOrphans(cache.toFile());
+            check(!Files.exists(rideOrphan), "Deletes a stale private ride export");
             check(!Files.exists(orphan), "Deletes a stale encrypted export");
             check(Files.exists(other) && Files.exists(near), "Preserves unrelated and non-export names");
             check(Files.exists(nestedExport) && Files.isDirectory(directory), "Does not recurse or remove directories");

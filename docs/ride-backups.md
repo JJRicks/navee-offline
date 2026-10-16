@@ -1,0 +1,31 @@
+# Ride backup and restore
+
+Rides → Ride backups transfers completed recordings only. The feature preserves the raw scooter journal, optional raw phone journal, and optional raw motion CSV as a group. These include every saved sample, names, notes, original clocks, gaps and current-direction events. It does not reconstruct recordings from chart previews or analysis JSON.
+
+## File and privacy
+
+A `.voltrides` file is an unencrypted ZIP (MIME `application/zip`). It includes routes and potentially personal names/notes. There are no app settings, pairing keys, owner identity, MAC address, charge journals or telemetry database in the format. The manifest contains local source profile identifiers and display names so a user can associate imported rides with the correct scooter. This is a separate format from encrypted full `.voltbackup` files; neither accepts the other accidentally.
+
+The version 1 `manifest.bin` uses Java `DataOutputStream` encoding: `writeUTF("volt-ride-backup")`, version `int`, creation epoch-ms `long`, source-profile count `int`, each source ID/name as `writeUTF`, entry count `int`, total uncompressed bytes `long`, then entry path `writeUTF`, byte length `long` and 32-byte SHA-256 for each file. The manifest is first; the remaining ZIP entries must match it exactly. Checksums detect accidental damage, not a malicious author. Imported input is still validated as untrusted data.
+
+Allowed paths are `rides/<UUID>.csv` and `phone-rides/<UUID>-phone.csv` / `phone-rides/<UUID>-motion.csv`. No absolute paths, traversal, symlinks, arbitrary directories, duplicate entries or orphan phone files are accepted. Limits are 5,000 rides, 15,000 files, 2 GiB expanded total, 512 MiB per journal and a 4 MiB manifest. Journal encoding/header and record size are checked with streaming readers; phone records also require known events, supported column counts, valid clocks and finite numeric fields; scooter journals must parse as stopped rides. No active recording can be imported or backed up. Export rechecks file sizes and hashes while copying.
+
+## Merge, association and recovery
+
+The existing maintenance boundary first refuses active recordings or pending phone saves and drains every writer before disconnecting. Export and restore remain paused until the app closes and reopens. This intentionally uses the already-established safe boundary rather than allowing a rename, delete, recording or another restore to race a transfer.
+
+Restore stages and checks all files before a preview. Existing source profile IDs remain associated with those scooters. Unknown sources require an explicit destination scooter selection; only the staged journal's START profile field changes. A destination must already exist, so after clearing storage the user pairs first. The final confirmation lists those mappings.
+
+A UUID is the identity of a recording. If all three possible files agree, the import is skipped. If any local file with that UUID differs or is missing relative to the archive, the local group is retained and counted as a conflict. No extra UUID is synthesized, preventing repeated imports from adding duplicate training rides. This also applies after an explicit profile reassociation.
+
+Before live writes, a synced transaction list records every new path and the staged file's filesystem identity. Complete files move from the private incoming tree into the app's recording folders; sidecars move before their scooter journal. The move does not replace an existing destination. Rollback removes only destinations whose identity matches the recorded incoming file, so an unrelated file appearing unexpectedly is preserved even after process death. Private app files and no-backup storage must share a filesystem with persistent file identities; unsupported storage fails instead of reporting success. Existing app writers are stopped throughout the operation. A durable committed marker is written after live file/directory syncs. Startup completes rollback for an active transaction or cleans a committed transaction and abandoned stages before any recorder/model opens. Keep app storage intact if a restore is interrupted. Storage failure, deleting app data mid-restore or losing the device still require an external backup.
+
+The archive and scratch exports remain in private app storage until the rider picks an external destination. Cancellation cleans staging; startup also cleans scratch exports left by process death. Transfers use Android's document picker and request no broad storage permissions.
+
+## Validation
+
+`RideArchiveTest` uses synthetic full journals with more than 600 samples, Unicode names, multiline notes, GPS and motion. It checks exact raw roundtrip, merged unrelated rides, same-UUID conflicts, idempotence before and after profile mapping, missing mapping refusal, invalid headers/UTF-8/unfinished records, orphan/missing files, traversal, checksum mismatch, full-backup rejection, cancellation and process death / I/O / directory-sync rollback. No real ride data is a test fixture.
+
+`android-tests/RideBackupValidation.java` admits only a fresh emulator with Bluetooth off. It exercises the real private-storage archive, same-filesystem moves and persistent file identities, store reopen and profile-mapped idempotence, then the native Rides entry, consent/cancel, active-recording refusal, document-picker return, mapping and review/cancel/apply. It writes synthetic View.draw renders of mapping and preview into the app's external files folder because normal screenshots honor the transfer screen's privacy flag. The runner must never run against a physical phone or existing recordings.
+
+Validation run for this change: the complete pure-Java suite passed, including 55 archive checks and 12 export-cache cleanup checks. The app and instrumentation APKs compiled and verified with a disposable signing key. Native restore validation passed at 344×882 dp dark/default font and 725×604 dp light/140% system font, including a simulated interrupted move followed by recovery; mapping/preview renders were inspected. Physical-phone restore has not been exercised and no real recordings were used in tests.

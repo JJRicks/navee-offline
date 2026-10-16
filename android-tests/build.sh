@@ -22,7 +22,7 @@ javac --release 8 -encoding UTF-8 \
     "$SCRIPT_DIR/DashboardValidation.java" "$SCRIPT_DIR/HistoryValidation.java" \
     "$SCRIPT_DIR/SearchFocusValidation.java" "$SCRIPT_DIR/WindowTouchTrace.java" \
     "$SCRIPT_DIR/MapTilesValidation.java" "$SCRIPT_DIR/DashboardSlotsValidation.java" \
-    "$SCRIPT_DIR/DashboardTransferValidation.java" "$SCRIPT_DIR/AppDataBackupValidation.java" "$SCRIPT_DIR/AppDataMaintenanceValidation.java" "$SCRIPT_DIR/BackupUiValidation.java" "$SCRIPT_DIR/FullBackupJourneyValidation.java" \
+    "$SCRIPT_DIR/DashboardTransferValidation.java" "$SCRIPT_DIR/AppDataBackupValidation.java" "$SCRIPT_DIR/AppDataMaintenanceValidation.java" "$SCRIPT_DIR/BackupUiValidation.java" "$SCRIPT_DIR/RideBackupValidation.java" "$SCRIPT_DIR/FullBackupJourneyValidation.java" \
     "$SCRIPT_DIR/ResponsiveDashboardValidation.java" "$SCRIPT_DIR/DeveloperSettingsValidation.java" \
     "$SCRIPT_DIR/LiveStatsValidation.java" "$SCRIPT_DIR/RidesAnalysisValidation.java" \
     "$SCRIPT_DIR/BatteryWidgetValidation.java" "$SCRIPT_DIR/LearnedRangeValidation.java" \

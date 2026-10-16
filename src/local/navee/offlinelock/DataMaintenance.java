@@ -16,7 +16,7 @@ public final class DataMaintenance {
     public static boolean readyForStartup(Context context) {
         if (active) return false;
         if (recovered) return true;
-        if (AppDataBackup.needsRecovery(context) || BackupExportCache.hasOrphans(context.getCacheDir())) return false;
+        if (AppDataBackup.needsRecovery(context) || RideBackup.needsRecovery(context) || BackupExportCache.hasOrphans(context.getCacheDir())) return false;
         recovered = true;
         return true;
     }
@@ -27,6 +27,7 @@ public final class DataMaintenance {
         if (active) throw new IOException("Close the current backup session before recovering app data.");
         try {
             AppDataBackup.recover(context);
+            RideBackup.recover(context);
             BackupExportCache.removeOrphans(context.getCacheDir());
             recovered = true;
         }

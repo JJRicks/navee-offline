@@ -74,7 +74,7 @@ public final class BackupActivity extends Activity {
         if(getIntent().getBooleanExtra("recovery",false)){
             DataMaintenance.enter();heading("Recovering your app data");status=paragraph("Keep Volt open while the previous restore is rolled back.");
             progress=new ProgressBar(this);content.addView(progress);busy=true;
-            submit(()->{try{AppDataBackup.recover(this);show(()->done("Your previous app data was recovered. Close and reopen Volt."));}
+            submit(()->{try{AppDataBackup.recover(this);RideBackup.recover(this);show(()->done("Your previous app data was recovered. Close and reopen Volt."));}
                 catch(Exception failure){show(()->done("Recovery failed. Free space, reopen. Don't clear storage."));}});
             return;
         }

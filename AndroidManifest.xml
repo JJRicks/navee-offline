@@ -38,6 +38,8 @@
         <activity android:name=".BackupActivity" android:exported="false" android:resizeableActivity="true"
             android:windowSoftInputMode="adjustResize"
             android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
+        <activity android:name=".RideBackupActivity" android:exported="false" android:resizeableActivity="true"
+            android:configChanges="orientation|screenSize|smallestScreenSize|screenLayout|keyboardHidden" />
         <uses-library android:name="androidx.window.extensions" android:required="false" />
         <service android:name=".ScooterService" android:exported="false" android:stopWithTask="false"
             android:foregroundServiceType="connectedDevice|location" />
