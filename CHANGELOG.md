@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Remove the clock/age footers from Scooter Overview and Reading tiles, including while connecting. Keep cached values muted and the disconnected header's Last seen time.
+
 ## 1.2.3 — 2026-10-16
 
 - Refine the UT5 MAX default charging estimate with a second observed finish and paired voltage/power matching for the long 99% stage. Keep the live-current bulk model and rated capacity.

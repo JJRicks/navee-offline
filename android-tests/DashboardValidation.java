@@ -111,6 +111,7 @@ public final class DashboardValidation extends Instrumentation {
                     "Persisted synthetic readings did not load");
             verifyHomeWidgetsOffline();
             if ("home-widgets".equals(arguments.getString("mode"))) {
+                verifyCompactConnection();
                 verifySettingToggleCueSimulation();
                 result.putString("result", "PASS");
                 result.putStringArrayList("checks", new ArrayList<>(checks));
@@ -703,11 +704,18 @@ public final class DashboardValidation extends Instrumentation {
                 changed.put(key, new TelemetryHistory.Reading(reading.key, reading.label, reading.group,
                         reading.value, reading.unit, reading.number, older, false));
                 Object card = tile(type);
-                invoke(card, "refresh", new Class<?>[] {Map.class}, changed);
-                TextView age = (TextView)field(card, "footer");
-                require(age.getVisibility() == View.VISIBLE && age.getText().toString().contains("d")
-                                && String.valueOf(age.getContentDescription()).startsWith("Last seen"),
-                        type + " hides readings older than the header's last-seen time");
+                long headerSeen = (Long)field(dashboard(), "headerSeenMs");
+                try {
+                    // Connecting hides the header's timestamp; older cached values must not
+                    // cause either Home widget's age footer to appear in its place.
+                    for (long header : new long[] {headerSeen, 0}) {
+                        setField(dashboard(), "headerSeenMs", header);
+                        invoke(card, "refresh", new Class<?>[] {Map.class}, changed);
+                        TextView age = (TextView)field(card, "footer");
+                        require(age.getVisibility() == View.GONE && age.getText().length() == 0,
+                                type + " repeats a cached-data age footer when the header time is " + header);
+                    }
+                } finally { setField(dashboard(), "headerSeenMs", headerSeen); }
             }
             invoke(dashboard(), "refresh");
         });
@@ -949,6 +957,9 @@ public final class DashboardValidation extends Instrumentation {
                             state + " lacks one inline loading indicator");
                     require(goneOrAbsent("lockHint") && goneOrAbsent("connectionDetail"),
                             state + " added an explanatory text block to the compact connection card");
+                    for (String type : new String[] {"overview", "tiles"})
+                        require(((View)field(tile(type), "footer")).getVisibility() == View.GONE,
+                                state + " revealed the " + type + " cached-data age footer");
                 }
             } finally {
                 profile.lastConnected = originalLast; setField(ble, "state", originalState); invoke(activity, "updateHeader"); invoke(dashboard(), "refresh");

@@ -1,3 +1,18 @@
+UNRELEASED — HOME AGE FOOTER CLEANUP
+October 16, 2026
+
+- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews found no actionable
+  issues. App/native runner build, signature and alignment checks pass.
+- Focused Home checks pass at 344x882 dp with normal system font and 725x604 dp
+  with 140% system font. Includes older cached readings, absent header timestamp,
+  WAITING/SCANNING/CONNECTING/AUTHENTICATING states and existing tile controls.
+  Emulator Bluetooth is disabled and no scooter mutations occur.
+- All 32 core suites (80,598 checks) and 11 capture guards pass. Only Home footer
+  presentation changes; no recording, estimation or Bluetooth behavior changes.
+- GitHub Actions remains blocked before starting by account billing/spending
+  restrictions. The owner authorized release based on local checks and the two
+  independent reviews. No new physical scooter test is claimed.
+
 VOLT 1.2.3 — CHARGING ESTIMATE CALIBRATION AND DASHBOARD CLEANUP (versionCode 33)
 October 16, 2026
 

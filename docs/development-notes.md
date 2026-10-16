@@ -198,7 +198,10 @@ measured capacity or current-ride consumption.
 The battery cell should use the space remaining after its readings, preserving
 readable percentage/range text and balanced visual placement. Check readings
 in one row where they fit, then wrapping at narrow widths or large text. Preserve charging context switches, missing/stale semantics and spoken
-labels for icon-only readings. Live footer removal must not hide stale timestamps.
+labels for icon-only readings. Scooter Overview and Reading tiles omit visual age
+footers even while connecting; keep cached values muted and their timestamps in
+accessible descriptions. The disconnected header still shows Last seen, and
+classic data widgets retain their existing age footers.
 
 Connection status remains concise; errors stay reachable by tapping it. Reuse the
 profile's verified lastConnected timestamp rather than launch/attempt times.

@@ -3368,19 +3368,15 @@ public final class DashboardScreen implements AppScreen {
                 photoHint.setVisibility(show ? View.GONE : View.VISIBLE);
             }
             if (rideButton != null) refreshRecorder();
-            // Muted values already mark cached data. A card as old as the header's "last seen"
-            // shows nothing more; an older card adds a clock glyph and a short age, e.g. 2 d.
+            // Home overview/tiles keep cached values muted without a separate age footer,
+            // including while the header shows Connecting. Classic data cards retain their age.
             boolean sameAsHeader = anyStale && headerSeenMs > 0 && when(oldest).equals(when(headerSeenMs));
-            boolean aged = anyStale && !sameAsHeader;
+            boolean aged = !newHome(widget.type) && anyStale && !sameAsHeader;
             footer.setText(aged ? shortAge(oldest) : "");
             footer.setContentDescription(aged ? "Last seen " + when(oldest) : "");
             footer.setTooltipText(aged ? "Last seen " + when(oldest) : null);
             footer.setVisibility(aged ? View.VISIBLE : View.GONE);
             if (chargingData != null && chargingData.getVisibility() == View.VISIBLE)
-                footer.setVisibility(View.GONE);
-            // Data cards only show an age when it differs from the header. The compact
-            // lock and setting controls carry their own state instead of a data footer.
-            if (widget.type.equals("lockbar") || widget.type.equals("shortcuts"))
                 footer.setVisibility(View.GONE);
             if (overview != null) overview.refresh(values);
             if (readingTiles != null) readingTiles.refresh(values);
