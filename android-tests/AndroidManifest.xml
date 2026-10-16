@@ -25,4 +25,5 @@
   <instrumentation android:name="local.navee.offlinelock.tests.AppDataMaintenanceValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated app data maintenance lifecycle validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.BackupUiValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated app backup entry-point UI validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.FullBackupJourneyValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator clear-storage backup journey" />
+  <instrumentation android:name="local.navee.offlinelock.tests.LearnedRangeValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated learned range validation" />
 </manifest>

@@ -40,6 +40,8 @@ public final class ScooterService extends Service {
     private final Map<String, CapacityCache> capacityCache = new LinkedHashMap<>();
     private final Map<String, List<Consumer<BatteryCapacityEstimate.Result>>> capacityPending = new HashMap<>();
     private long capacityGeneration;
+    private final Map<String, LearnedRangeEstimate.Result> rangeCache = new LinkedHashMap<>();
+    private final Map<String, List<Consumer<LearnedRangeEstimate.Result>>> rangePending = new HashMap<>();
     private static final class CapacityCache {
         final long mono;
         final BatteryCapacityEstimate.Result result;
@@ -803,6 +805,83 @@ public final class ScooterService extends Service {
         return Collections.unmodifiableMap(result);
     }
 
+    /** Local choice: never writes the scooter's firmware range mode. */
+    public boolean usesLearnedRange() {
+        return !activeProfileId().isEmpty() && "learned".equals(settings.getString("range_source_" + activeProfileId(), "scooter"));
+    }
+    public void useLearnedRange(boolean enabled) {
+        if (destroyed || activeProfileId().isEmpty()) return;
+        settings.edit().putString("range_source_" + activeProfileId(), enabled ? "learned" : "scooter").apply();
+        changed();
+    }
+    /** Only Home substitutes the selected forecast; Live Stats and stored telemetry stay raw. */
+    public Map<String, TelemetryHistory.Reading> dashboardReadings() {
+        Map<String, TelemetryHistory.Reading> raw = displayReadings();
+        if (!usesLearnedRange() || simulating()) return raw;
+        String profile = activeProfileId();
+        LearnedRangeEstimate.Result estimate = currentRangeCache(profile);
+        if (estimate == null && !rangePending.containsKey(profile)) {
+            requestLearnedRangeEstimate(result -> { if (!destroyed && profile.equals(activeProfileId())) changed(); });
+        }
+        TelemetryHistory.Reading soc = raw.get("battery_percent");
+        Double km = estimate == null || soc == null || soc.value == null ? null : estimate.remainingKm(soc.number);
+        if (km == null) return raw;
+        Map<String, TelemetryHistory.Reading> result = new LinkedHashMap<>(raw);
+        result.put("remaining_range_km", new TelemetryHistory.Reading("remaining_range_km", "Learned remaining range",
+                "Ride", String.format(Locale.US, "%.2f km", km), "km", km, soc.capturedWallMs, soc.live));
+        return Collections.unmodifiableMap(result);
+    }
+    private LearnedRangeEstimate.Result currentRangeCache(String profile) {
+        LearnedRangeEstimate.Result result = rangeCache.get(profile);
+        // Recompute at least daily so old rides age out even without new recordings.
+        long now = System.currentTimeMillis();
+        long lifetime = result != null && "Recorded rides could not be analyzed".equals(result.reason) ? 10000L : 86400000L;
+        return result != null && now >= result.computedWallMs && now - result.computedWallMs < lifetime ? result : null;
+    }
+    public void requestLearnedRangeEstimate(Consumer<LearnedRangeEstimate.Result> callback) {
+        if (Looper.myLooper() != Looper.getMainLooper()) { handler.post(() -> requestLearnedRangeEstimate(callback)); return; }
+        String profile = activeProfileId();
+        if (destroyed || dataMaintenance || simulating() || rides == null || profile.isEmpty()) {
+            callback.accept(LearnedRangeEstimate.unavailable(profile, simulating() ? "Sample data" : profile.isEmpty() ? "Choose a scooter first" : "Ride storage unavailable"));
+            return;
+        }
+        LearnedRangeEstimate.Result cached = currentRangeCache(profile);
+        if (cached != null) { callback.accept(cached); return; }
+        List<Consumer<LearnedRangeEstimate.Result>> waiting = rangePending.get(profile);
+        if (waiting != null) { waiting.add(callback); return; }
+        waiting = new ArrayList<>(); waiting.add(callback); rangePending.put(profile, waiting);
+        long generation = capacityGeneration; RideStore store = rides;
+        capacityWorker.execute(() -> {
+            LearnedRangeEstimate.Result calculated;
+            try {
+                long now = System.currentTimeMillis();
+                List<LearnedRangeEstimate.Evidence> input = new ArrayList<>();
+                for (RideStore.AnalysisSnapshot snapshot : store.analysisSnapshots(profile, now - LearnedRangeEstimate.WINDOW_DAYS * 86400000L)) {
+                    if (snapshot.summary.active) continue;
+                    input.add(LearnedRangeEstimate.inspect(snapshot.summary, store.fullTrend(snapshot.summary.id)));
+                }
+                calculated = LearnedRangeEstimate.calculate(profile, input, now);
+            } catch (IOException | RuntimeException error) {
+                calculated = LearnedRangeEstimate.unavailable(profile, "Recorded rides could not be analyzed");
+            }
+            LearnedRangeEstimate.Result result = calculated;
+            handler.post(() -> {
+                List<Consumer<LearnedRangeEstimate.Result>> callbacks = rangePending.remove(profile);
+                if (destroyed) return;
+                if (generation != capacityGeneration) {
+                    if (callbacks != null) for (Consumer<LearnedRangeEstimate.Result> done : callbacks) {
+                        if (profile.equals(activeProfileId())) requestLearnedRangeEstimate(done);
+                        else done.accept(LearnedRangeEstimate.unavailable(profile, "Scooter changed"));
+                    }
+                    return;
+                }
+                rangeCache.put(profile, result);
+                while (rangeCache.size() > 16) rangeCache.remove(rangeCache.keySet().iterator().next());
+                if (callbacks != null) for (Consumer<LearnedRangeEstimate.Result> done : callbacks) done.accept(result);
+            });
+        });
+    }
+
     /** Display-only analysis. It does not start recording, connect BLE, or request sensors. */
     public void requestCapacityEstimate(Double advertisedWh, Consumer<BatteryCapacityEstimate.Result> callback) {
         requestCapacityEstimate(advertisedWh, BatteryCapacityEstimate.DEFAULT_WINDOW_DAYS, callback);
@@ -810,6 +889,7 @@ public final class ScooterService extends Service {
 
     public void invalidateCapacityEstimate() {
         capacityCache.clear();
+        rangeCache.clear();
         capacityGeneration++;
     }
 
@@ -1233,7 +1313,7 @@ public final class ScooterService extends Service {
     @Override public void onDestroy(){
         stockChargeReferenceGate.reset();
         if (guardedLifecycle) { chargeWorker.shutdown(); capacityWorker.shutdown(); super.onDestroy(); return; }
-        destroyed=true;finishChargeCapture(ChargeSessionStore.Stop.PROCESS_ENDED);chargeWorker.shutdown();workActive=false;if(running==this)running=null;if(settings!=null)settings.unregisterOnSharedPreferenceChangeListener(settingsChanged);handler.removeCallbacksAndMessages(null);capacityWorker.shutdown();capacityPending.clear();persistHistory(true);if(history!=null)history.close();stopPhoneRecording();if(isRecording())try{
+        destroyed=true;finishChargeCapture(ChargeSessionStore.Stop.PROCESS_ENDED);chargeWorker.shutdown();workActive=false;if(running==this)running=null;if(settings!=null)settings.unregisterOnSharedPreferenceChangeListener(settingsChanged);handler.removeCallbacksAndMessages(null);capacityWorker.shutdown();capacityPending.clear();rangePending.clear();persistHistory(true);if(history!=null)history.close();stopPhoneRecording();if(isRecording())try{
                 rides.markGap(
                         System.currentTimeMillis(), SystemClock.elapsedRealtime(), "Service ended");
             }catch(IOException ignored){}if(wakeLock!=null&&wakeLock.isHeld())wakeLock.release();if(ble!=null)ble.destroy();stopForeground(STOP_FOREGROUND_REMOVE);foregroundStarted=false;listeners.clear();super.onDestroy();}

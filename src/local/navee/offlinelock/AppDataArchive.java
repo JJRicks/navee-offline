@@ -333,7 +333,7 @@ final class AppDataArchive {
         types(app,Long.class,"more_away_elapsed stats_away_elapsed");types(app,Float.class,"text_scale");
         types(app,Set.class,"stats_favourites stats_chart_favourites ride_comparison ride_chart_series charge_chart_series");
         for(String key:app.keySet()) {
-            if(key.startsWith("dashboard_v1_")||key.startsWith("dashboard_slot_v1_")||key.startsWith("charge_charger_"))type(app,key,String.class);
+            if(key.startsWith("dashboard_v1_")||key.startsWith("dashboard_slot_v1_")||key.startsWith("charge_charger_")||key.startsWith("range_source_"))type(app,key,String.class);
             if(key.startsWith("dashboard_empty_example_v1_")||key.startsWith("range_follow_mode_")||key.startsWith("stats_group_")||key.startsWith("stats_chart_group_"))type(app,key,Boolean.class);
         }
         if(app.containsKey("text_scale")) {float scale=(Float)app.get("text_scale");if(!Float.isFinite(scale)||scale<.5f||scale>3f)throw new IOException("The backup has an invalid display text scale.");}
