@@ -2,8 +2,12 @@
 
 ## Unreleased
 
+- Improve UT5 MAX stock-charger time estimates by default, combining live charging current with an experimental recorded finishing curve. Personal recordings can refine estimates; other models and incompatible charging power keep the live-rate fallback.
+- Simplify Home, Scooter, Rides, preferences and setup screens with concise labels, status chips, icons and tooltips. Keep stale-data ages, charging assumptions, capture consent and privacy choices visible where they matter.
+- Keep charger choices unchanged when cancelling charge capture, restore Close after cancelling a backup export, and route dashboard layout imports to their own confirmation.
+- Keep navigation labels and expanded ride charts usable with larger text sizes.
+- Base low-speed ride-chart shading on wheel speed, and limit hatch drawing to the visible chart when zoomed.
 - Keep lock-slider thumbs inside short or tall cards, preserve separate edit/resize touch targets in one-row widgets, and wrap reading tiles when their numbers need more space.
-
 - New default Home for fresh installs, new scooter profiles and **Restore default widgets**: Scooter overview, Lock bar directly beneath it, Reading tiles, Setting tiles and Ride recorder. Existing dashboards and saved slots are unchanged.
 - Add four widgets: **Lock bar** (one-row lock with Connect; connected, the slider is the card), **Scooter overview** (charge, range, photo, charge bar and readings), **Reading tiles** and **Setting tiles** (one to four small cards). Every earlier widget stays available in Add widget, and the All widgets example includes the new ones.
 - The Home status line now shows the last-seen time (newer of the last connection and the newest reading); the separate "Last seen" line under the header is gone.
