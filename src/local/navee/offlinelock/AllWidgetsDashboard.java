@@ -38,11 +38,16 @@ final class AllWidgetsDashboard {
         DashboardConfig.Widget note = add(result, "note");
         note.title = "Make it yours";
         note.note = "Every widget, ready to try. Edit cards to choose readings, resize them, or make your own layout.";
+        // A dashboard shows one lock control; this bar demonstrates the compact style beside it.
+        DashboardConfig.Widget lockbar = add(result, "lockbar");
+        DashboardConfig.Widget overview = add(result, "overview");
+        DashboardConfig.Widget tiles = add(result, "tiles");
+        DashboardConfig.Widget shortcuts = add(result, "shortcuts");
 
         // Explicit arrangements for every supported width avoid missing-position packing.
         // The cover display keeps Connect near the top and gives charts the full width.
         int y = 0;
-        int[] singleHeights = {3, 4, 4, 4, 3, 3, 3, 4, 5, 4, 4, 5, 5, 4, 3};
+        int[] singleHeights = {3, 4, 4, 4, 3, 3, 3, 4, 5, 4, 4, 5, 5, 4, 3, 1, 4, 2, 1};
         for (int i = 0; i < result.size(); i++) {
             row(1, y, singleHeights[i], new int[] {1}, result.get(i));
             y += singleHeights[i];
@@ -62,6 +67,10 @@ final class AllWidgetsDashboard {
         row(2, 38, 5, new int[] {2}, capacity);
         row(2, 43, 4, new int[] {2}, charging);
         row(2, 47, 3, new int[] {2}, note);
+        row(2, 50, 1, new int[] {2}, lockbar);
+        row(2, 51, 4, new int[] {2}, overview);
+        row(2, 55, 2, new int[] {2}, tiles);
+        row(2, 57, 1, new int[] {2}, shortcuts);
 
         row(3, 0, 4, new int[] {2, 1}, scooter, lock);
         row(3, 4, 4, new int[] {1, 2}, battery, quick);
@@ -72,6 +81,10 @@ final class AllWidgetsDashboard {
         row(3, 24, 5, new int[] {3}, health);
         row(3, 29, 5, new int[] {3}, capacity);
         row(3, 34, 4, new int[] {2, 1}, charging, note);
+        row(3, 38, 1, new int[] {3}, lockbar);
+        row(3, 39, 4, new int[] {3}, overview);
+        row(3, 43, 2, new int[] {3}, tiles);
+        row(3, 45, 1, new int[] {3}, shortcuts);
 
         for (int columns : new int[] {4, 5}) {
             int left = (columns + 1) / 2, right = columns - left;
@@ -83,6 +96,10 @@ final class AllWidgetsDashboard {
             row(columns, 18, 5, new int[] {left, right}, live, history);
             row(columns, 23, 6, new int[] {left, right}, health, capacity);
             row(columns, 29, 4, new int[] {left, right}, charging, note);
+            row(columns, 33, 1, new int[] {columns}, lockbar);
+            row(columns, 34, 4, new int[] {columns}, overview);
+            row(columns, 38, 2, new int[] {columns}, tiles);
+            row(columns, 40, 1, new int[] {columns}, shortcuts);
         }
         row(6, 0, 4, new int[] {4, 2}, scooter, lock);
         row(6, 4, 4, new int[] {3, 3}, battery, quick);
@@ -91,6 +108,8 @@ final class AllWidgetsDashboard {
         row(6, 16, 5, new int[] {3, 3}, live, history);
         row(6, 21, 6, new int[] {3, 3}, health, capacity);
         row(6, 27, 4, new int[] {3, 3}, charging, note);
+        row(6, 31, 1, new int[] {3, 3}, lockbar, shortcuts);
+        row(6, 32, 4, new int[] {3, 3}, overview, tiles);
         return result;
     }
 

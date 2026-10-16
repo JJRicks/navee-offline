@@ -24,6 +24,11 @@ public final class QuickAccessActionsTest {
             all.add(entry.id);
         }
         check(QuickAccessActions.normalize(all).size() == 8, "maximum size");
+        check(QuickAccessActions.normalize(Arrays.asList("feature:maximum_speed"), 1, 4)
+                .equals(Arrays.asList("feature:maximum_speed")), "setting tiles keep a single shortcut");
+        check(QuickAccessActions.normalize(Arrays.asList(), 1, 4).equals(Arrays.asList("lights")), "setting tiles minimum");
+        check(QuickAccessActions.normalize(all, 1, 4).equals(all.subList(0, 4)), "setting tiles maximum");
+        check(QuickAccessActions.normalize(null, 1, 4).equals(QuickAccessActions.defaultIds()), "setting tiles legacy");
         check(QuickAccessActions.find(null) == null && QuickAccessActions.find("nonsense") == null, "invalid IDs");
         check(QuickAccessActions.find("feature:traction_control").directToggle(), "traction is a direct toggle");
         check(!QuickAccessActions.find("feature:start_speed").directToggle(), "kick start opens its range editor");

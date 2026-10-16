@@ -60,14 +60,20 @@ public final class QuickAccessActions {
     }
     /** Unknown/duplicate values cannot become executable actions. Missing legacy lists keep defaults. */
     public static ArrayList<String> normalize(List<String> ids) {
+        return normalize(ids, MIN_ITEMS, MAX_ITEMS);
+    }
+    /** Same rules with a widget-specific count, e.g. one to four setting tiles. */
+    public static ArrayList<String> normalize(List<String> ids, int minimum, int maximum) {
+        int most = Math.max(1, Math.min(MAX_ITEMS, maximum));
+        int least = Math.max(1, Math.min(most, minimum));
         ArrayList<String> result = new ArrayList<>();
-        if (ids == null) result.addAll(defaultIds());
+        if (ids == null) result.addAll(defaultIds().subList(0, Math.min(most, defaultIds().size())));
         else for (String id : ids) {
+            if (result.size() >= most) break;
             if (find(id) != null && !result.contains(id)) result.add(id);
-            if (result.size() == MAX_ITEMS) break;
         }
         for (String fallback : defaultIds()) {
-            if (result.size() >= MIN_ITEMS) break;
+            if (result.size() >= least) break;
             if (!result.contains(fallback)) result.add(fallback);
         }
         return result;

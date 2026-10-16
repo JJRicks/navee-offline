@@ -59,7 +59,9 @@ import local.navee.offlinelock.TelemetryHistory;
 public final class DashboardValidation extends Instrumentation {
     private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
     private static final String[] DESTINATIONS = {"Home", "Scooter", "Live Stats", "Rides", "More"};
-    private static final String[] DEFAULT_TYPES = {"lock", "scooter", "battery", "live", "capacity", "ride", "quick", "health", "history", "charging"};
+    private static final String[] DEFAULT_TYPES = {"overview", "lockbar", "tiles", "shortcuts", "ride"};
+    /** Lock and Lock bar are mutually exclusive; the default's Lock bar keeps the palette from adding Lock. */
+    private static final int HOME_TYPE_COUNT = DashboardConfig.TYPES.length - 1;
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
     private static final String RENAMED = "Synthetic renamed scooter";
     private static final String HOME_RENAMED = "Synthetic Home rename";
@@ -87,7 +89,11 @@ public final class DashboardValidation extends Instrumentation {
                     && config().widgets.size() == DEFAULT_TYPES.length && settings().getInt("dashboard_columns", 0) == 5,
                     "Fresh Home did not provide the default dashboard widgets"));
             assertGrid(); scrollHomeTop(); screenshot("default-dark");
-            check("Ten-widget defaults match the captured folded/unfolded layouts, survive reload and reset only the selected profile; navigation and cards fit");
+            main(() -> {
+                for (int i = 0; i < DEFAULT_TYPES.length; i++)
+                    require(config().widgets.get(i).type.equals(DEFAULT_TYPES[i]), "Fresh Home default order changed at " + i);
+            });
+            check("Five-widget Home default (lock bar, battery overview, reading tiles, setting tiles, recorder) matches its 1–6-column layouts, survives reload and resets only the selected profile; navigation and cards fit");
 
             if ("layout-slots".equals(arguments.getString("mode"))) {
                 verifySavedLayoutSlots();
@@ -102,6 +108,9 @@ public final class DashboardValidation extends Instrumentation {
 
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Persisted synthetic readings did not load");
+            verifyHomeWidgetsOffline();
+            // The photo card is no longer in the default; add it explicitly so its offline checks keep running.
+            seedScooterCard();
             assertCachedReadings();
             verifyCompactConnection();
             verifyDisconnectedScooterPhoto();
@@ -128,18 +137,28 @@ public final class DashboardValidation extends Instrumentation {
             require(dashboard().isEditing(), "Renaming the scooter unexpectedly left dashboard editing");
             assertEditInputsInert(); screenshot("edit-dark");
             Set<String> existing = types();
+            require(existing.contains("lockbar") && !existing.contains("lock"), "Palette fixture expects the default Lock bar");
             for (int i = 0; i < DashboardConfig.TYPES.length; i++) {
                 String type = DashboardConfig.TYPES[i];
                 if (existing.contains(type)) continue;
-                clickText(root(), "Add widget"); clickText(dialogRoot(), DashboardConfig.NAMES[i]); closeDialog();
+                clickText(root(), "Add widget");
+                View row = dialogRoot().findViewWithTag("add-widget:" + type);
+                require(row != null, "Palette lacks " + type);
+                if (type.equals("lock")) {
+                    verifySingleLockControlPalette(row);
+                    continue;
+                }
+                click(row); clickText(dialogRoot(), "✓ Save");
                 await(() -> tileOrNull(type) != null && ((View)tile(type)).getWidth() > 0, 4000, "Added widget did not lay out: " + type);
                 assertGrid(); assertEditInputsInert();
             }
-            main(() -> require(types().equals(new HashSet<>(Arrays.asList(DashboardConfig.TYPES))) && config().widgets.size() == DashboardConfig.TYPES.length,
-                    "Palette did not construct every widget type exactly once"));
-            check("All " + DashboardConfig.TYPES.length + " widget types can be added; Edit disables widget actions and performs no scooter work");
+            Set<String> homeTypes = new HashSet<>(Arrays.asList(DashboardConfig.TYPES)); homeTypes.remove("lock");
+            main(() -> require(types().equals(homeTypes) && config().widgets.size() == HOME_TYPE_COUNT,
+                    "Palette did not construct every other widget type exactly once"));
+            check("All " + HOME_TYPE_COUNT + " widget types beside the Lock bar can be added; Lock shows On Home and is refused; Edit disables widget actions and performs no scooter work");
             clickText(root(), "Done"); await(() -> !dashboard().isEditing(), 3000, "Done did not leave Edit for content sizing checks");
             verifyResponsiveCards(); assertConfigurationHidden();
+            verifyClassicLock();
             enterEditPreservingContent();
             check("Every widget keeps complete readable values at its default and minimum sizes; scooter photo and statistics share a usable row");
 
@@ -157,8 +176,11 @@ public final class DashboardValidation extends Instrumentation {
                 require(amount.getCurrentTextColor() == activity.ui().muted, "Cached big reading is presented as live");
                 require(((TextView)field(tile, "footer")).getText().toString().contains("Last seen"), "Cached widget lacks its stale-reading label");
             });
-            setSize(metricId, 1, 4); setPosition(metricId, 1, 1);
-            main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == 1 && cell(metricId).h == 4,
+            int columns = ((Number)field(grid(), "columns")).intValue();
+            int selectedWidth = Math.max(Math.min(3, columns), ((Number)invoke(grid(), "minimumWidth",
+                    new Class<?>[]{DashboardConfig.Widget.class}, widgetById(metricId))).intValue());
+            setSize(metricId, selectedWidth, 4); setPosition(metricId, 1, 1);
+            main(() -> require(cell(metricId).x == 0 && cell(metricId).y == 0 && cell(metricId).w == selectedWidth && cell(metricId).h == 4,
                     "Size/Move options did not retain the selected rectangle"));
             assertGrid(); verifyEditAffordances(metricId); verifyOptionsContrast(metricId);
             resizeByOneRow(metricId); assertGrid(); assertEditInputsInert();
@@ -204,7 +226,7 @@ public final class DashboardValidation extends Instrumentation {
                 require(restored.title.equals("Synthetic charge") && restored.metric.equals("battery_percent"), "Widget configuration did not survive recreation");
                 require(position.x == before.x && position.y == before.y && position.w == before.w && position.h == before.h,
                         "Widget placement did not survive recreation");
-                require(types().size() == DashboardConfig.TYPES.length && !dashboard().isEditing(), "Dashboard mode or widget list did not survive recreation");
+                require(types().size() == HOME_TYPE_COUNT && !dashboard().isEditing(), "Dashboard mode or widget list did not survive recreation");
                 require(HOME_RENAMED.equals(activity.service().profiles.active().name), "Scooter rename was lost on recreation");
                 require(widget("capacity").advertisedWh == 800d && widget("capacity").windowMs == 30 * 86400000L
                         && widget("capacity").title.equals("Synthetic capacity experiment"), "Capacity widget settings were lost on recreation");
@@ -229,7 +251,7 @@ public final class DashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Cached readings did not return after a service restart");
             assertCachedReadings(); assertGrid(); assertNoScooterWork();
-            main(() -> require(widgetById(metricId).metric.equals("battery_percent") && types().size() == DashboardConfig.TYPES.length,
+            main(() -> require(widgetById(metricId).metric.equals("battery_percent") && types().size() == HOME_TYPE_COUNT,
                     "Dashboard customization did not survive a cold activity/service restart"));
             check("A new service reloads cached numeric and nonnumeric readings without presenting them as live or starting Bluetooth work");
 
@@ -241,6 +263,7 @@ public final class DashboardValidation extends Instrumentation {
             result.putBoolean("native_drag_gesture_tested", true); cleanup(); finish(0, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL"); result.putString("error", error.getClass().getSimpleName() + ": " + error.getMessage());
+            result.putString("stack_trace", android.util.Log.getStackTraceString(error));
             result.putStringArrayList("completed_checks", new ArrayList<>(checks));
             try { if (admitted && activity != null && !activity.isDestroyed()) screenshot("failure"); } catch (Throwable ignored) { }
             result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
@@ -261,7 +284,7 @@ public final class DashboardValidation extends Instrumentation {
         require(dialogRoot().findViewWithTag("dashboard-slot-restore-2").isEnabled()
                         && dialogRoot().findViewWithTag("dashboard-slot-save-2").isEnabled()
                         && config().slot(2) != null && config().slot(2).name.equals("All widgets")
-                        && config().slot(2).widgetCount == 15,
+                        && config().slot(2).widgetCount == DashboardConfig.TYPES.length,
                 "Seeded example is not available beside the two empty slots");
         String savedExample = settings().getString("dashboard_slot_v1_" + profileId + "_2", "");
         screenshot("slots-example-dark");
@@ -515,9 +538,9 @@ public final class DashboardValidation extends Instrumentation {
                     "Compact scooter readings changed after saving and reopening");
 
             DashboardConfig fresh = new DashboardConfig(isolated, "fresh-custom");
-            DashboardConfig.Widget custom = null;
-            for (DashboardConfig.Widget widget : fresh.widgets) if (widget.type.equals("scooter")) custom = widget;
-            require(custom != null, "Fresh configuration lacks a scooter widget");
+            // The photo card remains available but is no longer part of fresh Home.
+            DashboardConfig.Widget custom = new DashboardConfig.Widget("scooter");
+            fresh.widgets.add(custom);
             custom.keys.clear(); custom.keys.addAll(oldKeys); fresh.save();
             DashboardConfig reloaded = new DashboardConfig(isolated, "fresh-custom");
             DashboardConfig.Widget restored = null;
@@ -574,6 +597,183 @@ public final class DashboardValidation extends Instrumentation {
             require(isolated.edit().clear().commit(), "Could not remove isolated clock preferences");
         }
     }
+    /** Offline view of the redesigned Home widgets, using only the synthetic cached readings. */
+    private void verifyHomeWidgetsOffline() {
+        await(() -> {
+            Object overview = tileOrNull("overview");
+            return overview != null && bodyText(overview).contains("73");
+        }, 5000, "Scooter overview did not render the cached charge");
+        main(() -> {
+            require(activity.service().ble.state() == BleController.State.DISCONNECTED, "Home widget fixture must stay disconnected");
+            Object lockBar = tile("lockbar");
+            View lockBody = (View)field(lockBar, "body");
+            require(findText(lockBody, "Lock state unknown") != null, "Disconnected Lock bar lost its unknown-state title");
+            TextView connect = findText(lockBody, "Connect");
+            require(connect != null && connect.isEnabled(), "Disconnected Lock bar lacks an enabled Connect action");
+            require(connect.getHeight() >= activity.ui().dp(48) - 1, "Lock bar Connect lost its 48 dp touch target");
+            require(((View)lockBar).getHeight() <= Math.round(((Number)invoke(grid(), "rowHeight")).floatValue()) + 1,
+                    "Default Lock bar grew beyond one grid row");
+            // Frameless: no widget card or padding; the offline row is the card and fills the cell.
+            require(dashboard().isEditing() || ((View)lockBar).getBackground() == null,
+                    "Lock bar kept the widget card chrome around its own card");
+            View row = ((ViewGroup)lockBody).getChildAt(0);
+            Rect rowBox = relativeBounds(row, (View)lockBar);
+            require(dashboard().isEditing() || (rowBox.left <= 1 && rowBox.top <= 1
+                            && Math.abs(rowBox.width() - ((View)lockBar).getWidth()) <= 1
+                            && Math.abs(rowBox.height() - ((View)lockBar).getHeight()) <= 1),
+                    "Offline Lock bar row does not fill its frameless cell: " + rowBox);
+
+            String overview = bodyText(tile("overview")).toLowerCase(Locale.ROOT);
+            require(overview.contains("73") && overview.contains("%"), "Scooter overview lacks its cached percentage");
+            require(overview.contains("odometer") && overview.contains("drive mode"),
+                    "Scooter overview lacks its default Odometer and Drive mode readings");
+
+            String readings = bodyText(tile("tiles")).toLowerCase(Locale.ROOT);
+            require(readings.contains("power") && readings.contains("temp") && readings.contains("health"),
+                    "Reading tiles lack their default Power, Temp. and Health labels: " + readings);
+            require(readings.contains("98"), "Reading tiles did not render the cached health value: " + readings);
+
+            String settings = bodyText(tile("shortcuts")).toLowerCase(Locale.ROOT);
+            require(settings.contains("top speed") && settings.contains("charge schedule"),
+                    "Setting tiles lack their default Top speed and Charge schedule tiles: " + settings);
+
+            for (String type : new String[] {"lockbar", "overview", "tiles", "shortcuts"}) {
+                Object tile = tile(type);
+                Object footer = field(tile, "footer");
+                require(!(footer instanceof TextView) || !((TextView)footer).isShown()
+                                || !((TextView)footer).getText().toString().contains("Last seen"),
+                        type + " draws its own Last seen footer; the header carries the time");
+                require(!bodyText(tile).contains("Last seen"), type + " repeats Last seen inside its card");
+            }
+            // The header's status line now carries the time; the old caption below it is gone.
+            Object stale = optionalField(dashboard(), "stale");
+            require(!(stale instanceof View) || !((View)stale).isShown()
+                            || !(stale instanceof TextView) || ((TextView)stale).length() == 0,
+                    "Home still shows a separate Last seen caption under the header");
+        });
+        assertNoScooterWork();
+        check("Offline Lock bar offers Connect with an unknown state; overview, reading and setting tiles show cached values without their own Last seen footers");
+    }
+    /**
+     * The default Home uses the Lock bar, and Lock and Lock bar are exclusive, so swap the classic
+     * Lock into the Lock bar's place to keep its sizing, edit-mode and persistence checks running,
+     * then put the original Lock bar back.
+     */
+    private void verifyClassicLock() {
+        require(!dashboard().isEditing(), "Classic Lock checks start in ordinary dashboard mode");
+        AtomicReference<DashboardConfig.Widget> original = new AtomicReference<>(), classic = new AtomicReference<>();
+        java.util.concurrent.atomic.AtomicInteger position = new java.util.concurrent.atomic.AtomicInteger(-1);
+        // Every card's placement, so the restore puts back exactly what the swap's settling moved.
+        Map<String, Map<Integer, DashboardLayout.Cell>> placements = new LinkedHashMap<>();
+        main(() -> {
+            DashboardConfig config = config();
+            for (DashboardConfig.Widget widget : config.widgets) {
+                Map<Integer, DashboardLayout.Cell> cells = new LinkedHashMap<>();
+                for (Map.Entry<Integer, DashboardLayout.Cell> entry : widget.layouts.entrySet()) cells.put(entry.getKey(), entry.getValue().copy());
+                placements.put(widget.id, cells);
+            }
+            for (int i = 0; i < config.widgets.size(); i++) if (config.widgets.get(i).type.equals("lockbar")) position.set(i);
+            require(position.get() >= 0 && !types().contains("lock"), "Classic Lock pass expects the Lock bar and no Lock");
+            DashboardConfig.Widget bar = config.widgets.get(position.get()), lock = new DashboardConfig.Widget("lock");
+            require(lock.showDisconnect, "A new classic Lock should offer Disconnect");
+            for (Map.Entry<Integer, DashboardLayout.Cell> entry : bar.layouts.entrySet()) {
+                DashboardLayout.Cell from = entry.getValue();
+                lock.layouts.put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
+            }
+            config.widgets.set(position.get(), lock);
+            // Settle each grid around the taller card in place of the one-row bar.
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++) if (lock.layouts.containsKey(c)) config.layout(c, lock.id);
+            config.save(); invoke(dashboard(), "render");
+            original.set(bar); classic.set(lock);
+        });
+        try {
+            await(() -> tileOrNull("lock") != null && ((View)tile("lock")).getWidth() > 0, 4000, "Classic Lock did not lay out");
+            assertGrid();
+            main(() -> {
+                DashboardConfig.Widget lock = classic.get();
+                require(lock.minimumHeight() == 4, "Classic Lock with Disconnect must reserve room for its action button");
+                lock.showDisconnect = false;
+                require(lock.minimumHeight() == 3, "Hiding Disconnect must allow the compact three-row Lock");
+                lock.showDisconnect = true;
+                require(findText((View)field(tile("lock"), "body"), "Lock state unverified") != null,
+                        "Disconnected classic Lock lost its unverified state");
+            });
+            // Balanced content, a full-width slider with a 48 dp target and readable text at every size.
+            verifyResponsiveCards();
+            enterEditPreservingContent(); assertEditInputsInert();
+            clickText(root(), "Done"); await(() -> !dashboard().isEditing(), 3000, "Done did not leave the classic Lock edit check");
+            main(() -> {
+                DashboardConfig reopened = new DashboardConfig(settings(), (String)field(dashboard(), "profileId"));
+                DashboardConfig.Widget saved = null;
+                for (DashboardConfig.Widget widget : reopened.widgets) if (widget.id.equals(classic.get().id)) saved = widget;
+                require(saved != null && saved.type.equals("lock") && saved.showDisconnect
+                                && reopened.widgets.indexOf(saved) == position.get(),
+                        "Classic Lock and its Disconnect option did not persist in the Lock bar's place");
+                for (DashboardConfig.Widget widget : reopened.widgets)
+                    require(!widget.type.equals("lockbar"), "Lock bar persisted beside the classic Lock");
+            });
+            check("The classic Lock, swapped in for the Lock bar, keeps a balanced full-width slider, readable text, its Disconnect height rule, inert Edit mode and persistence");
+        } finally {
+            main(() -> {
+                DashboardConfig config = config();
+                int at = config.widgets.indexOf(classic.get());
+                if (at >= 0) config.widgets.set(at, original.get());
+                for (DashboardConfig.Widget widget : config.widgets) {
+                    Map<Integer, DashboardLayout.Cell> cells = placements.get(widget.id);
+                    if (cells == null) continue;
+                    widget.layouts.clear();
+                    for (Map.Entry<Integer, DashboardLayout.Cell> entry : cells.entrySet()) widget.layouts.put(entry.getKey(), entry.getValue().copy());
+                }
+                config.save(); invoke(dashboard(), "render");
+            });
+            await(() -> tileOrNull("lockbar") != null && tileOrNull("lock") == null && ((View)tile("lockbar")).getWidth() > 0,
+                    4000, "Lock bar did not return after the classic Lock checks");
+        }
+        assertGrid();
+    }
+    private void seedScooterCard() {
+        main(() -> {
+            DashboardConfig.Widget scooter = new DashboardConfig.Widget("scooter");
+            // Below the default stack (rows 0–8) or, at six columns, below the left column (rows 0–4).
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++)
+                scooter.layouts.put(c, new DashboardLayout.Cell(scooter.id, 0, c == 6 ? 5 : 9, c, scooter.defaultHeight()));
+            config().widgets.add(scooter); config().save(); invoke(dashboard(), "render");
+        });
+        await(() -> tileOrNull("scooter") != null && ((View)tile("scooter")).getWidth() > 0, 4000, "Seeded scooter card did not lay out");
+        assertGrid();
+    }
+    /** Lock and Lock bar are exclusive: the palette marks both On Home and refuses a second lock control. */
+    private void verifySingleLockControlPalette(View lockRow) {
+        View barRow = dialogRoot().findViewWithTag("add-widget:lockbar");
+        require(barRow != null && findText(barRow, "On Home") != null, "Palette does not mark the Lock bar as On Home");
+        require(findText(lockRow, "On Home") != null, "Palette offers Lock beside the existing Lock bar");
+        int before = config().widgets.size();
+        if (lockRow.isClickable() && lockRow.isEnabled()) click(lockRow);
+        main(() -> require(!types().contains("lock") && config().widgets.size() == before,
+                "Palette added Lock beside the Lock bar"));
+        AlertDialog open = (AlertDialog)field(dashboard(), "dialog");
+        if (open != null && open.isShowing()) {
+            View close = findDescription(dialogRoot(), "Close add widget");
+            if (close == null) close = findDescription(dialogRoot(), "Close widget options");
+            require(close != null, "Refused Lock left an unclosable sheet");
+            click(close);
+        }
+        main(() -> require(!types().contains("lock"), "Closing the palette added Lock"));
+    }
+    private static String bodyText(Object tile) {
+        StringBuilder text = new StringBuilder();
+        for (TextView view : all((View)field(tile, "body"), TextView.class))
+            if (view.isShown() && view.length() > 0) text.append(view.getText()).append('\n');
+        return text.toString();
+    }
+    private boolean goneOrAbsent(String name) {
+        Object view = optionalField(activity, name);
+        return !(view instanceof View) || ((View)view).getVisibility() == View.GONE;
+    }
+    private static Object optionalField(Object value, String name) {
+        try { Field field = value.getClass().getDeclaredField(name); field.setAccessible(true); return field.get(value); }
+        catch (ReflectiveOperationException error) { return null; }
+    }
     private void verifyCompactConnection() {
         main(() -> {
             ScooterProfiles.Profile profile = activity.service().profiles.active();
@@ -581,14 +781,20 @@ public final class DashboardValidation extends Instrumentation {
             long originalLast = profile.lastConnected; BleController.State originalState = ble.state();
             try {
                 // Home's status line belongs to the dashboard header.
+                // Last seen is the newer of the last connection and the newest cached reading, so
+                // derive the expectation the same way instead of racing the fixture's reading ages.
+                long newestReading = 0;
+                for (TelemetryHistory.Reading r : activity.service().displayReadings().values())
+                    if (r != null && r.value != null) newestReading = Math.max(newestReading, r.capturedWallMs);
                 profile.lastConnected = 0; invoke(dashboard(), "refresh");
                 TextView status = (TextView)field(dashboard(), "status");
-                require("Disconnected".contentEquals(status.getText()), "No connection history should show only Disconnected");
+                require(status.getText().toString().equals(lastSeenStatus(newestReading)),
+                        "Without a connection the status should show only Disconnected or the newest cached reading time");
                 profile.lastConnected = System.currentTimeMillis() - 60000; invoke(dashboard(), "refresh");
-                require(status.getText().toString().equals("Disconnected · last seen " + DisplayTime.recent(
-                        getTargetContext(), settings(), profile.lastConnected, System.currentTimeMillis())),
-                        "Disconnected status did not display the most recent connection time");
-                require(status.getContentDescription().toString().contains("last connected"),
+                long lastSeen = Math.max(profile.lastConnected, newestReading);
+                require(status.getText().toString().equals(lastSeenStatus(lastSeen)),
+                        "Disconnected status did not display the most recent connection or reading time");
+                require(status.getContentDescription().toString().contains("last seen"),
                         "Connection time lacks an accessible explanation");
                 for (BleController.State state : new BleController.State[] {BleController.State.WAITING,
                         BleController.State.SCANNING, BleController.State.CONNECTING, BleController.State.AUTHENTICATING}) {
@@ -600,8 +806,7 @@ public final class DashboardValidation extends Instrumentation {
                     android.text.style.ImageSpan[] spinners = ((android.text.Spanned)text).getSpans(0, text.length(), android.text.style.ImageSpan.class);
                     require(spinners.length == 1 && spinners[0].getDrawable().getBounds().width() > 0,
                             state + " lacks one inline loading indicator");
-                    require(((View)field(activity, "lockHint")).getVisibility() == View.GONE
-                            && ((View)field(activity, "connectionDetail")).getVisibility() == View.GONE,
+                    require(goneOrAbsent("lockHint") && goneOrAbsent("connectionDetail"),
                             state + " added an explanatory text block to the compact connection card");
                 }
             } finally {
@@ -609,6 +814,10 @@ public final class DashboardValidation extends Instrumentation {
             }
         });
         assertNoScooterWork();
+    }
+    private String lastSeenStatus(long wall) {
+        return wall <= 0 ? "Disconnected" : "Disconnected · last seen " + DisplayTime.recent(
+                getTargetContext(), settings(), wall, System.currentTimeMillis());
     }
     private void launch() {
         activity = (MainActivity)startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -696,8 +905,8 @@ public final class DashboardValidation extends Instrumentation {
             require(!activity.service().readingFresh("battery_percent") && !activity.service().featureFresh("headlight"),
                     "Cache must not provide command freshness");
             Map<?, ?> stats = (Map<?, ?>)field(tile("scooter"), "amounts");
-            require(stats.keySet().equals(new HashSet<>(Arrays.asList("odometer_km", "remaining_range_km", "driving_mode"))),
-                    "My Scooter's defaults should contain odometer, estimated range and drive mode");
+            require(stats.keySet().equals(new HashSet<>(Arrays.asList("odometer_km", "driving_mode"))),
+                    "A newly added My Scooter card should contain odometer and drive mode");
             TextView odometer = (TextView)stats.get("odometer_km"), mode = (TextView)stats.get("driving_mode");
             require("100.00 mi".contentEquals(odometer.getText()) && "3 (raw)".contentEquals(mode.getText()),
                     "My Scooter did not format its cached odometer and unknown-model mode: "
@@ -725,7 +934,8 @@ public final class DashboardValidation extends Instrumentation {
             require(dashboard().isEditing(), "Expected dashboard Edit mode");
             for (Object tile : tiles()) assertDisabledActions((View)field(tile, "body"));
             require(!((View)field(activity, "connectionAction")).isEnabled(), "Connection remains interactive during Edit");
-            require(!((View)field(activity, "lockControl")).isEnabled(), "Lock remains interactive during Edit");
+            View lockControl = (View)field(activity, "lockControl");
+            require(lockControl == null || !lockControl.isEnabled(), "Lock remains interactive during Edit");
         }); assertNoScooterWork();
     }
     private void assertDisabledActions(View view) {
@@ -797,8 +1007,12 @@ public final class DashboardValidation extends Instrumentation {
                 String type = widgetById(entry.getKey()).type;
                 require(sameCell(a.cell, b.cell) && a.outer.equals(b.outer),
                         type + ": entering Edit changed the card's position or size");
+                // Reading/setting tiles and the Lock bar are frameless: Edit deliberately adds the widget card's
+                // padding around them so the handles read as one widget. Every other type stays put.
+                if (type.equals("tiles") || type.equals("shortcuts") || type.equals("lockbar")) continue;
                 require(a.body.equals(b.body) && a.heading.equals(b.heading) && a.footer.equals(b.footer),
-                        type + ": editing controls changed the content, heading or footer geometry");
+                        type + ": editing controls changed geometry: body " + a.body + " -> " + b.body
+                                + ", heading " + a.heading + " -> " + b.heading + ", footer " + a.footer + " -> " + b.footer);
                 require(a.textBounds.equals(b.textBounds) && a.textSizes.equals(b.textSizes),
                         type + ": entering Edit changed body text sizing, placement or added a configuration row; " + textDifferences(a, b));
             }
@@ -834,6 +1048,10 @@ public final class DashboardValidation extends Instrumentation {
                 DashboardConfig.Widget widget = (DashboardConfig.Widget)field(object, "widget");
                 View tile = (View)object;
                 Set<Integer> widths = new HashSet<>(Arrays.asList(1, widget.defaultWidth(columns), columns));
+                // A card is never laid out narrower than its type's minimum span on this grid.
+                int narrowest = ((Number)invoke(grid(), "minimumWidth",
+                        new Class<?>[] {DashboardConfig.Widget.class}, widget)).intValue();
+                widths.removeIf(width -> width < narrowest);
                 Set<Integer> heights = new HashSet<>(Arrays.asList(widget.minimumHeight(), widget.defaultHeight()));
                 for (int width : widths) for (int height : heights) {
                     measureCard(tile, Math.round(width * columnWidth) - activity.ui().dp(10),
@@ -845,22 +1063,23 @@ public final class DashboardValidation extends Instrumentation {
                     View body = (View)field(object, "body");
                     require(viewport != null && viewport.getHeight() > 0 && body.getWidth() > 0 && body.getHeight() > 0,
                             context + ": content has no usable viewport");
-                    if (Arrays.asList("lock", "metric", "gauge", "ride").contains(widget.type))
+                    if (Arrays.asList("lock", "lockbar", "metric", "gauge", "ride").contains(widget.type))
                         assertBalancedContent((ViewGroup)body, viewport, context);
-                    if (widget.type.equals("lock")) {
+                    if (widget.type.equals("lock") || widget.type.equals("lockbar")) {
                         View slider = (View)field(activity, "lockControl");
-                        Rect bounds = relativeBounds(slider, body);
+                        boolean sliderShown = slider != null && slider.isShown();
+                        Rect bounds = sliderShown ? relativeBounds(slider, body) : new Rect();
                         // The bar shows once connected; offline the card offers Connect instead.
-                        require(!slider.isShown() || (Math.abs(bounds.width() - body.getWidth()) <= 1 && bounds.left <= 1),
+                        require(!sliderShown || (Math.abs(bounds.width() - body.getWidth()) <= 1 && bounds.left <= 1),
                                 context + ": lock bar does not span its card");
-                        require(!slider.isShown() || bounds.height() >= activity.ui().dp(48),
+                        require(!sliderShown || bounds.height() >= activity.ui().dp(48),
                                 context + ": lock bar lost its full-size touch target");
-                        require(((View)field(activity, "lockHint")).getVisibility() == View.GONE
-                                && ((View)field(activity, "connectionDetail")).getVisibility() == View.GONE,
+                        require(goneOrAbsent("lockHint") && goneOrAbsent("connectionDetail"),
                                 context + ": compact lock card contains a redundant explanation");
                     }
                     for (TextView text : all(body, TextView.class))
-                        if (text.isShown() && text.length() > 0) assertReadableValue(text, body, context + " body text");
+                        if (text.isShown() && text.length() > 0 && !iconOnlyAction(text))
+                            assertReadableValue(text, body, context + " body text");
                     for (String name : new String[] {"photoPane", "chart", "gauge", "battery"}) {
                         View visual = (View)field(object, name);
                         if (visual != null && visual.isShown()) {
@@ -988,16 +1207,48 @@ public final class DashboardValidation extends Instrumentation {
                 context + ": value loses text beyond its maximum lines: " + text);
         require(layout.getHeight() <= value.getHeight() - value.getCompoundPaddingTop() - value.getCompoundPaddingBottom() + 1,
                 context + ": value is vertically clipped: " + text);
+        boolean mayEllipsize = ellipsizedByDesign(value);
         for (int line = 0; line < layout.getLineCount(); line++)
-            require(layout.getEllipsisCount(line) == 0 && layout.getLineMax(line) <= layout.getWidth() + 1,
+            require((layout.getEllipsisCount(line) == 0 || mayEllipsize) && layout.getLineMax(line) <= layout.getWidth() + 1,
                     context + ": value is truncated or clipped horizontally: " + text);
-        float readableFloor = 12 * activity.ui().textScale * getTargetContext().getResources().getDisplayMetrics().scaledDensity;
+        float floorSp = 12;
+        // Existing Quick access captions use a 10sp floor; they are control labels,
+        // not the numerical readings covered by the general 12sp assertion.
+        View ancestor = value;
+        while (ancestor != body && ancestor.getParent() instanceof View) {
+            Object tag = ancestor.getTag();
+            if (tag instanceof String && ((String)tag).startsWith("quick-action:")) { floorSp = 10; break; }
+            ancestor = (View)ancestor.getParent();
+        }
+        float readableFloor = floorSp * activity.ui().textScale * getTargetContext().getResources().getDisplayMetrics().scaledDensity;
         // Compact timestamps deliberately shrink to preserve the full date and time on one line.
         if (value == field(activity, "connectionTitle")) readableFloor = value.getAutoSizeMinTextSize();
         require(value.getTextSize() >= readableFloor - .5f, context + ": value shrank below the readable text floor: " + text);
         Rect bounds = relativeBounds(value, body);
         require(bounds.left >= 0 && bounds.right <= body.getWidth() + 1,
                 context + ": value extends outside the card's scrollable content width: " + text);
+    }
+    /**
+     * Single lines that ellipsize by design rather than wrap or overflow: the Lock bar's
+     * "Last verified" detail, the Lock bar's title once Connect has already become an icon,
+     * and Setting tile labels and values once their value reached its 12 sp floor.
+     */
+    private boolean ellipsizedByDesign(TextView text) {
+        if (text.getEllipsize() == null || text.getMaxLines() != 1) return false;
+        for (View view = text; view != null; view = view.getParent() instanceof View ? (View)view.getParent() : null)
+            if (view.getTag() instanceof String && ((String)view.getTag()).startsWith("setting-tile:")) return true;
+        for (Object lock : (List<?>)field(activity, "dashboardLocks")) {
+            if (!Boolean.TRUE.equals(field(lock, "compact"))) continue;
+            if (text == field(lock, "offlineDetail")) return true;
+            if (text == field(lock, "offlineTitle") && iconOnlyAction((TextView)field(lock, "connectionAction"))) return true;
+        }
+        return false;
+    }
+    /** The Lock bar's narrow Connect/Cancel: a 48 dp icon whose text stays for accessibility only. */
+    private static boolean iconOnlyAction(TextView text) {
+        android.text.method.TransformationMethod words = text.getTransformationMethod();
+        return words != null && words.getTransformation(text.getText(), text).length() == 0
+                && text.getCompoundDrawablesRelative()[0] != null;
     }
     private void assertScooterRowAtMinimum(int columns, float columnWidth, float rowHeight) {
         Object scooter = tile("scooter"); View card = (View)scooter, body = (View)field(scooter, "body");
@@ -1162,19 +1413,24 @@ public final class DashboardValidation extends Instrumentation {
             Rect cornerBounds = relativeBounds(corner, tile), gripBounds = relativeBounds(grip, tile),
                     optionsBounds = relativeBounds(options, tile), duplicateBounds = relativeBounds(duplicate, tile),
                     removeBounds = relativeBounds(remove, tile);
-            int resizeTouch = activity.ui().dp(48), inlineTouch = Math.min(resizeTouch, tile.getWidth() / 4),
-                    tolerance = activity.ui().dp(24);
+            boolean twoRows = tile.getWidth() < activity.ui().dp(144);
+            int resizeTouch = activity.ui().dp(48), inlineTouch = twoRows
+                    ? Math.min(activity.ui().dp(48), tile.getWidth() / 2)
+                    : Math.min(activity.ui().dp(52), tile.getWidth() / 4);
+            int tolerance = activity.ui().dp(24);
             require(inlineTouch >= activity.ui().dp(36) - 1, "Inline editor targets fell below the compact size floor");
             require(corner.getWidth() >= resizeTouch && corner.getHeight() >= resizeTouch, "Resize hit area is smaller than 48 dp");
             require(cornerBounds.right >= tile.getWidth() - tolerance && cornerBounds.bottom >= tile.getHeight() - tolerance,
                     "Resize target is not in the widget's bottom-right corner");
             require(gripBounds.left == 0 && gripBounds.top == 0,
                     "Move grip is not in the widget's top-left corner");
-            require(optionsBounds.left == gripBounds.right && duplicateBounds.left == optionsBounds.right
-                            && optionsBounds.top == gripBounds.top && duplicateBounds.top == gripBounds.top,
-                    "Gear and copy actions must share one inline row beside the move grip");
-            require(removeBounds.right == tile.getWidth() && removeBounds.top == gripBounds.top,
-                    "Trash action is not in the widget's top-right corner");
+            require(optionsBounds.left == gripBounds.right && optionsBounds.top == gripBounds.top
+                            && duplicateBounds.left == (twoRows ? 0 : optionsBounds.right)
+                            && duplicateBounds.top == (twoRows ? gripBounds.bottom : gripBounds.top),
+                    "Editor actions did not follow the available one- or two-row arrangement");
+            require(removeBounds.right == tile.getWidth()
+                            && removeBounds.top == (twoRows ? gripBounds.bottom : gripBounds.top),
+                    "Trash action is not on the right edge of its editor row");
             List<Rect> occupied = new ArrayList<>();
             for (View control : new View[] {grip, options, duplicate, remove}) {
                 require(control.getWidth() == inlineTouch && control.getHeight() == inlineTouch,
@@ -1184,7 +1440,13 @@ public final class DashboardValidation extends Instrumentation {
                 Rect bounds = relativeBounds(control, tile);
                 for (Rect other : occupied) require(!Rect.intersects(bounds, other), "Inline editor targets overlap");
                 occupied.add(bounds);
-                require(translucentBackground(control), "An editor overlay background is fully opaque");
+                // Editor squares are solid over the dimmed card; the glyph must read against them.
+                int square = squareColor(control);
+                require(Color.alpha(square) == 255, "An editor overlay square is not opaque");
+                View glyph = ((android.view.ViewGroup)control).getChildAt(0);
+                int ink = (Integer)field(glyph, "color");
+                require(contrast(ink, square) >= 4.5,
+                        control.getContentDescription() + " glyph contrast " + contrast(ink, square) + " is below 4.5:1");
             }
         });
         click(corner);
@@ -1196,14 +1458,16 @@ public final class DashboardValidation extends Instrumentation {
                 "Tapping the move grip must open accessible placement, not widget options");
         closeDialog();
     }
-    private boolean translucentBackground(View view) {
+    /** The editor square's fill: the background drawn at the control's size, sampled at its centre. */
+    private int squareColor(View view) {
         android.graphics.drawable.Drawable background = view.getBackground();
-        if (background == null) return true;
-        Bitmap sample = Bitmap.createBitmap(20, 20, Bitmap.Config.ARGB_8888);
+        require(background != null, "An editor overlay has no square");
+        int w = Math.max(1, view.getWidth()), h = Math.max(1, view.getHeight());
+        Bitmap sample = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Rect original = new Rect(background.getBounds());
         try {
-            background.setBounds(0, 0, 20, 20); background.draw(new android.graphics.Canvas(sample));
-            return Color.alpha(sample.getPixel(10, 10)) < 255;
+            background.setBounds(0, 0, w, h); background.draw(new android.graphics.Canvas(sample));
+            return sample.getPixel(w / 2, h / 2);
         } finally { background.setBounds(original); sample.recycle(); }
     }
     private Rect relativeBounds(View child, View ancestor) {
@@ -1265,10 +1529,17 @@ public final class DashboardValidation extends Instrumentation {
         int columns = ((Number)field(grid(), "columns")).intValue();
         require(columns >= 2, "Gesture fixture requires at least two dashboard columns");
         String neighbor = widget("note").id;
-        setSize(id, 1, 3); setSize(neighbor, 1, 3);
-        setPosition(id, 1, 1); setPosition(neighbor, 2, 1);
+        int minimum = ((Number)invoke(grid(), "minimumWidth",
+                new Class<?>[]{DashboardConfig.Widget.class}, widgetById(id))).intValue();
+        int neighborMinimum = ((Number)invoke(grid(), "minimumWidth",
+                new Class<?>[]{DashboardConfig.Widget.class}, widgetById(neighbor))).intValue();
+        // NumberPicker wraps an out-of-range value; request each legal minimum explicitly.
+        setSize(id, minimum, 3); setSize(neighbor, neighborMinimum, 3);
+        int span = cell(id).w;
+        require(span + cell(neighbor).w <= columns, "Gesture fixture needs room for two safe card spans");
+        setPosition(id, 1, 1); setPosition(neighbor, span + 1, 1);
         scrollHomeTop(); awaitSettledLayout(); assertGrid();
-        require(cell(id).x == 0 && cell(id).y == 0 && cell(neighbor).x == 1 && cell(neighbor).y == 0,
+        require(cell(id).x == 0 && cell(id).y == 0 && cell(neighbor).x == span && cell(neighbor).y == 0,
                 "Gesture fixture did not put the two cards beside one another");
     }
     private Map<String, DashboardLayout.Cell> layoutSnapshot() {
@@ -1434,18 +1705,23 @@ public final class DashboardValidation extends Instrumentation {
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
         require(Math.abs(widgetById(id).maximum - 20 * 1.609344) < .000001, "mph gauge maximum was not stored in canonical units");
         openOptions(id);
-        require(findText(dialogRoot(), "20.00 mph") != null, "Gauge scale summary does not follow mph units");
+        require(findText(dialogRoot(), "20 mph") != null, "Gauge scale summary does not follow mph units");
         clickText(dialogRoot(), "Scale maximum");
         require(Math.abs(Double.parseDouble(first(dialogRoot(), EditText.class).getText().toString()) - 20) < .000001,
                 "Gauge scale editor did not convert the saved maximum back to mph");
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
         require(Math.abs(widgetById(id).maximum - 20 * 1.609344) < .000001, "Saving an unchanged mph scale changed its range");
+        DashboardScreen imperialScreen = dashboard();
         main(() -> settings().edit().putString("units", "km").apply());
-        await(() -> dashboard().isEditing() && settings().getString("units", "").equals("km") && grid().getWidth() > 0,
+        await(() -> dashboard() != imperialScreen && dashboard().isEditing()
+                        && settings().getString("units", "").equals("km") && grid().getWidth() > 0,
                 4000, "Metric dashboard did not rebuild"); waitForIdleSync();
-        openOptions(id); require(findText(dialogRoot(), "32.19 km/h") != null, "Gauge scale summary does not convert to km/h"); closeDialog();
+        openOptions(id); require(findText(dialogRoot(), "32.2 km/h") != null, "Gauge scale summary does not convert to km/h"); closeDialog();
         require(Math.abs(widgetById(id).maximum - 20 * 1.609344) < .000001, "Changing display units altered the gauge range");
-        main(() -> settings().edit().putString("units", "mi").apply()); waitForIdleSync();
+        DashboardScreen metricScreen = dashboard();
+        main(() -> settings().edit().putString("units", "mi").apply());
+        await(() -> dashboard() != metricScreen && dashboard().isEditing() && grid().getWidth() > 0,
+                4000, "Imperial dashboard did not rebuild");
         awaitDashboard();
     }
     private void verifyTwoMinuteChart() {
@@ -1515,7 +1791,7 @@ public final class DashboardValidation extends Instrumentation {
                     invoke(tile, "refreshCharging", new Class<?>[] {Map.class}, preview);
                     require("104 W".contentEquals(((TextView)field(tile, "chargingWatts")).getText()),
                             "Charge widget did not format battery-side V × |I|");
-                    require(((TextView)field(tile, "chargingEtaLabel")).getText().toString().contains("80%"),
+                    require(captionMeaning((TextView)field(tile, "chargingEtaLabel")).contains("80%"),
                             "ETA label ignored the configured charge cutoff");
                     require("≈ 2h 11m".contentEquals(((TextView)field(tile, "chargingEta")).getText()),
                             "ETA did not use the remaining Ah to the cutoff");
@@ -1525,7 +1801,7 @@ public final class DashboardValidation extends Instrumentation {
                         "Detailed charging card lost its measured current");
                 preview.remove("charge_limit_percent");
                 invoke(chargeTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
-                require("Time to full".contentEquals(((TextView)field(chargeTile, "chargingEtaLabel")).getText())
+                require("Time to full".equals(captionMeaning((TextView)field(chargeTile, "chargingEtaLabel")))
                         && "≈ 3h 38m".contentEquals(((TextView)field(chargeTile, "chargingEta")).getText()),
                         "Unknown cutoff did not keep the hypothetical full estimate separate");
                 require(((TextView)field(chargeTile, "chargingNote")).getText().toString().contains("cutoff unknown"),
@@ -1550,6 +1826,11 @@ public final class DashboardValidation extends Instrumentation {
                 invoke(batteryTile, "refreshCharging", new Class<?>[] {Map.class}, cached);
             }
         });
+    }
+    private String captionMeaning(TextView caption) {
+        // Responsive captions may render their short label or icon on the next layout.
+        CharSequence description = caption.getContentDescription();
+        return (description == null ? caption.getText() : description).toString();
     }
     private void assertBatteryMode(Object batteryTile, boolean charging, String context) {
         View normal = (View)field(batteryTile, "batteryData"), details = (View)field(batteryTile, "chargingData");

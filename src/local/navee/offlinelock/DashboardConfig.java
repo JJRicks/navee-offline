@@ -31,7 +31,11 @@ public final class DashboardConfig {
         "charging",
         "quick",
         "ride",
-        "note"
+        "note",
+        "lockbar",
+        "overview",
+        "tiles",
+        "shortcuts"
     };
     public static final String[] NAMES = {
         "Lock & connection",
@@ -48,7 +52,11 @@ public final class DashboardConfig {
         "Charging",
         "Quick access",
         "Ride recorder",
-        "Note"
+        "Note",
+        "Lock bar",
+        "Scooter overview",
+        "Reading tiles",
+        "Setting tiles"
     };
     public static final String[] DESCRIPTIONS = {
         "A large lock switch and connection controls",
@@ -65,7 +73,11 @@ public final class DashboardConfig {
         "Battery-side charging power and estimated time to the charge target",
         "Choose two to eight settings, toggles or page shortcuts",
         "Start or finish an explicit ride recording",
-        "A personal reminder or maintenance note"
+        "A personal reminder or maintenance note",
+        "Compact lock with Connect",
+        "Charge, range and photo",
+        "Readings as small tiles",
+        "Settings as tiles"
     };
 
     public static final class Widget {
@@ -102,13 +114,21 @@ public final class DashboardConfig {
                                     ? 15 * 60000L
                                     : type.equals("health") ? 30 * 86400000L : 86400000L;
             keys.addAll(
-                    type.equals("scooter")
+                    type.equals("scooter") || type.equals("overview")
                             ? Arrays.asList("odometer_km", "driving_mode")
-                            : Arrays.asList(
-                                    "remaining_range_km",
-                                    "power_w",
-                                    "battery_health_percent",
-                                    "temperature_c"));
+                            : type.equals("tiles")
+                                    ? Arrays.asList("power_w", "temperature_c", "battery_health_percent")
+                                    : Arrays.asList(
+                                            "remaining_range_km",
+                                            "power_w",
+                                            "battery_health_percent",
+                                            "temperature_c"));
+            if (type.equals("shortcuts")) {
+                quickActions.clear();
+                quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
+            }
+            // The compact bar matches the Home concept: Disconnect stays in connection details.
+            if (type.equals("lockbar")) showDisconnect = false;
         }
 
         public int defaultHeight() {
@@ -130,7 +150,13 @@ public final class DashboardConfig {
                     return 5;
                 case "lock":
                 case "ride":
+                case "overview":
                     return 4;
+                case "tiles":
+                    return 2;
+                case "lockbar":
+                case "shortcuts":
+                    return 1;
                 default:
                     return 3;
             }
@@ -139,8 +165,9 @@ public final class DashboardConfig {
         public int minimumHeight() {
             if (type.equals("scooter")) return 3;
             if (type.equals("lock")) return showDisconnect ? 4 : 3;
-            if (type.equals("ride")) return 1;
-            if (type.equals("gauge")) return 3;
+            if (type.equals("ride") || type.equals("lockbar")
+                    || type.equals("tiles") || type.equals("shortcuts")) return 1;
+            if (type.equals("gauge") || type.equals("overview")) return 3;
             return type.equals("live") || type.equals("history")
                     ? 4
                     : type.equals("health")
@@ -164,7 +191,9 @@ public final class DashboardConfig {
             columns = Math.max(1, Math.min(MAX_COLUMNS, columns));
             if (type.equals("metric") || type.equals("gauge"))
                 return columns > 4 ? (columns + 2) / 3 : 1;
-            if (type.equals("lock") || type.equals("scooter") || type.equals("capacity"))
+            if (type.equals("lock") || type.equals("scooter") || type.equals("capacity")
+                    || type.equals("lockbar") || type.equals("overview")
+                    || type.equals("tiles") || type.equals("shortcuts"))
                 return columns;
             if (columns == 3 && (type.equals("quick") || type.equals("ride"))) return 1;
             return columns > 4 ? (columns + 1) / 2 : Math.min(columns, 2);
@@ -173,6 +202,15 @@ public final class DashboardConfig {
         public int minimumWidth(int columns, float availableWidthDp, float gapDp, float textScale) {
             return DashboardLayout.minimumSpan(type, columns, availableWidthDp, gapDp, textScale);
         }
+    }
+
+    /** Setting tiles hold one to four shortcuts; Quick access keeps two to eight. */
+    public static int minimumShortcuts(String type) {
+        return "shortcuts".equals(type) ? 1 : QuickAccessActions.MIN_ITEMS;
+    }
+
+    public static int maximumShortcuts(String type) {
+        return "shortcuts".equals(type) ? 4 : QuickAccessActions.MAX_ITEMS;
     }
 
     private final SharedPreferences preferences;
@@ -244,7 +282,7 @@ public final class DashboardConfig {
             w.minimum = o.optDouble("min", 0);
             w.maximum = o.optDouble("max", 100);
             w.advertisedWh = o.optDouble("advertisedWh", 0);
-            w.showDisconnect = o.optBoolean("showDisconnect", true);
+            w.showDisconnect = o.optBoolean("showDisconnect", w.showDisconnect);
             w.absoluteAxis = o.optBoolean("absoluteAxis", false);
             JSONArray shortcuts = o.optJSONArray("quickActions");
             if (shortcuts != null) {
@@ -252,7 +290,8 @@ public final class DashboardConfig {
                 for (int k = 0; k < Math.min(64, shortcuts.length()); k++)
                     if (shortcuts.opt(k) instanceof String) actionIds.add(shortcuts.getString(k));
                 w.quickActions.clear();
-                w.quickActions.addAll(QuickAccessActions.normalize(actionIds));
+                w.quickActions.addAll(QuickAccessActions.normalize(actionIds,
+                        minimumShortcuts(type), maximumShortcuts(type)));
             }
             if (!Double.isFinite(w.advertisedWh)
                     || w.advertisedWh < 0
@@ -409,7 +448,8 @@ public final class DashboardConfig {
             o.put("advertisedWh", w.advertisedWh);
             o.put("showDisconnect", w.showDisconnect);
             o.put("absoluteAxis", w.absoluteAxis);
-            o.put("quickActions", new JSONArray(QuickAccessActions.normalize(w.quickActions)));
+            o.put("quickActions", new JSONArray(QuickAccessActions.normalize(w.quickActions,
+                    minimumShortcuts(w.type), maximumShortcuts(w.type))));
             o.put("keys", new JSONArray(w.keys));
             JSONObject layouts = new JSONObject();
             for (Map.Entry<Integer, DashboardLayout.Cell> e : w.layouts.entrySet()) {
@@ -734,8 +774,8 @@ public final class DashboardConfig {
                 require(widget.get("absoluteAxis") instanceof Boolean, "Invalid chart axis preference");
             if (widget.has("quickActions")) {
                 JSONArray actions = widget.getJSONArray("quickActions");
-                require(actions.length() >= QuickAccessActions.MIN_ITEMS
-                        && actions.length() <= QuickAccessActions.MAX_ITEMS, "Invalid shortcut count");
+                require(actions.length() >= minimumShortcuts(type)
+                        && actions.length() <= maximumShortcuts(type), "Invalid shortcut count");
                 HashSet<String> actionIds = new HashSet<>();
                 for (int k = 0; k < actions.length(); k++) {
                     String action = string(actions.get(k));

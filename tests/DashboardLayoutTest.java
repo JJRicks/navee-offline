@@ -342,7 +342,8 @@ public final class DashboardLayoutTest {
 
     private static void minimumUsableWidths() {
         String[] types = {"lock", "scooter", "battery", "metric", "gauge", "live", "history",
-                "readings", "trip", "health", "capacity", "charging", "quick", "ride", "note"};
+                "readings", "trip", "health", "capacity", "charging", "quick", "ride", "note",
+                "lockbar", "overview", "tiles", "shortcuts"};
         check(DashboardLayout.minimumSpan("lock", 6, 600, 10, 1) == 2,
                 "Two-sixths lock is usable on a compact unfolded screen");
         check(DashboardLayout.minimumSpan("scooter", 6, 600, 10, 1) <= 4,

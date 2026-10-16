@@ -11,99 +11,35 @@ final class DefaultDashboard {
 
     static ArrayList<DashboardConfig.Widget> create() {
         ArrayList<DashboardConfig.Widget> result = new ArrayList<>();
-        add(result, "lock", "Lock & connection",
-                "power_w", 86400000L, new int[][] {
-                    {1, 0, 4, 1, 4},
-                    {2, 0, 4, 1, 4},
-                    {3, 2, 0, 1, 4},
-                    {4, 2, 3, 2, 4},
-                    {5, 0, 3, 2, 4},
-                    {6, 4, 0, 2, 4}
-                });
-        DashboardConfig.Widget scooter = add(result, "scooter", "Your scooter",
-                "power_w", 86400000L, new int[][] {
-                    {1, 0, 0, 1, 4},
-                    {2, 0, 0, 2, 4},
-                    {3, 0, 0, 2, 4},
-                    {4, 0, 0, 3, 3},
-                    {5, 0, 0, 3, 3},
-                    {6, 0, 0, 4, 4}
-                });
-        scooter.keys.clear();
-        scooter.keys.addAll(Arrays.asList("odometer_km", "remaining_range_km", "driving_mode"));
-        add(result, "battery", "Battery overview",
-                "power_w", 86400000L, new int[][] {
-                    {1, 0, 8, 1, 4},
-                    {2, 0, 8, 1, 4},
-                    {3, 2, 4, 1, 5},
-                    {4, 2, 7, 2, 5},
-                    {5, 2, 3, 3, 4},
-                    {6, 3, 4, 3, 5}
-                });
-        add(result, "live", "Live trend",
-                "power_w", 900000L, new int[][] {
-                    {1, 0, 12, 1, 5},
-                    {2, 0, 12, 2, 5},
-                    {3, 0, 4, 2, 5},
-                    {4, 0, 3, 2, 5},
-                    {5, 0, 13, 5, 4},
-                    {6, 0, 4, 3, 5}
-                });
-        add(result, "capacity", "Capacity experiment",
-                "power_w", 7776000000L, new int[][] {
-                    {1, 0, 17, 1, 6},
-                    {2, 0, 17, 2, 6},
-                    {3, 0, 13, 3, 6},
-                    {4, 0, 12, 4, 6},
-                    {5, 0, 22, 5, 5},
-                    {6, 0, 13, 6, 6}
-                });
+        // One full-width stack on phones (overview, lock bar beneath it, tiles, shortcuts, ride);
+        // two columns on wide six-column grids.
+        DashboardConfig.Widget overview = add(result, "overview", "Scooter overview",
+                "power_w", 86400000L, stack(0, 4, 0, 0, 3, 4));
+        overview.keys.clear();
+        overview.keys.addAll(Arrays.asList("odometer_km", "driving_mode"));
+        DashboardConfig.Widget lock = add(result, "lockbar", "Lock bar",
+                "power_w", 86400000L, stack(4, 1, 0, 4, 3, 1));
+        lock.showDisconnect = false;
+        DashboardConfig.Widget readings = add(result, "tiles", "Reading tiles",
+                "power_w", 86400000L, stack(5, 2, 3, 0, 3, 2));
+        readings.keys.clear();
+        readings.keys.addAll(Arrays.asList("power_w", "temperature_c", "battery_health_percent"));
+        DashboardConfig.Widget settings = add(result, "shortcuts", "Setting tiles",
+                "power_w", 86400000L, stack(7, 1, 3, 2, 3, 1));
+        settings.quickActions.clear();
+        settings.quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
         add(result, "ride", "Ride recorder",
-                "power_w", 86400000L, new int[][] {
-                    {1, 0, 23, 1, 4},
-                    {2, 0, 23, 2, 4},
-                    {3, 0, 9, 1, 4},
-                    {4, 0, 8, 2, 4},
-                    {5, 0, 7, 5, 1},
-                    {6, 0, 9, 3, 4}
-                });
-        // These four cards were captured only at five columns. Give smaller grids
-        // explicit gaps or later rows so absent positions cannot displace the lock card.
-        DashboardConfig.Widget shortcuts = add(result, "quick", "Quick access",
-                "power_w", 86400000L, new int[][] {
-                    {1, 0, 27, 1, 3},
-                    {2, 1, 4, 1, 4},
-                    {3, 0, 19, 3, 3},
-                    {4, 0, 18, 4, 3},
-                    {5, 3, 0, 2, 3}
-                });
-        shortcuts.quickActions.clear();
-        shortcuts.quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
-        add(result, "health", "Battery health",
-                "battery_health_percent", 2592000000L, new int[][] {
-                    {1, 0, 30, 1, 5},
-                    {2, 0, 30, 2, 5},
-                    {3, 0, 22, 3, 5},
-                    {4, 0, 21, 4, 5},
-                    {5, 0, 8, 5, 5}
-                });
-        add(result, "history", "History chart",
-                "battery_percent", 604800000L, new int[][] {
-                    {1, 0, 35, 1, 5},
-                    {2, 0, 35, 2, 5},
-                    {3, 0, 27, 3, 5},
-                    {4, 0, 26, 4, 5},
-                    {5, 0, 17, 5, 5}
-                });
-        add(result, "charging", "Charging",
-                "power_w", 86400000L, new int[][] {
-                    {1, 0, 40, 1, 4},
-                    {2, 1, 8, 1, 4},
-                    {3, 0, 32, 3, 4},
-                    {4, 0, 31, 4, 4},
-                    {5, 0, 27, 5, 4}
-                });
+                "power_w", 86400000L, stack(8, 1, 3, 3, 3, 1));
         return result;
+    }
+
+    /** Full width at row {@code y} for one to five columns, then the given six-column cell. */
+    private static int[][] stack(int y, int h, int x6, int y6, int w6, int h6) {
+        int[][] placements = new int[6][];
+        for (int columns = 1; columns <= 5; columns++)
+            placements[columns - 1] = new int[] {columns, 0, y, columns, h};
+        placements[5] = new int[] {6, x6, y6, w6, h6};
+        return placements;
     }
 
     private static DashboardConfig.Widget add(ArrayList<DashboardConfig.Widget> result,

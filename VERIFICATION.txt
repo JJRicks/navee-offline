@@ -1,3 +1,25 @@
+HOME REDESIGN FOLLOW-UP GEOMETRY (PR #37)
+October 15, 2026
+
+- Fix the Lock bar thumb and touch mapping for cards taller than their width;
+  capped thumb size keeps real horizontal travel without changing saved layouts.
+- Reserve a separate resize lane on every one-row editor. Very narrow bars keep
+  a draggable grip with named actions on tap, so no touch targets overlap.
+- Fit Reading tile columns to actual numeric tokens at their existing readable
+  minimum, using the card's existing scrolling if more rows are required.
+- Reserve the footer’s original text height plus padding before its first fit,
+  keeping card content at the same height when edit controls appear. Compact
+  recorder actions measure their actual labels before choosing the icon fallback.
+- Core suites: 26 passed, 57,457 assertions/checks, including 307 new geometry
+  checks across card aspect ratios and display densities. App and separate
+  instrumentation runner built and passed APK signature/alignment checks.
+- The new emulator-only closeout mode checks native thumb bounds, cancellable
+  drags, full numeric text, separate editor targets and the narrow action menu.
+  Native cases passed at 344 dp with normal/140% Android font, plus constraints,
+  edit targets, compact readings, 725 dp cards and full editor journeys at both
+  344/725 dp. Saved-layout/migration validation passed 4,995 assertions.
+  No physical scooter commands are sent by these fixtures.
+
 CHARGE RECOVERY AND CONNECTION DIAGNOSTICS (1.0.1, versionCode 28)
 October 15, 2026
 
@@ -495,7 +517,11 @@ Reviewed feature integration:
   this section does not claim a new owner-phone installation.
 
 Release-specific checks:
-- The release includes the owner's ten-widget Home preset and all captured
+- Unreleased: the default Home is now the five-widget concept (Lock bar,
+  Scooter overview, Reading tiles, Setting tiles, Ride recorder) with explicit
+  rectangles for one to six columns. Core tests cover the new types' widths;
+  the layout was checked by reasoning only (no emulator or phone run yet).
+- 1.0.x: the release includes the owner's ten-widget Home preset and all captured
   options/rectangles. Maximum speed is the first Quick access item, followed by
   Scheduled charging. Five columns are the initial choice; narrower screens
   use the existing adaptive fallback. Fresh widget IDs are generated and no
