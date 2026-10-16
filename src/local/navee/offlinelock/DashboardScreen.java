@@ -1904,6 +1904,9 @@ public final class DashboardScreen implements AppScreen {
             footer.setCompoundDrawablePadding(ui.dp(4));
             footer.setGravity(Gravity.CENTER_VERTICAL);
             footer.setVisibility(View.GONE);
+            // fitStatusLine reserves the original text height before padding. Include
+            // this gap too, so auto-size cannot steal body space when Edit rebuilds it.
+            footer.setMinHeight(footer.getMinHeight() + footer.getPaddingTop() + footer.getPaddingBottom());
             content.addView(footer);
             // Paint only: editing dims the card's content, never its editor handles or geometry.
             content.setAlpha(editing ? EDIT_DIM : 1f);
