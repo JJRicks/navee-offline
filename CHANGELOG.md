@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Show charge recordings in one ride-style chart with colored category toggles, fullscreen, pinch zoom, panning and raw-sample inspection.
+- Compare saved finish predictions against the observed finish on a shared scale. Show power, battery level and countdown by default, with voltage, current, temperature and saved charging limits available alongside them.
+- Keep graph selections, zoom and inspected samples when opening or closing fullscreen; preserve missing-data gaps and older recordings.
+
 ## 1.2.0 — 2026-10-15
 
 - Save charging-time predictions, estimator version and estimate sources with charge samples, including while recording in the background.
