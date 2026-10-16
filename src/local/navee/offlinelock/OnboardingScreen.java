@@ -37,6 +37,7 @@ import android.text.style.MetricAffectingSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.View;
+import android.view.ViewGroup;
 import android.view.accessibility.AccessibilityNodeInfo;
 import android.view.inputmethod.EditorInfo;
 import android.widget.EditText;
@@ -88,6 +89,9 @@ public final class OnboardingScreen implements AppScreen {
             IMPORT = 6, IDENTITY = 7, NEARBY = 8, CONNECT = 9, DONE = 10;
     private static final String CAPTURE = "capture", WEBADB = "webadb", BACKUP = "backup", TYPED = "identity", SHIZUKU = "shizuku";
     private static final String WEBADB_URL = "https://pairscooter.jjricks.com/";
+    private static final String PLATFORM_TOOLS_URL = "https://developer.android.com/tools/releases/platform-tools";
+    private static final String SOURCE_URL = "https://github.com/JJRicks/navee-offline/releases/latest";
+    private static final String SHIZUKU_PACKAGE = "moe.shizuku.privileged.api";
     private static final String[] STEP_NAMES = {"Prepare", "USB debugging", "Connect computer",
             "Run helper", "Import", "Nearby devices", "Connect scooter"};
     private static final String COMMAND = "python3 setup/capture-owner.py --push";
@@ -169,9 +173,20 @@ public final class OnboardingScreen implements AppScreen {
         edit.apply();
         applyPendingName();
         if (step < IMPORT || step == IDENTITY) {
-            if (step == IDENTITY || step <= PATH) prefs.edit().putString(KEY_PATH, BACKUP).apply();
+            // A Shizuku capture returns here before its Import page is shown; it keeps its own path.
+            if ((step == IDENTITY || step <= PATH) && !SHIZUKU.equals(path())) prefs.edit().putString(KEY_PATH, BACKUP).apply();
             go(IMPORT);
         } else refresh();
+    }
+
+    /**
+     * Phone-only setup sent the owner to a backup import instead (e.g. from a work profile, where
+     * capture isn't supported). MainActivity calls this for {@link ShizukuSetupActivity#RESULT_IMPORT_BACKUP}.
+     */
+    public void showImport() {
+        if (closed) return;
+        prefs.edit().putString(KEY_PATH, BACKUP).apply();
+        go(IMPORT);
     }
 
     /** A separately consented capture has been staged privately, before Nearby permission. */
@@ -293,8 +308,8 @@ public final class OnboardingScreen implements AppScreen {
     private boolean prepareProfileChange() {
         ScooterService service = host.service();
         if (service == null) return true;
-        if (service.isRecording()) { host.toast("Stop the ride recording before changing owner profiles."); return false; }
-        if (service.ble.pending() != null) { host.toast("Wait for the current scooter change to finish."); return false; }
+        if (service.isRecording()) { host.toast("Stop recording first"); return false; }
+        if (service.ble.pending() != null) { host.toast("Scooter busy. Try again."); return false; }
         if (service.ble.state() != BleController.State.DISCONNECTED) service.ble.disconnect();
         return true;
     }
@@ -484,11 +499,6 @@ public final class OnboardingScreen implements AppScreen {
         LinearLayout.LayoutParams hp = new LinearLayout.LayoutParams(-1, -2); hp.topMargin = ui.dp(14);
         side.addView(heading, hp);
         boolean capture = isComputerCapture();
-        TextView note = ui.text(capture ? "About 10 minutes, once. You only need the computer for steps 2–4."
-                : "A few minutes. This way needs no computer.", 13.5f, false);
-        note.setTextColor(ui.muted); note.setLineSpacing(ui.dp(2), 1);
-        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(-1, -2); np.topMargin = ui.dp(6);
-        side.addView(note, np);
         int current = number(step);
         for (int n = 1; n <= STEP_NAMES.length; n++) {
             LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, -2);
@@ -563,13 +573,6 @@ public final class OnboardingScreen implements AppScreen {
     }
 
     private void heading(String text, boolean big, boolean centered) {
-        int n = number(step);
-        if (n > 0) {
-            TextView eyebrow = ui.text(("Step " + n + " · " + STEP_NAMES[n - 1]).toUpperCase(Locale.ROOT), 11.5f, false);
-            eyebrow.setTypeface(ui.semibold()); eyebrow.setTextColor(ui.accent); eyebrow.setLetterSpacing(0.08f);
-            eyebrow.setPadding(0, 0, 0, ui.dp(8));
-            content.addView(eyebrow);
-        }
         title = ui.text(text, big ? 32 : 26, true);
         title.setLineSpacing(0, 1.02f);
         if (centered) title.setGravity(Gravity.CENTER_HORIZONTAL);
@@ -604,6 +607,28 @@ public final class OnboardingScreen implements AppScreen {
         return button;
     }
 
+    /**
+     * Puts a small spinner at the start of a footer button, hidden until shown. The button is
+     * re-parented into a frame in the same footer slot; the returned view is the spinner.
+     */
+    private View spinnerOn(TextView button) {
+        int index = footer.indexOfChild(button);
+        ViewGroup.LayoutParams params = button.getLayoutParams();
+        footer.removeView(button);
+        FrameLayout frame = new FrameLayout(host.activity());
+        frame.addView(button, new FrameLayout.LayoutParams(-1, -2));
+        android.widget.ProgressBar spinner = new android.widget.ProgressBar(host.activity());
+        spinner.setIndeterminate(true);
+        spinner.setIndeterminateTintList(ColorStateList.valueOf(ui.dim));
+        spinner.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        FrameLayout.LayoutParams sp = new FrameLayout.LayoutParams(ui.dp(20), ui.dp(20), Gravity.START | Gravity.CENTER_VERTICAL);
+        sp.setMarginStart(ui.dp(18));
+        frame.addView(spinner, sp);
+        spinner.setVisibility(View.GONE);
+        footer.addView(frame, index, params);
+        return spinner;
+    }
+
     private TextView footerLink(String label, Runnable action) {
         TextView view = link(label, action);
         footer.addView(view, new LinearLayout.LayoutParams(-1, -2));
@@ -629,8 +654,7 @@ public final class OnboardingScreen implements AppScreen {
         View gap = new View(host.activity());
         content.addView(gap, new LinearLayout.LayoutParams(-1, ui.dp(18)));
         heading("Your scooter, no cloud", true, false);
-        paragraph("Lock, settings, battery data and ride recording, straight over Bluetooth. "
-                + "Setup takes about 10 minutes, once.", false);
+        content.addView(features(), featureParams());
         primary("Get started", () -> go(PATH));
         footerLink("I already have an owner file", () -> {
             prefs.edit().putString(KEY_PATH, BACKUP).apply(); go(IMPORT);
@@ -638,30 +662,67 @@ public final class OnboardingScreen implements AppScreen {
         footerLink("Restore a full app backup", () -> host.fullBackup(true));
     }
 
+    /** Welcome: what the app does, as four labelled icons instead of a sentence. */
+    private View features() {
+        LinearLayout strip = row();
+        String[][] items = {{"lock", "Lock"}, {"tune", "Settings"}, {"battery", "Battery"}, {"rides", "Rides"}};
+        for (int i = 0; i < items.length; i++) {
+            LinearLayout tile = column(); tile.setGravity(Gravity.CENTER);
+            tile.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), ui.dp(10));
+            tile.setBackground(ui.shape(ui.surface, 16, 0));
+            tile.addView(ui.icon(items[i][0], 22, ui.accent), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
+            TextView label = ui.text(items[i][1], 12.5f, false);
+            label.setTextColor(ui.muted); label.setGravity(Gravity.CENTER); label.setMaxLines(1);
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-2, -2); lp.topMargin = ui.dp(6);
+            tile.addView(label, lp);
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(0, -2, 1);
+            if (i > 0) tp.leftMargin = ui.dp(8);
+            strip.addView(tile, tp);
+        }
+        // One spoken summary for the strip; it keeps the "over Bluetooth" fact the old sentence carried.
+        strip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        for (int i = 0; i < strip.getChildCount(); i++)
+            strip.getChildAt(i).setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        strip.setFocusable(true);
+        strip.setContentDescription("Lock, settings, battery and rides, over Bluetooth");
+        return strip;
+    }
+
+    private LinearLayout.LayoutParams featureParams() {
+        LinearLayout.LayoutParams params = new LinearLayout.LayoutParams(-1, -2);
+        params.topMargin = ui.dp(16);
+        return params;
+    }
+
     private void choosePath() {
         scaffold(true);
         heading("How do you want to add your scooter?", false, false);
-        paragraph("The app needs your scooter's owner identity. It's Bluetooth ownership data, "
-                + "not your NAVEE password.", false);
+        paragraph("Not your NAVEE password.", false);
         String selected = path();
+        // Wireless debugging needs Android 11; below that the Shizuku card can't be chosen.
+        boolean shizukuSupported = Build.VERSION.SDK_INT >= 30;
         String[][] options = {
-                {CAPTURE, "screen", "Capture it from the NAVEE app", "First time. Uses a computer once, about 10 min."},
-                {SHIZUKU, "screen", "Use Shizuku on this phone", "Android 11+. Guided debugging access; no computer."},
-                {WEBADB, "screen", "Use Chrome and a USB cable", "Testing preview. Guided website; full scooter capture still awaiting validation."},
-                {BACKUP, "download", "Import a backup file", "You saved navee-owner-setup.json before."},
-                {TYPED, "lock", "Enter a 12-character identity", "Someone gave you the code for your scooter."}};
+                {CAPTURE, "screen", "Capture it from the NAVEE app", "Computer · 10 min", null},
+                {SHIZUKU, "screen", "Use Shizuku on this phone", "No computer · Android 11+", null},
+                {WEBADB, "screen", "Use Chrome and a USB cable", "Chrome + USB cable", "Preview"},
+                {BACKUP, "download", "Import a backup file", "navee-owner-setup.json", null},
+                {TYPED, "lock", "Enter a 12-character identity", null, null}};
         LinearLayout group = column();
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(16);
         content.addView(group, gp);
         for (String[] o : options) {
-            boolean on = o[0].equals(selected);
-            View card = option(o[1], o[2], o[3], on, () -> { prefs.edit().putString(KEY_PATH, o[0]).apply(); render(); });
+            boolean disabled = SHIZUKU.equals(o[0]) && !shizukuSupported;
+            boolean on = o[0].equals(selected) && !disabled;
+            View card = option(o[1], o[2], o[3], o[4], on, disabled, disabled
+                    ? () -> host.toast("Needs Android 11 or newer")
+                    : () -> { prefs.edit().putString(KEY_PATH, o[0]).apply(); render(); });
             LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2); cp.bottomMargin = ui.dp(10);
             group.addView(card, cp);
         }
         primary("Continue", () -> {
             String chosen = path();
             if (SHIZUKU.equals(chosen)) {
+                if (!shizukuSupported) { host.toast("Needs Android 11 or newer"); return; }
                 if (pendingOwnerFile().exists()) { host.toast("Finish importing your selected owner file first."); go(IMPORT); return; }
                 if (!prepareProfileChange()) return;
                 host.activity().startActivityForResult(new Intent(host.activity(), ShizukuSetupActivity.class), ShizukuSetupActivity.REQUEST);
@@ -671,8 +732,7 @@ public final class OnboardingScreen implements AppScreen {
 
     private void confirmSkip() {
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Skip setup for now?")
-                .setMessage("You can add your scooter later under More › My scooters. Without an owner profile "
-                        + "the app cannot connect to your scooter.")
+                .setMessage("Add it later in More.")
                 .setNegativeButton("Keep going", null)
                 .setPositiveButton("Skip", (d, w) -> finish(true)).create();
         show(dialog);
@@ -681,30 +741,31 @@ public final class OnboardingScreen implements AppScreen {
     private void prepare() {
         scaffold(true);
         heading("Before you start", false, false);
-        paragraph("Tick these off. You only need the computer this once.", false);
         String[][] items = {
-                {"NAVEE app works", "Signed into your account and connects to your scooter"},
-                {WEBADB.equals(path()) ? "A computer with Chrome or Edge" : "A computer with ADB and Python 3",
-                        WEBADB.equals(path()) ? "A current desktop browser; no Python or platform-tools needed" : "Android Platform-Tools; the helper script comes with this app's source"},
-                {"A USB data cable", "Charging-only cables won't work"},
+                {"NAVEE app works", "Signed in and connecting"},
+                {WEBADB.equals(path()) ? "A computer with Chrome or Edge" : "A computer with ADB and Python 3", null},
+                {"A USB data cable", "Not charge-only"},
                 {"Scooter parked and powered on", "Close any other scooter apps"}};
         LinearLayout group = column();
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(16);
         content.addView(group, gp);
         for (int i = 0; i < items.length; i++) group.addView(tick("prep" + i, items[i][0], items[i][1]));
         primary("Continue", () -> go(USB));
-        if (WEBADB.equals(path())) {
-            footerLink("How does browser setup work?", () -> info("Browser setup",
-                    "Testing preview: a full browser capture with a nearby scooter is still awaiting validation.\n\nOpen " + WEBADB_URL + " on your computer. The page asks before choosing your phone and again before temporarily enabling NAVEE logging and restarting NAVEE.\n\n"
-                            + "USB debugging grants broad developer access. Use a trusted computer and leave Always allow unchecked. The helper filters for your Bluetooth owner identity, processes it in the browser, and restores NAVEE's original log setting before offering a file.\n\n"
-                            + "Your NAVEE account must already be signed in and able to connect to your scooter. A successful capture still requires your scooter nearby."));
-            return;
-        }
-        footerLink("Where do I get ADB?", () -> info("Getting ADB",
-                "ADB is part of Android SDK Platform-Tools, a free download from Google's Android developer site "
-                        + "(search for \"SDK Platform-Tools\"). Unzip it on your computer and run adb from that folder.\n\n"
-                        + "You also need Python 3 and this app's source bundle, which includes setup/capture-owner.py. "
-                        + "Run the helper from the extracted source folder."));
+        if (WEBADB.equals(path())) return;
+        // Both links open the download directly; the helper script ships in the source bundle.
+        LinearLayout links = row(); links.setGravity(Gravity.CENTER);
+        TextView adb = link("Where do I get ADB?", () -> openUrl(PLATFORM_TOOLS_URL));
+        adb.setContentDescription("Where do I get ADB? Opens the Platform-Tools download");
+        links.addView(adb, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView source = link("Get source", () -> openUrl(SOURCE_URL));
+        source.setContentDescription("Get source. Opens the source bundle with the capture helper");
+        links.addView(source, new LinearLayout.LayoutParams(0, -2, 1));
+        footer.addView(links, new LinearLayout.LayoutParams(-1, -2));
+    }
+
+    private void openUrl(String url) {
+        try { host.activity().startActivity(new Intent(Intent.ACTION_VIEW, Uri.parse(url))); }
+        catch (RuntimeException unavailable) { host.toast("No browser found"); }
     }
 
     private void usbDebugging() {
@@ -742,7 +803,8 @@ public final class OnboardingScreen implements AppScreen {
         fingerprint.setPadding(0, ui.dp(10), 0, ui.dp(10));
         panel.addView(fingerprint);
         LinearLayout always = row(); always.setGravity(Gravity.CENTER_VERTICAL);
-        View box = new MockCheck(system.blue);
+        // Drawn unticked: the browser and computer steps both say to leave it unchecked.
+        View box = new MockCheck(system.muted);
         always.addView(box, new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)));
         TextView label = mockText(system, "Always allow from this computer", 14, false, system.text);
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1); lp.leftMargin = ui.dp(10);
@@ -755,26 +817,24 @@ public final class OnboardingScreen implements AppScreen {
         LinearLayout.LayoutParams alp = new LinearLayout.LayoutParams(-2, -2); alp.leftMargin = ui.dp(28);
         buttons.addView(allow, alp);
         panel.addView(buttons);
-        panel.setContentDescription("Example: the Allow USB debugging prompt on your phone, with Always allow from this computer ticked.");
+        panel.setContentDescription("Example: the Allow USB debugging prompt on your phone, with Always allow from this computer unticked.");
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2); pp.topMargin = ui.dp(18);
         content.addView(panel, pp);
         content.addView(numbered(1, "Connect your phone with the data cable", null));
         content.addView(numbered(2, "Tap **Allow** on the prompt above", null));
-        content.addView(numbered(3, "On the computer, `adb devices` should list your phone as **device**", null));
+        content.addView(numbered(3, "`adb devices` shows **device**", null));
         primary("It shows \u201Cdevice\u201D", () -> go(HELPER));
         footerLink("It says unauthorized", () -> info("Phone says unauthorized",
-                "Your phone has not approved this computer yet.\n\n"
-                        + "1  Unlock your phone, unplug the cable and plug it back in.\n"
+                "1  Unlock your phone, unplug the cable and plug it back in.\n"
                         + "2  Tap Allow on the \u201CAllow USB debugging?\u201D prompt.\n"
-                        + "3  No prompt? In Developer options, tap Revoke USB debugging authorizations, then reconnect.\n\n"
-                        + "Run adb devices again. It should list your phone as device."));
+                        + "3  No prompt? In Developer options, tap Revoke USB debugging authorizations, then reconnect."));
     }
 
     private void runHelper() {
         if (WEBADB.equals(path())) { runBrowserHelper(); return; }
         scaffold(true);
         heading("Run the capture helper", false, false);
-        paragraph("From the app's source folder on your computer, run:", false);
+        paragraph("On your computer, run:", false);
         Ui term = ui.dark ? ui : new Ui(host.activity(), true, ui.textScale);
         LinearLayout block = column();
         block.setBackground(ui.shape(term.bg, 16, term.raised));
@@ -801,9 +861,9 @@ public final class OnboardingScreen implements AppScreen {
         block.addView(copy, cp);
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2); bp.topMargin = ui.dp(14);
         content.addView(block, bp);
-        content.addView(numbered(1, "NAVEE opens here. Connect to your scooter in it if needed.", null));
-        content.addView(numbered(2, "Wait up to 90 seconds while it captures.", null));
-        content.addView(numbered(3, "navee-owner-setup.json lands in Downloads.", null));
+        content.addView(numbered(1, "Connect in NAVEE", null));
+        content.addView(numbered(2, "Wait up to 90 s", null));
+        content.addView(numbered(3, "File saves to Downloads", null));
         primary("The helper finished", () -> go(IMPORT));
         footerLink("Capture didn't work", this::troubleshooting);
     }
@@ -816,27 +876,30 @@ public final class OnboardingScreen implements AppScreen {
         address.setTextIsSelectable(true);
         address.setPadding(0, ui.dp(12), 0, ui.dp(18));
         content.addView(address);
-        content.addView(numbered(1, "Connect your phone with a USB data cable", "Use **Chrome or Edge** on the computer"));
-        content.addView(numbered(2, "Read the website's access explanation", "Choose your phone in the browser's USB picker"));
+        content.addView(numbered(1, "Connect your phone with a USB data cable", null));
+        content.addView(numbered(2, "Pick your phone in Chrome", null));
         content.addView(numbered(3, "Approve USB debugging on this phone", "Leave **Always allow from this computer** unchecked"));
         primary("The website connected", () -> go(HELPER));
         footerLink("Phone isn't listed", () -> info("Connecting in Chrome",
-                "Unlock the phone, check USB debugging is on, and try a data-capable cable. Close Android Studio, other ADB tools and other browser setup tabs. Windows may need your phone's USB driver.\n\n"
-                        + "Safari and Firefox do not support this USB setup. You can return to Choose a path to use the existing desktop helper instead."));
+                "\u2022  Phone unlocked, USB debugging on\n"
+                        + "\u2022  A data cable, not charge-only\n"
+                        + "\u2022  Android Studio, other ADB tools and setup tabs closed\n"
+                        + "\u2022  Chrome or Edge, not Safari or Firefox"));
     }
 
     private void runBrowserHelper() {
         scaffold(true);
         heading("Approve the capture on the website", false, false);
-        paragraph("The website asks before temporarily changing NAVEE's logging or restarting it. Keep the USB cable connected until cleanup is verified.", false);
-        content.addView(numbered(1, "Read the capture explanation and choose **Start**", "NAVEE opens on this phone"));
-        content.addView(numbered(2, "Select your scooter in NAVEE and connect", "The helper waits up to **90 seconds**"));
-        content.addView(numbered(3, "After cleanup, choose **Save to phone Downloads**", "A new owner-setup file is created; no profile is replaced"));
-        paragraph("If the website reports unfinished cleanup, use its Recover cleanup button before continuing. This file is a scooter key; keep it private.", false);
+        paragraph("Keep the cable in until cleanup finishes.", false);
+        content.addView(numbered(1, "Read the capture explanation and choose **Start**", null));
+        content.addView(numbered(2, "Select your scooter in NAVEE and connect", "Up to **90 s**"));
+        content.addView(numbered(3, "After cleanup, choose **Save to phone Downloads**", null));
+        paragraph("This file is a scooter key. Keep it private.", false);
         primary("The file is in Downloads", () -> go(IMPORT));
         footerLink("Capture didn't work", () -> info("Browser capture",
-                "Make sure NAVEE is signed in, your scooter is nearby and other scooter apps are closed. If you stopped or disconnected, return to the same browser to finish cleanup first.\n\n"
-                        + "A future NAVEE update may change its logging. The website must find a fresh, valid authentication message before it creates a setup file."));
+                "\u2022  NAVEE signed in, scooter nearby\n"
+                        + "\u2022  Other scooter apps closed\n"
+                        + "\u2022  Stopped early? Finish cleanup in the same browser first"));
     }
 
     private void copyCommand() {
@@ -846,7 +909,7 @@ public final class OnboardingScreen implements AppScreen {
             clipboard.setPrimaryClip(ClipData.newPlainText("Capture command", COMMAND));
             // Android 13 and newer confirm clipboard writes themselves.
             if (Build.VERSION.SDK_INT < 33) host.toast("Command copied.");
-        } catch (RuntimeException e) { host.toast("Copy is unavailable. Type the command shown instead."); }
+        } catch (RuntimeException e) { host.toast("Copy failed"); }
     }
 
     private void importFile() {
@@ -854,21 +917,15 @@ public final class OnboardingScreen implements AppScreen {
         heading(SHIZUKU.equals(path()) ? "Your owner setup" : "Import your owner file", false, false);
         String mode = importMode();
         if (mode.equals("choose") || mode.equals("loading")) {
-            paragraph(WEBADB.equals(path())
-                    ? "Choose the new navee-owner-setup file saved by the website in your Downloads."
-                    : CAPTURE.equals(path())
-                    ? "The helper copied navee-owner-setup.json to your Downloads. Choose it here."
-                    : "Choose navee-owner-setup.json or a private owner backup you saved before.", false);
-            LinearLayout card = fileCard(mode.equals("loading") ? "Loading your owner profile…" : "No file chosen yet",
-                    "JSON or text, smaller than 1 MB", false);
+            paragraph("Pick navee-owner-setup.json", false);
+            LinearLayout card = fileCard(mode.equals("loading") ? "Loading your owner profile…" : "No file chosen yet", null, false);
             LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2); fp.topMargin = ui.dp(18);
             content.addView(card, fp);
             if (prefs.getBoolean(KEY_IMPORT_FAILED, false)) {
-                TextView error = fine("That file couldn't be used. Choose your private setup file or a fresh capture.");
+                TextView error = fine("Not an owner file.");
                 error.setTextColor(ui.danger);
             }
-            fine("This file can control your scooter. Keep the computer copy private; you can delete the "
-                    + "Downloads copy after import.");
+            fine("This file unlocks your scooter. Keep it private.");
             TextView choose = primary("Choose owner file", this::pickFile);
             choose.setEnabled(!mode.equals("loading"));
             footerLink("Enter the identity instead", () -> { prefs.edit().putString(KEY_PATH, TYPED).apply(); go(IDENTITY); });
@@ -877,28 +934,41 @@ public final class OnboardingScreen implements AppScreen {
         boolean applied = mode.equals("applied");
         ScooterProfiles.Profile p = applied ? find(profiles(), prefs.getString(KEY_PROFILE, "")) : null;
         String[] summary = applied && p != null ? new String[] {p.name, p.role == 1 ? "shared role" : "owner role"} : pendingSummary();
-        LinearLayout card = fileCard(SHIZUKU.equals(path()) ? "Captured owner setup" : "Owner setup file", applied ? "Imported privately on this phone" : "Saved privately on this phone", true);
-        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2); fp.topMargin = ui.dp(18);
-        content.addView(card, fp);
+        // One success card: the lock glyph says it is held privately on this phone.
         LinearLayout found = row(); found.setGravity(Gravity.CENTER_VERTICAL);
         found.setPadding(ui.dp(14), ui.dp(14), ui.dp(14), ui.dp(14));
         found.setBackground(ui.shape(blend(ui.surface, ui.ok, ui.dark ? 0.10f : 0.08f), 18, Ui.withAlpha(ui.ok, ui.dark ? 90 : 110)));
-        found.addView(new Badge(), new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
+        FrameLayout lock = new FrameLayout(host.activity());
+        lock.setBackground(oval(ui.ok));
+        lock.addView(ui.icon("lock", 18, ui.dark ? ui.bg : ui.onAccent), new FrameLayout.LayoutParams(ui.dp(18), ui.dp(18), Gravity.CENTER));
+        lock.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        found.addView(lock, new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)));
         LinearLayout words = column();
         words.addView(ui.text("Owner identity found", 15.5f, true));
-        TextView detail = ui.caption(summary[0] + " · " + summary[1]
-                + (applied ? "" : hasPermission() ? "\nBeing added to this phone…" : "\nAdded after you allow Nearby devices"));
+        TextView detail = ui.caption(summary[0] + " · " + summary[1]);
         detail.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale); detail.setPadding(0, ui.dp(3), 0, 0);
         words.addView(detail);
         LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1); wp.leftMargin = ui.dp(12);
         found.addView(words, wp);
         found.setFocusable(true);
-        found.setContentDescription("Owner identity found. " + detail.getText());
-        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(12);
+        found.setContentDescription("Owner identity found, stored privately on this phone. " + detail.getText());
+        LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(18);
         content.addView(found, gp);
+        // A re-picked file that failed keeps this identity; say so here too (no toast during setup).
+        if (prefs.getBoolean(KEY_IMPORT_FAILED, false)) fine("Not an owner file.").setTextColor(ui.danger);
         nameField = nameInput(prefs.getString(KEY_PENDING_NAME, summary[0]));
-        fine(SHIZUKU.equals(path()) ? "This identity can control your scooter. It stays in Volt's private storage. You can revoke Shizuku access now."
-                : "This file can control your scooter. Keep the computer copy private; you can delete the Downloads copy after import.");
+        fine(SHIZUKU.equals(path()) ? "Stored privately. Revoke Shizuku now." : "This file unlocks your scooter. Keep it private.");
+        // The picked file is still in Downloads after import; offer to remove that copy right here.
+        if (!SHIZUKU.equals(path()) && host.activity() instanceof MainActivity
+                && ((MainActivity) host.activity()).hasPickedOwnerFile()) {
+            TextView delete = link("Delete Downloads copy", () -> {
+                boolean deleted = ((MainActivity) host.activity()).deletePickedOwnerFile();
+                host.toast(deleted ? "Downloads copy deleted" : "Couldn't delete · remove it in Files");
+                if (deleted) render();
+            });
+            delete.setGravity(Gravity.START | Gravity.CENTER_VERTICAL);
+            content.addView(delete, new LinearLayout.LayoutParams(-2, -2));
+        }
         primary("Save and continue", () -> {
             String name = nameField.getText().toString().trim();
             if (applied) {
@@ -914,12 +984,22 @@ public final class OnboardingScreen implements AppScreen {
             hideKeyboard();
             afterProfile();
         });
-        if (applied) footerLink("Choose a different file", this::pickFile);
+        if (SHIZUKU.equals(path())) footerLink("Open Shizuku", this::openShizuku);
+        else if (applied) footerLink("Choose a different file", this::pickFile);
+    }
+
+    /** Volt's access is revoked inside Shizuku (Authorized applications); open it there. */
+    private void openShizuku() {
+        Intent launch = host.activity().getPackageManager().getLaunchIntentForPackage(SHIZUKU_PACKAGE);
+        try {
+            if (launch == null) throw new IllegalStateException();
+            host.activity().startActivity(launch);
+        } catch (RuntimeException unavailable) { host.toast("Shizuku isn't installed"); }
     }
 
     private void pickFile() {
         ScooterService service = host.service();
-        if (service != null && service.isRecording()) { host.toast("Stop the ride recording before changing owner profiles."); return; }
+        if (service != null && service.isRecording()) { host.toast("Stop recording first"); return; }
         prefs.edit().putBoolean(KEY_IMPORT_FAILED, false).apply();
         host.importOwner();
     }
@@ -927,7 +1007,7 @@ public final class OnboardingScreen implements AppScreen {
     private void enterIdentity() {
         scaffold(true);
         heading("Enter owner identity", false, false);
-        paragraph("12 characters, 0–9 and A–F. Never paste a password or login token here.", false);
+        paragraph("Not a password.", false);
         FrameLayout boxes = new FrameLayout(host.activity());
         HexBoxes display = new HexBoxes();
         boxes.addView(display, new FrameLayout.LayoutParams(-1, -1));
@@ -952,20 +1032,24 @@ public final class OnboardingScreen implements AppScreen {
         status.setPadding(0, ui.dp(8), 0, 0);
         content.addView(status);
         nameField = nameInput("UT5 MAX");
-        fine("Pasting a private backup instead also works and keeps its owner or shared role.");
         TextView save = primary("Save and continue", this::saveIdentity);
+        // While the local service starts, Save waits with a spinner instead of answering a tap with a toast.
+        View starting = spinnerOn(save);
         Runnable update = () -> {
             String raw = field.getText().toString();
             String compact = raw.replaceAll("[\\s:\\-]", "").toUpperCase(Locale.ROOT);
             OwnerIdentityParser.Result parsed = parseIdentity(raw);
             boolean typing = compact.matches("[0-9A-F]{0,12}");
             display.set(typing ? compact : parsed != null ? parsed.identity : "", !typing && parsed == null && !raw.trim().isEmpty());
-            save.setEnabled(parsed != null);
+            boolean storeReady = profiles() != null;
+            save.setEnabled(parsed != null && storeReady);
+            starting.setVisibility(storeReady ? View.GONE : View.VISIBLE);
+            save.setContentDescription(storeReady ? "Save and continue" : "Save and continue, starting");
             if (parsed != null && !typing) {
                 status.setText("Private backup recognised · " + (parsed.role == 1 ? "shared role" : "owner role"));
                 status.setTextColor(ui.ok);
             } else if (!typing && !raw.trim().isEmpty()) {
-                status.setText("That isn't an owner identity. Use 0–9 and A–F, or paste a private backup.");
+                status.setText("Only 0–9 and A–F.");
                 status.setTextColor(ui.danger);
             } else status.setText("");
             status.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
@@ -975,6 +1059,7 @@ public final class OnboardingScreen implements AppScreen {
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) { }
             @Override public void afterTextChanged(Editable s) { update.run(); }
         });
+        updaters.add(update);
         update.run();
     }
 
@@ -994,13 +1079,13 @@ public final class OnboardingScreen implements AppScreen {
         OwnerIdentityParser.Result parsed = parseIdentity(identityField.getText().toString());
         if (parsed == null) return;
         ScooterProfiles store = profiles();
-        if (store == null) { host.toast("Your local scooter service is starting. Try again in a moment."); return; }
+        if (store == null) return;
         if (!prepareProfileChange()) return;
         // A typed identity supersedes an owner file picked earlier in this flow but not yet
         // applied; otherwise granting Nearby devices later would import and select that file.
         File abandoned = pendingOwnerFile();
         if (abandoned.isFile() && !abandoned.delete()) {
-            host.toast("The earlier owner file could not be discarded. Try again.");
+            host.toast("Couldn't clear old file. Retry.");
             return;
         }
         // Its pending display name goes too, so the typed identity keeps the name entered here.
@@ -1021,7 +1106,6 @@ public final class OnboardingScreen implements AppScreen {
         } catch (IllegalArgumentException invalid) { host.toast(invalid.getMessage()); return; }
         identityField.setText("");
         hideKeyboard();
-        host.toast("Owner setup saved privately on this phone.");
         afterProfile();
     }
 
@@ -1035,19 +1119,9 @@ public final class OnboardingScreen implements AppScreen {
         LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(ui.dp(84), ui.dp(84));
         tp.gravity = Gravity.CENTER_HORIZONTAL; tp.topMargin = ui.dp(26);
         content.addView(tile, tp);
-        TextView body = paragraph("Volt uses Bluetooth to find and talk to your scooter. Nothing is sent to a server.", true);
+        TextView body = paragraph("Bluetooth only. No servers.", true);
         ((LinearLayout.LayoutParams) body.getLayoutParams()).topMargin = ui.dp(18);
-        LinearLayout tip = row(); tip.setGravity(Gravity.CENTER_VERTICAL);
-        tip.setPadding(ui.dp(14), ui.dp(12), ui.dp(14), ui.dp(12));
-        tip.setBackground(ui.shape(ui.surface, 14, 0));
-        tip.addView(ui.icon("info", 20, ui.accent), new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)));
-        TextView tipText = ui.text("", 14, false);
-        tipText.setText(rich("Android asks next. Choose **Allow**.")); tipText.setTextColor(ui.muted);
-        LinearLayout.LayoutParams ttp = new LinearLayout.LayoutParams(0, -2, 1); ttp.leftMargin = ui.dp(12);
-        tip.addView(tipText, ttp);
-        LinearLayout.LayoutParams tipp = new LinearLayout.LayoutParams(-1, -2); tipp.topMargin = ui.dp(18);
-        content.addView(tip, tipp);
-        primary("Continue", () -> {
+        primary("Allow", () -> {
             if (hasPermission()) { toConnect(); return; }
             prefs.edit().putBoolean(KEY_ASKED_NEARBY, true).apply();
             host.requestBluetooth();
@@ -1066,7 +1140,7 @@ public final class OnboardingScreen implements AppScreen {
         list.setBackground(ui.shape(ui.surface, 20, 0));
         list.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(4));
         String[] labels = {"Found your scooter", "Bluetooth connected", "Checking owner identity",
-                "Remembering this scooter for automatic connection"};
+                "Saving this scooter"};
         StateDot[] dots = new StateDot[labels.length];
         TextView[] texts = new TextView[labels.length];
         LinearLayout[] rows = new LinearLayout[labels.length];
@@ -1084,8 +1158,26 @@ public final class OnboardingScreen implements AppScreen {
         }
         LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(-1, -2); lp.topMargin = ui.dp(18);
         content.addView(list, lp);
-        TextView status = fine("");
-        TextView connect = primary("Connect", this::connectNow);
+        // Status line: a spinner while the service starts, otherwise only problems are shown;
+        // the checklist above already shows progress.
+        LinearLayout statusRow = row(); statusRow.setGravity(Gravity.CENTER_VERTICAL);
+        android.widget.ProgressBar starting = new android.widget.ProgressBar(host.activity());
+        starting.setIndeterminate(true);
+        starting.setIndeterminateTintList(ColorStateList.valueOf(ui.accent));
+        starting.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        statusRow.addView(starting, new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16)));
+        TextView status = ui.text("", 12, false);
+        status.setTextColor(ui.muted); status.setLineSpacing(ui.dp(2), 1);
+        status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        LinearLayout.LayoutParams stp = new LinearLayout.LayoutParams(0, -2, 1); stp.leftMargin = ui.dp(8);
+        statusRow.addView(status, stp);
+        LinearLayout.LayoutParams srp = new LinearLayout.LayoutParams(-1, -2); srp.topMargin = ui.dp(14);
+        content.addView(statusRow, srp);
+        TextView connect = primary("Connect", () -> {
+            // Without Nearby devices the service can't start, so the main button asks for it.
+            if (host.service() == null && !hasPermission()) { host.requestBluetooth(); return; }
+            connectNow();
+        });
         TextView cancel = footerLink("Cancel", this::stopConnecting);
         updaters.add(() -> {
             ScooterService service = host.service();
@@ -1107,18 +1199,26 @@ public final class OnboardingScreen implements AppScreen {
                 texts[i].setTypeface(mode == StateDot.ACTIVE ? ui.semibold() : ui.regular());
                 rows[i].setContentDescription(label + ", " + (mode == StateDot.DONE ? "done" : mode == StateDot.ACTIVE ? "in progress" : "not yet"));
             }
+            boolean needsNearby = service == null && !hasPermission();
+            boolean startingService = service == null && !needsNearby;
             String message;
-            if (service == null) message = hasPermission() ? "Starting the local scooter service…" : "Allow Nearby devices to connect.";
+            if (service == null) message = needsNearby ? "" : "Starting…";
             else if (!configured || pendingOwnerFile().isFile()) message = "Waiting for your owner profile…";
             else if (state == BleController.State.SCANNING)
-                message = service.ble.discoveries().isEmpty() ? "Searching nearby… Keep the scooter powered on and close NAVEE."
-                        : "Choose your scooter in the list.";
-            else message = service.ble.message();
+                message = ""; // The active checklist row already shows that discovery is in progress.
+            else if ((state == BleController.State.DISCONNECTED || state == BleController.State.WAITING)
+                    && prefs.getBoolean(KEY_TRIED, false)) {
+                // After an attempt, the controller's message is the problem to show (scan timeout, failure).
+                String problem = service.ble.message();
+                boolean nothingFound = problem != null && problem.startsWith("No scooter found");
+                message = nothingFound ? "Is it on? Is NAVEE closed?" : problem;
+            } else message = "";
             status.setText(message == null ? "" : message);
-            status.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
-            connect.setText(prefs.getBoolean(KEY_TRIED, false) ? "Try again" : "Connect");
+            starting.setVisibility(startingService ? View.VISIBLE : View.GONE);
+            statusRow.setVisibility(status.getText().length() == 0 ? View.GONE : View.VISIBLE);
+            connect.setText(needsNearby ? "Allow Nearby devices" : prefs.getBoolean(KEY_TRIED, false) ? "Try again" : "Connect");
             connect.setContentDescription(connect.getText());
-            connect.setEnabled(service != null && configured && !pendingOwnerFile().isFile());
+            connect.setEnabled(needsNearby || (service != null && configured && !pendingOwnerFile().isFile()));
             connect.setVisibility(busy || waitingToStart ? View.GONE : View.VISIBLE);
             cancel.setVisibility(busy || waitingToStart ? View.VISIBLE : View.GONE);
         });
@@ -1127,7 +1227,7 @@ public final class OnboardingScreen implements AppScreen {
     private void connectNow() {
         ScooterService service = host.service();
         ScooterProfiles.Profile active = service == null ? null : service.profiles.active();
-        if (active == null || !active.configured()) { host.toast("Add your owner identity first."); return; }
+        if (active == null || !active.configured()) return;
         prefs.edit().putBoolean(KEY_TRIED, true).remove(KEY_CONNECT).apply();
         host.connect();
         refresh();
@@ -1140,13 +1240,35 @@ public final class OnboardingScreen implements AppScreen {
         content.addView(gap, new LinearLayout.LayoutParams(-1, ui.dp(18)));
         heading("You're connected", true, true);
         ScooterProfiles.Profile p = onboardingProfile();
-        paragraph((p == null ? "Your scooter" : p.name) + " is ready. It will connect automatically next time.", true);
+        paragraph((p == null ? "Your scooter" : p.name) + " is ready.", true);
         LinearLayout group = column();
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(18);
         content.addView(group, gp);
-        group.addView(tick("done0", "Keep a private backup", "More › My scooters › Save private owner backup"));
-        group.addView(tick("done1", "Turn off USB debugging", "You don't need the computer any more"));
+        TextView backup = ui.secondaryButton("Save private owner backup", this::saveOwnerBackup);
+        ui.decorate(backup, "shield");
+        backup.setMinHeight(ui.dp(54));
+        backup.setContentDescription("Save private owner backup. The file unlocks your scooter; keep it private.");
+        LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2); bp.bottomMargin = ui.dp(10);
+        if (p != null && p.configured()) group.addView(backup, bp);
+        // The closing reminder depends on what this setup turned on.
+        if (isComputerCapture()) group.addView(tick("done1", "Turn off USB debugging", "You don't need the computer any more"));
+        else if (SHIZUKU.equals(path())) {
+            TextView revoke = ui.secondaryButton("Revoke Shizuku", this::openShizuku);
+            ui.decorate(revoke, "lock");
+            revoke.setMinHeight(ui.dp(54));
+            revoke.setContentDescription("Revoke Shizuku. Opens Shizuku to remove Volt's access");
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2); rp.bottomMargin = ui.dp(10);
+            group.addView(revoke, rp);
+        }
         primary("Go to Home", () -> finish(false));
+    }
+
+    /** Same private file as More › My scooters › Save private owner backup, saved straight away. */
+    private void saveOwnerBackup() {
+        ScooterProfiles.Profile p = onboardingProfile();
+        if (p == null || !p.configured()) return;
+        String name = p.name.replaceAll("[^a-zA-Z0-9._-]+", "-");
+        host.saveText("navee-owner-" + name + ".json", "application/json", ScooterProfiles.privateBackup(p));
     }
 
     // ---------------------------------------------------------------- troubleshooting sheet
@@ -1192,10 +1314,10 @@ public final class OnboardingScreen implements AppScreen {
         group.setBackground(ui.shape(ui.raised, 18, 0));
         group.setPadding(ui.dp(14), ui.dp(2), ui.dp(14), ui.dp(2));
         String[][] fixes = {
-                {"screen", "Phone not listed as device", "Approve the USB prompt on the phone; try a data cable, not a charging-only one"},
-                {"scooter", "NAVEE didn't connect", "Make sure your own account and scooter connect in NAVEE on their own first"},
-                {"clock", "Helper timed out", "Close other scooter apps, power on the scooter, run the helper again"},
-                {"file", "File already exists", "Keep it, and add --output with a new filename"}};
+                {"screen", "Phone not listed as device", "Approve prompt \u00B7 use data cable"},
+                {"scooter", "NAVEE didn't connect", "Check NAVEE connects alone"},
+                {"clock", "Helper timed out", "Close other apps, rerun"},
+                {"file", "File already exists", "Add --output newname"}};
         for (int i = 0; i < fixes.length; i++) {
             if (i > 0) { View line = new View(host.activity()); line.setBackgroundColor(ui.outline); group.addView(line, new LinearLayout.LayoutParams(-1, ui.dp(1))); }
             LinearLayout item = row(); item.setGravity(Gravity.CENTER_VERTICAL); item.setPadding(0, ui.dp(12), 0, ui.dp(12));
@@ -1264,8 +1386,11 @@ public final class OnboardingScreen implements AppScreen {
         return Color.rgb(r, g, b);
     }
 
-    /** Selectable path card: red outline and a filled radio ring when chosen. */
-    private View option(String icon, String heading, String detail, boolean on, Runnable action) {
+    /**
+     * Selectable path card: red outline and a filled radio ring when chosen. An optional status chip
+     * (e.g. Preview) sits beside the title; a disabled card is dimmed and explains itself on tap.
+     */
+    private View option(String icon, String heading, String detail, String chip, boolean on, boolean disabled, Runnable action) {
         LinearLayout card = row(); card.setGravity(Gravity.CENTER_VERTICAL);
         card.setPadding(ui.dp(14), ui.dp(14), ui.dp(14), ui.dp(14));
         card.setMinimumHeight(ui.dp(76));
@@ -1280,15 +1405,34 @@ public final class OnboardingScreen implements AppScreen {
         card.addView(square, new LinearLayout.LayoutParams(ui.dp(46), ui.dp(46)));
         LinearLayout words = column();
         TextView name = ui.text(heading, 16, true);
-        words.addView(name);
-        TextView sub = ui.caption(detail); sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
-        sub.setPadding(0, ui.dp(4), 0, 0); words.addView(sub);
+        if (chip == null) words.addView(name);
+        else {
+            LinearLayout top = row(); top.setGravity(Gravity.CENTER_VERTICAL);
+            top.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView tag = ui.text(chip, 11.5f, false);
+            tag.setTypeface(ui.semibold()); tag.setTextColor(ui.orange);
+            tag.setBackground(ui.shape(Ui.withAlpha(ui.orange, ui.dark ? 40 : 30), 100, 0));
+            tag.setPadding(ui.dp(9), ui.dp(3), ui.dp(9), ui.dp(3));
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2); tp.leftMargin = ui.dp(8);
+            top.addView(tag, tp);
+            words.addView(top);
+        }
+        if (detail != null) {
+            TextView sub = ui.caption(detail); sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
+            sub.setPadding(0, ui.dp(4), 0, 0); words.addView(sub);
+        }
         LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1);
         wp.leftMargin = ui.dp(14); wp.rightMargin = ui.dp(10);
         card.addView(words, wp);
         card.addView(new Radio(on), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
+        if (disabled) {
+            // Still focusable and tappable so it can say why; dimmed so it reads as unavailable.
+            square.setAlpha(.45f); words.setAlpha(.45f);
+            card.getChildAt(card.getChildCount() - 1).setAlpha(.45f);
+        }
         card.setFocusable(true); card.setClickable(true);
-        card.setContentDescription(heading + ". " + detail);
+        card.setContentDescription(heading + (chip == null ? "" : ", " + chip) + (detail == null ? "" : ". " + detail)
+                + (disabled ? ". Needs Android 11 or newer" : ""));
         card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -1312,8 +1456,10 @@ public final class OnboardingScreen implements AppScreen {
         LinearLayout words = column();
         TextView name = ui.text(heading, 15.5f, false);
         words.addView(name);
-        TextView sub = ui.caption(detail); sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
-        sub.setPadding(0, ui.dp(3), 0, 0); words.addView(sub);
+        if (detail != null) {
+            TextView sub = ui.caption(detail); sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
+            sub.setPadding(0, ui.dp(3), 0, 0); words.addView(sub);
+        }
         LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1); wp.leftMargin = ui.dp(14);
         card.addView(words, wp);
         Runnable style = () -> {
@@ -1323,7 +1469,7 @@ public final class OnboardingScreen implements AppScreen {
             if (Build.VERSION.SDK_INT >= 30) card.setStateDescription(on ? "Checked" : "Not checked");
         };
         card.setFocusable(true); card.setClickable(true);
-        card.setContentDescription(heading + ". " + detail);
+        card.setContentDescription(detail == null ? heading : heading + ". " + detail);
         card.setAccessibilityDelegate(new View.AccessibilityDelegate() {
             @Override public void onInitializeAccessibilityNodeInfo(View host, AccessibilityNodeInfo info) {
                 super.onInitializeAccessibilityNodeInfo(host, info);
@@ -1375,13 +1521,15 @@ public final class OnboardingScreen implements AppScreen {
         card.addView(icon, new LinearLayout.LayoutParams(ui.dp(44), ui.dp(50)));
         LinearLayout words = column();
         words.addView(ui.text(heading, 15.5f, true));
-        TextView sub = ui.caption(detail); sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
-        sub.setPadding(0, ui.dp(3), 0, 0); words.addView(sub);
+        if (detail != null) {
+            TextView sub = ui.caption(detail); sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
+            sub.setPadding(0, ui.dp(3), 0, 0); words.addView(sub);
+        }
         LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1); wp.leftMargin = ui.dp(14);
         card.addView(words, wp);
         if (ok) card.addView(ui.icon("check", 22, ui.ok), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
         card.setFocusable(true);
-        card.setContentDescription(heading + ". " + detail);
+        card.setContentDescription(detail == null ? heading : heading + ". " + detail);
         return card;
     }
 
@@ -1670,19 +1818,14 @@ public final class OnboardingScreen implements AppScreen {
         }
     }
 
-    /** Blue checkbox inside the mock system prompt. */
+    /** Empty checkbox inside the mock system prompt: Always allow stays unticked. */
     private final class MockCheck extends View {
         private final int color; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
         MockCheck(int color) { super(host.activity()); this.color = color; setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); }
         @Override protected void onDraw(Canvas canvas) {
-            float s = Math.min(getWidth(), getHeight());
-            paint.setStyle(Paint.Style.FILL); paint.setColor(color);
-            canvas.drawRoundRect(new RectF(0, 0, s, s), ui.dp(4), ui.dp(4), paint);
-            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2.4f)); paint.setColor(Color.WHITE);
-            paint.setStrokeCap(Paint.Cap.ROUND); paint.setStrokeJoin(Paint.Join.ROUND);
-            Path check = new Path();
-            check.moveTo(s * 0.24f, s * 0.52f); check.lineTo(s * 0.42f, s * 0.7f); check.lineTo(s * 0.77f, s * 0.32f);
-            canvas.drawPath(check, paint);
+            float s = Math.min(getWidth(), getHeight()), stroke = ui.dp(2);
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(stroke); paint.setColor(color);
+            canvas.drawRoundRect(new RectF(stroke / 2, stroke / 2, s - stroke / 2, s - stroke / 2), ui.dp(4), ui.dp(4), paint);
         }
     }
 
@@ -1701,22 +1844,6 @@ public final class OnboardingScreen implements AppScreen {
             p.moveTo(9, 13); p.lineTo(16, 13); p.moveTo(9, 17); p.lineTo(14, 17);
             canvas.drawPath(p, paint);
             canvas.restore();
-        }
-    }
-
-    /** Green disc with a dark check for "Owner identity found". */
-    private final class Badge extends View {
-        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        Badge() { super(host.activity()); setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); }
-        @Override protected void onDraw(Canvas canvas) {
-            float s = Math.min(getWidth(), getHeight()), c = s / 2f;
-            paint.setStyle(Paint.Style.FILL); paint.setColor(ui.ok); canvas.drawCircle(c, c, c, paint);
-            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2.6f));
-            paint.setStrokeCap(Paint.Cap.ROUND); paint.setStrokeJoin(Paint.Join.ROUND);
-            paint.setColor(ui.dark ? ui.bg : ui.onAccent);
-            Path check = new Path();
-            check.moveTo(s * 0.3f, s * 0.52f); check.lineTo(s * 0.44f, s * 0.66f); check.lineTo(s * 0.71f, s * 0.37f);
-            canvas.drawPath(check, paint);
         }
     }
 

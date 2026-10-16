@@ -167,7 +167,7 @@ public final class LiveStatsValidation extends Instrumentation {
                 View done = findText(sheet, "Done");
                 require(done instanceof android.widget.TextView && ((android.widget.TextView)done).getTypeface().equals(activity.ui().semibold()),
                         "Reorder action does not use app typography");
-                chartHandle[0] = findDescription(sheet, "Drag to reorder Battery power (signed) chart");
+                chartHandle[0] = findDescription(sheet, "Drag to reorder Battery power chart");
                 require(chartHandle[0] != null && chartHandle[0].getWidth() >= activity.ui().dp(48) && chartHandle[0].getHeight() >= activity.ui().dp(48),
                         "Mixed reorder handle missing or under 48 dp");
                 // A gesture Android cancels after the chart has crossed the reading must not count as a drop.
@@ -186,7 +186,7 @@ public final class LiveStatsValidation extends Instrumentation {
             main(() -> {
                 View row = (View)chartHandle[0].getParent();
                 require(row.getTranslationY() == 0 && row.getScaleX() == 1 && row.getTranslationZ() == 0, "Dropped row did not settle in place");
-                require("Battery power (signed) chart".contentEquals(row.getContentDescription()), "Reorder row is not named for screen readers");
+                require("Battery power chart".contentEquals(row.getContentDescription()), "Reorder row is not named for screen readers");
                 require(row.performAccessibilityAction(reorderAction(row, "Move down"), null), "Move down action missing");
             });
             awaitOrder("reading:voltage_v", "Accessible move down not saved");

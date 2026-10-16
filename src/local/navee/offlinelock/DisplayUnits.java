@@ -11,7 +11,7 @@ public final class DisplayUnits {
     private DisplayUnits() {}
 
     public static String featureValue(ScooterCommands.Feature feature, int value, String units) {
-        if (!"km/h".equals(feature.unit)) return feature.valueLabel(value);
+        if (!"km/h".equals(feature.unit) || (value == 0 && feature.zeroIsOff())) return feature.valueLabel(value);
         String metric = value + " km/h";
         String imperial = String.format(Locale.US, "%.1f mph", value / KM_PER_MILE);
         return choose(metric, imperial, units);

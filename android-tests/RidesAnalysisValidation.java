@@ -30,7 +30,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             main(() -> { ScooterProfiles profiles = new ScooterProfiles(context); profiles.create("Synthetic ride validation", "000000000000", 0); });
             activity = (MainActivity) startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             long until = SystemClock.uptimeMillis() + 8000; while (activity.service() == null && SystemClock.uptimeMillis() < until) SystemClock.sleep(40);
-            check(activity.service() != null, "Service ready"); mapPreferences(); seed();
+            check(activity.service() != null, "Service ready"); main(this::verifyBoundedHatching); mapPreferences(); seed();
             main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen) field(activity, "screen"); }); settle();
             verifyRideNaming();
             main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
@@ -56,17 +56,19 @@ public final class RidesAnalysisValidation extends Instrumentation {
             View full = root(); RideChartView chart = (RideChartView)find(full, RideChartView.class);
             awaitFull(ancestor(chart, "ChartPanel"));
             check(chart != null && chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph has usable height");
+            int expandedChartHeight = chart.getHeight();
             main(() -> { ViewGroup choices = (ViewGroup)field(ancestor(chart,"ChartPanel"),"choices");
                 ScrollView overlays = (ScrollView)choices.getParent().getParent(); View last = choices.getChildAt(choices.getChildCount()-1);
                 overlays.scrollTo(0, Math.max(0,last.getBottom()-overlays.getHeight()));
                 check(last.getGlobalVisibleRect(new android.graphics.Rect()), "Last fullscreen overlay remains reachable in the scrolling controls");
-                overlays.scrollTo(0,((View)choices.getParent()).getHeight());
-                check(byDescription(full,"Ride chart controls and limits").getGlobalVisibleRect(new android.graphics.Rect()),"Fullscreen helper remains reachable in the bounded controls"); overlays.scrollTo(0,0);
+                overlays.scrollTo(0,0);
+                check(text(full,"Ride chart controls and limits")==null&&byDescription(full,"Ride chart controls and limits")==null,"Gesture tutorial text is gone; the chart starts with a cursor instead");
             });
             main(() -> verifyZoomButtons(full));
             check(context.getSharedPreferences("app_settings", 0).getStringSet("ride_chart_series", Collections.emptySet()).size() == 5, "Series selection persists immediately");
             main(() -> verifyInspection(chart)); settle();
             check(chart.getHeight() >= activity.ui().dp(160), "Fullscreen graph retains usable height after inspection labels appear: actual="+chart.getHeight()+", measured="+chart.getMeasuredHeight()+", controls="+((ScrollView)field(ancestor(chart,"ChartPanel"),"overlayScroll")).getHeight()+", limit="+field(ancestor(chart,"ChartPanel"),"overlayLimit"));
+            check(chart.getHeight() == expandedChartHeight, "Scrubbing keeps the fullscreen graph height stable across inspection layout passes");
             screenshot("expanded-inspection");
             double before = (double)field(chart, "to") - (double)field(chart, "from"); main(() -> chart.zoomBy(2)); settle();
             check((double)field(chart, "to") - (double)field(chart, "from") < before, "Fullscreen zoom changes time viewport");
@@ -120,14 +122,16 @@ public final class RidesAnalysisValidation extends Instrumentation {
     void verifyExpandedMap(View sourceRoot) throws Exception {
         RouteMapView inline = (RouteMapView)find(sourceRoot, RouteMapView.class);
         int mapCount = ((List<?>)field(screen,"maps")).size();
+        final int[] preselected = {-1};
         main(() -> {
             text(sourceRoot,"Grade").performClick(); inline.zoomBy(1);
+            preselected[0] = (int)field(inline,"selected");
             long now = SystemClock.uptimeMillis(); float x = inline.getWidth()/2f, y = inline.getHeight()/2f;
             touch(inline,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(inline,now,30,MotionEvent.ACTION_UP,new float[]{x,y});
         }); settle();
         double originalZoom = (double)field(inline,"zoom"), originalCenter = (double)field(inline,"centerX");
         int originalPoint = (int)field(inline,"selected");
-        check(originalPoint >= 0, "Inline map point selected before expanding");
+        check(originalPoint >= 0 && originalPoint != preselected[0], "Inline map tap selected the tapped point before expanding");
         View expand = byDescription(sourceRoot,"Expand route map");
         check(expand != null && byDescription(sourceRoot,"Fit route") != null, "Expansion and route centering have separate controls");
         main(expand::performClick); settle();
@@ -214,8 +218,8 @@ public final class RidesAnalysisValidation extends Instrumentation {
         main(()->{setField(service,"phoneSavingCount",1);invoke(screen,"showDetails",new Class[]{String.class},longId);});settle();
         Object retriedPanel=ancestor(find(root(),RideChartView.class),"ChartPanel");main(()->invoke(retriedPanel,"expand",new Class[0]));settle();
         Object expanded=ancestor(find(root(),RideChartView.class),"ChartPanel");TextView status=(TextView)field(expanded,"loadStatus");
-        check("Preview · Retry".contentEquals(status.getText())&&status.isEnabled(),"Unavailable full source is visibly identified as preview with Retry");
-        check(((RideChartView)field(expanded,"chart")).getHeight()>=activity.ui().dp(160),"Preview/Retry header preserves usable graph height");
+        check("Saving…".contentEquals(status.getText())&&!status.isEnabled(),"Pending sensor save shows a disabled Saving… pill instead of a toast");
+        check(((RideChartView)field(expanded,"chart")).getHeight()>=activity.ui().dp(160),"Saving header preserves usable graph height");
         // A null captured store simulates an unexpected worker RuntimeException without
         // exhausting emulator memory or adding a production-only test hook.
         main(()->{setField(service,"phoneSavingCount",0);RideStore saved=service.rides;try{service.rides=null;status.performClick();}finally{service.rides=saved;}});
@@ -257,11 +261,11 @@ public final class RidesAnalysisValidation extends Instrumentation {
     }
     void verifySavingAndEmptyPhone() throws Exception{
         main(()->{for(Object dialog:new ArrayList<>((List<?>)field(screen,"dialogs")))((AlertDialog)dialog).dismiss();setField(activity.service(),"phoneSavingCount",1);invoke(screen,"showDetails",new Class[]{String.class},id);});settle();
-        View pending=root();check(text(pending,"Finishing the sensor files…")!=null&&find(pending,RouteMapView.class)==null,"Open ride explains sensor save and reserves map space");
+        View pending=root();check(byDescription(pending,"Finishing the sensor files")!=null&&find(pending,RouteMapView.class)==null,"Open ride shows a map skeleton while the sensor save finishes");
         main(()->{setField(activity.service(),"phoneSavingCount",0);screen.refresh();});
         long until=SystemClock.uptimeMillis()+5000;while(find(pending,RouteMapView.class)==null&&SystemClock.uptimeMillis()<until)settle();
         check(root()==pending&&find(pending,RouteMapView.class)!=null,"Already-open compact dialog gains map after sensor save");
-        check(text(pending,"Finishing the sensor files…")==null&&text(pending,"Loading route…")==null,"Completed load removes placeholder");
+        check(byDescription(pending,"Finishing the sensor files")==null&&byDescription(pending,"Loading route")==null,"Completed load removes placeholder");
         main(()->((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss());
         ScooterService service=activity.service();String legacy=service.rides.start("fixture","Scooter only",System.currentTimeMillis(),900000);service.rides.stop(System.currentTimeMillis()+1000,901000);
         for(int attempt=0;attempt<2;attempt++){
@@ -299,12 +303,29 @@ public final class RidesAnalysisValidation extends Instrumentation {
         check(((Number)field(chart,"axisScroll")).doubleValue() > oldScroll, "Color scale rail scrolls independently");
         check(plot.width() > chart.getWidth() * .55, "Plot retains most of the screen with five axes selected");
     }
+    /** Zooming a long low-speed interval costs only the visible number of hatch strokes. */
+    void verifyBoundedHatching() {
+        RideChartView chart = new RideChartView(activity.ui());
+        ((android.graphics.RectF)field(chart, "plot")).set(0, 0, activity.ui().dp(300), activity.ui().dp(180));
+        setField(chart, "from", 900000d); setField(chart, "to", 901000d);
+        @SuppressWarnings("unchecked") List<double[]> spans = (List<double[]>)field(chart, "hatches");
+        spans.add(new double[] {0, 1800000});
+        final int[] strokes = {0};
+        android.graphics.Canvas canvas = new android.graphics.Canvas() {
+            @Override public void drawLine(float x1, float y1, float x2, float y2, android.graphics.Paint paint) {
+                if (++strokes[0] > 100) throw new AssertionError("Offscreen hatching exceeded viewport budget");
+            }
+        };
+        invoke(chart, "drawHatches", new Class[] {android.graphics.Canvas.class}, canvas);
+        check(strokes[0] > 0 && strokes[0] <= 100, "Thirty-minute interval zoomed to one second draws only visible hatch strokes");
+    }
     void verifyInspection(RideChartView chart) {
         chart.reset(); android.graphics.RectF plot = (android.graphics.RectF)field(chart, "plot");
         long start = SystemClock.uptimeMillis(); float x = plot.left + plot.width() * .31f, y = plot.centerY();
         double originalFrom = (double)field(chart,"from"), originalTo = (double)field(chart,"to");
+        double preselected = (double)field(chart,"inspectedTime");
         touch(chart,start,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(chart,start,40,MotionEvent.ACTION_UP,new float[]{x,y});
-        double first = (double)field(chart,"inspectedTime"); check(Double.isFinite(first), "Tap selects a raw reading timestamp");
+        double first = (double)field(chart,"inspectedTime"); check(Double.isFinite(first) && first != preselected, "Tap selects the tapped raw reading timestamp");
         Object panel = ancestor(chart,"ChartPanel"); ViewGroup readout = (ViewGroup)field(panel,"inspection");
         List<RideChartData.Series> selected = (List<RideChartData.Series>)field(chart,"series");
         check(readout.getChildCount() == selected.size(), "Every selected series gets an inspection value");
@@ -332,57 +353,61 @@ public final class RidesAnalysisValidation extends Instrumentation {
     void mapPreferences() throws Exception {
         SharedPreferences settings = activity.service().settings;
         AtomicReference<AlertDialog> dialog = new AtomicReference<>(), prompt = new AtomicReference<>();
-        AtomicReference<Switch> toggle = new AtomicReference<>();
-        main(() -> { settings.edit().remove("map_basemap_enabled").remove("map_basemap_explained").commit(); dialog.set(MapPreferences.show(activity)); }); settle();
+        AtomicReference<View> content = new AtomicReference<>();
+        main(() -> { settings.edit().remove("map_basemap_enabled").remove("map_basemap_explained").remove("map_tile_url").commit(); dialog.set(MapPreferences.show(activity)); }); settle();
         main(() -> {
-            View content = dialog.get().getWindow().getDecorView(); toggle.set(basemapSwitch(content));
-            check(!toggle.get().isChecked(), "Fresh basemaps default off without changing an existing preference");
+            content.set(dialog.get().getWindow().getDecorView());
+            check(text(content.get(), "Off").isSelected(), "Fresh basemaps default off without changing an existing preference");
             check(!settings.contains("map_tile_url"), "Fresh provider uses USGS default");
-            text(content, "OpenStreetMap").performClick(); check(settings.getString("map_tile_url", "").contains("openstreetmap.org"), "Provider selection saved");
-            text(content, "USGS").performClick(); check(settings.getString("map_tile_url", "").contains("nationalmap.gov"), "USGS restored");
-            toggle.get().performClick(); prompt.set(basemapPrompt(toggle.get()));
-            check(prompt.get() != null && prompt.get().isShowing() && text(prompt.get().getWindow().getDecorView(), "Show online map?") != null, "First enable opens the privacy explanation");
-            check(!toggle.get().isChecked() && !settings.getBoolean("map_basemap_enabled", false), "Consent prompt does not enable tiles before approval");
+            check(text(content.get(), "Edit custom provider").getVisibility() != View.VISIBLE, "Custom provider editor hidden unless Custom is picked");
+            int offTop = text(content.get(), "Off").getTop(), offHeight = text(content.get(), "Off").getHeight();
+            for (String label : new String[]{"USGS (US)", "OSM", "Custom"}) check(text(content.get(), label).getTop() == offTop && text(content.get(), label).getHeight() == offHeight, "Map provider choices share one centred row height: " + label);
+            text(content.get(), "OSM").performClick(); prompt.set(providerPrompt(content.get()));
+            check(settings.getString("map_tile_url", "").contains("openstreetmap.org"), "Provider selection saved");
+            check(prompt.get() != null && prompt.get().isShowing() && text(prompt.get().getWindow().getDecorView(), "Show online map?") != null, "First provider pick opens the privacy explanation");
+            check(!settings.getBoolean("map_basemap_enabled", false), "Consent prompt does not enable tiles before approval");
         }); settle(); screenshot("basemap-first-enable-consent");
         main(() -> prompt.get().getButton(AlertDialog.BUTTON_NEGATIVE).performClick()); settle();
         main(() -> {
-            check(!settings.getBoolean("map_basemap_explained", false) && !toggle.get().isChecked(), "Cancel neither acknowledges nor enables basemaps");
-            toggle.get().performClick(); basemapPrompt(toggle.get()).onBackPressed();
+            check(!settings.getBoolean("map_basemap_explained", false) && text(content.get(), "Off").isSelected(), "Cancel neither acknowledges nor enables basemaps");
+            text(content.get(), "USGS (US)").performClick(); check(settings.getString("map_tile_url", "").contains("nationalmap.gov"), "USGS restored");
+            providerPrompt(content.get()).onBackPressed();
         }); settle();
         main(() -> {
-            check(!settings.getBoolean("map_basemap_explained", false) && !toggle.get().isChecked(), "Back neither acknowledges nor enables basemaps");
-            toggle.get().performClick(); prompt.set(basemapPrompt(toggle.get())); dialog.get().dismiss();
+            check(!settings.getBoolean("map_basemap_explained", false) && text(content.get(), "Off").isSelected(), "Back neither acknowledges nor enables basemaps");
+            text(content.get(), "USGS (US)").performClick(); prompt.set(providerPrompt(content.get())); dialog.get().dismiss();
         }); settle();
         main(() -> {
             check(!prompt.get().isShowing() && !settings.getBoolean("map_basemap_explained", false), "Closing settings dismisses its unapproved explanation without acknowledgement");
             dialog.set(MapPreferences.show(activity));
         }); settle();
         main(() -> {
-            toggle.set(basemapSwitch(dialog.get().getWindow().getDecorView()));
-            check(toggle.get().isAttachedToWindow(), "Reopened settings control attaches before consent input");
-            toggle.get().performClick(); basemapPrompt(toggle.get()).getButton(AlertDialog.BUTTON_POSITIVE).performClick();
+            content.set(dialog.get().getWindow().getDecorView());
+            check(text(content.get(), "USGS (US)").isAttachedToWindow(), "Reopened settings control attaches before consent input");
+            text(content.get(), "USGS (US)").performClick(); providerPrompt(content.get()).getButton(AlertDialog.BUTTON_POSITIVE).performClick();
         }); settle();
         main(() -> {
-            check(toggle.get().isChecked() && settings.getBoolean("map_basemap_enabled", false) && settings.getBoolean("map_basemap_explained", false), "Approval saves both the enabled state and one-time explanation acknowledgement");
+            check(text(content.get(), "USGS (US)").isSelected() && settings.getBoolean("map_basemap_enabled", false) && settings.getBoolean("map_basemap_explained", false), "Approval saves both the enabled state and one-time explanation acknowledgement");
             dialog.get().dismiss(); dialog.set(MapPreferences.show(activity));
         }); settle();
         main(() -> {
-            toggle.set(basemapSwitch(dialog.get().getWindow().getDecorView()));
-            check(toggle.get().isChecked() && basemapPrompt(toggle.get()) == null, "Enabled state survives reopening preferences without another prompt");
-            toggle.get().performClick(); check(!settings.getBoolean("map_basemap_enabled", true), "An acknowledged basemap can be turned off directly");
-            toggle.get().performClick(); check(toggle.get().isChecked() && basemapPrompt(toggle.get()) == null, "Later enables use the remembered acknowledgement");
+            content.set(dialog.get().getWindow().getDecorView());
+            check(text(content.get(), "USGS (US)").isSelected() && providerPrompt(content.get()) == null, "Enabled state survives reopening preferences without another prompt");
+            text(content.get(), "Off").performClick(); check(!settings.getBoolean("map_basemap_enabled", true), "An acknowledged basemap can be turned off directly");
+            text(content.get(), "OSM").performClick(); check(text(content.get(), "OSM").isSelected() && settings.getBoolean("map_basemap_enabled", false) && providerPrompt(content.get()) == null, "Later enables use the remembered acknowledgement");
             dialog.get().dismiss();
             settings.edit().putBoolean("map_basemap_enabled", true).remove("map_basemap_explained").commit();
             dialog.set(MapPreferences.show(activity));
         }); settle();
         main(() -> {
-            toggle.set(basemapSwitch(dialog.get().getWindow().getDecorView()));
-            check(toggle.get().isChecked() && basemapPrompt(toggle.get()) == null, "Previously enabled installations remain enabled without a surprise prompt");
+            content.set(dialog.get().getWindow().getDecorView());
+            check(!text(content.get(), "Off").isSelected() && providerPrompt(content.get()) == null, "Previously enabled installations remain enabled without a surprise prompt");
             dialog.get().dismiss();
             // Independent route fixture below starts with unapproved, disabled basemaps.
             settings.edit().putBoolean("map_basemap_enabled", false).remove("map_basemap_explained").commit();
         }); settle();
     }
+    AlertDialog providerPrompt(View content) { return (AlertDialog)field(ancestor(text(content, "Off"), "ProviderControl"), "prompt"); }
     void verifyBasemapControls(View sourceRoot) throws Exception {
         SharedPreferences settings = activity.service().settings;
         RouteMapView inline = (RouteMapView)find(sourceRoot, RouteMapView.class);
@@ -396,7 +421,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
         main(() -> {
             inlineToggle.performClick(); AlertDialog prompt = basemapPrompt(inlineToggle);
             check(prompt != null && prompt.isShowing() && !inlineToggle.isChecked() && !(boolean)field(inline, "streets"), "Inline enable waits for privacy approval");
-            check(text(prompt.getWindow().getDecorView(), "Your map provider receives your IP address and the map area you view. Ride recordings stay on this phone. You can switch the basemap off at any time.") != null,
+            check(text(prompt.getWindow().getDecorView(), "Provider sees your IP and map area. Rides stay on phone.") != null,
                     "Explanation names the provider's IP and viewed-area exposure without claiming routes upload");
             View control = (View)inlineToggle.getParent(); ViewGroup parent = (ViewGroup)control.getParent();
             int index = parent.indexOfChild(control); ViewGroup.LayoutParams params = control.getLayoutParams(); parent.removeView(control);
@@ -424,12 +449,12 @@ public final class RidesAnalysisValidation extends Instrumentation {
         AtomicReference<AlertDialog> preferences = new AtomicReference<>();
         main(() -> preferences.set(MapPreferences.show(activity))); settle();
         main(() -> {
-            Switch toggle = basemapSwitch(preferences.get().getWindow().getDecorView());
-            check(!toggle.isChecked(), "App preferences reflects the map's disabled state"); toggle.performClick();
-            check(basemapPrompt(toggle) == null, "Shared approval is reused from app preferences");
+            View settingsContent = preferences.get().getWindow().getDecorView();
+            check(text(settingsContent, "Off").isSelected(), "App preferences reflects the map's disabled state"); text(settingsContent, "USGS (US)").performClick();
+            check(providerPrompt(settingsContent) == null, "Shared approval is reused from app preferences");
         }); settle();
         check(inlineToggle.isChecked() && expandedToggle.isChecked() && (boolean)field(inline, "streets") && (boolean)field(expanded, "streets"), "App preferences enable synchronizes inline and expanded maps without recreation");
-        main(() -> { basemapSwitch(preferences.get().getWindow().getDecorView()).performClick(); preferences.get().dismiss(); byDescription(full, "Close expanded route map").performClick(); }); settle();
+        main(() -> { text(preferences.get().getWindow().getDecorView(), "Off").performClick(); preferences.get().dismiss(); byDescription(full, "Close expanded route map").performClick(); }); settle();
         check(!settings.getBoolean("map_basemap_enabled", true) && !inlineToggle.isChecked() && !(boolean)field(inline, "streets"), "Closing fullscreen preserves the chosen disabled state");
         check((boolean)field(expanded, "closed"), "Expanded map resources still close after preference changes");
     }

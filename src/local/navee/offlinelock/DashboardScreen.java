@@ -47,17 +47,30 @@ public final class DashboardScreen implements AppScreen {
     private WidgetReveal widgetReveal;
     private String pendingAddedWidgetId, revealWidgetId;
     private final FrameLayout edit, renameControl;
-    /** Home header: connection status line, scooter name, edit hint and the last-seen caption. */
-    private final TextView status, profileName, hint, stale;
+    /** Home header: connection status line (hidden while editing) and the scooter name. */
+    private final TextView status, profileName;
     private final View add, layoutButton;
     private final ChargingHero chargingHero;
     private final Context dialogContext;
     private final Grid grid;
     private final ArrayList<Tile> tiles = new ArrayList<>();
     private boolean editing, closed;
+    /** The header's "last seen" time, or 0 while connected or connecting; cards with the same age omit theirs. */
+    private long headerSeenMs;
     /** Card content opacity while editing, so the editor handles read clearly on top. */
     private static final float EDIT_DIM = .4f;
+    private static final int WIDGET_LIMIT = 32;
+    /** Tag for card content that edits the widget itself, so it stays enabled while editing. */
+    private static final String EDIT_ACTION = "dashboard-edit-action";
+    private static final String WIDGET_LIMIT_TEXT = "32-widget limit";
     private AlertDialog dialog;
+    /**
+     * Holds the layout from before Restore defaults while that step is still the latest edit, so
+     * its Undo survives a rebuild in edit mode (tab switch, rotation, fold).
+     */
+    private final String restoreUndoKey;
+    /** The bottom notice (e.g. "Defaults restored · Undo"), if one is showing. */
+    private PopupWindow notice;
     private Bitmap scooterPhoto;
 
     public DashboardScreen(ScreenHost host, Actions actions) {
@@ -75,6 +88,7 @@ public final class DashboardScreen implements AppScreen {
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
         profileId = profile == null ? "unconfigured" : profile.id;
         config = new DashboardConfig(preferences, profileId);
+        restoreUndoKey = "dashboard_restore_undo_v1_" + profileId;
         editing = preferences.getBoolean("dashboard_editing", false);
         view = column();
         // Home header: a muted status line, the scooter name and a round edit button.
@@ -157,29 +171,21 @@ public final class DashboardScreen implements AppScreen {
         toolbar.addView(headerActions, new LinearLayout.LayoutParams(-2, -2));
         view.addView(toolbar);
         tools = row();
-        tools.setPadding(0, ui.dp(2), 0, 0);
         add = toolButton("Add widget", "plus", this::palette);
         LinearLayout.LayoutParams addSpace = new LinearLayout.LayoutParams(0, -2, 1);
         addSpace.setMarginEnd(ui.dp(8));
         tools.addView(add, addSpace);
         layoutButton = toolButton("Layout", "grid", this::layoutOptions);
         tools.addView(layoutButton, new LinearLayout.LayoutParams(0, -2, 1));
+        // The grip and corner marks show how to move and resize; no caption repeats it.
+        tools.setPadding(0, ui.dp(2), 0, ui.dp(12));
         view.addView(tools);
-        hint = ui.caption("Drag the dots to move · drag the lower-right corner to resize");
-        hint.setGravity(Gravity.CENTER);
-        hint.setPadding(ui.dp(8), ui.dp(10), ui.dp(8), ui.dp(12));
-        view.addView(hint, new LinearLayout.LayoutParams(-1, -2));
-        stale = ui.caption("");
-        stale.setTextColor(ui.muted);
-        ui.fitStatusLine(stale);
-        stale.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(10));
-        stale.setVisibility(View.GONE);
-        view.addView(stale);
         chargingHero = new ChargingHero();
         view.addView(chargingHero, new LinearLayout.LayoutParams(-1, -2));
         grid = new Grid();
         view.addView(grid, new LinearLayout.LayoutParams(-1, -2));
         render();
+        resumeRestoreUndo();
     }
 
     @Override
@@ -188,13 +194,13 @@ public final class DashboardScreen implements AppScreen {
     }
 
     /**
-     * Tabletop posture: hands Home's header (status, name, edit tools, last-seen line and the
-     * charging card) to MainActivity's upper pane above the hinge, leaving the widgets below it.
+     * Tabletop posture: hands Home's header (status, name, edit tools and the charging card) to
+     * MainActivity's upper pane above the hinge, leaving the widgets below it.
      * The same views keep updating; only their parent changes.
      */
     public View takeHeader() {
         LinearLayout pane = column();
-        for (View part : new View[] {toolbar, tools, hint, stale, chargingHero}) {
+        for (View part : new View[] {toolbar, tools, chargingHero}) {
             ViewGroup.LayoutParams params = part.getLayoutParams();
             view.removeView(part);
             pane.addView(part, params);
@@ -290,6 +296,7 @@ public final class DashboardScreen implements AppScreen {
         stopEditTransition();
         grid.stopJiggle();
         editHistory.clear();
+        clearRestoreUndo();
         editing = !editing;
         preferences.edit().putBoolean("dashboard_editing", editing).apply();
         render();
@@ -590,9 +597,15 @@ public final class DashboardScreen implements AppScreen {
         redo.setAlpha(redo.isEnabled() ? 1 : .3f);
     }
 
-    private void recordEdit(DashboardEditHistory.Snapshot before) {
-        editHistory.record(before, config);
+    private boolean recordEdit(DashboardEditHistory.Snapshot before) {
+        boolean recorded = editHistory.record(before, config);
+        if (recorded) {
+            // A newer step ends any Undo offer; it would no longer undo the step it named.
+            hideNotice();
+            clearRestoreUndo();
+        }
         updateHistoryControls();
+        return recorded;
     }
 
     private void restoreEdit(boolean forward) {
@@ -600,6 +613,7 @@ public final class DashboardScreen implements AppScreen {
         grid.finishGesture(false);
         stopRemovalEffect();
         dismiss();
+        clearRestoreUndo();
         if (forward ? editHistory.redo(config) : editHistory.undo(config)) {
             config.save();
             render();
@@ -638,6 +652,8 @@ public final class DashboardScreen implements AppScreen {
 
     private void render() {
         if (closed) return;
+        // A later change ends any Undo offer; it would no longer undo the step it named.
+        hideNotice();
         cancelWidgetReveal();
         stopEditTransition();
         grid.stopJiggle();
@@ -672,7 +688,11 @@ public final class DashboardScreen implements AppScreen {
         renameControl.setVisibility(
                 editing && service != null && service.profiles.active() != null ? View.VISIBLE : View.GONE);
         tools.setVisibility(editing ? View.VISIBLE : View.GONE);
-        hint.setVisibility(editing ? View.VISIBLE : View.GONE);
+        // At the limit Add widget looks disabled; a tap shows the limit as its tooltip.
+        boolean full = config.widgets.size() >= WIDGET_LIMIT;
+        add.setAlpha(full ? .42f : 1f);
+        add.setTooltipText(full ? WIDGET_LIMIT_TEXT : null);
+        add.setContentDescription(full ? "Add widget, " + WIDGET_LIMIT_TEXT : "Add widget");
         status.setClickable(!editing);
         for (DashboardConfig.Widget widget : config.widgets) {
             Tile tile = new Tile(widget);
@@ -706,9 +726,6 @@ public final class DashboardScreen implements AppScreen {
         for (TelemetryHistory.Reading r : readings.values())
             last = Math.max(last, r.capturedWallMs);
         refreshHeader(current, readings);
-        // The header status carries the last-seen time; no second caption under it.
-        stale.setText("");
-        stale.setVisibility(View.GONE);
         chargingHero.refresh(readings);
         for (Tile tile : tiles) tile.refresh(readings);
         grid.updateEditorMotion();
@@ -718,12 +735,6 @@ public final class DashboardScreen implements AppScreen {
     private void refreshHeader(
             ScooterProfiles.Profile profile, Map<String, TelemetryHistory.Reading> readings) {
         profileName.setText(profile == null ? "Your scooter" : profile.name);
-        if (editing) {
-            status.setText("Editing dashboard");
-            status.setContentDescription("Editing dashboard");
-            status.setClickable(false);
-            return;
-        }
         BleController ble = service == null ? null : service.ble;
         boolean ready = ble != null && ble.ready();
         BleController.State state = ble == null ? null : ble.state();
@@ -739,6 +750,15 @@ public final class DashboardScreen implements AppScreen {
         // Last seen is the newer of the last connection and the newest captured reading.
         for (TelemetryHistory.Reading r : readings.values())
             if (r != null && r.value != null) lastConnected = Math.max(lastConnected, r.capturedWallMs);
+        // Keep the same age reference while editing even though its status line is hidden.
+        // Revealing duplicate card footers would resize their content beneath the edit handles.
+        headerSeenMs = !ready && !connecting ? lastConnected : 0;
+        // Done, undo/redo, the jiggle and the edit tools already show edit mode.
+        status.setVisibility(editing ? View.GONE : View.VISIBLE);
+        if (editing) {
+            status.setClickable(false);
+            return;
+        }
         String mode = null;
         TelemetryHistory.Reading drive = readings.get("driving_mode");
         if (ready && drive != null && drive.live) {
@@ -827,6 +847,15 @@ public final class DashboardScreen implements AppScreen {
 
     private String when(long time) {
         return DisplayTime.recent(host.activity(), preferences, time, System.currentTimeMillis());
+    }
+
+    /** A card's compact age beside its clock glyph: now, 5 min, 3 h or 2 d. */
+    private static String shortAge(long time) {
+        long minutes = Math.max(0, System.currentTimeMillis() - time) / 60000;
+        if (minutes < 1) return "now";
+        if (minutes < 60) return minutes + " min";
+        if (minutes < 24 * 60) return minutes / 60 + " h";
+        return minutes / (24 * 60) + " d";
     }
 
     private int color(DashboardConfig.Widget widget) {
@@ -1009,7 +1038,7 @@ public final class DashboardScreen implements AppScreen {
 
     /** Line glyphs: the shared Ui set plus a few dashboard-only shapes. */
     private void drawGlyph(Canvas c, String key, int color, float cx, float cy, float size) {
-        if (!Arrays.asList("grid", "note", "record", "stop", "trend", "restore", "list", "undo", "redo").contains(key)) {
+        if (!Arrays.asList("grid", "note", "record", "stop", "trend", "restore", "list", "undo", "redo", "toggle").contains(key)) {
             ui.drawIcon(c, key, color, cx, cy, size);
             return;
         }
@@ -1071,6 +1100,12 @@ public final class DashboardScreen implements AppScreen {
                 p.lineTo(4, 15);
                 p.lineTo(9.5f, 15);
                 c.drawPath(p, paint);
+                break;
+            case "toggle":
+                c.drawRoundRect(new RectF(2.5f, 7, 21.5f, 17), 5, 5, paint);
+                paint.setStyle(Paint.Style.FILL);
+                c.drawCircle(16.5f, 12, 2.8f, paint);
+                paint.setStyle(Paint.Style.STROKE);
                 break;
             case "list":
                 for (int y = 6; y <= 18; y += 6) {
@@ -1243,10 +1278,144 @@ public final class DashboardScreen implements AppScreen {
     }
 
 
+    /** A small pill beside a value (a source tag, or a short state such as Low current). */
+    private TextView tagChip() {
+        TextView chip = ui.text("", 11, false);
+        chip.setTypeface(ui.medium());
+        chip.setGravity(Gravity.CENTER);
+        chip.setMaxLines(1);
+        chip.setPadding(ui.dp(8), ui.dp(3), ui.dp(8), ui.dp(3));
+        // The value's description carries the same state for TalkBack.
+        chip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        chip.setVisibility(View.GONE);
+        return chip;
+    }
+
+    /** A tappable pill (a 48 dp target around a smaller visible shape), e.g. Set reference or the charger. */
+    private TextView actionPill(String label, String glyph, int color, Runnable action) {
+        TextView chip = ui.text(label, 12.5f, false);
+        chip.setTypeface(ui.medium());
+        chip.setTextColor(color);
+        chip.setGravity(Gravity.CENTER);
+        chip.setMaxLines(1);
+        chip.setMinHeight(ui.dp(48));
+        chip.setPadding(ui.dp(12), 0, ui.dp(12), 0);
+        chip.setCompoundDrawablesRelative(glyphDrawable(glyph, color, 14), null, null, null);
+        chip.setCompoundDrawablePadding(ui.dp(5));
+        chip.setBackground(ripple(Ui.withAlpha(color, 40), new android.graphics.drawable.InsetDrawable(
+                ui.shape(Ui.withAlpha(color, ui.dark ? 40 : 26), 100, 0), 0, ui.dp(7), 0, ui.dp(7)), null));
+        chip.setClickable(true);
+        chip.setFocusable(true);
+        chip.setOnClickListener(v -> action.run());
+        return chip;
+    }
+
+    private void styleTag(TextView chip, String text, boolean warning) {
+        boolean shown = text != null && !text.isEmpty();
+        if (!(shown ? text : "").contentEquals(chip.getText())) chip.setText(shown ? text : "");
+        chip.setVisibility(shown ? View.VISIBLE : View.GONE);
+        int ink = warning ? ui.orange : ui.muted;
+        chip.setTextColor(ink);
+        chip.setBackground(ui.shape(Ui.withAlpha(ink, ui.dark ? 44 : 30), 100, 0));
+    }
+
+    /** Full, normal and compact names for the charging time; an unknown cutoff never claims "full". */
+    private String[] chargeTimeLabels(ChargingEstimate.Result estimate, boolean widget) {
+        if (estimate.targetPercent != null && estimate.targetPercent < 100) {
+            String target = String.format(Locale.US, "%.0f%%", estimate.targetPercent);
+            String name = widget ? "To " + target + " limit" : "Time to " + target;
+            return new String[] {name, name, "To " + target};
+        }
+        if (estimate.targetPercent == null)
+            return new String[] {"Time to 100% if uncapped", "To 100% if uncapped", "100% if uncapped"};
+        return new String[] {"Time to full (est.)", "Time to full (est.)", "To full (est.)"};
+    }
+
+    /**
+     * The time slot: "≈ 1h 20m" tagged learned or current rate, otherwise a short state. Low current
+     * keeps the dash with an orange chip beside it. Without a tag slot, the state replaces the dash.
+     */
+    private void showChargeTime(TextView value, TextView tag, ChargingEstimate.Result estimate) {
+        boolean limit = estimate.targetPercent != null && estimate.targetPercent < 100;
+        Double minutes = limit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull;
+        boolean learned = limit ? estimate.learnedToLimit : estimate.learnedToFull;
+        boolean reference = limit ? estimate.referenceToLimit : estimate.referenceToFull;
+        boolean low = ChargingEstimate.LOW_CURRENT.equals(estimate.label);
+        String state = estimate.label == null || estimate.label.isEmpty() ? "—" : estimate.label;
+        value.setText(minutes != null ? duration(minutes) : low && tag != null ? "—" : state);
+        value.setTextColor(minutes == null ? ui.muted : ui.text);
+        if (tag != null)
+            styleTag(tag, minutes != null ? (learned ? "learned" : reference ? "stock reference" : "current rate") : low ? state : null,
+                    minutes == null && low);
+    }
+
+    /**
+     * "From 6 past charges" and the selected charger as a tappable chip. Shown only when saved charges
+     * were consulted; the charger is chosen by the owner, never detected.
+     */
+    private final class ChargerRow extends LinearLayout {
+        final TextView source, chip;
+
+        ChargerRow() {
+            super(host.activity());
+            setOrientation(HORIZONTAL);
+            setGravity(Gravity.CENTER_VERTICAL);
+            setVisibility(GONE);
+            source = ui.caption("");
+            addView(source, new LinearLayout.LayoutParams(0, -2, 1));
+            chip = actionPill("", "power", ui.blue, this::choose);
+            LinearLayout.LayoutParams chipSpace = new LinearLayout.LayoutParams(-2, -2);
+            chipSpace.setMarginStart(ui.dp(8));
+            addView(chip, chipSpace);
+        }
+
+        void refresh(ChargingEstimate.Result estimate) {
+            ChargeSessionStore.Charger charger = service == null ? null : service.chargeCharger();
+            boolean reference = estimate.referenceToLimit || estimate.referenceToFull;
+            if (charger == null && reference) charger = ChargeSessionStore.Charger.STOCK;
+            boolean consulted = reference || estimate.learnedSessions > 0
+                    || "Charger mismatch · rate estimate".equals(estimate.label)
+                    || "Rate-based estimate".equals(estimate.label);
+            boolean show = estimate.charging && charger != null && consulted;
+            setVisibility(show ? VISIBLE : GONE);
+            if (!show) return;
+            String name = charger == ChargeSessionStore.Charger.STOCK ? "Stock charger" : "High-speed charger";
+            if (!estimate.label.contentEquals(source.getText())) source.setText(estimate.label);
+            if (!(name + " ▾").contentEquals(chip.getText())) chip.setText(name + " ▾");
+            chip.setContentDescription(name + ". Change charger");
+            chip.setTooltipText("Change charger");
+            boolean changeable = !editing && !service.isChargeRecording();
+            chip.setEnabled(changeable);
+            chip.setAlpha(changeable ? 1f : .5f);
+        }
+
+        private void choose() {
+            if (service == null || editing || service.isChargeRecording()) return;
+            ScooterProfiles.Profile original = service.profiles.active();
+            if (original == null) return;
+            String profileId = original.id;
+            PopupMenu menu = new PopupMenu(host.activity(), chip);
+            menu.getMenu().add(0, 1, 0, "Stock charger");
+            menu.getMenu().add(0, 2, 1, "High-speed charger");
+            menu.setOnMenuItemClickListener(item -> {
+                if (service == null || closed || editing || service.isChargeRecording()
+                        || service.profiles.active() == null
+                        || !profileId.equals(service.profiles.active().id)) return false;
+                service.setChargeCharger(item.getItemId() == 1
+                        ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED);
+                DashboardScreen.this.refresh();
+                return true;
+            });
+            menu.show();
+        }
+    }
+
     /** Compact, labeled metric cards shared by charging and the reading-list widget. */
     private final class InfoCell extends LinearLayout {
         final TextView label, value;
         final View labelIcon;
+        /** Optional pill beside the value: the estimate's source or a short state. */
+        TextView tag;
         int heightBudget = Integer.MAX_VALUE;
         InfoCell(String icon, String title) {
             this(icon, title, title, title.equals("Charging power") ? "Power" : title);
@@ -1275,6 +1444,48 @@ public final class DashboardScreen implements AppScreen {
             LinearLayout.LayoutParams p = new LinearLayout.LayoutParams(-1, -2);
             p.topMargin = ui.dp(2);
             addView(value, p);
+        }
+        /** Puts a pill at the end of the value line; it wraps below a long value in a narrow cell. */
+        TextView addTag() {
+            if (tag != null) return tag;
+            LinearLayout.LayoutParams old = (LinearLayout.LayoutParams) value.getLayoutParams();
+            removeView(value);
+            final TextView chip = tagChip();
+            tag = chip;
+            LinearLayout line = new LinearLayout(host.activity()) {
+                @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                    int width = MeasureSpec.getSize(widthSpec);
+                    // "—" with Low current always fits; a time keeps ~96 dp before its tag wraps.
+                    boolean beside = chip.getVisibility() == GONE || value.length() <= 2;
+                    if (!beside) {
+                        chip.measure(MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED),
+                                MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
+                        float scale = Math.max(1, ui.textScale * getResources().getConfiguration().fontScale);
+                        beside = width - chip.getMeasuredWidth() - ui.dp(6) >= ui.dp(96 * scale);
+                    }
+                    if (beside != (getOrientation() == HORIZONTAL)) {
+                        setOrientation(beside ? HORIZONTAL : VERTICAL);
+                        LinearLayout.LayoutParams v = (LinearLayout.LayoutParams) value.getLayoutParams();
+                        v.width = beside ? 0 : -1;
+                        v.weight = beside ? 1 : 0;
+                        LinearLayout.LayoutParams c = (LinearLayout.LayoutParams) chip.getLayoutParams();
+                        c.setMarginStart(beside ? ui.dp(6) : 0);
+                        c.bottomMargin = beside ? 0 : ui.dp(4);
+                        c.gravity = beside ? Gravity.CENTER_VERTICAL : Gravity.START;
+                    }
+                    super.onMeasure(widthSpec, heightSpec);
+                }
+            };
+            line.setOrientation(HORIZONTAL);
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setBaselineAligned(false);
+            line.addView(value, new LinearLayout.LayoutParams(0, -2, 1));
+            LinearLayout.LayoutParams chipSpace = new LinearLayout.LayoutParams(-2, -2);
+            chipSpace.setMarginStart(ui.dp(6));
+            chipSpace.gravity = Gravity.CENTER_VERTICAL;
+            line.addView(chip, chipSpace);
+            addView(line, old);
+            return chip;
         }
         void fitHeight(int pixels) {
             heightBudget = pixels;
@@ -1374,7 +1585,9 @@ public final class DashboardScreen implements AppScreen {
      * fills to the charge and then, in grey, to the charge limit.
      */
     private final class ChargingHero extends LinearLayout {
-        final TextView chip, percent, etaLabel, eta, power, note;
+        final TextView chip, percent, etaLabel, eta, etaTag, power;
+        final InfoCell timeCell;
+        final ChargerRow chargerRow;
         final ImageView photo;
         final Stage stage;
         double level = Double.NaN, limit = 100;
@@ -1417,12 +1630,16 @@ public final class DashboardScreen implements AppScreen {
             InfoCell powerCell = tiles.add("bolt", "Charging power");
             InfoCell timeCell = tiles.add("clock", "Time to full");
             power = powerCell.value;
+            this.timeCell = timeCell;
             etaLabel = timeCell.label;
             eta = timeCell.value;
+            etaTag = timeCell.addTag();
             rows.addView(tiles, new LinearLayout.LayoutParams(-1, -2));
-            note = ui.caption("");
-            note.setPadding(0, ui.dp(4), 0, 0);
-            rows.addView(note);
+            // The full estimate status is the time tile's long-press tooltip, not a paragraph.
+            chargerRow = new ChargerRow();
+            LinearLayout.LayoutParams chargerSpace = new LinearLayout.LayoutParams(-1, -2);
+            chargerSpace.topMargin = ui.dp(4);
+            rows.addView(chargerRow, chargerSpace);
             addView(rows, new LinearLayout.LayoutParams(-1, -2));
         }
 
@@ -1497,16 +1714,19 @@ public final class DashboardScreen implements AppScreen {
             if (known && photo.getDrawable() == null) photo.setImageBitmap(scooterPhoto());
             photo.setVisibility(known ? View.VISIBLE : View.GONE);
             stage.setMinimumHeight(ui.dp(known ? 236 : 44));
-            String timeLabel = hasLimit ? String.format(Locale.US, "Time to %.0f%%", estimate.targetPercent) : "Time to full";
-            ((DashboardCaption) etaLabel).setLabels(timeLabel, timeLabel,
-                    hasLimit ? String.format(Locale.US, "To %.0f%%", estimate.targetPercent) : "To full");
-            eta.setText(duration(hasLimit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull));
+            String[] timeLabel = chargeTimeLabels(estimate, false);
+            ((DashboardCaption) etaLabel).setLabels(timeLabel[0], timeLabel[1], timeLabel[2]);
+            showChargeTime(eta, etaTag, estimate);
+            String time = timeLabel[0] + ", " + eta.getText()
+                    + (etaTag.getVisibility() == View.VISIBLE ? ", " + etaTag.getText() : "")
+                    + (estimate.status == null || estimate.status.isEmpty() ? "" : ". " + estimate.status);
+            eta.setContentDescription(time);
+            timeCell.setTooltipText(time);
             String watts = estimate.inputWatts == null ? null
                     : String.format(Locale.US, "%.0f W", estimate.inputWatts);
             power.setText(watts == null ? "—" : watts);
             power.setTextColor(watts == null ? ui.muted : ui.ok);
-            note.setText(estimate.status == null ? "" : estimate.status);
-            note.setVisibility(note.getText().length() == 0 ? View.GONE : View.VISIBLE);
+            chargerRow.refresh(estimate);
             stage.setContentDescription(
                     (Double.isNaN(level) ? "Charge not reported" : "Charge " + Math.round(level) + " percent")
                             + (hasLimit ? ", charge limit " + Math.round(limit) + " percent" : ""));
@@ -1595,13 +1815,18 @@ public final class DashboardScreen implements AppScreen {
         GlyphView headingIcon, recordGlyph;
         TextView big, subtitle, healthDetail, rideTitle, rideDetail;
         View rideButton, recordDisc;
-        TextView capacityValue, capacitySummary, capacityCompare, capacityEvidence, capacityMethod, capacityNote;
+        /** capacityMethod is a chip shown only for the proxy or sample cases; the title already says experiment. */
+        TextView capacityValue, capacitySummary, capacityCompare, capacityMethod, capacityReference;
         CapacityBar capacityBar;
+        /** The latest analysis behind the details sheet; null while checking or in simulation. */
+        BatteryCapacityEstimate.Result capacityResult;
+        String capacityUnavailable;
         TextView chargingWatts,
                 chargingEta,
                 chargingEtaLabel,
-                chargingNote,
+                chargingEtaTag,
                 chargingTemperature;
+        ChargerRow chargerRow;
         LinearLayout batteryData, chargingData;
         boolean capacityPending, dragging, showsRange;
         View resizeControl;
@@ -1676,6 +1901,10 @@ public final class DashboardScreen implements AppScreen {
             footer.setTextColor(ui.dim);
             ui.fitStatusLine(footer);
             footer.setPadding(0, ui.dp(4), 0, 0);
+            footer.setCompoundDrawablesRelative(glyphDrawable("clock", ui.dim, 13), null, null, null);
+            footer.setCompoundDrawablePadding(ui.dp(4));
+            footer.setGravity(Gravity.CENTER_VERTICAL);
+            footer.setVisibility(View.GONE);
             // fitStatusLine reserves the original text height before padding. Include
             // this gap too, so auto-size cannot steal body space when Edit rebuilds it.
             footer.setMinHeight(footer.getMinHeight() + footer.getPaddingTop() + footer.getPaddingBottom());
@@ -1776,10 +2005,10 @@ public final class DashboardScreen implements AppScreen {
                 });
                 duplicateButton = overlay("copy", "Duplicate " + widget.title, () -> duplicateWidget(widget));
                 removeButton = overlay("trash", "Remove " + widget.title, () -> removeWidget(widget));
-                duplicateButton.setEnabled(!lockType(widget.type) && config.widgets.size() < 32);
+                duplicateButton.setEnabled(!lockType(widget.type) && config.widgets.size() < WIDGET_LIMIT);
                 duplicateButton.setAlpha(duplicateButton.isEnabled() ? 1f : .42f);
-                duplicateButton.setTooltipText(lockType(widget.type)
-                        ? "One lock widget per dashboard" : "Duplicate widget");
+                duplicateButton.setTooltipText(lockType(widget.type) ? "One lock widget per dashboard"
+                        : config.widgets.size() >= WIDGET_LIMIT ? WIDGET_LIMIT_TEXT : "Duplicate widget");
                 for (View control : new View[] {grip, editButton, duplicateButton, removeButton}) addView(control);
             }
 
@@ -1789,7 +2018,7 @@ public final class DashboardScreen implements AppScreen {
                 if (singleAction) actionsMenu.getMenu().add(0, 4, 0, "Move widget").setIcon(glyphDrawable("grip", ui.text, 20));
                 actionsMenu.getMenu().add(0, 1, 0, "Edit widget").setIcon(glyphDrawable("gear", ui.text, 20));
                 actionsMenu.getMenu().add(0, 2, 1, "Duplicate widget").setIcon(glyphDrawable("copy", ui.text, 20))
-                        .setEnabled(!lockType(widget.type) && config.widgets.size() < 32);
+                        .setEnabled(!lockType(widget.type) && config.widgets.size() < WIDGET_LIMIT);
                 android.text.SpannableString removeLabel = new android.text.SpannableString("Remove widget");
                 removeLabel.setSpan(new android.text.style.ForegroundColorSpan(ui.danger), 0,
                         removeLabel.length(), android.text.Spanned.SPAN_EXCLUSIVE_EXCLUSIVE);
@@ -1883,6 +2112,8 @@ public final class DashboardScreen implements AppScreen {
                     else body.addView(actions.lock(widget.showDisconnect));
                     break;
                 case "overview":
+                    watched.add("battery_percent");
+                    watched.add("remaining_range_km");
                     overview = new OverviewCard(limited(widget.keys, 0));
                     body.addView(overview, new LinearLayout.LayoutParams(-1, -2));
                     break;
@@ -1907,8 +2138,11 @@ public final class DashboardScreen implements AppScreen {
                     photo.setContentDescription("NAVEE UT5 MAX scooter");
                     photo.setImageBitmap(scooterPhoto());
                     photoPane.addView(photo, new FrameLayout.LayoutParams(-1, -1));
-                    photoHint = ui.caption("Scooter");
+                    // Without a model photo: a generic scooter glyph, not a word.
+                    photoHint = ui.caption("");
                     photoHint.setGravity(Gravity.CENTER);
+                    photoHint.setCompoundDrawablesRelative(null, glyphDrawable("scooter", ui.dim, 40), null, null);
+                    photoHint.setContentDescription("Scooter");
                     photoPane.addView(photoHint, new FrameLayout.LayoutParams(-1, -1));
                     scooterRow.addView(
                             photoPane, new LinearLayout.LayoutParams(ui.dp(88), ui.dp(100)));
@@ -1958,7 +2192,6 @@ public final class DashboardScreen implements AppScreen {
                     // Compact status is announced and available on long press, without
                     // adding a second block of explanatory text to the glanceable card.
                     chargingEtaLabel = ui.caption("Time to full");
-                    chargingNote = ui.caption("");
                     LinearLayout.LayoutParams chargingSpace = new LinearLayout.LayoutParams(-1, -2);
                     chargingSpace.topMargin = ui.dp(8);
                     body.addView(chargingData, chargingSpace);
@@ -2019,8 +2252,11 @@ public final class DashboardScreen implements AppScreen {
                     chart = ui.new ChartView();
                     chart.setHistoryMode(true);
                     body.addView(chart, new LinearLayout.LayoutParams(-1, ui.dp(190)));
-                    subtitle = ui.caption("Reported by the controller, not a capacity test");
-                    body.addView(subtitle);
+                    // The default title says "Reported health"; the controller caveat stays on long press.
+                    String reported = "Controller-reported, not a capacity test";
+                    title.setTooltipText(reported);
+                    chart.setTooltipText(reported);
+                    health.setTooltipText(reported);
                     break;
                 case "capacity":
                     TextView name = ui.text(widget.title, 14, false);
@@ -2028,31 +2264,29 @@ public final class DashboardScreen implements AppScreen {
                     name.setCompoundDrawablesRelative(glyphDrawable("lab", ui.accent, 18), null, null, null);
                     name.setCompoundDrawablePadding(ui.dp(6));
                     body.addView(name);
-                    capacityMethod = ui.caption("Experimental estimate");
-                    capacityMethod.setPadding(0, ui.dp(4), 0, 0);
-                    body.addView(capacityMethod);
+                    // Only the proxy ("Proxy · not health") and sample cases carry a chip.
+                    capacityMethod = tagChip();
+                    LinearLayout.LayoutParams methodSpace = new LinearLayout.LayoutParams(-2, -2);
+                    methodSpace.topMargin = ui.dp(6);
+                    body.addView(capacityMethod, methodSpace);
                     capacityValue = new FittedValue("Not enough ride data", 16, 34, 2);
                     capacityValue.setPadding(0, ui.dp(8), 0, ui.dp(4));
                     body.addView(capacityValue, new LinearLayout.LayoutParams(-1, -2));
                     capacityCompare = ui.text("", 14, true);
+                    capacityCompare.setVisibility(View.GONE);
                     body.addView(capacityCompare);
+                    capacityReference = actionPill("Set reference", "plus", ui.blue, () -> advertisedCapacity(widget));
+                    capacityReference.setContentDescription("Set reference capacity");
+                    capacityReference.setVisibility(View.GONE);
+                    body.addView(capacityReference, new LinearLayout.LayoutParams(-2, -2));
+                    // The bar compares with the reference, or fills toward 20 battery points.
                     capacityBar = new CapacityBar();
                     LinearLayout.LayoutParams barSpace = new LinearLayout.LayoutParams(-1, ui.dp(10));
                     barSpace.topMargin = barSpace.bottomMargin = ui.dp(10);
                     body.addView(capacityBar, barSpace);
-                    capacitySummary = ui.caption("Record rides to build an estimate");
+                    capacitySummary = ui.caption("Checking recorded rides…");
                     body.addView(capacitySummary);
-                    // Full evidence and caveats stay one tap away, rather than filling the card.
-                    capacityEvidence = ui.caption("Checking recorded rides…");
-                    capacityNote = ui.caption("Experimental; depends on battery gauge and riding conditions.");
-                    TextView evidence = ui.secondaryButton("Estimate details", () -> {
-                        LinearLayout details = column();
-                        details.addView(ui.text(capacityMethod.getText().toString(), 18, true));
-                        details.addView(ui.caption(capacityEvidence.getText().toString()));
-                        details.addView(ui.caption(capacityNote.getText().toString()));
-                        details.addView(ui.secondaryButton("How this is estimated", () -> showCapacityMethod(widget)));
-                        show("Capacity estimate", details);
-                    });
+                    TextView evidence = ui.secondaryButton("Estimate details", this::showCapacityDetails);
                     LinearLayout.LayoutParams evidenceSpace = new LinearLayout.LayoutParams(-1, -2);
                     evidenceSpace.topMargin = ui.dp(8);
                     body.addView(evidence, evidenceSpace);
@@ -2091,14 +2325,25 @@ public final class DashboardScreen implements AppScreen {
                     buildRecorder();
                     break;
                 case "note":
-                    subtitle =
-                            ui.text(
-                                    widget.note.isEmpty()
-                                            ? "Add a reminder in widget options."
-                                            : widget.note,
-                                    15,
-                                    false);
-                    if (widget.note.isEmpty()) subtitle.setTextColor(ui.muted);
+                    subtitle = ui.text(widget.note.isEmpty() ? "Empty note" : widget.note, 15, false);
+                    // Reserve the edit tap target in both modes so short notes never move.
+                    subtitle.setMinHeight(ui.dp(48));
+                    if (widget.note.isEmpty()) {
+                        subtitle.setTextColor(ui.muted);
+                        subtitle.setCompoundDrawablesRelative(glyphDrawable("note", ui.muted, 18), null, null, null);
+                        subtitle.setCompoundDrawablePadding(ui.dp(8));
+                        subtitle.setGravity(Gravity.CENTER_VERTICAL);
+                    }
+                    if (editing) {
+                        // While editing, tapping the note opens its editor directly.
+                        subtitle.setTag(EDIT_ACTION);
+                        subtitle.setClickable(true);
+                        subtitle.setFocusable(true);
+                        subtitle.setContentDescription((widget.note.isEmpty() ? "Empty note" : widget.note)
+                                + ". Edit note");
+                        subtitle.setOnClickListener(v -> editText(widget, "Note", widget.note,
+                                value -> widget.note = value));
+                    }
                     body.addView(subtitle);
                     break;
             }
@@ -2128,8 +2373,9 @@ public final class DashboardScreen implements AppScreen {
             rideTitle = ui.text("Record ride", 15, false);
             rideTitle.setTypeface(ui.medium());
             words.addView(rideTitle);
-            rideDetail = ui.caption("GPS · elevation · motion");
+            rideDetail = ui.caption("");
             rideDetail.setPadding(0, ui.dp(2), 0, 0);
+            rideDetail.setVisibility(View.GONE);
             words.addView(rideDetail);
             RecordLead lead = new RecordLead(disc, words);
             recorder = lead;
@@ -2137,6 +2383,8 @@ public final class DashboardScreen implements AppScreen {
             lead.setOnClickListener(
                     v -> {
                         if (service != null && service.isRecording()) service.stopRide();
+                        // The grey disc starts a connection instead of explaining that one is needed.
+                        else if (service != null && !service.ble.ready()) host.connect();
                         else actions.startRide();
                         host.redraw();
                     });
@@ -2181,7 +2429,7 @@ public final class DashboardScreen implements AppScreen {
                 setMinimumHeight(ui.dp(compactRecorder ? 48 : 56));
                 setPadding(0, compactRecorder ? 0 : ui.dp(4), ui.dp(4), compactRecorder ? 0 : ui.dp(4));
                 disc.getLayoutParams().width = disc.getLayoutParams().height = ui.dp(compactRecorder ? 28 : 40);
-                rideDetail.setVisibility(compactRecorder ? GONE : VISIBLE);
+                rideDetail.setVisibility(compactRecorder || rideDetail.length() == 0 ? GONE : VISIBLE);
                 rideTitle.setMaxLines(compactRecorder ? 1 : Integer.MAX_VALUE);
                 rideTitle.setEllipsize(compactRecorder ? android.text.TextUtils.TruncateAt.END : null);
                 words.setVisibility(iconOnly ? GONE : VISIBLE);
@@ -3047,10 +3295,14 @@ public final class DashboardScreen implements AppScreen {
             InfoCell time = tiles.add("clock", "Time to full");
             chargingEta = time.value;
             chargingEtaLabel = time.label;
+            chargingEtaTag = time.addTag();
             container.addView(tiles, new LinearLayout.LayoutParams(-1, -2));
-            chargingNote = ui.caption("Connect for fresh charging readings.");
-            chargingNote.setPadding(0, ui.dp(6), 0, 0);
-            container.addView(chargingNote);
+            // Muted dashes and the time slot's short state replace explanatory notes;
+            // the full status is the time tile's long-press tooltip.
+            chargerRow = new ChargerRow();
+            LinearLayout.LayoutParams chargerSpace = new LinearLayout.LayoutParams(-1, -2);
+            chargerSpace.topMargin = ui.dp(4);
+            container.addView(chargerRow, chargerSpace);
         }
 
         private void refreshCharging(Map<String, TelemetryHistory.Reading> values) {
@@ -3065,21 +3317,18 @@ public final class DashboardScreen implements AppScreen {
                             ? "—"
                             : String.format(Locale.US, "%.0f W", estimate.inputWatts));
             chargingWatts.setTextColor(estimate.inputWatts == null ? ui.muted : ui.ok);
-            boolean limit = estimate.targetPercent != null && estimate.targetPercent < 100;
-            String etaLabel = limit ? String.format(Locale.US, "To %.0f%% limit", estimate.targetPercent) : "Time to full";
+            String[] etaLabels = chargeTimeLabels(estimate, true);
+            String etaLabel = etaLabels[1];
             if (chargingEtaLabel instanceof DashboardCaption)
-                ((DashboardCaption) chargingEtaLabel).setLabels(etaLabel, etaLabel,
-                        limit ? String.format(Locale.US, "To %.0f%%", estimate.targetPercent) : "To full");
+                ((DashboardCaption) chargingEtaLabel).setLabels(etaLabels[0], etaLabel, etaLabels[2]);
             else chargingEtaLabel.setText(etaLabel);
-            Double minutes =
-                    limit ? estimate.remainingMinutesToLimit : estimate.remainingMinutesToFull;
-            chargingEta.setText(duration(minutes));
-            chargingEta.setTextColor(minutes == null ? ui.muted : ui.text);
-            chargingNote.setText(
-                    (estimate.inputWatts == null ? "" : "Battery-side readings. ")
-                            + estimate.status);
+            showChargeTime(chargingEta, chargingEtaTag, estimate);
             describeCharging(chargingWatts, "Charging power", "Battery-side power");
-            describeCharging(chargingEta, etaLabel, estimate.status);
+            describeCharging(chargingEta, etaLabels[0]
+                            + (chargingEtaTag != null && chargingEtaTag.getVisibility() == View.VISIBLE
+                                    ? " (" + chargingEtaTag.getText() + ")" : ""),
+                    estimate.status);
+            if (chargerRow != null) chargerRow.refresh(estimate);
             if (chargingTemperature != null) {
                 TelemetryHistory.Reading temperature = values.get("temperature_c");
                 chargingTemperature.setText(format(temperature));
@@ -3093,8 +3342,11 @@ public final class DashboardScreen implements AppScreen {
             String description = label + ", " + value.getText()
                     + (detail.isEmpty() ? "" : ". " + detail);
             value.setContentDescription(description);
-            if (value.getParent() instanceof View)
-                ((View) value.getParent()).setTooltipText(description);
+            // The long-press tooltip sits on the whole tile, also when a tag shares the value line.
+            View holder = value.getParent() instanceof View ? (View) value.getParent() : null;
+            if (holder != null && !(holder instanceof InfoCell) && holder.getParent() instanceof InfoCell)
+                holder = (View) holder.getParent();
+            if (holder != null) holder.setTooltipText(description);
         }
 
         void refresh(Map<String, TelemetryHistory.Reading> values) {
@@ -3116,7 +3368,7 @@ public final class DashboardScreen implements AppScreen {
                 TelemetryHistory.Reading r = values.get(key);
                 boolean live = r != null && r.live;
                 anyStale |= r != null && r.value != null && !live;
-                if (r != null && r.value != null) oldest = Math.min(oldest, r.capturedWallMs);
+                if (r != null && r.value != null && !live) oldest = Math.min(oldest, r.capturedWallMs);
                 TextView amount = amounts.get(key);
                 if (amount != null) {
                     String text = format(r);
@@ -3192,13 +3444,20 @@ public final class DashboardScreen implements AppScreen {
                 photoHint.setVisibility(show ? View.GONE : View.VISIBLE);
             }
             if (rideButton != null) refreshRecorder();
-            footer.setText(anyStale ? "Last seen · " + when(oldest) : "");
-            footer.setContentDescription(anyStale ? "Last seen · " + when(oldest) : "");
-            footer.setVisibility(footer.getText().length() == 0 ? View.GONE : View.VISIBLE);
+            // Muted values already mark cached data. A card as old as the header's "last seen"
+            // shows nothing more; an older card adds a clock glyph and a short age, e.g. 2 d.
+            boolean sameAsHeader = anyStale && headerSeenMs > 0 && when(oldest).equals(when(headerSeenMs));
+            boolean aged = anyStale && !sameAsHeader;
+            footer.setText(aged ? shortAge(oldest) : "");
+            footer.setContentDescription(aged ? "Last seen " + when(oldest) : "");
+            footer.setTooltipText(aged ? "Last seen " + when(oldest) : null);
+            footer.setVisibility(aged ? View.VISIBLE : View.GONE);
             if (chargingData != null && chargingData.getVisibility() == View.VISIBLE)
                 footer.setVisibility(View.GONE);
-            // New Home cards grey stale values; the header carries the time.
-            if (newHome(widget.type)) footer.setVisibility(View.GONE);
+            // Data cards only show an age when it differs from the header. The compact
+            // lock and setting controls carry their own state instead of a data footer.
+            if (widget.type.equals("lockbar") || widget.type.equals("shortcuts"))
+                footer.setVisibility(View.GONE);
             if (overview != null) overview.refresh(values);
             if (readingTiles != null) readingTiles.refresh(values);
             if (chart != null) refreshChart(values);
@@ -3210,8 +3469,13 @@ public final class DashboardScreen implements AppScreen {
             boolean recording = service != null && service.isRecording();
             boolean ready = service != null && service.ble.ready();
             boolean saving = service != null && service.phoneSaving();
+            BleController.State state = service == null ? null : service.ble.state();
+            boolean connecting = service != null && !ready && (service.ble.connected()
+                    || state == BleController.State.CONNECTING || state == BleController.State.AUTHENTICATING
+                    || state == BleController.State.SCANNING || state == BleController.State.WAITING);
             boolean enabled = service != null && (recording || ready) && !saving;
-            rideButton.setEnabled(enabled);
+            // Disconnected, the grey disc stays tappable and starts a connection.
+            rideButton.setEnabled(enabled || (service != null && !recording && !saving && !connecting));
             recordDisc.setBackground(oval(enabled || recording ? ui.accent : ui.raised));
             recordGlyph.set(recording ? "stop" : "record", enabled || recording ? ui.onAccent : ui.dim);
             if (recordingShown == null || recordingShown != recording) {
@@ -3238,10 +3502,14 @@ public final class DashboardScreen implements AppScreen {
                 rideTitle.setText("Record ride");
                 rideTitle.setTextColor(enabled ? ui.text : ui.muted);
                 rideTitle.setTypeface(ui.medium());
-                rideDetail.setText(saving ? "Saving the last ride…"
-                        : ready ? "GPS · elevation · motion" : "Connect to record");
-                rideButton.setContentDescription("Start recording. " + rideDetail.getText());
+                rideDetail.setText(saving ? "Saving the last ride…" : connecting ? "Connecting…" : "");
+                rideButton.setContentDescription(saving ? "Record ride. Saving the last ride"
+                        : ready ? "Start recording" : connecting ? "Record ride. Connecting"
+                        : "Record ride. Connect to scooter");
             }
+            // A hidden caption is never re-measured by setText alone; show it when it has words.
+            int detail = rideDetail.length() > 0 && !compactRecorder ? View.VISIBLE : View.GONE;
+            if (rideDetail.getVisibility() != detail) rideDetail.setVisibility(detail);
         }
 
         private GradientDrawable oval(int fill) {
@@ -3275,29 +3543,28 @@ public final class DashboardScreen implements AppScreen {
                 for (int i = 0; i < ((ViewGroup) v).getChildCount(); i++)
                     disableInputs(((ViewGroup) v).getChildAt(i));
             }
-            if (v.isClickable()) v.setEnabled(false);
+            // Edit-mode shortcuts (the note's editor) stay enabled; data controls go inert.
+            if (v.isClickable() && !EDIT_ACTION.equals(v.getTag())) v.setEnabled(false);
         }
 
         private void refreshCapacity() {
             if (service == null || capacityPending) return;
             if (service.simulating()) {
+                // One "Sample" chip marks the preview; the app-wide banner already says sample data.
                 Double advertised = rating(widget);
                 double sample = advertised == null ? 610 : advertised * .95;
+                capacityResult = null;
+                capacityUnavailable = null;
                 capacityValue.setText(String.format(Locale.US, "≈ %.0f Wh", sample));
                 capacityValue.setTextColor(ui.text);
-                capacitySummary.setText("Sample · 6 rides · 42 points used");
-                capacityMethod.setText("Simulated estimate");
-                capacityCompare.setText(advertised == null ? "Sample capacity" : String.format(Locale.US, "95%% of %.0f Wh · sample", advertised));
-                capacityCompare.setTextColor(ui.muted);
-                capacityBar.set(advertised == null ? null : 95d);
-                capacityEvidence.setText("Sample data for layout preview");
-                capacityNote.setText("No recorded rides are used or changed.");
-                capacityNote.setTextColor(ui.muted);
+                styleTag(capacityMethod, "Sample", false);
+                capacitySummary.setText("6 rides · 42 points used");
+                showComparison(advertised == null ? null : 95d, advertised, false, true);
                 return;
             }
             if (service.profiles.active() == null) {
-                capacityEvidence.setText(
-                        "Set up a scooter profile, then record rides to build an estimate.");
+                capacityUnavailable = "No scooter set up";
+                capacitySummary.setText(capacityUnavailable);
                 return;
             }
             long now = android.os.SystemClock.elapsedRealtime();
@@ -3310,6 +3577,8 @@ public final class DashboardScreen implements AppScreen {
                     result -> {
                         capacityPending = false;
                         if (closed || !active || !profileId.equals(result.profileId)) return;
+                        capacityResult = result;
+                        capacityUnavailable = null;
                         boolean estimated = result.estimatedUsableWh != null;
                         boolean proxy = !estimated && result.throughputEquivalentWh != null;
                         Double value =
@@ -3326,71 +3595,105 @@ public final class DashboardScreen implements AppScreen {
                                         : String.format(Locale.US, "≈ %.0f Wh", value));
                         capacityValue.setTextColor(
                                 value == null ? ui.muted : proxy ? ui.orange : ui.text);
-                        capacitySummary.setText(
-                                value == null
-                                        ? result.status
-                                        : String.format(
-                                                Locale.US,
-                                                "%d rides · %.0f points used",
-                                                estimated ? result.qualifiedRides : result.proxyRides,
-                                                estimated
-                                                        ? result.batteryDropPoints
-                                                        : result.proxyBatteryDropPoints));
-                        capacityMethod.setText(
-                                estimated
-                                        ? "Ride-based · experimental"
-                                        : proxy ? "Throughput proxy · not battery health"
-                                                : "Experimental estimate");
-                        capacityCompare.setText(
-                                percent != null && result.advertisedWh != null
-                                        ? String.format(
-                                                Locale.US,
-                                                "%.0f%% of %.0f Wh advertised%s",
-                                                percent,
-                                                result.advertisedWh,
-                                                proxy ? " · proxy only" : "")
-                                        : result.advertisedWh != null
-                                                ? String.format(
-                                                        Locale.US,
-                                                        "Reference: %.0f Wh advertised",
-                                                        result.advertisedWh)
-                                                : "Set advertised Wh in widget options to compare");
-                        capacityCompare.setTextColor(ui.muted);
-                        capacityBar.set(percent);
-                        String evidence =
-                                value == null
-                                        ? result.status
-                                        : String.format(
-                                                Locale.US,
-                                                "%d rides · %.1f battery points · %.1f%% coverage",
-                                                estimated
-                                                        ? result.qualifiedRides
-                                                        : result.proxyRides,
-                                                estimated
-                                                        ? result.batteryDropPoints
-                                                        : result.proxyBatteryDropPoints,
-                                                result.electricalCoverage * 100);
-                        if (result.minimumTemperatureC != null
-                                && result.maximumTemperatureC != null)
-                            evidence += "\nPack: " + DisplayTemperature.range(
-                                    result.minimumTemperatureC, result.maximumTemperatureC,
-                                    temperatureUnit(), 0);
-                        evidence +=
-                                "\n"
-                                        + result.windowDays
-                                        + "-day window"
-                                        + (result.includesActive ? " · recording live" : "");
-                        capacityEvidence.setText(evidence);
-                        capacityNote.setText(
-                                proxy
-                                        ? "Draw and return are both counted. This proxy can"
-                                                + " overstate usable energy; the percentage is not"
-                                                + " battery health."
-                                        : "Cold, voltage range and battery-gauge changes affect"
-                                                + " this estimate; it is not a measured capacity"
-                                                + " test.");
-                        capacityNote.setTextColor(ui.muted);
+                        // The title and lab glyph say "experiment"; only the proxy keeps an honesty chip.
+                        styleTag(capacityMethod, proxy ? result.label : null, true);
+                        if (value == null) {
+                            // The bar becomes progress toward 20 battery points in one evidence group.
+                            capacitySummary.setText(result.label);
+                            capacityCompare.setVisibility(View.GONE);
+                            capacityReference.setVisibility(View.GONE);
+                            boolean progress = result.qualifiedRides + result.proxyRides > 0;
+                            capacityBar.set(progress
+                                    ? Math.min(100, result.progressPoints / BatteryCapacityEstimate.MIN_TOTAL_DROP * 100)
+                                    : 0d);
+                            capacityBar.setContentDescription(result.label);
+                            capacityBar.setVisibility(progress ? View.VISIBLE : View.GONE);
+                            return;
+                        }
+                        capacitySummary.setText(String.format(
+                                Locale.US,
+                                "%d rides · %.0f points used",
+                                estimated ? result.qualifiedRides : result.proxyRides,
+                                estimated ? result.batteryDropPoints : result.proxyBatteryDropPoints));
+                        showComparison(percent, result.advertisedWh, proxy, false);
                     });
+        }
+
+        /** "95% of 716 Wh" with its bar; without a reference, a Set reference chip instead. */
+        private void showComparison(Double percent, Double reference, boolean proxy, boolean sample) {
+            boolean compared = percent != null && reference != null;
+            capacityCompare.setText(compared
+                    ? String.format(Locale.US, "%.0f%% of %.0f Wh", percent, reference) : "");
+            capacityCompare.setTextColor(proxy ? ui.orange : ui.muted);
+            capacityCompare.setVisibility(compared ? View.VISIBLE : View.GONE);
+            capacityReference.setVisibility(reference == null && !sample ? View.VISIBLE : View.GONE);
+            capacityBar.set(compared ? percent : null);
+            capacityBar.setContentDescription(compared ? capacityCompare.getText() : null);
+            capacityBar.setVisibility(compared ? View.VISIBLE : View.GONE);
+        }
+
+        /** One sheet of label and value rows plus a single caveat line; no nested method dialog. */
+        private void showCapacityDetails() {
+            LinearLayout details = column();
+            BatteryCapacityEstimate.Result r = capacityResult;
+            boolean sample = service != null && service.simulating();
+            if (sample) {
+                details.addView(detailRow("Rides", "6"));
+                details.addView(detailRow("Points", "42"));
+                details.addView(detailRow("Window", shortWindow(widget.windowMs)));
+                details.addView(caveat("Sample"));
+            } else if (r == null) {
+                details.addView(caveat(capacityUnavailable != null ? capacityUnavailable : "Checking recorded rides…"));
+            } else {
+                boolean estimated = r.estimatedUsableWh != null;
+                boolean proxy = !estimated && r.throughputEquivalentWh != null;
+                boolean confirmedGroup = estimated || (!proxy && r.batteryDropPoints >= r.proxyBatteryDropPoints);
+                int rides = confirmedGroup ? r.qualifiedRides : r.proxyRides;
+                double points = confirmedGroup ? r.batteryDropPoints : r.proxyBatteryDropPoints;
+                details.addView(detailRow("Rides", Integer.toString(rides)));
+                details.addView(detailRow("Points", estimated || proxy
+                        ? String.format(Locale.US, "%.0f", points)
+                        : String.format(Locale.US, "%.0f / %.0f", Math.floor(r.progressPoints),
+                                BatteryCapacityEstimate.MIN_TOTAL_DROP)));
+                if (rides > 0)
+                    details.addView(detailRow("Coverage",
+                            String.format(Locale.US, "%.0f%%", r.electricalCoverage * 100)));
+                if (r.minimumTemperatureC != null && r.maximumTemperatureC != null)
+                    details.addView(detailRow("Pack temp", DisplayTemperature.range(
+                            r.minimumTemperatureC, r.maximumTemperatureC, temperatureUnit(), 0)));
+                details.addView(detailRow("Window", r.windowDays + (r.windowDays == 1 ? " day" : " days")
+                        + (r.includesActive ? " · live" : "")));
+                if (r.rejectedRides > 0)
+                    details.addView(detailRow("Rejected", r.rejectedRides
+                            + (r.reason == null ? "" : " · " + r.reason)));
+                if (!estimated && !proxy && r.qualifiedRides + r.proxyRides == 0 && r.rejectedRides == 0)
+                    details.addView(caveat(r.label));
+                details.addView(caveat(proxy ? "Proxy: may overstate; not health." : "Not a measured capacity test."));
+            }
+            show("Capacity estimate", details);
+        }
+
+        private LinearLayout detailRow(String label, String value) {
+            LinearLayout line = row();
+            line.setGravity(Gravity.CENTER_VERTICAL);
+            line.setMinimumHeight(ui.dp(40));
+            TextView name = ui.text(label, 14, false);
+            name.setTextColor(ui.muted);
+            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView amount = ui.text(value, 14, true);
+            amount.setGravity(Gravity.END);
+            LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(-2, -2);
+            space.setMarginStart(ui.dp(12));
+            line.addView(amount, space);
+            line.setContentDescription(label + ", " + value);
+            line.setFocusable(true);
+            return line;
+        }
+
+        private TextView caveat(String text) {
+            TextView line = ui.caption(text);
+            line.setPadding(0, ui.dp(10), 0, 0);
+            return line;
         }
 
         private void refreshChart(Map<String, TelemetryHistory.Reading> values) {
@@ -3458,7 +3761,9 @@ public final class DashboardScreen implements AppScreen {
             for (Ui.Point p : livePoints)
                 points.add(new Ui.Point(p.millis, chartNumber(key, p.value), p.gapBefore));
             chart.setAxis(key, widget.absoluteAxis);
-            chart.set(points, chartUnit(key, values), color(widget), "No saved readings yet");
+            // After a disconnect the live trace turns grey instead of adding a "Last seen" footer.
+            boolean frozen = widget.type.equals("live") && !wasLive && !points.isEmpty();
+            chart.set(points, chartUnit(key, values), frozen ? ui.dim : color(widget), "No saved readings yet");
             if (!widget.type.equals("health")) {
                 String metricLabel = label(key);
                 String window = windowName(widget.windowMs);
@@ -3467,10 +3772,6 @@ public final class DashboardScreen implements AppScreen {
                 String compact = (named ? "" : ScooterReadingLabels.compact(key, metricLabel) + " · ") + window;
                 ((DashboardCaption) subtitle).setLabels(metricLabel + " · " + window, normal, compact);
             }
-            footer.setText(widget.type.equals("live") && !wasLive && !points.isEmpty()
-                    ? "Last seen" : "");
-            footer.setTextColor(ui.dim);
-            footer.setVisibility(footer.getText().length() == 0 ? View.GONE : View.VISIBLE);
         }
     }
 
@@ -4518,8 +4819,8 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private void palette() {
-        if (config.widgets.size() >= 32) {
-            host.toast("Up to 32 widgets per scooter.");
+        if (config.widgets.size() >= WIDGET_LIMIT) {
+            add.performLongClick(add.getWidth() / 2f, add.getHeight() / 2f);
             return;
         }
         boolean hasLock = false;
@@ -4537,17 +4838,24 @@ public final class DashboardScreen implements AppScreen {
             row.setClickable(true);
             row.setFocusable(true);
             row.setTag("add-widget:" + type);
-            row.setContentDescription("Add " + DashboardConfig.NAMES[i]);
+            row.setContentDescription("Add " + DashboardConfig.NAMES[i]
+                    + (type.equals("capacity") ? ", experimental" : ""));
             row.addView(square(widgetIcon(type), present ? ui.dim : ui.accent, 38),
                     new LinearLayout.LayoutParams(ui.dp(38), ui.dp(38)));
-            LinearLayout words = column();
+            // Names only: the icon and name identify each widget without a description line.
+            LinearLayout words = row();
+            words.setGravity(Gravity.CENTER_VERTICAL);
             TextView name = ui.text(DashboardConfig.NAMES[i], 15, false);
             name.setTypeface(ui.medium());
             if (present) name.setTextColor(ui.muted);
-            words.addView(name);
-            TextView detail = ui.caption(DashboardConfig.DESCRIPTIONS[i]);
-            detail.setPadding(0, ui.dp(2), 0, 0);
-            words.addView(detail);
+            words.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            if (type.equals("capacity")) {
+                TextView experimental = tagChip();
+                styleTag(experimental, "Experimental", false);
+                LinearLayout.LayoutParams chipSpace = new LinearLayout.LayoutParams(-2, -2);
+                chipSpace.setMarginStart(ui.dp(8));
+                words.addView(experimental, chipSpace);
+            }
             LinearLayout.LayoutParams wordsSpace = new LinearLayout.LayoutParams(0, -2, 1);
             wordsSpace.setMarginStart(ui.dp(12));
             wordsSpace.setMarginEnd(ui.dp(10));
@@ -4569,14 +4877,13 @@ public final class DashboardScreen implements AppScreen {
             }
             if (android.os.Build.VERSION.SDK_INT >= 30)
                 if (present) row.setStateDescription("Already on Home");
+            // One lock control per dashboard: its row is shown "On Home" and cannot be added again.
+            row.setEnabled(!present);
             row.setOnClickListener(
                     v -> {
                         if (lockType(type))
                             for (DashboardConfig.Widget item : config.widgets)
-                                if (lockType(item.type)) {
-                                    host.toast("The lock widget is already on your dashboard.");
-                                    return;
-                                }
+                                if (lockType(item.type)) return;
                         DashboardConfig.Widget widget = new DashboardConfig.Widget(type);
                         int end = 0;
                         for (DashboardConfig.Widget item : config.widgets) {
@@ -4788,7 +5095,8 @@ public final class DashboardScreen implements AppScreen {
         fill[0] = () -> {
             Map<String, Float> old = childPositions(rows);
             rows.removeAllViews();
-            count.setText(widget.quickActions.size() + " of " + most + " shortcuts · tap to change");
+            count.setText(widget.quickActions.size() + " of " + most);
+            count.setContentDescription(widget.quickActions.size() + " of " + most + " shortcuts");
             for (String id : new ArrayList<>(widget.quickActions)) {
                 QuickAccessActions.Entry entry = QuickAccessActions.find(id);
                 LinearLayout line = row(); line.setGravity(Gravity.CENTER_VERTICAL);
@@ -4895,11 +5203,19 @@ public final class DashboardScreen implements AppScreen {
                 item.addView(new GlyphView(entry.icon, ui.accent), new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20)));
                 LinearLayout words = column();
                 words.addView(ui.text(entry.label, 14, false));
-                words.addView(ui.caption(entry.group + (selected ? " · Selected" : entry.directToggle() ? " · Toggle" : "")));
+                words.addView(ui.caption(entry.group));
                 LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(0, -2, 1); space.setMarginStart(ui.dp(12));
                 item.addView(words, space);
+                // A check marks a chosen shortcut; a switch marks one that toggles directly.
+                if (selected || entry.directToggle()) {
+                    GlyphView kind = new GlyphView(selected ? "check" : "toggle", selected ? ui.accent : ui.muted);
+                    LinearLayout.LayoutParams kindSize = new LinearLayout.LayoutParams(ui.dp(20), ui.dp(20));
+                    kindSize.setMarginStart(ui.dp(8));
+                    item.addView(kind, kindSize);
+                }
                 item.setTag("quick-choice:" + entry.id);
-                item.setContentDescription(entry.label + (selected ? ", selected" : ""));
+                item.setContentDescription(entry.label + ", " + entry.group
+                        + (selected ? ", selected" : entry.directToggle() ? ", toggle" : ""));
                 item.setClickable(true); item.setFocusable(true); item.setEnabled(!selected || current);
                 item.setAlpha(item.isEnabled() ? 1 : .4f);
                 item.setBackground(ripple(Ui.withAlpha(ui.accent, 30), null, ui.shape(Color.WHITE, 12, 0)));
@@ -4928,14 +5244,8 @@ public final class DashboardScreen implements AppScreen {
     private void duplicateWidget(DashboardConfig.Widget widget) {
         if (!editing) return;
         grid.finishGesture(false);
-        if (lockType(widget.type)) {
-            host.toast("One lock widget per dashboard.");
-            return;
-        }
-        if (config.widgets.size() >= 32) {
-            host.toast("Up to 32 widgets per scooter.");
-            return;
-        }
+        // Unreachable from the disabled Duplicate control, whose tooltip gives the reason.
+        if (lockType(widget.type) || config.widgets.size() >= WIDGET_LIMIT) return;
         DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
         DashboardConfig.Widget copy = new DashboardConfig.Widget(widget.type);
         copy.title = widget.title;
@@ -5177,19 +5487,37 @@ public final class DashboardScreen implements AppScreen {
 
     private void advertisedCapacity(DashboardConfig.Widget widget) {
         dismiss();
+        ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
+        // NAVEE US UT5 MAX specification: 46.8 V nominal × 15.3 Ah (see rating()).
+        boolean modelKnown = profile != null && profile.pid() == 2538;
         LinearLayout content = column();
-        content.addView(
-                ui.caption(
-                        "Use the pack’s advertised energy in Wh, or nominal voltage × rated Ah."
-                            + " Enter 0 to use the model rating when known. This only changes the"
-                            + " comparison."));
+        content.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
+        LinearLayout field = row();
+        field.setGravity(Gravity.CENTER_VERTICAL);
         EditText input = new EditText(dialogContext);
         input.setInputType(InputType.TYPE_CLASS_NUMBER | InputType.TYPE_NUMBER_FLAG_DECIMAL);
-        input.setText(Double.toString(widget.advertisedWh));
-        content.addView(input);
+        double stored = widget.advertisedWh;
+        input.setText(stored <= 0 ? "" : stored == Math.rint(stored)
+                ? String.format(Locale.US, "%.0f", stored) : Double.toString(stored));
+        // Empty uses the model rating when it is known.
+        input.setHint(modelKnown ? "716 Wh · UT5 MAX" : "Wh");
+        input.setContentDescription("Advertised capacity in watt-hours");
+        field.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
+        TextView unit = ui.text("Wh", 15, false);
+        unit.setTextColor(ui.muted);
+        unit.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        LinearLayout.LayoutParams unitSpace = new LinearLayout.LayoutParams(-2, -2);
+        unitSpace.setMarginStart(ui.dp(8));
+        field.addView(unit, unitSpace);
+        content.addView(field, new LinearLayout.LayoutParams(-1, -2));
+        if (modelKnown)
+            content.addView(ui.secondaryButton("Use model rating", () -> {
+                widget.advertisedWh = 0;
+                changedWidget(widget);
+            }));
         dialog =
                 new AlertDialog.Builder(dialogContext)
-                        .setTitle("Advertised capacity (Wh)")
+                        .setTitle("Advertised capacity")
                         .setView(content)
                         .setNegativeButton("Cancel", null)
                         .setPositiveButton("Save", null)
@@ -5199,51 +5527,16 @@ public final class DashboardScreen implements AppScreen {
                 .setOnClickListener(
                         v -> {
                             try {
-                                double n = Double.parseDouble(input.getText().toString());
+                                String text = input.getText().toString().trim();
+                                double n = text.isEmpty() ? 0 : Double.parseDouble(text);
                                 if (!Double.isFinite(n) || n < 0 || n > 10000)
                                     throw new IllegalArgumentException();
                                 widget.advertisedWh = n;
                                 changedWidget(widget);
                             } catch (Exception e) {
-                                input.setError("Enter Wh between 0 and 10,000.");
+                                input.setError("0–10,000 Wh");
                             }
                         });
-    }
-
-    private void showCapacityMethod(DashboardConfig.Widget widget) {
-        LinearLayout content = column();
-        content.addView(ui.text("Experimental capacity estimate", 20, true));
-        content.addView(
-                ui.caption(
-                        "Estimated full-pack energy = 100 × recorded energy ÷ battery-percentage"
-                            + " points used. Qualified rides are combined by their percentage drop,"
-                            + " with the active ride replacing its previous contribution."));
-        content.addView(
-                ui.caption(
-                        "Use rides lasting at least a minute, each dropping at least 5 percentage"
-                            + " points, with at least 20 points combined and 95% electrical"
-                            + " coverage. Gaps, mismatched endpoints and battery-gauge rises are"
-                            + " filtered. The selected window controls how much recent ride data is"
-                            + " included."));
-        content.addView(
-                ui.caption(
-                        "With confirmed current direction, the estimate uses net energy. Otherwise"
-                            + " it shows a separate absolute-throughput proxy: returned energy is"
-                            + " counted too, so it can overstate usable capacity. A percentage"
-                            + " beside this proxy is not battery health."));
-        content.addView(
-                ui.caption(
-                        "Cold, load, gauge rounding and recalibration affect both estimates. Energy"
-                            + " per percentage point also changes with battery voltage. These"
-                            + " estimates do not establish the cells’ actual capacity or prove a"
-                            + " pack is smaller than advertised. No extra discharge or ride is"
-                            + " started."));
-        content.addView(
-                ui.caption(
-                        "UT5 MAX model reference: 46.8 V × 15.3 Ah = 716.04 Wh, from NAVEE US"
-                                + " product specifications. Other models need a comparison value in"
-                                + " widget options."));
-        show("How this is estimated", content);
     }
 
     private void editText(
@@ -5401,10 +5694,7 @@ public final class DashboardScreen implements AppScreen {
             item.setOnClickListener(v -> {
                 if (chosen.contains(metric.key)) chosen.remove(metric.key);
                 else if (chosen.size() < most) chosen.add(metric.key);
-                else {
-                    host.toast("Choose up to " + most + " readings.");
-                    return;
-                }
+                else return;
                 style.run();
                 count.setText(chosen.size() + " of " + most + " selected");
                 refreshSelected[0].run();
@@ -5417,6 +5707,13 @@ public final class DashboardScreen implements AppScreen {
             originals.put(metric.key, item);
         }
         refreshSelected[0] = () -> {
+            // At the limit, unchecked rows grey out; the "N of N selected" count says why.
+            boolean full = chosen.size() >= most;
+            for (Map.Entry<String, View> entry : originals.entrySet()) {
+                boolean available = !full || chosen.contains(entry.getKey());
+                entry.getValue().setEnabled(available);
+                entry.getValue().setAlpha(available ? 1f : .4f);
+            }
             Map<String, Float> old = childPositions(choices);
             Map<String, Float> pinned = childPositions(selectedRows);
             selectedRows.removeAllViews();
@@ -5484,10 +5781,7 @@ public final class DashboardScreen implements AppScreen {
         });
         filter.run();
         TextView save = ui.button("✓ Save", () -> {
-            if (chosen.size() > most) {
-                host.toast("Choose up to " + most + " readings.");
-                return;
-            }
+            if (chosen.size() > most) return;
             if (chosen.size() < least) {
                 host.toast("Choose at least one reading.");
                 return;
@@ -5531,13 +5825,25 @@ public final class DashboardScreen implements AppScreen {
         GaugeScaleInput scaleInput = new GaugeScaleInput(original, chartNumber(widget.metric, original),
                 widget.metric.endsWith("_kmh") ? 1 : 6);
         input.setText(scaleInput.text);
+        String unitName = chartUnit(widget.metric, readings());
+        input.setContentDescription((maximum ? "Scale maximum" : "Scale minimum")
+                + (unitName.isEmpty() ? "" : " in " + unitName));
+        LinearLayout content = row();
+        content.setGravity(Gravity.CENTER_VERTICAL);
+        content.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
+        content.addView(input, new LinearLayout.LayoutParams(0, -2, 1));
+        if (!unitName.isEmpty()) {
+            TextView unit = ui.text(unitName, 15, false);
+            unit.setTextColor(ui.muted);
+            unit.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            LinearLayout.LayoutParams unitSpace = new LinearLayout.LayoutParams(-2, -2);
+            unitSpace.setMarginStart(ui.dp(8));
+            content.addView(unit, unitSpace);
+        }
         dialog =
                 new AlertDialog.Builder(dialogContext)
-                        .setTitle(
-                                maximum
-                                        ? "Scale maximum (display units)"
-                                        : "Scale minimum (display units)")
-                        .setView(input)
+                        .setTitle(maximum ? "Scale maximum" : "Scale minimum")
+                        .setView(content)
                         .setNegativeButton("Cancel", null)
                         .setPositiveButton("Save", null)
                         .create();
@@ -5560,7 +5866,9 @@ public final class DashboardScreen implements AppScreen {
                                 else widget.minimum = n;
                                 changedWidget(widget);
                             } catch (Exception e) {
-                                input.setError("Enter a finite range with maximum above minimum.");
+                                input.setError(maximum
+                                        ? "Must be above " + scaleSummary(widget, widget.minimum)
+                                        : "Must be below " + scaleSummary(widget, widget.maximum));
                             }
                         });
     }
@@ -5606,44 +5914,40 @@ public final class DashboardScreen implements AppScreen {
     private void position(DashboardConfig.Widget widget) {
         dismiss();
         DashboardLayout.Cell cell = grid.currentCell(widget);
+        // Limited-range pickers, like the size dialog, so an out-of-range position cannot be entered.
         LinearLayout controls = column();
-        EditText x = new EditText(dialogContext), y = new EditText(dialogContext);
-        x.setInputType(InputType.TYPE_CLASS_NUMBER);
-        y.setInputType(InputType.TYPE_CLASS_NUMBER);
-        x.setText(Integer.toString(cell.x + 1));
-        y.setText(Integer.toString(cell.y + 1));
-        controls.addView(ui.caption("Column (1–" + grid.columns + ")"));
+        NumberPicker x = new NumberPicker(dialogContext);
+        x.setMinValue(1);
+        x.setMaxValue(Math.max(1, grid.columns));
+        x.setValue(Math.max(1, Math.min(grid.columns, cell.x + 1)));
+        x.setContentDescription("Column");
+        NumberPicker y = new NumberPicker(dialogContext);
+        y.setMinValue(1);
+        y.setMaxValue(301);
+        y.setValue(Math.max(1, Math.min(301, cell.y + 1)));
+        y.setContentDescription("Row");
+        controls.addView(ui.caption("Column"));
         controls.addView(x);
-        controls.addView(ui.caption("Row (1–301)"));
+        controls.addView(ui.caption("Row"));
         controls.addView(y);
         dialog =
                 new AlertDialog.Builder(dialogContext)
                         .setTitle("Move widget")
                         .setView(controls)
                         .setNegativeButton("Cancel", null)
-                        .setPositiveButton("Move", null)
-                        .create();
-        dialog.show();
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE)
-                .setOnClickListener(
-                        v -> {
-                            try {
-                                int xx = Integer.parseInt(x.getText().toString()) - 1,
-                                        yy = Integer.parseInt(y.getText().toString()) - 1;
-                                if (xx < 0 || xx >= grid.columns || yy < 0 || yy > 300)
-                                    throw new IllegalArgumentException();
-                                DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
-                                grid.prepareEdit();
-                                DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
-                                latest.x = xx;
-                                latest.y = yy;
-                                grid.settle(widget.id);
-                                recordEdit(before);
-                                changedWidget(widget);
-                            } catch (Exception e) {
-                                host.toast("Use the column and row ranges shown.");
-                            }
-                        });
+                        .setPositiveButton(
+                                "Move",
+                                (d, n) -> {
+                                    DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
+                                    grid.prepareEdit();
+                                    DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
+                                    latest.x = Math.max(0, Math.min(grid.columns - 1, x.getValue() - 1));
+                                    latest.y = Math.max(0, Math.min(300, y.getValue() - 1));
+                                    grid.settle(widget.id);
+                                    recordEdit(before);
+                                    changedWidget(widget);
+                                })
+                        .show();
     }
 
     /** One recessed segmented control; its highlight retargets from the current visual position. */
@@ -5682,12 +5986,17 @@ public final class DashboardScreen implements AppScreen {
                     button.setPadding(ui.dp(12), 0, ui.dp(12), 0);
                     button.setFocusable(true);
                     button.setClickable(true);
-                    button.setEnabled(i == 0 || i <= usable);
-                    button.setAlpha(button.isEnabled() ? 1f : .4f);
+                    // Too many columns for this screen: shown greyed; a tap explains at the bottom of the screen.
+                    final boolean available = i == 0 || i <= usable;
+                    button.setAlpha(available ? 1f : .4f);
                     button.setContentDescription(i == 0 ? "Adaptive columns"
                             : i + (i == 1 ? " column" : " columns")
-                                    + (button.isEnabled() ? "" : ", needs a wider screen"));
+                                    + (available ? "" : ", needs a wider screen"));
                     button.setOnClickListener(v -> {
+                        if (!available) {
+                            showNotice(button, "Needs a wider screen", null, null);
+                            return;
+                        }
                         this.selected = choice;
                         preferences.edit().putInt("dashboard_columns", choice).apply();
                         updateSelection(true);
@@ -5764,16 +6073,10 @@ public final class DashboardScreen implements AppScreen {
         content.addView(sheetLabel("Columns"));
         int usable = grid.maximumColumns();
         int selected = preferences.getInt("dashboard_columns", 0);
-        content.addView(new ColumnSelector(usable, selected), new LinearLayout.LayoutParams(-1, -2));
-        String unavailable = usable < DashboardConfig.MAX_COLUMNS
-                ? "More columns become available on wider screens. " : "";
-        TextView note = ui.caption(unavailable + "Layouts are saved separately for each column count.");
-        note.setPadding(ui.dp(2), ui.dp(10), ui.dp(2), ui.dp(14));
-        content.addView(note);
+        LinearLayout.LayoutParams selectorSpace = new LinearLayout.LayoutParams(-1, -2);
+        selectorSpace.bottomMargin = ui.dp(6);
+        content.addView(new ColumnSelector(usable, selected), selectorSpace);
         content.addView(sheetLabel("Saved layouts"));
-        TextView savedHint = ui.caption("Each slot keeps this scooter’s folded and unfolded layouts, including widget options.");
-        savedHint.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(10));
-        content.addView(savedHint);
         for (int i = 0; i < DashboardConfig.SLOT_COUNT; i++) addLayoutSlot(content, i);
         LinearLayout transfers = row();
         View export = toolButton("Export", "download", () -> { dismiss(); host.exportDashboardLayouts(); });
@@ -5797,35 +6100,172 @@ public final class DashboardScreen implements AppScreen {
         TextView name = ui.text("Restore default widgets", 15, false);
         name.setTypeface(ui.medium());
         words.addView(name);
-        TextView detail = ui.caption("Lock, battery, readings, settings, recorder");
-        detail.setPadding(0, ui.dp(2), 0, 0);
-        words.addView(detail);
         LinearLayout.LayoutParams wordsSpace = new LinearLayout.LayoutParams(0, -2, 1);
         wordsSpace.setMarginStart(ui.dp(12));
         restore.addView(words, wordsSpace);
-        restore.addView(new GlyphView("chevron", ui.muted), new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16)));
-        restore.setOnClickListener(
-                v -> {
-                    dismiss();
-                    dialog =
-                            new AlertDialog.Builder(dialogContext)
-                                    .setTitle("Restore default dashboard?")
-                                    .setMessage(
-                                            "This replaces the current folded and unfolded layouts."
-                                                    + " Saved slots, readings and rides are kept.")
-                                    .setNegativeButton("Cancel", null)
-                                    .setPositiveButton(
-                                            "Restore",
-                                            (d, n) -> {
-                                                stopRemovalEffect();
-                                                editHistory.clear();
-                                                config.reset();
-                                                render();
-                                            })
-                                    .show();
-                });
+        restore.setOnClickListener(v -> restoreDefaults());
         content.addView(restore, new LinearLayout.LayoutParams(-1, -2));
         showSheet("Dashboard layout", content, null, "Close dashboard layout", null);
+    }
+
+    /** Restores the defaults at once; Undo in the notice (or the header) brings the old layout back. */
+    private void restoreDefaults() {
+        if (closed || !editing) return;
+        grid.finishGesture(false);
+        stopRemovalEffect();
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.captureWithColumns(config);
+        String previous = config.widgetsJson();
+        int columns = config.columnPreference();
+        config.reset();
+        boolean recorded = recordEdit(before);
+        if (recorded) {
+            try {
+                preferences.edit().putString(restoreUndoKey, new org.json.JSONObject()
+                        .put("widgets", previous)
+                        .put("columns", columns)
+                        .put("restored", config.widgetsJson())
+                        .toString()).apply();
+            } catch (org.json.JSONException ignored) {
+                // Undo still works from this screen's history.
+            }
+        }
+        dismiss();
+        render();
+        if (recorded) offerRestoreUndo();
+        else showNotice(view, "Defaults restored", null, null);
+    }
+
+    private void offerRestoreUndo() {
+        showNotice(view, "Defaults restored", "Undo", () -> {
+            if (closed || !editing || !editHistory.canUndo()) return;
+            restoreEdit(false);
+        });
+    }
+
+    private void clearRestoreUndo() {
+        if (preferences.contains(restoreUndoKey)) preferences.edit().remove(restoreUndoKey).apply();
+    }
+
+    /** After a rebuild in edit mode, puts a pending Restore defaults back into Undo and offers it again. */
+    private void resumeRestoreUndo() {
+        if (!preferences.contains(restoreUndoKey)) return;
+        ArrayList<DashboardConfig.Widget> previous = null;
+        int columns = -1;
+        try {
+            org.json.JSONObject saved = new org.json.JSONObject(preferences.getString(restoreUndoKey, ""));
+            // Anything that replaced the restored defaults since (an import, a backup restore) ends the offer.
+            String restored = saved.getString("restored");
+            String stored = config.storedWidgetsJson();
+            if (editing && stored != null && stored.equals(restored)) {
+                previous = DashboardConfig.parseWidgets(saved.getString("widgets"));
+                columns = saved.optInt("columns", -1);
+            }
+        } catch (org.json.JSONException | RuntimeException unreadable) {
+            previous = null;
+        }
+        if (previous == null) {
+            clearRestoreUndo();
+            return;
+        }
+        ArrayList<DashboardConfig.Widget> current = new ArrayList<>(config.widgets);
+        config.widgets.clear();
+        config.widgets.addAll(previous);
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.captureWithColumns(config, columns);
+        config.widgets.clear();
+        config.widgets.addAll(current);
+        if (!editHistory.record(before, config)) {
+            clearRestoreUndo();
+            return;
+        }
+        updateHistoryControls();
+        Runnable offer = () -> view.post(() -> { if (!closed && editing && editHistory.canUndo()) offerRestoreUndo(); });
+        if (view.isAttachedToWindow()) offer.run();
+        else view.addOnAttachStateChangeListener(new View.OnAttachStateChangeListener() {
+            @Override public void onViewAttachedToWindow(View v) {
+                v.removeOnAttachStateChangeListener(this);
+                offer.run();
+            }
+            @Override public void onViewDetachedFromWindow(View v) { }
+        });
+    }
+
+    /**
+     * A short message at the bottom of the screen, above every window including open sheets, with an
+     * optional action. It slides in, then hides itself; nothing is shown otherwise.
+     */
+    private void showNotice(View anchor, String message, String actionLabel, Runnable action) {
+        hideNotice();
+        if (closed || anchor == null || !anchor.isAttachedToWindow() || anchor.getWindowToken() == null) return;
+        LinearLayout pill = row();
+        pill.setGravity(Gravity.CENTER_VERTICAL);
+        pill.setMinimumHeight(ui.dp(48));
+        pill.setPadding(ui.dp(16), 0, ui.dp(action == null ? 16 : 4), 0);
+        pill.setBackground(ui.shape(ui.dark ? ui.raised : ui.text, 14, 0));
+        pill.setElevation(ui.dp(6));
+        TextView text = ui.text(message, 14, false);
+        text.setTextColor(ui.dark ? ui.text : ui.bg);
+        pill.addView(text, new LinearLayout.LayoutParams(-2, -2));
+        if (action != null) {
+            TextView button = ui.text(actionLabel, 14, true);
+            button.setTextColor(ui.dark ? ui.accent : blend(ui.accent, Color.WHITE, .35f));
+            button.setGravity(Gravity.CENTER);
+            button.setMinHeight(ui.dp(48));
+            button.setMinWidth(ui.dp(64));
+            button.setPadding(ui.dp(12), 0, ui.dp(12), 0);
+            button.setBackground(ripple(Ui.withAlpha(ui.accent, 50), null, ui.shape(Color.WHITE, 12, 0)));
+            button.setClickable(true);
+            button.setFocusable(true);
+            button.setTag("dashboard-notice-action");
+            button.setOnClickListener(v -> {
+                hideNotice();
+                action.run();
+            });
+            LinearLayout.LayoutParams space = new LinearLayout.LayoutParams(-2, -2);
+            space.setMarginStart(ui.dp(8));
+            pill.addView(button, space);
+        }
+        FrameLayout holder = new FrameLayout(host.activity());
+        holder.setClipToPadding(false);
+        holder.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12));
+        holder.addView(pill, new FrameLayout.LayoutParams(-2, -2, Gravity.CENTER));
+        PopupWindow window = new PopupWindow(holder, -2, -2, false);
+        window.setTouchable(action != null);
+        window.setOutsideTouchable(false);
+        window.setAnimationStyle(0);
+        int inset = 0;
+        WindowInsets insets = anchor.getRootWindowInsets();
+        if (insets != null) inset = insets.getSystemWindowInsetBottom();
+        try {
+            window.showAtLocation(anchor.getRootView(), Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL, 0,
+                    ui.dp(12) + inset);
+        } catch (RuntimeException unavailable) {
+            return;
+        }
+        notice = window;
+        anchor.announceForAccessibility(message);
+        if (Ui.motionEnabled()) {
+            pill.setAlpha(0);
+            pill.setTranslationY(ui.dp(24));
+            pill.animate().alpha(1).translationY(0).setDuration(220).setInterpolator(Motion.STANDARD).start();
+        }
+        holder.postDelayed(() -> { if (notice == window) hideNotice(); }, action == null ? 2500 : 5000);
+    }
+
+    private void hideNotice() {
+        PopupWindow window = notice;
+        notice = null;
+        if (window == null) return;
+        View holder = window.getContentView();
+        View pill = holder instanceof ViewGroup && ((ViewGroup) holder).getChildCount() > 0
+                ? ((ViewGroup) holder).getChildAt(0) : null;
+        Runnable close = () -> {
+            try { window.dismiss(); } catch (RuntimeException ignored) { }
+        };
+        if (pill != null && Ui.motionEnabled() && !closed && holder.isAttachedToWindow()) {
+            pill.animate().cancel();
+            pill.animate().alpha(0).translationY(ui.dp(24)).setDuration(160)
+                    .setInterpolator(Motion.STANDARD).withEndAction(close).start();
+        } else close.run();
     }
 
     private void addLayoutSlot(LinearLayout parent, int index) {
@@ -5840,7 +6280,7 @@ public final class DashboardScreen implements AppScreen {
         if (android.os.Build.VERSION.SDK_INT >= 28) heading.setAccessibilityHeading(true);
         card.addView(heading);
         String detail = saved == null
-                ? (occupied ? "Saved layout unavailable · save again to replace it" : "Empty")
+                ? (occupied ? "Unreadable" : "Empty")
                 : (saved.widgetCount == 1 ? "1 widget" : saved.widgetCount + " widgets")
                         + " · " + DisplayTime.recent(host.activity(), preferences,
                                 saved.savedAtMs, System.currentTimeMillis());
@@ -5871,12 +6311,8 @@ public final class DashboardScreen implements AppScreen {
         boolean replacing = config.slotExists(index);
         dismiss();
         LinearLayout content = column();
+        // The title ("Replace slot N?") and the Replace button carry the overwrite warning.
         content.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
-        TextView message = ui.caption(replacing
-                ? "Replace this saved slot with your current folded and unfolded layouts?"
-                : "Save your current folded and unfolded layouts together.");
-        message.setPadding(0, 0, 0, ui.dp(12));
-        content.addView(message);
         EditText name = new EditText(dialogContext);
         name.setSingleLine(true);
         name.setHint("Layout name");
@@ -5913,18 +6349,15 @@ public final class DashboardScreen implements AppScreen {
 
     private void restoreLayoutSlot(int index) {
         DashboardConfig.SavedSlot saved = config.slot(index);
+        // Restore is disabled for an empty or unreadable slot.
         if (saved == null) {
-            host.toast("This saved layout is unavailable.");
             layoutOptions();
             return;
         }
         dismiss();
         AlertDialog created = new AlertDialog.Builder(dialogContext)
                 .setTitle("Restore “" + saved.name + "”?")
-                .setMessage("Replace the current folded and unfolded layouts, widget options"
-                        + " and column choice? Column choice is shared across all scooters on this phone."
-                        + " Save your current layout to another slot first if"
-                        + " you want to keep it. Saved slots, readings and rides are kept.")
+                .setMessage("Replaces your layout and the column setting on all scooters.")
                 .setNegativeButton("Cancel", (d, which) -> returnToLayoutOptions(d))
                 .setOnCancelListener(this::returnToLayoutOptions)
                 .setPositiveButton("Restore", null)
@@ -5935,11 +6368,12 @@ public final class DashboardScreen implements AppScreen {
             if (closed || !editing) return;
             grid.finishGesture(false);
             if (!config.restoreSlot(index)) {
-                host.toast("Couldn’t restore the layout. Your current dashboard is kept.");
+                host.toast("Couldn’t restore. Nothing changed.");
                 return;
             }
             stopRemovalEffect();
             editHistory.clear();
+            clearRestoreUndo();
             dismiss();
             render();
             host.toast("Restored “" + saved.name + "”");
@@ -5975,6 +6409,8 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private void dismiss() {
+        // A notice shown over a sheet goes with it.
+        if (notice != null && dialog != null) hideNotice();
         if (dialog != null) {
             dialog.dismiss();
             dialog = null;
@@ -6000,6 +6436,7 @@ public final class DashboardScreen implements AppScreen {
 
     @Override
     public void close() {
+        hideNotice();
         closed = true;
         chargingHero.stopReveal();
         cancelWidgetReveal();

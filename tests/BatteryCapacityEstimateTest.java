@@ -108,8 +108,10 @@ public final class BatteryCapacityEstimateTest {
         check(
                 r.estimatedUsableWh == null
                         && r.percentOfAdvertised == null
-                        && r.status.contains("unconfirmed"),
+                        && r.qualifiedRides == 0
+                        && r.proxyRides == 1,
                 "Proxy never promoted to confirmed capacity");
+        check("Proxy · not health".equals(r.label), "Proxy keeps a short honesty label");
         Fixture confirmed =
                 fixture(
                         "A",
@@ -176,9 +178,7 @@ public final class BatteryCapacityEstimateTest {
                 600,
                 r.estimatedUsableWh,
                 "Active energy/SOC continuously updates without double counting");
-        check(
-                r.limitations.contains("provisional"),
-                "Active interpretation explicitly provisional");
+        near(20, r.batteryDropPoints, "Active replacement retains only the latest battery drop");
     }
 
     private static void endpointAndGaugeQuality() throws Exception {
@@ -218,12 +218,14 @@ public final class BatteryCapacityEstimateTest {
                         false);
         check(
                 calculate("A", Collections.singletonList(zero.ride()), 716.04)
-                                .status
-                                .contains("below5")
-                        || calculate("A", Collections.singletonList(zero.ride()), 716.04)
-                                .status
-                                .contains("below 5"),
+                                .rejectedRides == 1,
                 "NoSOCchange cannot yield capacity");
+        BatteryCapacityEstimate.Result rejectedOnly =
+                calculate("A", Collections.singletonList(zero.ride()), 716.04);
+        check(
+                "No usable rides yet".equals(rejectedOnly.label)
+                        && "Drop under 5%".equals(rejectedOnly.reason),
+                "Rejected rides show a short state with the reason in details");
         Fixture shortDrop =
                 fixture(
                         "A",
@@ -254,8 +256,7 @@ public final class BatteryCapacityEstimateTest {
                         false);
         check(
                 calculate("A", Collections.singletonList(gap.ride()), 716.04)
-                        .status
-                        .contains("gaps"),
+                        .rejectedRides == 1,
                 "Brief real recordinggap blocks extrapolation");
         Fixture missing =
                 fixture(
@@ -269,8 +270,7 @@ public final class BatteryCapacityEstimateTest {
                         false);
         check(
                 calculate("A", Collections.singletonList(missing.ride()), 716.04)
-                        .status
-                        .contains("coverage"),
+                        .rejectedRides == 1,
                 "Lowpower coverage excluded");
         Fixture tinyLoss =
                 fixture(
@@ -301,8 +301,7 @@ public final class BatteryCapacityEstimateTest {
                         false);
         check(
                 calculate("A", Collections.singletonList(still.ride()), 716.04)
-                        .status
-                        .contains("movement"),
+                        .rejectedRides == 1,
                 "Stationary/charger-like session excluded");
         Fixture brief =
                 fixture(
@@ -316,8 +315,7 @@ public final class BatteryCapacityEstimateTest {
                         false);
         check(
                 calculate("A", Collections.singletonList(brief.ride()), 716.04)
-                        .status
-                        .contains("1 minute"),
+                        .rejectedRides == 1,
                 "Too-short recording excluded");
     }
 
@@ -354,8 +352,7 @@ public final class BatteryCapacityEstimateTest {
                 "Confirmed-unconfirmed-confirmed settingchanges both counted");
         check(
                 calculate("A", Collections.singletonList(flip.ride()), 716.04)
-                        .status
-                        .contains("direction changed"),
+                        .rejectedRides == 1,
                 "Direction flips reject misleading summaryenergy");
         RideStore replay = new RideStore(flip.directory);
         check(
@@ -382,9 +379,10 @@ public final class BatteryCapacityEstimateTest {
                 calculate("A", Collections.singletonList(cold.ride()), 716.04);
         check(
                 r.estimatedUsableWh != null
-                        && r.limitations.contains("Cold")
-                        && r.limitations.contains("Near-full"),
-                "Cold/fullstart produces cautions rather than unusableall-or-nothing gate");
+                        && r.qualifiedRides == 1
+                        && r.rejectedRides == 0,
+                "Cold/full start remains usable evidence");
+        near(500, r.estimatedUsableWh, "Cold/full start does not invent a capacity correction");
         near(2, r.minimumTemperatureC, "Actual observed packtemperature preserved");
         check(
                 calculate("B", Collections.singletonList(cold.ride()), 716.04).qualifiedRides == 0,
@@ -404,6 +402,31 @@ public final class BatteryCapacityEstimateTest {
                                 .estimatedUsableWh
                         == null,
                 "Empty journals remain insufficient evidence");
+        check(
+                "Record a longer ride"
+                        .equals(BatteryCapacityEstimate.calculate("A", Collections.emptyList(), 716.04, NOW, 90).label),
+                "Empty journals show a short next step");
+        for (String reason :
+                new String[] {
+                    "recording clock changed",
+                    "recording has gaps or recovery",
+                    "current direction changed during the ride",
+                    "record at least 1 minute",
+                    "battery end readings are missing",
+                    "battery drop is below 5 percentage points",
+                    "electrical coverage is below 95%",
+                    "at least 30 seconds of measured movement is needed",
+                    "measured energy is unavailable",
+                    "net measured energy is not positive",
+                    "endpoint power and battery readings are missing",
+                    "power and battery readings do not align with both ride ends",
+                    "battery gauge rebounded or rose while recording"
+                }) {
+            String label = BatteryCapacityEstimate.shortReason(reason);
+            check(
+                    label != null && !label.equals("Insufficient data") && label.split(" ").length <= 4,
+                    "Rejection reason has a short label: " + reason);
+        }
     }
 
     private static void analysisSnapshotsAreReadOnlyAndConsistent() throws Exception {

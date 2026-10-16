@@ -77,8 +77,15 @@ public final class RouteMapView extends View {
         setMinimumHeight(ui.dp(290));
         setFocusable(true);
         setClickable(true);
-        setContentDescription(
-                "Ride route. Pinch to zoom, drag to pan, tap a point to inspect its readings.");
+        setContentDescription("Ride route map");
+    }
+
+    /** Preselects the route's last point so its readings show before any tap. */
+    void selectLast() {
+        if (selected >= 0 || points.isEmpty()) return;
+        selected = points.size() - 1;
+        if (selection != null) selection.accept(points.get(selected));
+        invalidate();
     }
 
     String metric() { return metric; }
@@ -413,7 +420,7 @@ public final class RouteMapView extends View {
     }
 
     private static String grade(Double percent) {
-        return percent == null ? null : String.format(Locale.US, "%+.1f%% grade", percent);
+        return percent == null ? null : String.format(Locale.US, "≈%+.1f%% grade", percent);
     }
 
     private static String accel(Double mps2) {

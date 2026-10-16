@@ -33,13 +33,17 @@ public final class DashboardEditHistory {
     public static final class Snapshot {
         private final DashboardConfig owner;
         private final ArrayList<Entry> entries = new ArrayList<>();
+        /** The column choice for edits that change it (Restore defaults); UNTRACKED otherwise. */
+        private final int columns;
 
-        private Snapshot(DashboardConfig config) {
+        private Snapshot(DashboardConfig config, int columns) {
             owner = config;
+            this.columns = columns;
             for (DashboardConfig.Widget widget : config.widgets) entries.add(new Entry(widget));
         }
 
         private boolean sameLayout(Snapshot other) {
+            if (columns != other.columns) return false;
             if (entries.size() != other.entries.size()) return false;
             for (int i = 0; i < entries.size(); i++)
                 if (!entries.get(i).sameLayout(other.entries.get(i))) return false;
@@ -54,6 +58,7 @@ public final class DashboardEditHistory {
                     entry.widget.layouts.put(layout.getKey(), copy(layout.getValue()));
                 config.widgets.add(entry.widget);
             }
+            if (columns != UNTRACKED) config.restoreColumnPreference(columns);
         }
     }
 
@@ -89,9 +94,23 @@ public final class DashboardEditHistory {
         }
     }
 
+    private static final int UNTRACKED = Integer.MIN_VALUE;
+
     public static Snapshot capture(DashboardConfig config) {
         if (config == null) throw new IllegalArgumentException("Missing dashboard");
-        return new Snapshot(config);
+        return new Snapshot(config, UNTRACKED);
+    }
+
+    /** Also captures the column choice, which undo and redo of this step then put back. */
+    public static Snapshot captureWithColumns(DashboardConfig config) {
+        if (config == null) throw new IllegalArgumentException("Missing dashboard");
+        return captureWithColumns(config, config.columnPreference());
+    }
+
+    /** As above with a given column choice (see {@link DashboardConfig#columnPreference()}). */
+    public static Snapshot captureWithColumns(DashboardConfig config, int columns) {
+        if (config == null) throw new IllegalArgumentException("Missing dashboard");
+        return new Snapshot(config, Math.max(-1, columns));
     }
 
     /**
@@ -103,7 +122,7 @@ public final class DashboardEditHistory {
         checkOwner(config);
         if (before == null || before.owner != config)
             throw new IllegalArgumentException("Snapshot belongs to another dashboard");
-        Snapshot after = capture(config);
+        Snapshot after = before.columns == UNTRACKED ? capture(config) : captureWithColumns(config);
         if (before.sameLayout(after)) return false;
         owner = config;
         undo.addLast(new Change(before, after));
@@ -120,7 +139,7 @@ public final class DashboardEditHistory {
         return !redo.isEmpty();
     }
 
-    /** Restores only membership/order and placement; no disk writes or scooter actions. */
+    /** Restores only membership/order and placement (and a tracked column choice); no scooter actions. */
     public boolean undo(DashboardConfig config) {
         checkOwner(config);
         if (undo.isEmpty()) return false;

@@ -41,43 +41,22 @@ public final class DashboardConfig {
         "Lock & connection",
         "Your scooter",
         "Battery overview",
-        "Big reading",
+        "Single reading",
         "Gauge",
         "Live trend",
         "History chart",
-        "Reading list",
+        "Readings",
         "Trip overview",
-        "Battery health",
+        "Reported health",
         "Capacity experiment",
         "Charging",
-        "Quick access",
+        "Shortcuts",
         "Ride recorder",
         "Note",
         "Lock bar",
         "Scooter overview",
         "Reading tiles",
         "Setting tiles"
-    };
-    public static final String[] DESCRIPTIONS = {
-        "A large lock switch and connection controls",
-        "Photo with odometer and drive mode",
-        "Charge, estimated range, power and reported health",
-        "Any available parameter in a large display",
-        "A parameter with your chosen scale",
-        "A recent parameter chart",
-        "Explore days, weeks or months of readings",
-        "Choose several parameters for one card",
-        "Distance, speed and riding time",
-        "Reported health, charge count and a long-term chart",
-        "Estimate usable energy from ride energy and battery-percentage drop",
-        "Battery-side charging power and estimated time to the charge target",
-        "Choose two to eight settings, toggles or page shortcuts",
-        "Start or finish an explicit ride recording",
-        "A personal reminder or maintenance note",
-        "Compact lock with Connect",
-        "Charge, range and photo",
-        "Readings as small tiles",
-        "Settings as tiles"
     };
 
     public static final class Widget {
@@ -415,6 +394,40 @@ public final class DashboardConfig {
 
     public void save() {
         save(false);
+    }
+
+    /** The stored column choice, or -1 when none is stored. */
+    public int columnPreference() {
+        return preferences.contains(COLUMN_KEY) ? preferences.getInt(COLUMN_KEY, 0) : -1;
+    }
+
+    /** Puts back a value from {@link #columnPreference()}; -1 removes the stored choice. */
+    public void restoreColumnPreference(int columns) {
+        if (columns < 0) preferences.edit().remove(COLUMN_KEY).apply();
+        else preferences.edit().putInt(COLUMN_KEY, columns).apply();
+    }
+
+    /** The widgets in their storage form, for a short-lived copy such as a pending Undo. */
+    public String widgetsJson() {
+        try {
+            return writeWidgets(widgets).toString();
+        } catch (JSONException e) {
+            throw new IllegalStateException(e);
+        }
+    }
+
+    /** The widgets as last saved, or null when none are saved. */
+    public String storedWidgetsJson() {
+        return preferences.getString(storageKey, null);
+    }
+
+    /** Reads widgets written by {@link #widgetsJson()}; null when unreadable. */
+    public static ArrayList<Widget> parseWidgets(String json) {
+        try {
+            return json == null ? null : readWidgets(new JSONArray(json));
+        } catch (JSONException | RuntimeException invalid) {
+            return null;
+        }
     }
 
     private void save(boolean resetColumns) {

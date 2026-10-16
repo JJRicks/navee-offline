@@ -33,7 +33,12 @@ public final class BatteryCapacityEstimate {
     }
 
     public static final class Result {
-        public final String profileId, status, method, limitations;
+        /** The short UI state; measured evidence below supplies the details on tap. */
+        public final String profileId, label;
+        /** Short (four words or fewer) most common rejection reason, or null when none. */
+        public final String reason;
+        /** Battery points in the larger evidence group, toward {@link #MIN_TOTAL_DROP}. */
+        public final double progressPoints;
         public final Double estimatedUsableWh,
                 throughputEquivalentWh,
                 percentOfAdvertised,
@@ -91,67 +96,20 @@ public final class BatteryCapacityEstimate {
                     presented.elapsed == 0 ? 0 : (double) presented.covered / presented.elapsed;
             minimumTemperatureC = presented.minTemperature;
             maximumTemperatureC = presented.maxTemperature;
-            if (unavailable != null) status = unavailable;
-            else if (estimatedUsableWh != null)
-                status =
-                        "Experimental energy equivalent"
-                                + (includesActive ? " · ride in progress" : "");
-            else if (throughputEquivalentWh != null)
-                status =
-                        "Throughput proxy · current direction unconfirmed"
-                                + (includesActive ? " · ride in progress" : "");
+            progressPoints = Math.max(confirmed.drop, proxy.drop);
+            reason = rejected.isEmpty() ? null : shortReason(mostCommon(rejected));
+            if (unavailable != null) label = unavailable;
+            else if (estimatedUsableWh != null) label = "Experimental estimate";
+            else if (throughputEquivalentWh != null) label = "Proxy · not health";
             else if (confirmed.count + proxy.count > 0)
-                status =
+                label =
                         String.format(
                                 Locale.US,
-                                "Need 20 battery percentage points in one evidence group; %.1f"
-                                    + " confirmed, %.1f unconfirmed so far",
-                                confirmed.drop,
-                                proxy.drop);
-            else if (!rejected.isEmpty()) status = "No qualifying rides: " + mostCommon(rejected);
-            else status = "Record a ride with at least a 5-point battery drop";
-            method =
-                    "100 × summed recorded Wh ÷ summed battery percentage-point drop. Confirmed net"
-                        + " energy and unconfirmed absolute throughput use separate groups.";
-            StringBuilder notes =
-                    new StringBuilder(
-                            "Experimental SOC-based energy equivalent, not measured pack capacity"
-                                + " or health. The battery gauge may track charge rather than"
-                                + " energy: rounding, calibration, voltage range, cold and riding"
-                                + " load can bias this result. Unconfirmed absolute throughput"
-                                + " counts both draw and return and can overstate depletion. Record"
-                                + " riding without charger input. Use at least 5 percentage points"
-                                + " per ride and 20 combined; each ride needs 1 minute, observed"
-                                + " movement, 95% electrical coverage, aligned end readings and no"
-                                + " recording gaps or direction changes. Visible gauge rebounds"
-                                + " over 1 point are rejected; sampled trends can miss brief"
-                                + " changes.");
-            if (presented.count > 0) {
-                notes.append(
-                        String.format(
-                                Locale.US,
-                                " Accepted electrical coverage: %.1f%%.",
-                                electricalCoverage * 100));
-                if (minimumTemperatureC != null && maximumTemperatureC != null) {
-                    notes.append(
-                            String.format(
-                                    Locale.US,
-                                    " Observed pack temperature: %.1f–%.1f °C.",
-                                    minimumTemperatureC,
-                                    maximumTemperatureC));
-                    if (minimumTemperatureC < 10)
-                        notes.append(
-                                " Cold conditions may reduce usable energy; no temperature"
-                                    + " correction is applied.");
-                } else notes.append(" Pack temperature was not available throughout the evidence.");
-                if (presented.edgeSoc)
-                    notes.append(" Near-full or near-empty gauge readings add uncertainty.");
-                if (includesActive)
-                    notes.append(
-                            " The current ride is provisional and replaces its earlier"
-                                + " contribution.");
-            }
-            limitations = notes.toString();
+                                "%.0f / %.0f pts",
+                                Math.floor(progressPoints),
+                                MIN_TOTAL_DROP);
+            else if (!rejected.isEmpty()) label = "No usable rides yet";
+            else label = "Record a longer ride";
         }
     }
 
@@ -159,7 +117,7 @@ public final class BatteryCapacityEstimate {
         int count;
         double drop, energy;
         long elapsed, covered;
-        boolean active, edgeSoc;
+        boolean active;
         Double minTemperature, maxTemperature;
 
         void add(RideStore.Summary s, double wh) {
@@ -169,7 +127,6 @@ public final class BatteryCapacityEstimate {
             elapsed += s.elapsedMs;
             covered += s.electricalCoverageMs;
             active |= s.active;
-            edgeSoc |= s.startBatteryPercent >= 95 || s.endBatteryPercent <= 10;
             minTemperature = min(minTemperature, s.minimumTemperatureC);
             maxTemperature = max(maxTemperature, s.maximumTemperatureC);
         }
@@ -298,6 +255,27 @@ public final class BatteryCapacityEstimate {
 
     private static Double max(Double a, Double b) {
         return !finite(b) ? a : a == null ? b : Math.max(a, b);
+    }
+
+    /** Four words or fewer for each rejection reason, for the card's details. */
+    public static String shortReason(String reason) {
+        if (reason == null) return null;
+        switch (reason) {
+            case "recording clock changed": return "Clock changed";
+            case "recording has gaps or recovery": return "Recording gaps";
+            case "current direction changed during the ride": return "Current direction changed";
+            case "record at least 1 minute": return "Under 1 minute";
+            case "battery end readings are missing": return "Battery ends missing";
+            case "battery drop is below 5 percentage points": return "Drop under 5%";
+            case "electrical coverage is below 95%": return "Coverage under 95%";
+            case "at least 30 seconds of measured movement is needed": return "Too little movement";
+            case "measured energy is unavailable": return "No energy reading";
+            case "net measured energy is not positive": return "No net energy";
+            case "endpoint power and battery readings are missing": return "End readings missing";
+            case "power and battery readings do not align with both ride ends": return "Ends misaligned";
+            case "battery gauge rebounded or rose while recording": return "Battery gauge rose";
+            default: return "Insufficient data";
+        }
     }
 
     private static String mostCommon(Map<String, Integer> values) {

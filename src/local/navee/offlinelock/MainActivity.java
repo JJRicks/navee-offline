@@ -16,6 +16,7 @@ import android.content.res.ColorStateList;
 import android.content.res.Configuration;
 import android.graphics.Canvas;
 import android.graphics.Paint;
+import android.graphics.Rect;
 import android.graphics.RectF;
 import android.net.Uri;
 import android.os.Build;
@@ -91,7 +92,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private OnboardingScreen onboarding;
     private TextView simulationNotice;
     private boolean displayedSimulation;
-    private TextView connectionTitle,connectionDetail,connectionAction,lockTitle,lockHint,profileTitle,offlineTitle,offlineDetail;
+    private TextView connectionTitle,connectionAction,lockTitle,profileTitle,offlineTitle,offlineDetail;
     private View lockReady,lockOffline;
     private LockControl lockControl;
     private boolean showDashboardDisconnect=true,compactLock;
@@ -102,15 +103,15 @@ public final class MainActivity extends Activity implements ScreenHost {
      */
     private final java.util.ArrayList<DashboardLockViews> dashboardLocks=new java.util.ArrayList<>();
     private static final class DashboardLockViews{
-        TextView connectionDetail,connectionAction,lockTitle,lockHint,offlineTitle,offlineDetail;View lockReady,lockOffline;LockControl lockControl;boolean showDisconnect,compact;
+        TextView connectionAction,lockTitle,offlineTitle,offlineDetail;View lockReady,lockOffline;LockControl lockControl;boolean showDisconnect,compact;
     }
     private DashboardLockViews currentLockViews(){
         DashboardLockViews v=new DashboardLockViews();
-        v.connectionDetail=connectionDetail;v.connectionAction=connectionAction;v.lockTitle=lockTitle;v.lockHint=lockHint;v.offlineTitle=offlineTitle;v.offlineDetail=offlineDetail;
+        v.connectionAction=connectionAction;v.lockTitle=lockTitle;v.offlineTitle=offlineTitle;v.offlineDetail=offlineDetail;
         v.lockReady=lockReady;v.lockOffline=lockOffline;v.lockControl=lockControl;v.showDisconnect=showDashboardDisconnect;v.compact=compactLock;return v;
     }
     private void loadLockViews(DashboardLockViews v){
-        connectionDetail=v.connectionDetail;connectionAction=v.connectionAction;lockTitle=v.lockTitle;lockHint=v.lockHint;offlineTitle=v.offlineTitle;offlineDetail=v.offlineDetail;
+        connectionAction=v.connectionAction;lockTitle=v.lockTitle;offlineTitle=v.offlineTitle;offlineDetail=v.offlineDetail;
         lockReady=v.lockReady;lockOffline=v.lockOffline;lockControl=v.lockControl;showDashboardDisconnect=v.showDisconnect;compactLock=v.compact;
     }
     /** Adds the card just built, points the fields back at the first card, then refreshes all of them. */
@@ -194,7 +195,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             File orphan=new File(stagedExport);
             if(getFilesDir().equals(orphan.getParentFile())&&orphan.getName().startsWith("pending-export-"))orphan.delete();
             documents.edit().clear().commit();
-            toast("An interrupted export was cleared. You can save it again.");
+            toast("Unfinished export cleared");
         }
         if(saved==null&&documents.getBoolean("ready",false)&&documents.getBoolean("picker",false))documents.edit().putBoolean("picker",false).apply();
         if(saved!=null){selectedPage=saved.getString("page","home");for(String page:pages)scrollPositions.put(page,saved.getInt("scroll_"+page,0));pendingConnect=saved.getBoolean("pending_connect",false);pendingScan=saved.getBoolean("pending_scan",false);}
@@ -289,8 +290,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             Intent intent=new Intent(this,ScooterService.class);
             if(Build.VERSION.SDK_INT>=26)startForegroundService(intent);else startService(intent);
             binding=bindService(intent,serviceConnection,Context.BIND_AUTO_CREATE);
-            if(!binding)toast("Could not open the local scooter service.");
-        }catch(Exception e){binding=false;toast("The scooter service could not start. Reopen the app to try again.");}
+            if(!binding)toast("Service failed. Reopen Volt.");
+        }catch(Exception e){binding=false;toast("Service failed. Reopen Volt.");}
     }
     @Override public Activity activity(){return this;}
     @Override public Ui ui(){return design;}
@@ -361,14 +362,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         onboarding=null;
         LinearLayout shell=column();root.addView(shell,new FrameLayout.LayoutParams(-1,-1));
-        simulationNotice = design.text("Simulated scooter · Sample data · Exit", 12, true);
+        simulationNotice = design.text("Simulation · Exit", 12, true);
         simulationNotice.setTag("simulation-banner");
         simulationNotice.setTextColor(design.onAccent);
         simulationNotice.setBackgroundColor(design.accent);
         simulationNotice.setGravity(Gravity.CENTER);
         simulationNotice.setMinHeight(design.dp(48));
         simulationNotice.setPadding(design.dp(12), design.dp(6), design.dp(12), design.dp(6));
-        simulationNotice.setContentDescription("Simulated scooter. Sample data, Bluetooth paused. Tap to exit simulation.");
+        simulationNotice.setContentDescription("Simulation, sample data. Tap to exit simulation.");
         simulationNotice.setOnClickListener(v -> {
             if (scooterService != null) { scooterService.setSimulation(false); transitionRebuild(0); }
         });
@@ -421,7 +422,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             });
         }
     }
-    private void clearDashboardLock(){for(DashboardLockViews lock:dashboardLocks)if(lock.lockControl!=null)lock.lockControl.stopMotion();dashboardLocks.clear();if(lockControl!=null)lockControl.stopMotion();lockTitle=null;lockControl=null;lockHint=null;connectionTitle=null;connectionDetail=null;connectionAction=null;offlineTitle=null;offlineDetail=null;lockReady=null;lockOffline=null;compactLock=false;}
+    private void clearDashboardLock(){for(DashboardLockViews lock:dashboardLocks)if(lock.lockControl!=null)lock.lockControl.stopMotion();dashboardLocks.clear();if(lockControl!=null)lockControl.stopMotion();lockTitle=null;lockControl=null;connectionTitle=null;connectionAction=null;offlineTitle=null;offlineDetail=null;lockReady=null;lockOffline=null;compactLock=false;}
     private LinearLayout makeHeader(){
         if(!selectedPage.equals("home"))return makeCompactHeader();
         // Home's header (status line, scooter name and edit pencil) belongs to the dashboard toolbar.
@@ -434,13 +435,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         LinearLayout content=column();
         lockReady=column();
         lockTitle=design.text("Lock",15,true);
-        // A weighted state beside an unbounded caption can leave only a few pixels for
-        // "Unlocked" on a narrow tile. Keep the state on one line and stack the caption
-        // when the actual text and icon widths need more room.
+        // Keep the state on one line; the slider and lock glyph already identify the control.
         lockTitle.setMaxLines(1);lockTitle.setEllipsize(android.text.TextUtils.TruncateAt.END);
         lockTitle.setAutoSizeTextTypeUniformWithConfiguration(Math.round(design.sp(12)),Math.round(design.sp(15)),1,android.util.TypedValue.COMPLEX_UNIT_PX);
-        TextView kind=design.caption("Electronic lock");kind.setMaxLines(1);kind.setEllipsize(android.text.TextUtils.TruncateAt.END);
-        LinearLayout head=new LockHeading(lockTitle,kind);
+        LinearLayout head=new LockHeading(lockTitle);
         ((LinearLayout)lockReady).addView(head);
         lockControl=new LockControl();
         LinearLayout.LayoutParams bar=new LinearLayout.LayoutParams(-1,design.dp(58));bar.topMargin=design.dp(10);
@@ -450,20 +448,18 @@ public final class MainActivity extends Activity implements ScreenHost {
         View square=design.iconSquare("lock",design.dim);
         LinearLayout words=column();
         offlineTitle=design.text("Lock state unverified",14,true);words.addView(offlineTitle);
-        offlineDetail=design.caption("");offlineDetail.setPadding(0,design.dp(2),0,0);words.addView(offlineDetail);
-        LinearLayout line=new LockOfflineStatus(square,words,offlineTitle);
+        offlineDetail=design.caption("");offlineDetail.setPadding(0,design.dp(2),0,0);offlineDetail.setVisibility(View.GONE);words.addView(offlineDetail);
+        LinearLayout line=new LockOfflineStatus(square,words,offlineTitle,design.icon("chevron",15,design.muted));
         line.setMinimumHeight(design.dp(48));
         line.setOnClickListener(v->showConnectionDetails());
         offline.addView(line);
         content.addView(offline,new LinearLayout.LayoutParams(-1,-2));
         // Connect/Cancel are always available; Disconnect is a per-widget choice.
         connectionAction=design.button("Connect",this::connect);
-        connectionAction.setMaxLines(1);
+        connectionAction.setMaxLines(1);connectionAction.setEllipsize(android.text.TextUtils.TruncateAt.END);
         connectionAction.setPadding(design.dp(6),connectionAction.getPaddingTop(),design.dp(6),connectionAction.getPaddingBottom());
         connectionAction.setAutoSizeTextTypeUniformWithConfiguration(Math.round(design.sp(12)),Math.round(design.sp(14)),1,android.util.TypedValue.COMPLEX_UNIT_PX);
         content.addView(connectionAction);
-        lockHint=design.caption("");lockHint.setVisibility(View.GONE);content.addView(lockHint);
-        connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);content.addView(connectionDetail);
         return registerDashboardLock(content);
     }
     /**
@@ -474,13 +470,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         showDashboardDisconnect=showDisconnect;compactLock=true;
         // The switch draws Locked/Unlocked itself; this detached label only keeps updateHeader uniform.
         lockTitle=design.text("Lock",15,true);
-        lockHint=design.caption("");lockHint.setVisibility(View.GONE);
-        connectionDetail=design.caption("");connectionDetail.setVisibility(View.GONE);
         lockControl=new LockControl();lockControl.compact=true;lockReady=lockControl;
         View square=design.iconSquare("lock",design.dim);
         LinearLayout words=column();
         offlineTitle=design.text("Lock state unknown",16,true);offlineTitle.setTypeface(design.semibold());
-        offlineDetail=design.text("",13,false);offlineDetail.setTextColor(design.muted);
+        offlineDetail=design.text("",13,false);offlineDetail.setTextColor(design.muted);offlineDetail.setVisibility(View.GONE);
         for(TextView line:new TextView[]{offlineTitle,offlineDetail}){
             // One line each keeps the pair inside a 48 dp row; Saira's tall metrics need no extra spacing.
             line.setLineSpacing(0,1);line.setMaxLines(1);line.setEllipsize(android.text.TextUtils.TruncateAt.END);
@@ -521,7 +515,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             glyph=new android.graphics.drawable.Drawable(){
                 @Override public void draw(Canvas canvas){
                     android.graphics.Rect b=getBounds();
-                    String key="Connect".contentEquals(action.getText())?"bluetooth":"close";
+                    // Cancel and Disconnect close the link; Connect and Allow Nearby devices start it.
+                    String key="Cancel".contentEquals(action.getText())||"Disconnect".contentEquals(action.getText())?"close":"bluetooth";
                     design.drawIcon(canvas,key,action.getCurrentTextColor(),b.exactCenterX(),b.exactCenterY(),b.width());
                 }
                 @Override public void setAlpha(int alpha){}
@@ -600,14 +595,13 @@ public final class MainActivity extends Activity implements ScreenHost {
             super.onMeasure(widthSpec,heightSpec);
         }
     }
-    /** Choose the lock header's arrangement from its measured content, not a phone model. */
+    /** The lock state heading; its glyph gives way before the state word on a very narrow card. */
     private final class LockHeading extends LinearLayout {
-        private final TextView state,kind;
-        LockHeading(TextView state,TextView kind){
-            super(MainActivity.this);this.state=state;this.kind=kind;
+        private final TextView state;
+        LockHeading(TextView state){
+            super(MainActivity.this);this.state=state;
             setGravity(Gravity.CENTER_VERTICAL);
-            addView(state,new LinearLayout.LayoutParams(0,-2,1));
-            addView(kind,new LinearLayout.LayoutParams(-2,-2));
+            addView(state,new LinearLayout.LayoutParams(-1,-2));
         }
         @Override protected void onMeasure(int widthSpec,int heightSpec){
             int width=MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
@@ -619,31 +613,22 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(glyph.getBounds().width()!=size){glyph.setBounds(0,0,size,size);state.setCompoundDrawablesRelative(glyph,null,null,null);}
                 state.setCompoundDrawablePadding(size==0?0:design.dp(8));
             }
-            float stateWidth=state.getPaint().measureText(state.getText().toString())+state.getCompoundPaddingLeft()+state.getCompoundPaddingRight();
-            float kindWidth=kind.getPaint().measureText(kind.getText().toString())+kind.getCompoundPaddingLeft()+kind.getCompoundPaddingRight();
-            boolean stack=MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED&&stateWidth+design.dp(12)+kindWidth>width;
-            setOrientation(stack?VERTICAL:HORIZONTAL);
-            LinearLayout.LayoutParams stateSize=(LinearLayout.LayoutParams)state.getLayoutParams();
-            int stateWidthParam=stack?-1:0;float stateWeight=stack?0:1;
-            stateSize.width=stateWidthParam;stateSize.weight=stateWeight;
-            LinearLayout.LayoutParams kindSize=(LinearLayout.LayoutParams)kind.getLayoutParams();
-            int kindWidthParam=stack?-1:-2,kindTop=stack?design.dp(4):0,kindStart=stack?0:design.dp(12);
-            kindSize.width=kindWidthParam;kindSize.topMargin=kindTop;kindSize.setMarginStart(kindStart);
-            // Resolve relative margins for this pass without requesting another layout.
-            kindSize.resolveLayoutDirection(kind.getLayoutDirection());
             super.onMeasure(widthSpec,heightSpec);
         }
     }
     /** Let narrow offline cards use their full width for status instead of a thin text column. */
     private final class LockOfflineStatus extends LinearLayout {
-        private final View symbol;
+        private final View symbol,chevron;
         private final LinearLayout words;
         private final TextView title;
-        LockOfflineStatus(View symbol,LinearLayout words,TextView title){
-            super(MainActivity.this);this.symbol=symbol;this.words=words;this.title=title;
+        LockOfflineStatus(View symbol,LinearLayout words,TextView title,View chevron){
+            super(MainActivity.this);this.symbol=symbol;this.words=words;this.title=title;this.chevron=chevron;
             setGravity(Gravity.CENTER_VERTICAL);
             addView(symbol,new LinearLayout.LayoutParams(design.dp(34),design.dp(34)));
             addView(words,new LinearLayout.LayoutParams(0,-2,1));
+            // The row opens the connection details; a chevron says so without a caption.
+            LinearLayout.LayoutParams more=new LinearLayout.LayoutParams(design.dp(15),design.dp(15));more.setMarginStart(design.dp(6));
+            chevron.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);addView(chevron,more);
         }
         @Override protected void onMeasure(int widthSpec,int heightSpec){
             int width=MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight();
@@ -654,7 +639,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             setOrientation(stack?VERTICAL:HORIZONTAL);
             // The status already names the lock. A separate decorative icon row would
             // consume the room needed by the timestamp and Connect in a short card.
-            symbol.setVisibility(stack?GONE:VISIBLE);
+            symbol.setVisibility(stack?GONE:VISIBLE);chevron.setVisibility(stack?GONE:VISIBLE);
             LinearLayout.LayoutParams wordsSize=(LinearLayout.LayoutParams)words.getLayoutParams();
             int wordsWidth=stack?-1:0,wordsTop=0,wordsStart=stack?0:design.dp(10);float wordsWeight=stack?0:1;
             wordsSize.width=wordsWidth;wordsSize.weight=wordsWeight;wordsSize.topMargin=wordsTop;wordsSize.setMarginStart(wordsStart);
@@ -669,16 +654,81 @@ public final class MainActivity extends Activity implements ScreenHost {
         label.setTooltipText("Connection details");
         return label;
     }
+    /** States that need no extra line in the connection dialog: the state row already says them. */
+    private static final java.util.Set<String> PLAIN_CONNECTION_STATES=new java.util.HashSet<>(java.util.Arrays.asList(
+            "","Not connected","Disconnected","Connected","Connecting…","Checking owner…","Searching…","Paused in background",
+            "Simulation on","Simulation off","Simulated connection","Simulation disconnected","Choose your scooter.",
+            BleController.NEARBY_NEEDED,BleController.BLUETOOTH_OFF,BleController.NO_PROFILE));
+    /**
+     * Connection dialog: a state row (icon and one word) and the last connection time. A line appears only for an
+     * error; missing permission, Bluetooth or owner setup turn the main button into the action that fixes it.
+     */
     private void showConnectionDetails(){
         BleController ble=scooterService==null?null:scooterService.ble;
         ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();
-        String detail=ble==null?(hasBluetoothPermission()?"Opening the local connection.":"Nearby devices permission is needed."):ble.message();
-        if(profile!=null&&profile.lastConnected>0)
-            detail+="\n\nLast connected: "+DisplayTime.dateTime(this,preferences,profile.lastConnected);
-        boolean active=ble!=null&&(ble.connected()||ble.ready()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING);
-        controlDialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Connection")).setMessage(detail).setPositiveButton("Close",null)
-                .setNegativeButton(active?"Disconnect":"Connect",(d,which)->{if(active){if(ble!=null)ble.disconnect();redraw();}else connect();}).create();
+        boolean permission=hasBluetoothPermission();
+        android.bluetooth.BluetoothManager manager=getSystemService(android.bluetooth.BluetoothManager.class);
+        BluetoothAdapter adapter=manager==null?null:manager.getAdapter();
+        boolean bluetoothOff=permission&&adapter!=null&&!adapter.isEnabled();
+        boolean simulated=ble!=null&&ble.simulating();
+        BleController.State state=ble==null?BleController.State.DISCONNECTED:ble.state();
+        boolean ready=ble!=null&&ble.ready();
+        boolean active=ble!=null&&(ble.connected()||ready||state==BleController.State.CONNECTING||state==BleController.State.AUTHENTICATING||state==BleController.State.SCANNING||state==BleController.State.WAITING);
+        String word;int tone;
+        if(!permission){word="No permission";tone=design.dim;}
+        else if(ble==null){word="Starting…";tone=design.muted;}
+        else if(ready){word=simulated?"Simulated":"Connected";tone=design.ok;}
+        else if(state==BleController.State.WAITING){word="Retrying…";tone=design.orange;}
+        else if(state==BleController.State.SCANNING){word="Searching…";tone=design.orange;}
+        else if(state==BleController.State.AUTHENTICATING){word="Checking owner…";tone=design.orange;}
+        else if(active){word="Connecting…";tone=design.orange;}
+        else if(bluetoothOff){word="Bluetooth off";tone=design.dim;}
+        else{word="Not connected";tone=design.dim;}
+        String message=ble==null?"":ble.message();
+        // Errors only, in their short form (a dropped change keeps its "change cancelled").
+        String error=!active&&ble!=null&&!PLAIN_CONNECTION_STATES.contains(message)?message:null;
+        if(state==BleController.State.WAITING&&ble!=null&&!PLAIN_CONNECTION_STATES.contains(message))error=message;
+        LinearLayout body=column();body.setPadding(design.dp(24),design.dp(4),design.dp(24),design.dp(4));
+        TextView stateValue=connectionRow(body,"State",word);
+        View dot=design.icon(ready?"check":"bluetooth",16,tone);
+        stateValue.setTextColor(ready?design.text:design.muted);
+        ((LinearLayout)stateValue.getParent()).addView(dot,((LinearLayout)stateValue.getParent()).indexOfChild(stateValue),connectionIcon());
+        if(profile!=null&&profile.lastConnected>0)connectionRow(body,"Last connected",DisplayTime.dateTime(this,preferences,profile.lastConnected));
+        if(error!=null){
+            TextView line=design.text(error,14,false);line.setTextColor(design.danger);line.setPadding(0,design.dp(10),0,design.dp(2));body.addView(line);
+            if(BleController.NOTHING_FOUND.equals(error)){
+                // "Why?" opens the two likely causes instead of a sentence on every search.
+                TextView why=connectionLink("Why?");TextView reasons=design.caption("Power the scooter on and close the NAVEE app.");
+                reasons.setVisibility(View.GONE);why.setOnClickListener(v->{reasons.setVisibility(View.VISIBLE);why.setVisibility(View.GONE);});
+                body.addView(why);body.addView(reasons);
+            }else if(BleController.OWNER_REJECTED.equals(error)){
+                TextView check=connectionLink("Check owner setup");
+                check.setOnClickListener(v->{if(controlDialog!=null)controlDialog.dismiss();openMoreSection("Scooters");});body.addView(check);
+            }
+        }
+        boolean noProfile=profile==null||!profile.configured();
+        String primary=active?"Disconnect":!permission?"Allow Nearby devices":bluetoothOff?"Turn on Bluetooth":noProfile&&!simulated?"Add scooter":"Connect";
+        controlDialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Connection")).setView(body).setPositiveButton("Close",null)
+                .setNegativeButton(primary,(d,which)->{
+                    if(active){if(ble!=null)ble.disconnect();redraw();}
+                    else if(primary.equals("Add scooter"))openMoreSection("Scooters");
+                    // Connect asks for Nearby devices or turns on Bluetooth first, then connects.
+                    else connect();
+                }).create();
         controlDialog.show();styleDialog(controlDialog,active?0:AlertDialog.BUTTON_NEGATIVE);
+    }
+    /** A label/value row in the connection dialog; returns the value view. */
+    private TextView connectionRow(LinearLayout parent,String label,String value){
+        LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);line.setMinimumHeight(design.dp(40));
+        TextView name=design.text(label,14,false);name.setTextColor(design.muted);line.addView(name,new LinearLayout.LayoutParams(0,-2,1));
+        TextView shown=design.text(value,14,true);shown.setGravity(Gravity.END);line.addView(shown,new LinearLayout.LayoutParams(-2,-2));
+        line.setFocusable(true);line.setContentDescription(label+", "+value);
+        parent.addView(line,new LinearLayout.LayoutParams(-1,-2));return shown;
+    }
+    private LinearLayout.LayoutParams connectionIcon(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(design.dp(16),design.dp(16));p.setMarginEnd(design.dp(8));return p;}
+    private TextView connectionLink(String label){
+        TextView link=design.text(label,14,true);link.setTextColor(design.accent);link.setMinHeight(design.dp(48));link.setGravity(Gravity.CENTER_VERTICAL);
+        link.setClickable(true);link.setFocusable(true);link.setContentDescription(label);return link;
     }
     /** An animated span keeps the spinner next to its word, without adding a separate row. */
     private CharSequence connectingLabel(TextView owner){
@@ -723,8 +773,14 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private View navigation(boolean rail){
         LinearLayout nav=rail?column():row();nav.setGravity(rail?Gravity.TOP|Gravity.CENTER_HORIZONTAL:Gravity.CENTER);nav.setBackgroundColor(design.bg);nav.setPadding(design.dp(rail?8:4),design.dp(rail?20:6),design.dp(rail?8:4),design.dp(rail?12:6));
-        for(int i=0;i<pages.length;i++){final String page=pages[i];View item=design.nav(names[i],icons[i],selectedPage.equals(page),()->select(page));LinearLayout.LayoutParams p=rail?new LinearLayout.LayoutParams(-1,design.dp(78)):new LinearLayout.LayoutParams(0,-2,1);if(rail)p.bottomMargin=design.dp(8);nav.addView(item,p);}
-        return nav;
+        View selected=null;
+        for(int i=0;i<pages.length;i++){final String page=pages[i];View item=design.nav(names[i],icons[i],selectedPage.equals(page),()->select(page));LinearLayout.LayoutParams p=rail?new LinearLayout.LayoutParams(-1,-2):new LinearLayout.LayoutParams(0,-2,1);if(rail){item.setMinimumHeight(design.dp(78));p.bottomMargin=design.dp(8);}nav.addView(item,p);if(selectedPage.equals(page))selected=item;}
+        if(!rail)return nav;
+        // App text and Android font size compound. Let two-line captions determine each
+        // item's height, and keep every destination reachable in a short or large-text rail.
+        ScrollView scroller=new ScrollView(this);scroller.setFillViewport(false);scroller.setVerticalScrollBarEnabled(false);scroller.addView(nav,new ScrollView.LayoutParams(-1,-2));
+        View current=selected;if(current!=null)scroller.post(()->current.requestRectangleOnScreen(new Rect(0,0,current.getWidth(),current.getHeight()),true));
+        return scroller;
     }
     private void select(String page){
         if(page.equals("lights")){preferences.edit().putString("scooter_section","Lights").apply();page="controls";if(page.equals(selectedPage)){rebuild();return;}}
@@ -822,14 +878,15 @@ public final class MainActivity extends Activity implements ScreenHost {
             android.graphics.drawable.Drawable lockGlyph=lockTitle.getCompoundDrawablesRelative()[0];
             if(lockGlyph!=null){lockGlyph.setBounds(0,0,design.dp(20),design.dp(20));lockTitle.setCompoundDrawablesRelative(lockGlyph,null,null,null);lockTitle.setCompoundDrawablePadding(design.dp(8));}
             lockControl.update(shownLock,ready&&pending==null&&!editing);
-            lockHint.setVisibility(View.GONE);
             if(offlineTitle!=null){
                 // The scooter name is already in the Home header; repeating it can fill
                 // a narrow card and push Cancel out of view at larger system font sizes.
                 String unknown=compactLock?"Lock state unknown":"Lock state unverified";
                 offlineTitle.setText(connecting?(compactLock?"Connecting…":"Connecting"):unknown);
                 offlineTitle.setContentDescription(connecting?"Connecting to "+scooterName:unknown);
-                offlineDetail.setText(connecting?"Tap for details":last>0?"Last verified "+(compactLock?shortRecent(last):DisplayTime.recent(this,preferences,last,System.currentTimeMillis())):"Connect to check the lock");
+                // Only the age of the lock state needs words: the row is tappable and Connect sits beside it.
+                String verified=!connecting&&last>0?"Last verified "+(compactLock?shortRecent(last):DisplayTime.recent(this,preferences,last,System.currentTimeMillis())):"";
+                offlineDetail.setText(verified);offlineDetail.setVisibility(verified.isEmpty()?View.GONE:View.VISIBLE);
             }
         }
         }
@@ -868,8 +925,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(connectionAction!=null){
             boolean busy=ble!=null&&(ble.connected()||connecting||ready);
             connectionAction.setVisibility(!ready||showDashboardDisconnect?View.VISIBLE:View.GONE);
-            String action=ready?"Disconnect":busy?"Cancel":"Connect";
-            connectionAction.setContentDescription(ready?"Disconnect scooter":busy?"Cancel connection":"Connect scooter");
+            boolean allow=!ready&&!busy&&!hasBluetoothPermission();
+            String action=ready?"Disconnect":busy?"Cancel":allow?"Allow Nearby devices":"Connect";
+            connectionAction.setContentDescription(ready?"Disconnect scooter":busy?"Cancel connection":allow?"Allow Nearby devices":"Connect scooter");
             // Only restyle on a real state change, not on every incoming BLE packet.
             if(!action.contentEquals(connectionAction.getText())){
                 connectionAction.setText(action);
@@ -971,14 +1029,21 @@ public final class MainActivity extends Activity implements ScreenHost {
             float cx=geometry.centerFor(position);
             paint.setColor(!available?design.dim:locked?android.graphics.Color.WHITE:design.accent);canvas.drawCircle(cx,h/2,knob,paint);
             design.drawIcon(canvas,locked?"lock":"unlock",!available?design.surface:locked?design.bg:design.onAccent,cx,h/2,knob*0.95f);
-            String label=value==null?"Lock state unavailable":locked?"Tap or slide to unlock":"Tap or slide to lock";
+            // The accessibility label keeps the full tap-or-slide action; the arrow shows the slide direction.
+            String label=value==null?"Unavailable":locked?"Unlock":"Lock";
             words.setTypeface(design.semibold());
             words.setTextSize(design.sp(13));words.setColor(!available?design.dim:unlocked?Ui.withAlpha(design.danger,235):design.muted);
             // Let the knob pass through the label's space without obscuring its words.
             words.setAlpha(Math.round(255*Math.max(0,1-4*Math.abs(position-(locked?1:0)))));
-            float textLeft=locked||value==null?x+design.dp(18):x+geometry.diameter+design.dp(4),textRight=locked||value==null?x+w-geometry.diameter-design.dp(4):x+w-design.dp(18);
+            boolean arrow=available&&value!=null&&!dragging;
+            float lane=arrow?design.dp(18):design.dp(4);
+            float textLeft=locked||value==null?x+design.dp(18):x+geometry.diameter+lane,textRight=locked||value==null?x+w-geometry.diameter-lane:x+w-design.dp(18);
             float textWidth=Math.max(0,textRight-textLeft);
-            if(words.measureText(label)>textWidth)label=value==null?"Unavailable":locked?"Unlock":"Lock";
+            if(arrow){
+                // Points the way the knob slides: left to unlock, right to lock.
+                float size=design.dp(12),ax=locked?cx-knob-design.dp(10):cx+knob+design.dp(10);
+                design.drawIcon(canvas,locked?"back":"chevron",Ui.withAlpha(words.getColor(),words.getAlpha()),ax,h/2,size);
+            }
             // The switch remains a full-height touch target even in a very narrow card.
             // Its accessibility label always keeps the full tap/slide action text.
             String fitted=words.measureText(label)<=textWidth?label:"";
@@ -996,14 +1061,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         android.bluetooth.BluetoothManager manager=getSystemService(android.bluetooth.BluetoothManager.class);BluetoothAdapter adapter=manager==null?null:manager.getAdapter();
         if(adapter==null){toast("This phone does not support Bluetooth.");return;}if(!adapter.isEnabled()){pendingConnect=true;startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE),ENABLE_BLUETOOTH);return;}
         if(scooterService==null){pendingConnect=true;ensureService();return;}
-        ScooterProfiles.Profile profile=scooterService.profiles.active();if(profile==null||!profile.configured()){select("more");toast("Add your owner identity to set up a scooter.");return;}
+        ScooterProfiles.Profile profile=scooterService.profiles.active();if(profile==null||!profile.configured()){select("more");return;}
         BleController.State state=scooterService.ble.state();if(state==BleController.State.CONNECTING||state==BleController.State.AUTHENTICATING||scooterService.ble.ready())return;
         scooterService.ble.connectLast();if(profile.mac.isEmpty())showScanner(false);redraw();
     }
     private boolean hasBluetoothPermission(){return Build.VERSION.SDK_INT>=31?checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED&&checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED:checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
     @Override public void requestBluetooth(){if(!resumed)return;if(hasBluetoothPermission()){ensureService();if(scooterService!=null){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}return;}requestPermissions(Build.VERSION.SDK_INT>=31?new String[]{Manifest.permission.BLUETOOTH_SCAN,Manifest.permission.BLUETOOTH_CONNECT}:new String[]{Manifest.permission.ACCESS_FINE_LOCATION},BLUETOOTH_PERMISSION);}
     @Override public void requestRideLocation(Runnable ready){
-        if (scooterService != null && scooterService.simulating()) { toast("Turn off simulation to record a real ride"); return; }
+        if (scooterService != null && scooterService.simulating()) { toast("Exit simulation first"); return; }
         if(destroyed||!resumed||ready==null)return;
         if(checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED
                 ||checkSelfPermission(Manifest.permission.ACCESS_COARSE_LOCATION)==PackageManager.PERMISSION_GRANTED){ready.run();return;}
@@ -1020,7 +1085,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             rideLocationResolved=true;finishRidePermission();
             return;
         }
-        if(request==BLUETOOTH_PERMISSION){if(hasBluetoothPermission())requestBluetooth();else{pendingConnect=pendingScan=false;toast("Allow Nearby devices when you are ready to connect.");}redraw();}
+        if(request==BLUETOOTH_PERMISSION){if(hasBluetoothPermission())requestBluetooth();else{pendingConnect=pendingScan=false;toast(BleController.NEARBY_NEEDED);}redraw();}
     }
     private void finishRidePermission(){
         if(destroyed||!resumed||!rideLocationResolved||pendingRideLocation==null)return;
@@ -1031,10 +1096,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         if (scooterService != null && scooterService.simulating()) { toast("Exit simulation to find a real scooter"); return; }
         if(!resumed){pendingScan=true;return;}
         if(!hasBluetoothPermission()){pendingScan=true;requestBluetooth();return;}if(scooterService==null){pendingScan=true;ensureService();return;}
-        if(scooterService.isRecording()){toast("Stop the ride recording before choosing another scooter.");return;}
-        if(scooterService.ble.pending()!=null){toast("Wait for the current scooter change before opening discovery.");return;}
+        if(scooterService.isRecording()){toast("Stop recording first");return;}
+        if(scooterService.ble.pending()!=null){toast("Scooter busy. Try again.");return;}
         android.bluetooth.BluetoothManager manager=getSystemService(android.bluetooth.BluetoothManager.class);BluetoothAdapter adapter=manager==null?null:manager.getAdapter();if(adapter==null){toast("This phone does not support Bluetooth.");return;}if(!adapter.isEnabled()){pendingScan=true;startActivityForResult(new Intent(BluetoothAdapter.ACTION_REQUEST_ENABLE),ENABLE_BLUETOOTH);return;}
-        if(scooterService.profiles.active()==null){select("more");toast("Set up an owner profile before choosing a scooter.");return;}
+        if(scooterService.profiles.active()==null){select("more");return;}
         if(start){scooterService.ble.disconnect();scooterService.ble.scan();}
         if(scanDialog!=null&&scanDialog.isShowing()){updateScan();return;}
         final AlertDialog[] sheet=new AlertDialog[1];
@@ -1068,7 +1133,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         boolean present=false;for(ScanResult result:scanResults)if(result.getDevice().getAddress().equals(scanSelected))present=true;
         // The profile's own scooter starts selected; other scooters need a deliberate tap before Connect.
         if(!present){scanSelected=null;for(ScanResult result:scanResults)if(!mine.isEmpty()&&result.getDevice().getAddress().equalsIgnoreCase(mine))scanSelected=result.getDevice().getAddress();}
-        scanStatus.setText(scanning?"Searching nearby…":scanResults.isEmpty()?"No scooter found. Turn it on and scan again.":scanResults.size()==1?"1 scooter found":scanResults.size()+" scooters found");
+        scanStatus.setText(scanning?"Searching…":scanResults.isEmpty()?"No scooter found. Is it on?":scanResults.size()==1?"1 scooter found":scanResults.size()+" scooters found");
         scanSpinner.setVisibility(scanning?View.VISIBLE:View.GONE);
         StringBuilder signature=new StringBuilder(String.valueOf(scanSelected));
         for(ScanResult result:scanResults){String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();signature.append('|').append(result.getDevice().getAddress()).append(':').append(signalRank(result.getRssi())).append(':').append(name);}
@@ -1093,12 +1158,19 @@ public final class MainActivity extends Activity implements ScreenHost {
         option.addView(design.iconSquare("scooter",design.accent),new LinearLayout.LayoutParams(design.dp(40),design.dp(40)));
         LinearLayout words=column();
         TextView title=design.text(name,15,true);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);words.addView(title);
-        TextView detail=design.caption(strength+(match?" · matches your scooter profile":"")+" · "+suffix);detail.setPadding(0,design.dp(3),0,0);words.addView(detail);
+        // Signal bars show the strength and a Yours chip marks the profile's scooter; TalkBack keeps both in words.
+        LinearLayout detail=row();detail.setGravity(Gravity.CENTER_VERTICAL);detail.setPadding(0,design.dp(3),0,0);
+        if(match){
+            TextView yours=design.text("Yours",11,true);yours.setTextColor(design.ok);yours.setPadding(design.dp(8),design.dp(1),design.dp(8),design.dp(2));
+            yours.setBackground(design.shape(Ui.withAlpha(design.ok,design.dark?40:30),100,0));
+            LinearLayout.LayoutParams chip=new LinearLayout.LayoutParams(-2,-2);chip.setMarginEnd(design.dp(8));detail.addView(yours,chip);
+        }
+        detail.addView(design.caption(suffix));words.addView(detail);
         LinearLayout.LayoutParams wordsParams=new LinearLayout.LayoutParams(0,-2,1);wordsParams.leftMargin=design.dp(12);wordsParams.rightMargin=design.dp(10);option.addView(words,wordsParams);
         SignalBars bars=new SignalBars(rank);int color=rank>=3?design.ok:design.orange;bars.set(rank,color,design.raised);
         option.addView(bars,new LinearLayout.LayoutParams(design.dp(18),design.dp(14)));
         option.setClickable(true);option.setFocusable(true);option.setSelected(selected);
-        option.setContentDescription(name+", "+strength+(match?", matches your scooter profile":"")+", address ending "+suffix);
+        option.setContentDescription(name+", "+strength+(match?", your scooter":"")+", address ending "+suffix);
         if(Build.VERSION.SDK_INT>=30)option.setStateDescription(selected?"Selected":"");
         option.setOnClickListener(v->{scanSelected=address;scanSignature="";updateScan();});
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.bottomMargin=design.dp(8);option.setLayoutParams(params);
@@ -1109,11 +1181,34 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String number(Double value,int digits,String unit){return value==null?"—":String.format(Locale.US,"%."+digits+"f",value)+(unit.isEmpty()?"":" "+unit);}
     private String distance(Double km){if(km==null)return "—";String units=preferences.getString("units","mi");if(units.equals("km"))return number(km,1,"km");if(units.equals("dual"))return number(km/1.609344,1,"mi")+" / "+number(km,1,"km");return number(km/1.609344,1,"mi");}
     private String speed(Double kmh){return kmh==null?"—":DisplayUnits.speed(kmh,preferences.getString("units","mi"));}
-    private String featureLabel(ScooterCommands.Feature feature,int value){return DisplayUnits.featureValue(feature,value,preferences.getString("units","mi"));}
+    private String featureLabel(ScooterCommands.Feature feature,int value){
+        if(feature.key.equals("start_speed")&&value==0)return "Standing start";
+        return DisplayUnits.featureValue(feature,value,preferences.getString("units","mi"));
+    }
+    private static final String AUTO_RANGE="Auto (riding mode)";
     private TextView metricLine(LinearLayout parent,String label){LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);TextView labelView=design.caption(label);line.addView(labelView,new LinearLayout.LayoutParams(0,-2,1));TextView value=design.text("—",16,true);value.setGravity(Gravity.RIGHT);line.addView(value);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=design.dp(8);p.bottomMargin=design.dp(8);parent.addView(line,p);return value;}
     private final class LoadingScreen implements AppScreen {
         private final LinearLayout view=column();
-        LoadingScreen(){heading(view,"Your offline workspace",hasBluetoothPermission()?"Preparing local profiles and measurements…":"Allow Nearby devices to set up the local connection.");LinearLayout card=design.card();card.addView(design.text("Everything stays on your phone",18,true));TextView detail=design.caption("Scooter controls, owner profiles and ride recordings work through the local Bluetooth connection.");detail.setPadding(0,design.dp(8),0,design.dp(12));card.addView(detail);card.addView(design.button(hasBluetoothPermission()?"Open local workspace":"Allow Nearby devices",()->{if(hasBluetoothPermission())ensureService();else requestBluetooth();}));view.addView(card);}
+        /** With permission: a spinner while the service opens. Without it: the one button that unblocks it. */
+        LoadingScreen(){
+            LinearLayout card=design.card();card.setGravity(Gravity.CENTER_HORIZONTAL);card.setPadding(design.dp(18),design.dp(22),design.dp(18),design.dp(18));
+            if(hasBluetoothPermission()){
+                Spinner spinner=new Spinner();card.addView(spinner,new LinearLayout.LayoutParams(design.dp(28),design.dp(28)));
+            }else{
+                TextView allow=design.button("Allow Nearby devices",MainActivity.this::requestBluetooth);
+                android.graphics.drawable.Drawable glyph=new android.graphics.drawable.Drawable(){
+                    @Override public void draw(Canvas canvas){android.graphics.Rect b=getBounds();design.drawIcon(canvas,"bluetooth",design.onAccent,b.exactCenterX(),b.exactCenterY(),b.width());}
+                    @Override public void setAlpha(int alpha){}
+                    @Override public void setColorFilter(android.graphics.ColorFilter filter){}
+                    @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
+                };
+                glyph.setBounds(0,0,design.dp(18),design.dp(18));allow.setCompoundDrawablesRelative(glyph,null,null,null);allow.setCompoundDrawablePadding(design.dp(8));
+                // Wrapped width keeps the glyph beside its words.
+                LinearLayout.LayoutParams allowSize=new LinearLayout.LayoutParams(-2,-2);allowSize.bottomMargin=design.dp(6);card.addView(allow,allowSize);
+                TextView needed=design.caption("Needed to connect");needed.setGravity(Gravity.CENTER);card.addView(needed,new LinearLayout.LayoutParams(-1,-2));
+            }
+            LinearLayout.LayoutParams top=new LinearLayout.LayoutParams(-1,-2);top.topMargin=design.dp(12);view.addView(card,top);
+        }
         @Override public View view(){return view;}
         @Override public void refresh(){}
     }
@@ -1132,8 +1227,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
         private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private final LinearLayout lightsHeader,banner;
-        private final View lightsNote,zonesRow;
+        private final LinearLayout lightsHeader,banner,readOnlyBanner;
+        private final View headlightRow,zonesRow,clockSpinner;
         private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
         /** Two-column panes on wide screens; both null on a phone. */
@@ -1155,21 +1250,23 @@ public final class MainActivity extends Activity implements ScreenHost {
             banner=row();banner.setGravity(Gravity.CENTER_VERTICAL);banner.setPadding(design.dp(14),design.dp(4),design.dp(8),design.dp(4));banner.setMinimumHeight(design.dp(60));
             banner.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?36:22),16,Ui.withAlpha(design.accent,design.dark?100:80)));
             banner.addView(design.icon("bluetooth",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
-            bannerText=design.text("Last seen settings · connect to change",13,false);
+            bannerText=design.text("Last seen (disconnected)",13,false);
             LinearLayout.LayoutParams bannerWords=new LinearLayout.LayoutParams(0,-2,1);bannerWords.leftMargin=design.dp(10);bannerWords.rightMargin=design.dp(8);banner.addView(bannerText,bannerWords);
             bannerAction=pill("Connect",MainActivity.this::connect);bannerAction.setContentDescription("Connect scooter");banner.addView(bannerAction);
             LinearLayout.LayoutParams bannerParams=new LinearLayout.LayoutParams(-1,-2);bannerParams.bottomMargin=design.dp(10);view.addView(banner,bannerParams);
-            // Wide: the banner (and the Lights help card) span both columns; search, results and top speed lead the left column.
+            // Connected to a model outside the verified catalog: one banner, and every control greys out.
+            readOnlyBanner=row();readOnlyBanner.setGravity(Gravity.CENTER_VERTICAL);readOnlyBanner.setPadding(design.dp(14),design.dp(4),design.dp(14),design.dp(4));readOnlyBanner.setMinimumHeight(design.dp(52));
+            readOnlyBanner.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?36:22),16,Ui.withAlpha(design.accent,design.dark?100:80)));
+            readOnlyBanner.addView(design.icon("lock",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
+            TextView readOnlyText=design.text(BleController.READ_ONLY_MODEL,13,false);LinearLayout.LayoutParams readOnlyWords=new LinearLayout.LayoutParams(0,-2,1);readOnlyWords.leftMargin=design.dp(10);readOnlyBanner.addView(readOnlyText,readOnlyWords);
+            readOnlyBanner.setVisibility(View.GONE);view.addView(readOnlyBanner,new LinearLayout.LayoutParams(-1,-2));
+            ((LinearLayout.LayoutParams)readOnlyBanner.getLayoutParams()).bottomMargin=design.dp(10);
+            // Wide: the banner spans both columns; search, results and top speed lead the left column.
             leftPane=expanded?column():null;rightPane=expanded?column():null;
             LinearLayout lead=expanded?leftPane:view;
             search=new EditText(MainActivity.this);search.setSingleLine(true);search.setHint("Search");design.styleSearch(search);search.setContentDescription("Search scooter settings");lead.addView(search,design.searchLayout());
             SearchFocus.bind(search, getWindow());
             results=design.caption("");results.setPadding(design.dp(3),0,0,design.dp(8));lead.addView(results);
-            LinearLayout note=design.card();note.setOrientation(LinearLayout.HORIZONTAL);note.setGravity(Gravity.CENTER_VERTICAL);
-            note.addView(design.icon("info",20,design.accent),new LinearLayout.LayoutParams(design.dp(20),design.dp(20)));
-            TextView noteText=design.caption("Front headlight: use the scooter’s power button. Settings confirm configuration, not lamp output.");noteText.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
-            LinearLayout.LayoutParams noteWords=new LinearLayout.LayoutParams(0,-2,1);noteWords.leftMargin=design.dp(12);note.addView(noteText,noteWords);
-            lightsNote=note;view.addView(note);
             if(expanded)view.addView(new TwoPane(leftPane,rightPane),new LinearLayout.LayoutParams(-1,-2));
             topSpeed=new TopSpeedCard();lead.addView(topSpeed.card);
             for(String name:new String[]{"Ride","Battery","Lights","Line lights","Star lights","Dashboard & sound","Security","Profile"}){
@@ -1188,9 +1285,16 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(f.experimental||f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key")||f.key.equals("maximum_speed"))continue;
                 ControlRow control=new ControlRow(f);rows.add(control);addRow(groupOf(f),control.card);
             }
+            // Lights page: a read-only first row says the front headlight is switched on the scooter itself.
+            SettingLine headlight=new SettingLine(design.featureIcon("headlight"),"Headlight",null);headlight.value.setText("Power button");
+            headlight.line.setFocusable(true);headlight.line.setContentDescription("Headlight, switched with the scooter's power button");
+            headlightRow=headlight.card;LinearLayout lightsBody=bodies.get("Lights");
+            if(lightsBody.getChildCount()>0){View line=new View(MainActivity.this);line.setBackgroundColor(design.raised);line.setTag(lightsBody.getChildAt(0));lightsBody.addView(line,0,new LinearLayout.LayoutParams(-1,design.dp(1)));}
+            lightsBody.addView(headlightRow,0);extras.put(headlightRow,new String[]{"Lights","headlight front lamp power button"});
             SettingLine zones=new SettingLine("star","Line & star lights",null);zones.chevron(this::showLights);zonesValue=zones.value;zonesRow=zones.card;
             addRow("Lights",zonesRow);extras.put(zonesRow,new String[]{"Lights","line star lights zones ambient pattern color boost"});
-            clockLine=new SettingLine("history","Sync scooter clock",null);
+            clockLine=new SettingLine("history","Scooter clock",null);
+            clockSpinner=new Spinner();clockSpinner.setVisibility(View.GONE);clockLine.line.addView(clockSpinner,rowSpinnerSize());
             clockButton=pill("Sync",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clockButton.setContentDescription("Sync scooter clock");
             LinearLayout.LayoutParams clockParams=new LinearLayout.LayoutParams(-2,-2);clockParams.leftMargin=design.dp(10);clockLine.line.addView(clockButton,clockParams);
             addRow("Battery",clockLine.card);extras.put(clockLine.card,new String[]{"Battery","sync scooter clock scheduled charging time timezone"});
@@ -1235,7 +1339,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=searching?row.haystack.contains(needle):onPage(group);row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
             for(Map.Entry<View,String[]> e:extras.entrySet()){
                 String[] metadata=e.getValue();
-                boolean match=e.getKey()==zonesRow&&lights?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
+                boolean match=e.getKey()==zonesRow&&lights||e.getKey()==headlightRow&&!lights&&!searching?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
                 e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}
             }
             boolean speed=searching?TOP_SPEED_WORDS.contains(needle):!lights;
@@ -1247,7 +1351,6 @@ public final class MainActivity extends Activity implements ScreenHost {
             }
             labels.get("Lights").setText((lights&&!searching?"Headlights":"Lights").toUpperCase(Locale.ROOT));
             lightsHeader.setVisibility(lights?View.VISIBLE:View.GONE);
-            lightsNote.setVisibility(lights&&!searching?View.VISIBLE:View.GONE);
             results.setVisibility(searching?View.VISIBLE:View.GONE);results.setText(count==0?"No matching settings":count+(count==1?" setting":" settings"));
         }
         private void clearSearch(){
@@ -1279,14 +1382,21 @@ public final class MainActivity extends Activity implements ScreenHost {
             boolean connecting=ble!=null&&!ready&&(ble.connected()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
                     ||ble.state()==BleController.State.SCANNING||ble.state()==BleController.State.WAITING);
             banner.setVisibility(ready?View.GONE:View.VISIBLE);
-            bannerText.setText(connecting?"Connecting · showing last seen settings":"Last seen settings · connect to change");
+            // Two words keep it clear the grey values are not live; the Connect pill says the rest.
+            bannerText.setText(connecting?"Connecting…":"Last seen (disconnected)");
             bannerAction.setVisibility(connecting?View.GONE:View.VISIBLE);
-            boolean clockReady=ready&&ble.pending()==null;clockButton.setEnabled(clockReady);
+            readOnlyBanner.setVisibility(ble!=null&&ble.readOnlyModel()?View.VISIBLE:View.GONE);
+            boolean clockPending=ble!=null&&"clock_sync".equals(ble.pending());
+            boolean clockReady=ready&&ble.pending()==null&&!ble.readOnlyModel();clockButton.setEnabled(clockReady);
             clockLine.name.setTextColor(clockReady?design.text:design.muted);
-            String clock=ble==null?null:ble.commandResults().get("clock_sync");
-            if(ble!=null&&"clock_sync".equals(ble.pending()))clock="Waiting for scooter…";
-            else if(clock!=null)clock=clock.replace("; no clock readback available"," · no readback available").replace("; "," · ");
-            clockLine.setSub(clock);
+            // Results are row state: a spinner while sending, then "Sent 14:02" (no clock readback exists) or a short failure.
+            clockSpinner.setVisibility(clockPending?View.VISIBLE:View.GONE);
+            String clock=ble==null?null:ble.commandResults().get("clock_sync");String chip=clockPending?null:resultChip(ble,"clock_sync");
+            long sent=ble==null?0:ble.commandResultTime("clock_sync");
+            boolean accepted=!clockPending&&clock!=null&&clock.startsWith("Accepted")&&sent>0;
+            clockLine.value.setText(accepted?"Sent "+DisplayTime.clock(MainActivity.this,preferences,sent):chip!=null?chip:"");
+            clockLine.value.setTextColor(chip!=null&&!accepted?design.danger:design.muted);
+            clockLine.line.setContentDescription("Scooter clock"+(clockPending?", sending":accepted?", sent "+DisplayTime.clock(MainActivity.this,preferences,sent)+", not verified":chip!=null?", "+chip:""));
             zonesValue.setText(zonesSummary());
             ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();nameValue.setText(profile==null?"Not set":profile.name);
             boolean chargerEditable=profile!=null&&!scooterService.isChargeRecording();
@@ -1329,7 +1439,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 : scooterService.featureFresh(feature.key);
         Integer actual = ble.featureValue(feature.key);
         if (!fresh || (feature.type != ScooterCommands.Type.TIME && actual == null)) {
-            toast("This firmware has not supplied a fresh value for this setting."); return;
+            toast("No fresh value yet"); return;
         }
         if (entry.directToggle()) {
             if (!ble.set(feature.key, actual == 1 ? 0 : 1)) toast(ble.message());
@@ -1416,10 +1526,34 @@ public final class MainActivity extends Activity implements ScreenHost {
         if (inspect != null) overlay.inspectQuickFeature(inspect);
     }
 
+    /** How long a failure chip outlives the first fresh readback that follows it. */
+    private static final long RESULT_CHIP_MS=4000;
+    /**
+     * Short-lived row state for a command result: "Rejected" or "Not confirmed", or null. It clears once a fresh
+     * readback arrives a few seconds after the result, so the row returns to showing the scooter's own value.
+     */
+    private String resultChip(BleController ble,String key){
+        String evidence=ble==null?null:ble.commandResults().get(key);
+        if(evidence==null||evidence.equals("Confirmed")||evidence.startsWith("Setting confirmed")||evidence.startsWith("Accepted; no clock"))return null;
+        long at=ble.commandResultTime(key);
+        // Saved results from earlier launches feed Command evidence only; chips are for this session's changes.
+        if(at<=0)return null;
+        if(ble.ready()&&System.currentTimeMillis()-ble.statusAge()>at+RESULT_CHIP_MS)return null;
+        return evidence.startsWith("Rejected")?"Rejected":"Not confirmed";
+    }
+    private LinearLayout.LayoutParams rowSpinnerSize(){LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(design.dp(20),design.dp(20));p.setMarginStart(design.dp(10));return p;}
+    /** A small red chip for a failed change; it sits on the row just before the value or switch. */
+    private TextView failureChip(){
+        TextView chip=design.text("",11.5f,true);chip.setTextColor(design.danger);chip.setMaxLines(1);
+        chip.setPadding(design.dp(8),design.dp(2),design.dp(8),design.dp(3));chip.setBackground(design.shape(Ui.withAlpha(design.danger,design.dark?40:28),100,0));
+        chip.setVisibility(View.GONE);return chip;
+    }
     /** Phone-width labels; search still matches the catalog's full names and descriptions. */
     private String shortLabel(ScooterCommands.Feature f){
         if(f.key.equals("charge_start"))return "Charge start";
         if(f.key.equals("charge_limit"))return "Charge limit";
+        // "Dashboard" also names the Home tab; this setting is the scooter's own display.
+        if(f.key.equals("display_units"))return "Scooter display units";
         if(f.key.endsWith("_boost_color"))return "Boost color";
         if(f.key.endsWith("_pattern"))return "Pattern";
         if(f.key.endsWith("_color"))return "Color";
@@ -1428,7 +1562,6 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String rowDetail(ScooterCommands.Feature f){
         if(f.key.equals("parking_assist"))return "Boost + full throttle uphill in Sport";
         if(f.key.equals("low_power"))return "Limits speed below 20%";
-        if(f.key.equals("auto_sensor"))return "Ambient sensing for head and tail light";
         return null;
     }
     private String rowIcon(ScooterCommands.Feature f){
@@ -1436,19 +1569,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(f.key.equals("charge_start")||f.key.equals("timed_charging"))return "clock";
         return design.featureIcon(f.key);
     }
-    /** One line under a picker title; settings without a shorter wording keep the catalog description. */
+    /** Picker sheets have no explanation line, except Lock duration's lock-out warning. */
     private String explanation(ScooterCommands.Feature f){
-        if(f.key.equals("energy_recovery"))return "Stronger recovery slows coasting more.";
-        if(f.key.equals("display_units"))return "Units shown on the scooter’s own dashboard.";
-        if(f.key.equals("range_algorithm"))return "Follow riding mode selects the scooter’s Sport or Eco estimate when stopped. Firmware without Eco uses its D estimate for Eco/Walk. Fixed choices stay selected until you change them.";
-        if(f.key.equals("charge_limit"))return "Charging stops at this battery level.";
-        if(f.key.equals("start_speed"))return "Wheel speed needed before the throttle responds. Zero allows standing starts.";
-        return f.description;
+        return f.key.equals("lock_expiry")?f.description:null;
     }
     private boolean inlineChoice(ScooterCommands.Feature f){return f.type==ScooterCommands.Type.CHOICE&&(f.key.startsWith("line_")||f.key.startsWith("star_"));}
     /** Short value forms for the right edge of a row; pickers still list the full labels. */
     private String valueText(ScooterCommands.Feature feature,int value){
-        if(feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode()) return "Follow riding mode";
+        if(feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode()) return AUTO_RANGE;
         if(feature.key.equals("display_units")&&(value==0||value==1))return value==0?"Miles":"Kilometers";
         String label=featureLabel(feature,value);
         if(feature.key.equals("lock_expiry"))return label.replace(" hours"," h");
@@ -1492,21 +1620,26 @@ public final class MainActivity extends Activity implements ScreenHost {
         void setSub(String text){sub.setText(text==null?"":text);sub.setVisibility(text==null||text.isEmpty()?View.GONE:View.VISIBLE);}
     }
     private final class ControlRow {
-        final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action;
+        final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action,spinner;
         final String haystack;final boolean inline;SegmentedSelector patternSelector;
         final LinkedHashMap<Integer,View> options=new LinkedHashMap<>();
+        /** Moving while this setting needs the scooter parked: the row greys out and a tap says why. */
+        private boolean parkedBlocked;
         ControlRow(ScooterCommands.Feature feature){
             this.feature=feature;inline=inlineChoice(feature);
             String detail=rowDetail(feature);
             row=new SettingLine(inline?null:rowIcon(feature),shortLabel(feature),detail);card=row.card;name=row.name;value=row.value;action=row.line;
-            haystack=normalize(feature.label+" "+shortLabel(feature)+" "+feature.description+" "+feature.key+" "+(detail==null?"":detail));
+            haystack=normalize(feature.searchText()+" "+shortLabel(feature)+" "+feature.key+" "+(detail==null?"":detail));
+            // Result state lives on the row line: a red chip for a failed change, a spinner while one is pending.
+            result=failureChip();LinearLayout.LayoutParams chipSize=new LinearLayout.LayoutParams(-2,-2);chipSize.setMarginStart(design.dp(8));row.line.addView(result,1,chipSize);
+            spinner=new Spinner();spinner.setVisibility(View.GONE);row.line.addView(spinner,2,rowSpinnerSize());
             if(feature.type==ScooterCommands.Type.TOGGLE){
                 value.setVisibility(View.GONE);
                 toggle=new Haptics.FeedbackSwitch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);
                 toggle.setContentDescription(shortLabel(feature));
                 toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});
                 LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.leftMargin=design.dp(10);row.line.addView(toggle,tp);
-                row.line.setFocusable(true);row.line.setBackground(rowRipple());row.line.setOnClickListener(v->{if(toggle.isEnabled())toggle.performClick();});
+                row.line.setFocusable(true);row.line.setBackground(rowRipple());row.line.setOnClickListener(v->{if(parkedBlocked)toast("Stop to change");else if(toggle.isEnabled())toggle.performClick();});
             }else if(inline){
                 toggle=null;value.setVisibility(View.GONE);
                 if(feature.key.endsWith("_pattern")){
@@ -1530,32 +1663,38 @@ public final class MainActivity extends Activity implements ScreenHost {
                     }
                     row.line.addView(swatches);
                 }
-            }else{toggle=null;row.chevron(()->editFeature(feature));}
-            row.line.setOnLongClickListener(v->{showAbout(feature);return true;});
-            result=design.caption("");result.setPaddingRelative(inline?0:design.dp(42),0,0,design.dp(10));result.setVisibility(View.GONE);card.addView(result);
+            }else{toggle=null;row.chevron(()->{if(parkedBlocked)toast("Stop to change");else editFeature(feature);});}
         }
         void refresh(){
-            BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&liveActual!=null&&scooterService.featureFresh(feature.key);
+            BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&!ble.readOnlyModel()&&liveActual!=null&&scooterService.featureFresh(feature.key);
             String shown;
-            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.clock(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));}
+            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&!ble.readOnlyModel()&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.clock(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));}
             else shown=actual==null?"Not reported":valueText(feature,actual);
             boolean choices=feature.type!=ScooterCommands.Type.CHOICE||(ble!=null&&ble.featureChoices(feature.key).length>0);
-            name.setTextColor(available?design.text:design.muted);action.setEnabled(available&&choices);
+            // Parked-only settings grey out while the scooter moves; the row stays tappable to say "Stop to change".
+            parkedBlocked=available&&choices&&feature.requiresParked&&!ble.stationary();
+            boolean usable=available&&choices&&!parkedBlocked;
+            name.setTextColor(usable?design.text:design.muted);action.setEnabled(available&&choices);
+            row.line.setAlpha(parkedBlocked?.45f:1f);
             if(toggle==null&&!inline){
                 // A long value moves under the label so the row never wraps beside the chevron.
                 boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
             }else if(inline)row.setSub(actual==null?"Not reported":null);
-            if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(available&&choices);patternSelector.setAlpha(available&&choices?1f:.5f);}
+            if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(usable);patternSelector.setAlpha(usable?1f:.5f);}
             for(Map.Entry<Integer,View> option:options.entrySet()){
                 boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();
                 ((Swatch)view).set(on);
-                view.setEnabled(available&&choices);view.setAlpha(available&&choices?1f:.5f);
+                view.setEnabled(usable);view.setAlpha(usable?1f:.5f);
                 if(Build.VERSION.SDK_INT>=30)view.setStateDescription(on?"Selected":"");
             }
-            action.setContentDescription(shortLabel(feature)+", "+shown+". "+feature.description);
-            if(toggle!=null){toggle.setEnabled(available);toggle.setChecked(actual!=null&&actual==1);if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(actual==null?"Not reported":actual==1?"On":"Off");}
-            // Last-seen state is explained once by the page banner; rows keep rejections and pending changes.
-            String feedback=ble==null?null:ble.commandResults().get(feature.key);if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter…";result.setVisibility(feedback==null?View.GONE:View.VISIBLE);result.setText(feedback==null?"":feedback);
+            // Short-lived result state: a spinner in the switch slot while pending, then a red chip if it failed.
+            boolean pending=ble!=null&&feature.key.equals(ble.pending());
+            String chip=pending?null:resultChip(ble,feature.key);
+            spinner.setVisibility(pending?View.VISIBLE:View.GONE);
+            result.setText(chip==null?"":chip);result.setVisibility(chip==null?View.GONE:View.VISIBLE);
+            // TalkBack reads the name and value, plus any short state.
+            action.setContentDescription(shortLabel(feature)+", "+shown+(pending?", confirming":chip!=null?", "+chip.toLowerCase(Locale.ROOT):parkedBlocked?", stop to change":""));
+            if(toggle!=null){toggle.setVisibility(pending?View.GONE:View.VISIBLE);toggle.setEnabled(usable);toggle.setChecked(actual!=null&&actual==1);if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(actual==null?"Not reported":actual==1?"On":"Off");}
         }
         private void restorePatternSelection(boolean animate){
             Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);
@@ -1567,11 +1706,6 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void chooseInline(ScooterCommands.Feature feature,int target){
         if(scooterService==null)return;Integer actual=scooterService.ble.featureValue(feature.key);if(actual!=null&&actual==target)return;
         if(!scooterService.ble.set(feature.key,target))toast(scooterService.ble.message());redraw();
-    }
-    private void showAbout(ScooterCommands.Feature feature){
-        controlDialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle(shortLabel(feature)))
-                .setMessage(feature.description+(feature.requiresParked?"\n\nChanges only while the scooter is stopped.":"")).setPositiveButton("Close",null).create();
-        controlDialog.show();styleDialog(controlDialog,0);
     }
     /** Lamp colour swatch; the selected colour gains a ring. */
     private final class Swatch extends View {
@@ -1626,10 +1760,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         final TextView title,amount,unit,status;
         final ArrayList<LinearLayout> buttons=new ArrayList<>();final ArrayList<TextView> numbers=new ArrayList<>();final ArrayList<SignalBars> bars=new ArrayList<>();
         private String styled="";
+        /** The speed the rider tapped; its button pulses until the scooter confirms or the change ends. */
+        private Integer requested;private View pulsing;private android.animation.ValueAnimator pulse;
         TopSpeedCard(){
             card.setPadding(design.dp(16),design.dp(14),design.dp(16),design.dp(16));
             LinearLayout.LayoutParams cardParams=new LinearLayout.LayoutParams(-1,-2);cardParams.bottomMargin=design.dp(2);card.setLayoutParams(cardParams);
-            title=design.text("Top speed",12.5f,false);title.setTypeface(design.medium());card.addView(title);
+            // Naming Sport here states the "Sport mode only" fact without a separate line.
+            title=design.text("Top speed · Sport",12.5f,false);title.setTypeface(design.medium());card.addView(title);
             LinearLayout reading=row();reading.setPadding(0,design.dp(8),0,design.dp(14));
             amount=design.text("—",42,true);amount.setIncludeFontPadding(false);reading.addView(amount);
             unit=design.text("",14,false);unit.setPadding(design.dp(8),0,0,0);reading.addView(unit);
@@ -1652,14 +1789,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         private void choose(View source,int kmh){
             if(scooterService==null)return;BleController ble=scooterService.ble;
             Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==kmh)return;
-            if(!ble.set(feature.key,kmh))toast(ble.message());else Haptics.tick(source);redraw();
+            if(!ble.set(feature.key,kmh))toast(ble.message());else{requested=kmh;Haptics.tick(source);}redraw();
         }
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;
             Integer live=ble==null?null:ble.featureValue(feature.key);
             Integer actual=live!=null?live:scooterService==null?null:scooterService.displayFeatures().get(feature.key);
             boolean ready=ble!=null&&ble.ready();
-            boolean available=ready&&ble.pending()==null&&live!=null&&scooterService.featureFresh(feature.key)&&ble.featureChoices(feature.key).length>0;
+            boolean available=ready&&ble.pending()==null&&!ble.readOnlyModel()&&live!=null&&scooterService.featureFresh(feature.key)&&ble.featureChoices(feature.key).length>0;
             String units=preferences.getString("units","mi");
             amount.setText(actual==null?"—":number(actual,units));
             unit.setText("km".equals(units)?"km/h":"dual".equals(units)&&actual!=null?"mph · "+actual+" km/h":"mph");
@@ -1671,12 +1808,29 @@ public final class MainActivity extends Activity implements ScreenHost {
                 button.setContentDescription("Set top speed to "+spoken(kmh,units));
                 if(Build.VERSION.SDK_INT>=30)button.setStateDescription(on?"Selected":"");
             }
-            String feedback=ble==null?null:ble.commandResults().get(feature.key);
-            if(feedback!=null&&(feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")))feedback=null;
-            if(ble!=null&&feature.key.equals(ble.pending()))feedback="Waiting for scooter confirmation…";
+            boolean pending=ble!=null&&feature.key.equals(ble.pending());
+            if(!pending)requested=null;
+            int index=-1;for(int i=0;i<buttons.size();i++)if(requested!=null&&requested==feature.optionValues[i])index=i;
+            pulse(pending&&index>=0?buttons.get(index):null);
+            if(pending&&index>=0&&Build.VERSION.SDK_INT>=30)buttons.get(index).setStateDescription("Confirming");
+            // Without motion the pulse cannot show, so a one-word status stands in for it.
+            String feedback=pending?(Ui.motionEnabled()&&index>=0?null:"Confirming…"):resultChip(ble,feature.key);
             status.setText(feedback==null?"":feedback);status.setVisibility(feedback==null?View.GONE:View.VISIBLE);
             String state=ready+"|"+available+"|"+actual;
             if(!state.equals(styled)){styled=state;style(!ready,available,actual);}
+        }
+        /** Breathes the tapped speed button while the scooter confirms it; null stops and restores. */
+        private void pulse(View target){
+            if(target==pulsing)return;
+            if(pulse!=null){pulse.cancel();pulse=null;}
+            if(pulsing!=null)pulsing.setAlpha(1f);
+            pulsing=target;
+            if(target==null||!Ui.motionEnabled())return;
+            pulse=android.animation.ValueAnimator.ofFloat(1f,.45f);pulse.setDuration(520);
+            pulse.setRepeatMode(android.animation.ValueAnimator.REVERSE);pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            pulse.setInterpolator(new android.view.animation.PathInterpolator(.4f,0,.2f,1));
+            pulse.addUpdateListener(a->{if(!target.isAttachedToWindow()){a.cancel();return;}target.setAlpha((Float)a.getAnimatedValue());});
+            pulse.start();
         }
         /** Red gradient while live; a grey card when only last-seen values are known. */
         private void style(boolean grey,boolean available,Integer actual){
@@ -1692,7 +1846,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 buttons.get(i).setBackground(raisedOption(fill,ring,on?2:1));
                 int ink=on?selectedText:fg;numbers.get(i).setTextColor(ink);
                 int barColor=on&&!grey?design.accent:ink;bars.get(i).set(i+1,barColor,Ui.withAlpha(barColor,90));
-                buttons.get(i).setAlpha(available||grey?1f:.6f);
+                if(buttons.get(i)!=pulsing)buttons.get(i).setAlpha(available||grey?1f:.6f);
             }
         }
         private android.graphics.drawable.Drawable raisedOption(int fill,int ring,int ringDp){
@@ -1786,20 +1940,83 @@ public final class MainActivity extends Activity implements ScreenHost {
         LinearLayout body=sheetContent(shortLabel(feature),explanation(feature),close);
         TextView amount=design.text(featureLabel(feature,current),28,true);amount.setPadding(design.dp(2),design.dp(4),0,design.dp(10));body.addView(amount);
         SeekBar slider=new SeekBar(this);slider.setMax((feature.max-feature.min)/feature.step);slider.setProgress(Math.max(0,(current-feature.min)/feature.step));slider.setProgressTintList(ColorStateList.valueOf(design.accent));slider.setThumbTintList(ColorStateList.valueOf(design.accent));slider.setProgressBackgroundTintList(ColorStateList.valueOf(design.outline));slider.setContentDescription(shortLabel(feature));body.addView(slider,new LinearLayout.LayoutParams(-1,design.dp(48)));
-        final int[] selected={current};slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int n,boolean user){if(user){selected[0]=feature.min+n*feature.step;amount.setText(featureLabel(feature,selected[0]));}}public void onStopTrackingTouch(SeekBar s){}});
+        // The range ends sit under the slider instead of a sentence about them.
+        LinearLayout ends=row();ends.setPadding(design.dp(4),0,design.dp(4),design.dp(6));ends.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+        String units=preferences.getString("units","mi"),high=DisplayUnits.featureValue(feature,feature.max,units),low=DisplayUnits.featureValue(feature,feature.min,units);
+        int unitAt=high.lastIndexOf(' ');if(unitAt>0&&low.endsWith(high.substring(unitAt)))low=low.substring(0,low.length()-(high.length()-unitAt));
+        TextView lowText=design.caption(low);ends.addView(lowText,new LinearLayout.LayoutParams(0,-2,1));
+        TextView highText=design.caption(high);highText.setGravity(Gravity.END);ends.addView(highText,new LinearLayout.LayoutParams(-2,-2));
+        body.addView(ends,new LinearLayout.LayoutParams(-1,-2));
+        final int[] selected={current},base={current};slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener(){public void onStartTrackingTouch(SeekBar s){}public void onProgressChanged(SeekBar s,int n,boolean user){if(user){selected[0]=feature.min+n*feature.step;amount.setText(featureLabel(feature,selected[0]));}}public void onStopTrackingTouch(SeekBar s){}});
         TextView error=design.caption("");error.setTextColor(design.danger);error.setPadding(design.dp(2),design.dp(4),0,design.dp(4));body.addView(error);
         LinearLayout actions=row();
         TextView cancel=design.secondaryButton("Cancel",close);
-        TextView apply=design.button("Apply",()->{Integer latest=scooterService.ble.featureValue(feature.key);if(!scooterService.ble.ready()||latest==null||!latest.equals(current)){error.setText("Scooter state changed. Close and reopen this setting.");return;}if(scooterService.ble.set(feature.key,selected[0])){if(sheet[0]!=null)sheet[0].dismiss();}else error.setText(scooterService.ble.message());redraw();});
+        final ApplyCheck[] check=new ApplyCheck[1];
+        TextView apply=design.button("Apply",()->{
+            Integer latest=scooterService.ble.featureValue(feature.key);
+            if(!scooterService.ble.ready()||latest==null){error.setText("Not connected");return;}
+            if(!latest.equals(base[0])){
+                // The scooter changed underneath: reload the slider to its readback and say so with a brief checkmark.
+                base[0]=latest;selected[0]=latest;error.setText("");
+                slider.setProgress(Math.max(0,(latest-feature.min)/feature.step));amount.setText(featureLabel(feature,latest));
+                check[0].show();return;
+            }
+            if(scooterService.ble.set(feature.key,selected[0])){if(sheet[0]!=null)sheet[0].dismiss();}else error.setText(scooterService.ble.message());redraw();});
+        check[0]=new ApplyCheck(apply,"Apply");
         LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=design.dp(5);actions.addView(cancel,left);
         LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,-2,1);right.leftMargin=design.dp(5);actions.addView(apply,right);
         body.addView(actions);
         AlertDialog dialog=showSheet(body);sheet[0]=dialog;controlDialog=dialog;
     }
+    /**
+     * Apply button feedback: the label gives way to a checkmark that springs in, holds a few seconds, then the
+     * label returns. Spoken as "Updated on scooter".
+     */
+    private final class ApplyCheck {
+        private final TextView button;private final String label;private final ColorStateList colors;
+        private float progress;private android.animation.ValueAnimator motion;
+        private final Runnable hide=()->animateTo(0);
+        private final android.graphics.drawable.Drawable mark=new android.graphics.drawable.Drawable(){
+            @Override public void draw(Canvas canvas){
+                if(progress<=0)return;android.graphics.Rect b=getBounds();
+                float grow=progress<1?(float)(1+.18*Math.sin(Math.PI*progress))*progress:1;
+                design.drawIcon(canvas,"check",colors.getColorForState(button.getDrawableState(),design.onAccent),b.exactCenterX(),b.exactCenterY(),design.dp(24)*grow);
+            }
+            @Override public void setAlpha(int alpha){}
+            @Override public void setColorFilter(android.graphics.ColorFilter filter){}
+            @Override public int getOpacity(){return android.graphics.PixelFormat.TRANSLUCENT;}
+        };
+        ApplyCheck(TextView button,String label){this.button=button;this.label=label;this.colors=button.getTextColors();}
+        void show(){
+            button.removeCallbacks(hide);
+            mark.setBounds(0,0,button.getWidth(),button.getHeight());button.getOverlay().remove(mark);button.getOverlay().add(mark);
+            button.setContentDescription("Updated on scooter");button.announceForAccessibility("Updated on scooter");
+            animateTo(1);button.postDelayed(hide,2600);
+        }
+        private void animateTo(float target){
+            if(motion!=null){motion.cancel();motion=null;}
+            if(!Ui.motionEnabled()||!button.isAttachedToWindow()){apply(target);finish(target);return;}
+            motion=android.animation.ValueAnimator.ofFloat(progress,target);motion.setDuration(target>0?260:200);
+            motion.setInterpolator(new android.view.animation.PathInterpolator(.2f,0,0,1));
+            motion.addUpdateListener(a->apply((Float)a.getAnimatedValue()));
+            motion.addListener(new android.animation.AnimatorListenerAdapter(){
+                private boolean cancelled;
+                @Override public void onAnimationCancel(android.animation.Animator a){cancelled=true;}
+                @Override public void onAnimationEnd(android.animation.Animator a){if(!cancelled)finish(target);}
+            });
+            motion.start();
+        }
+        /** The label fades out as the mark grows in, and back. */
+        private void apply(float value){progress=value;button.setTextColor(colors.withAlpha(Math.round(255*Math.max(0,1-value*1.6f))));button.invalidate();}
+        private void finish(float target){
+            if(target>0)return;
+            button.getOverlay().remove(mark);button.setTextColor(colors);button.setText(label);button.setContentDescription(label);
+        }
+    }
     private ChoiceSheet choiceSheet;
     private void showChoice(ScooterCommands.Feature feature){
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
-        int[] choices=scooterService.ble.featureChoices(feature.key);if(choices.length==0){toast("This choice is not available on the current firmware.");return;}
+        int[] choices=scooterService.ble.featureChoices(feature.key);if(choices.length==0){toast("Not on this firmware");return;}
         if(feature.key.equals("range_algorithm")) {
             int[] withFollow=new int[choices.length+1]; withFollow[0]=-1;
             System.arraycopy(choices,0,withFollow,1,choices.length); choices=withFollow;
@@ -1827,7 +2044,14 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(i>0)design.divider(list);
                 final int index=i;
                 LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);option.setMinimumHeight(design.dp(54));option.setPadding(design.dp(4),design.dp(6),design.dp(2),design.dp(6));
-                TextView label=design.text(feature.key.equals("range_algorithm") && choices[i]==-1 ? "Follow riding mode" : featureLabel(feature,choices[i]),15,false);option.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                boolean auto=feature.key.equals("range_algorithm")&&choices[i]==-1;
+                TextView label=design.text(auto?AUTO_RANGE:featureLabel(feature,choices[i]),15,false);option.addView(label,new LinearLayout.LayoutParams(0,-2,1));
+                if(auto){
+                    // The Auto chip marks the one choice that follows the riding mode by itself.
+                    TextView chip=design.text("Auto",11,true);chip.setTextColor(design.blue);chip.setPadding(design.dp(8),design.dp(2),design.dp(8),design.dp(3));
+                    chip.setBackground(design.shape(Ui.withAlpha(design.blue,design.dark?40:28),100,0));chip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+                    LinearLayout.LayoutParams chipSize=new LinearLayout.LayoutParams(-2,-2);chipSize.setMarginStart(design.dp(8));option.addView(chip,chipSize);
+                }
                 RadioDot dot=new RadioDot();LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(design.dp(22),design.dp(22));dotParams.leftMargin=design.dp(10);option.addView(dot,dotParams);
                 option.setClickable(true);option.setFocusable(true);option.setBackground(rowRipple());option.setContentDescription(label.getText());
                 option.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName(android.widget.RadioButton.class.getName());info.setCheckable(true);info.setChecked(dot.checked);}});
@@ -1838,7 +2062,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             }
             wait=row();wait.setGravity(Gravity.CENTER_VERTICAL);wait.setPadding(design.dp(4),design.dp(4),0,design.dp(4));
             wait.addView(new Spinner(),new LinearLayout.LayoutParams(design.dp(14),design.dp(14)));
-            TextView waiting=design.caption("Waiting for scooter confirmation…");waiting.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
+            TextView waiting=design.caption("Confirming…");waiting.setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP,13*design.textScale);
             LinearLayout.LayoutParams wp=new LinearLayout.LayoutParams(-2,-2);wp.leftMargin=design.dp(10);wait.addView(waiting,wp);wait.setVisibility(View.GONE);content.addView(wait);
             status=design.caption("");status.setPadding(design.dp(4),design.dp(4),0,0);status.setVisibility(View.GONE);content.addView(status);
             dialog=showSheet(content);self[0]=dialog;controlDialog=dialog;
@@ -1865,7 +2089,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 sent=false;
                 if(target!=null&&target.equals(actual)){dialog.dismiss();return;}
                 String feedback=ble==null?null:ble.commandResults().get(feature.key);
-                failure=feedback==null||feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")?"The scooter did not confirm this change.":feedback;target=null;
+                failure=feedback==null||feedback.equals("Confirmed")||feedback.startsWith("Setting confirmed")||!feedback.startsWith("Rejected")?"Not confirmed":"Rejected";target=null;
             }
             Integer shown=waiting?target:feature.key.equals("range_algorithm") && scooterService != null && scooterService.followsRidingMode() ? Integer.valueOf(-1) : actual;boolean enabled=ready&&pending==null&&!sent;
             if(selector!=null){restoreSelection(true);boolean fresh=enabled&&actual!=null&&scooterService.featureFresh(feature.key);selector.setEnabled(fresh);selector.setAlpha(fresh?1f:.5f);}
@@ -1875,7 +2099,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 options.get(i).setEnabled(enabled);if(Build.VERSION.SDK_INT>=30)options.get(i).setStateDescription(on?"Selected":"Not selected");
             }
             wait.setVisibility(waiting?View.VISIBLE:View.GONE);
-            String message=failure!=null?failure:!ready&&!waiting?"Not connected · connect to change this setting":null;
+            String message=failure!=null?failure:!ready&&!waiting?"Not connected":null;
             status.setText(message==null?"":message);status.setTextColor(failure!=null?design.danger:design.muted);status.setVisibility(message==null?View.GONE:View.VISIBLE);
         }
         private void restoreSelection(boolean animate){
@@ -1906,7 +2130,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(screen instanceof DashboardScreen){screen.close();screen=null;rebuild();}
         try{DashboardConfig config=new DashboardConfig(preferences,scooterService.profiles.active().id);
             saveText("volt-dashboards.json","application/json",config.exportLayouts());
-        }catch(Exception error){toast("A saved layout could not be exported. Check the saved slots before trying again.");}
+        }catch(Exception error){toast("Export failed: unreadable slot.");}
     }
     @Override public void importDashboardLayouts(){
         if(scooterService==null||scooterService.profiles.active()==null){toast("Choose a scooter first.");return;}
@@ -1918,8 +2142,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(destroyed||enteringMaintenance||scooterService==null||scooterService.profiles.active()==null)return;
         String profileId=scooterService.profiles.active().id;
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Replace dashboard layouts?")
-                .setMessage("Import "+info.widgetCount+" widgets and "+info.savedSlotCount+" saved slots for "+scooterService.profiles.active().name
-                    +"? This replaces this scooter’s current dashboard, all three slots and the column preference, including widget options. Other scooters, readings and rides stay as they are.")
+                .setMessage("Replaces "+scooterService.profiles.active().name+"’s dashboard and all 3 slots.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Import layouts",(d,n)->{
                     if(destroyed||enteringMaintenance||DataMaintenance.active())return;
                     if(scooterService==null||scooterService.profiles.active()==null||!profileId.equals(scooterService.profiles.active().id)){toast("The selected scooter changed. Import again.");return;}
@@ -1931,20 +2154,20 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override public void fullBackup(boolean restore){
         if(enteringMaintenance||destroyed)return;
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(restore?"Restore all app data?":"Back up all app data?")
-                .setMessage((restore?"Restore a password-protected Volt backup. You’ll inspect it before replacing any data."
-                    :"Include every scooter’s setup keys, readings, history, rides and routes, charge recordings, preferences and dashboard layouts in a password-protected file.")
-                    +"\n\nVolt will disconnect and pause until you close and reopen it. Finish any recordings or exports first. Android permissions and Shizuku authorization are not included.")
+                .setMessage((restore?"You’ll review the backup before anything is replaced."
+                    :"Everything incl. setup keys, password-protected.")
+                    +" Volt pauses until you reopen it.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->beginFullBackup(restore)).create();
         controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
     private void beginFullBackup(boolean restore){
         if(enteringMaintenance||destroyed)return;
-        if(binding&&!bound){toast("Wait for the local workspace to finish opening.");return;}
+        if(binding&&!bound){toast("Still opening. Try again.");return;}
         if(!preparingExports.isEmpty()||documents.contains("path")||applyingOwnerImport||pendingOwnerFile().exists()||new File(getFilesDir(),"pending-owner-import.tmp").exists()){
             toast("Finish the current import or export first.");return;
         }
         ShizukuCaptureClient capture=ShizukuCaptureClient.get(this);
-        if(capture.busy||capture.pendingCleanup()){toast("Finish setup capture and its cleanup before using a full backup.");return;}
+        if(capture.busy||capture.pendingCleanup()){toast("Finish Shizuku cleanup first");return;}
         if(scooterService==null)scooterService=ScooterService.currentForMaintenance();
         String unavailable=scooterService==null?null:scooterService.dataMaintenanceUnavailable();
         if(unavailable!=null){toast(unavailable);return;}
@@ -1965,7 +2188,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         else scooterService.prepareDataMaintenance(prepared);
     }
     @Override public void importOwner(){
-        if(pendingOwnerFile().exists()){maybeApplyOwnerImport();if(pendingOwnerFile().exists())toast("Your selected owner setup is waiting for the current operation to finish.");return;}
+        if(pendingOwnerFile().exists()){maybeApplyOwnerImport();if(pendingOwnerFile().exists())toast("Owner import waiting…");return;}
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain","application/octet-stream"});startActivityForResult(intent,IMPORT_OWNER);
     }
     @Override public void saveText(String name,String mime,String content){prepareSave(name,mime,null,content==null?"":content);}
@@ -1983,6 +2206,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);
         if(request==ShizukuSetupActivity.REQUEST){
+            if(result==ShizukuSetupActivity.RESULT_IMPORT_BACKUP&&onboarding!=null){onboarding.showImport();return;}
             OwnerIdentityParser.Result owner=ShizukuCaptureClient.get(this).takeApproved();
             if(result==RESULT_OK&&owner!=null){try{
                 if(pendingOwnerFile().exists())throw new IllegalStateException();
@@ -1990,7 +2214,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 stageOwnerImport(setup.toString());
                 if(onboarding!=null)onboarding.onOwnerImportStaged();
                 maybeApplyOwnerImport();
-            }catch(Exception ignored){toast("The owner setup could not be imported. Retry setup when the pending import is finished.");}}
+            }catch(Exception ignored){toast("Import failed. Retry setup.");}}
             return;
         }
         if(request==ENABLE_BLUETOOTH){if(result==RESULT_OK){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}else pendingConnect=pendingScan=false;return;}
@@ -2001,10 +2225,12 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(in==null)throw new java.io.IOException();
                 String text=readLimited(in); DashboardConfig.LayoutTransfer info=DashboardConfig.inspectLayouts(text);
                 handler.post(()->confirmDashboardImport(text,info));
-            }catch(Exception error){handler.post(()->toast("This is not a supported dashboard backup. No layouts were changed."));}},"Volt-layout-import").start();
+            }catch(Exception error){handler.post(()->toast("Not a Volt layout file. Nothing changed."));}},"Volt-layout-import").start();
             return;
         }
-        if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));maybeApplyOwnerImport();}catch(Exception e){toast(e instanceof IllegalArgumentException?e.getMessage():"The setup file could not be read.");if(onboarding!=null)onboarding.onOwnerImported(false);}}
+        if(request==IMPORT_OWNER&&result==RESULT_OK&&data!=null&&data.getData()!=null){Uri uri=data.getData();pickedOwnerUri=null;try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new java.io.IOException();stageOwnerImport(readLimited(in));pickedOwnerUri=uri;maybeApplyOwnerImport();}catch(Exception e){pickedOwnerUri=null;
+            // First-run setup shows its own inline "Not an owner file."; elsewhere the parser's reason is a toast.
+            if(onboarding==null)toast(e instanceof IllegalArgumentException?e.getMessage():"The setup file could not be read.");else onboarding.onOwnerImported(false);}}
     }
     /** Only the normalized owner setup is staged, never raw Bluetooth capture logs. */
     private void stageOwnerImport(String text)throws Exception{
@@ -2016,15 +2242,33 @@ public final class MainActivity extends Activity implements ScreenHost {
         File temporary=new File(getFilesDir(),"pending-owner-import.tmp");try(FileOutputStream out=new FileOutputStream(temporary)){out.write(normalized.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}
         if(!temporary.renameTo(pendingOwnerFile())){temporary.delete();throw new java.io.IOException("Could not stage owner setup");}importWaitNotified=false;
     }
+    /** The document the rider picked for the last owner import, so its Downloads copy can be removed. */
+    private Uri pickedOwnerUri;
+    /** True while the owner-setup document picked during this session can still be offered for deletion. */
+    public boolean hasPickedOwnerFile(){return downloadsDocument(pickedOwnerUri);}
+    /** Only a Downloads (or on-device Download folder) document is called a "Downloads copy". */
+    private static boolean downloadsDocument(Uri uri){
+        if(uri==null)return false;String authority=uri.getAuthority();
+        if("com.android.providers.downloads.documents".equals(authority))return true;
+        if(!"com.android.externalstorage.documents".equals(authority))return false;
+        try{String id=android.provider.DocumentsContract.getDocumentId(uri);int colon=id.indexOf(':');String path=colon<0?id:id.substring(colon+1);
+            return path.equals("Download")||path.startsWith("Download/");}catch(RuntimeException invalid){return false;}
+    }
+    /** Deletes the picked owner-setup document; false when nothing was picked or the provider cannot delete it. */
+    public boolean deletePickedOwnerFile(){
+        Uri uri=pickedOwnerUri;if(!downloadsDocument(uri))return false;
+        try{if(!android.provider.DocumentsContract.deleteDocument(getContentResolver(),uri))return false;pickedOwnerUri=null;return true;}
+        catch(Exception unsupported){return false;}
+    }
     private File pendingOwnerFile(){return new File(getFilesDir(),"pending-owner-import.json");}
     private void maybeApplyOwnerImport(){
         File pending=pendingOwnerFile();if(destroyed||!resumed||applyingOwnerImport||!pending.isFile())return;
         if(scooterService==null){if(hasBluetoothPermission())ensureService();return;}
-        if(scooterService.isRecording()||scooterService.ble.pending()!=null){if(!importWaitNotified){toast(scooterService.isRecording()?"Your owner setup is saved privately. Stop recording before importing it.":"Your owner setup is saved privately. Waiting for the current scooter change.");importWaitNotified=true;}return;}
+        if(scooterService.isRecording()||scooterService.ble.pending()!=null){if(!importWaitNotified){toast(scooterService.isRecording()?"Import waits for recording":"Import waits for scooter change");importWaitNotified=true;}return;}
         applyingOwnerImport=true;
         try(InputStream in=new FileInputStream(pending)){
             String text=readLimited(in);OwnerIdentityParser.Result parsed=OwnerIdentityParser.parse(text);JSONObject json=new JSONObject(text);String importId=json.getString("import_id");
-            if(!"navee-private-pending-owner-v1".equals(json.optString("format"))||!importId.matches("[0-9a-fA-F-]{36}"))throw new IllegalArgumentException("The pending setup is invalid. Import the original file again.");
+            if(!"navee-private-pending-owner-v1".equals(json.optString("format"))||!importId.matches("[0-9a-fA-F-]{36}"))throw new IllegalArgumentException("Import failed. Pick file again.");
             if(importId.equals(preferences.getString("owner_import_applied",""))){pending.delete();return;}
             String name=json.optString("name","Imported UT5 MAX"),mac=json.optString("scooter_address",""),serial=json.optString("scooter_serial","");
             // A picker return can trigger automatic reconnect. Cancel that session before
@@ -2038,9 +2282,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(!preferences.edit().putString("owner_import_applied",importId).commit())throw new java.io.IOException();pending.delete();importWaitNotified=false;
             // During first-run setup the flow connects at its own step, after Nearby devices.
             if(onboarding!=null){onboarding.onOwnerImported(true);return;}
-            selectedPage="home";scrollPositions.put("home",0);scrollPage="home";if(scroll!=null)scroll.scrollTo(0,0);rebuild();toast("Owner setup imported privately. Connecting locally…");scooterService.ble.connectLast();if(match.mac.isEmpty())showScanner(false);
-        }catch(IllegalArgumentException e){pending.delete();toast(e.getMessage());if(onboarding!=null)onboarding.onOwnerImported(false);}
-        catch(Exception e){if(!importWaitNotified){toast("The private owner setup could not be applied. It is saved for retry.");importWaitNotified=true;}}
+            selectedPage="home";scrollPositions.put("home",0);scrollPage="home";if(scroll!=null)scroll.scrollTo(0,0);rebuild();toast("Owner setup imported");scooterService.ble.connectLast();if(match.mac.isEmpty())showScanner(false);
+        }catch(IllegalArgumentException e){pending.delete();if(onboarding==null)toast(e.getMessage());else onboarding.onOwnerImported(false);}
+        catch(Exception e){if(!importWaitNotified){toast("Import paused. Will retry.");importWaitNotified=true;}}
         finally{applyingOwnerImport=false;}
     }
     private static String readLimited(InputStream in)throws java.io.IOException{ByteArrayOutputStream buffer=new ByteArrayOutputStream();byte[] chunk=new byte[8192];int count;while((count=in.read(chunk))!=-1){if(buffer.size()+count>1048576)throw new IllegalArgumentException("Setup files must be smaller than 1 MiB.");buffer.write(chunk,0,count);}return new String(buffer.toByteArray(),StandardCharsets.UTF_8);}

@@ -41,6 +41,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
             verifyReferenceLifecycle();
             verifyOrdinaryChargerChoice();
             main(()->{invoke(activity,"select",new Class<?>[]{String.class},"more");invoke(field(activity,"screen"),"selectSection",new Class<?>[]{String.class},"Developer");});settle();
+            verifyCaptureConfirmation();
             main(()->{
                 View selector=root().findViewWithTag("charge-charger-selector");require(selector!=null,"Charger selector missing");
                 require(!root().findViewWithTag("charge-capture-action").isEnabled(),"Disconnected capture action is enabled");
@@ -138,6 +139,41 @@ public final class ChargeCaptureValidation extends Instrumentation {
         }catch(Throwable error){result.putString("result","FAIL");result.putString("error",error.toString());error.printStackTrace();try{if(activity!=null)screenshot("failure");}catch(Throwable ignored){}}
         finally{result.putInt("assertions",checks);result.putBoolean("real_bluetooth_capture_tested",false);if(activity!=null)main(()->{activity.finish();getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});finish("PASS".equals(result.getString("result"))?0:1,result);}
     }
+    /** Opening and cancelling the new charger picker must not write setup preferences. */
+    private void verifyCaptureConfirmation(){
+        main(()->{
+            MoreScreen more=(MoreScreen)field(activity,"screen");
+            ChargeSessionStore.Charger previous=service.chargeCharger();
+            invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
+            android.app.AlertDialog dialog=lastDialog(more);
+            View selector=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-selector");
+            require(selector!=null,"Charge confirmation has no charger choice");
+            @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
+            choices.get(1).performClick();
+            require(service.chargeCharger()==previous,"Unconfirmed charger choice changed estimates");
+            require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Confirmation did not reflect its local choice");
+            findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
+            require(service.chargeCharger()==previous&&!service.isChargeRecording()&&files().length==0,"Cancelling charge confirmation changed capture state");
+
+            invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
+            dialog=lastDialog(more);
+            ScooterProfiles.Profile second=service.profiles.create("Consent target fixture","222222222222",0);
+            findText(dialog.getWindow().getDecorView(),"Start recording").performClick();
+            require(service.chargeCharger()==null&&!service.isChargeRecording()&&files().length==0,"Stale charge consent affected a different scooter");
+            service.profiles.select(profile);service.profiles.remove(second.id);
+            require(service.chargeCharger()==previous,"Stale consent changed original scooter estimates");
+        });
+        await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Consent fixture model reload did not finish");
+    }
+    private android.app.AlertDialog lastDialog(MoreScreen more){
+        @SuppressWarnings("unchecked") List<android.app.AlertDialog> dialogs=(List<android.app.AlertDialog>)field(more,"dialogs");
+        require(!dialogs.isEmpty(),"Charge confirmation missing");return dialogs.get(dialogs.size()-1);
+    }
+    private TextView findText(View view,String text){
+        if(view instanceof TextView&&text.contentEquals(((TextView)view).getText()))return(TextView)view;
+        if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView found=findText(group.getChildAt(i),text);if(found!=null)return found;}}
+        return null;
+    }
     /** Model defaults work before any user recording, manual charger selection or developer setup. */
     private void verifyDefaultChargeEstimate(){
         main(()->{
@@ -154,6 +190,18 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(estimate.referenceToFull&&estimate.referenceToLimit&&!estimate.learnedToFull&&estimate.learnedSessions==0,
                         "Fresh UT5 MAX needs recordings, manual selection or developer options for its default estimate");
                 require(estimate.remainingMinutesToFull>20&&estimate.remainingMinutesToFull<30,"UT5 MAX default missed its long 99% finish");
+                Object dashboard=field(activity,"screen");
+                TextView etaValue=new TextView(activity),sourceTag=new TextView(activity);
+                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,sourceTag,estimate);
+                require("stock reference".contentEquals(sourceTag.getText()),"Bundled estimate is mislabeled as personal learning or current rate");
+                Map<String,TelemetryHistory.Reading> uncapped=new LinkedHashMap<>(readings);uncapped.remove("charge_limit_percent");
+                ChargingEstimate.Result unknownLimit=service.chargingEstimate(uncapped);
+                String[] captions=(String[])invoke(dashboard,"chargeTimeLabels",new Class<?>[]{ChargingEstimate.Result.class,boolean.class},unknownLimit,true);
+                for(String caption:captions)require(caption.contains("if uncapped"),"A visible compact charge label omits its unknown-cutoff condition");
+                uncapped.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-.01,1000,true));
+                ChargingEstimate.Result lowCurrent=service.chargingEstimate(uncapped);
+                invoke(dashboard,"showChargeTime",new Class<?>[]{TextView.class,TextView.class,ChargingEstimate.Result.class},etaValue,sourceTag,lowCurrent);
+                require("—".contentEquals(etaValue.getText())&&"Low current".contentEquals(sourceTag.getText()),"Low-current UI invents a time or loses its reason");
                 readings.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-48d/54,1000,true));
                 ChargingEstimate.Result taper=service.chargingEstimate(readings);
                 require(taper.referenceToFull&&taper.remainingMinutesToFull>2&&taper.remainingMinutesToFull<9,

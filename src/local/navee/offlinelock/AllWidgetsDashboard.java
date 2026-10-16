@@ -36,8 +36,8 @@ final class AllWidgetsDashboard {
         capacity.windowMs = 90 * DAY;
         DashboardConfig.Widget charging = add(result, "charging");
         DashboardConfig.Widget note = add(result, "note");
-        note.title = "Make it yours";
-        note.note = "Every widget, ready to try. Edit cards to choose readings, resize them, or make your own layout.";
+        note.title = "Note";
+        note.note = "Check tyre pressure";
         // A dashboard shows one lock control; this bar demonstrates the compact style beside it.
         DashboardConfig.Widget lockbar = add(result, "lockbar");
         DashboardConfig.Widget overview = add(result, "overview");

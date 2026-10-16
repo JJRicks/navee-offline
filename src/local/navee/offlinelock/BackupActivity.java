@@ -67,23 +67,23 @@ public final class BackupActivity extends Activity {
             // Passwords and staged approval are deliberately never carried through recreation.
             // Let an already approved operation finish, then require a fresh process/models.
             handler.post(new Runnable(){public void run(){if(isDestroyed())return;
-                if(OPERATIONS.get()>0){busy=true;status.setText("Finishing the previous operation. Keep Volt open.");handler.postDelayed(this,200);}
-                else done("Close and reopen Volt to continue. If a restore had started, the saved recovery copy will be checked before the app opens.");}});
+                if(OPERATIONS.get()>0){busy=true;closeAction.setEnabled(false);status.setText("Finishing the previous operation. Keep Volt open.");handler.postDelayed(this,200);}
+                else done("Close and reopen Volt.");}});
             return;
         }
         if(getIntent().getBooleanExtra("recovery",false)){
             DataMaintenance.enter();heading("Recovering your app data");status=paragraph("Keep Volt open while the previous restore is rolled back.");
             progress=new ProgressBar(this);content.addView(progress);busy=true;
             submit(()->{try{AppDataBackup.recover(this);show(()->done("Your previous app data was recovered. Close and reopen Volt."));}
-                catch(Exception failure){show(()->done("Recovery could not finish. Your recovery copy is kept. Free some storage, then close and reopen Volt to try again. Do not clear app storage."));}});
+                catch(Exception failure){show(()->done("Recovery failed. Free space, reopen. Don't clear storage."));}});
             return;
         }
         if(!DataMaintenance.active()){
             DataMaintenance.enter();heading("Backup session ended");status=paragraph("");progress=new ProgressBar(this);content.addView(progress);
-            done("Close and reopen Volt to start a new backup session.");return;
+            done("Reopen Volt to continue.");return;
         }
         String preparationError=getIntent().getStringExtra("preparation_error");
-        if(preparationError!=null){heading("App data is paused");status=paragraph(preparationError);progress=new ProgressBar(this);content.addView(progress);done(preparationError+". Close and reopen Volt before trying again.");return;}
+        if(preparationError!=null){heading("App data is paused");status=paragraph("");progress=new ProgressBar(this);content.addView(progress);done(preparationError);return;}
         form();
     }
     private void heading(String title){TextView text=ui.text(title,28,true);content.addView(text);}
@@ -97,16 +97,38 @@ public final class BackupActivity extends Activity {
     }
     private void form(){
         heading(restore?"Restore all app data":"Export all app data");
-        paragraph(restore?"Choose your encrypted .voltbackup file and enter its password. Nothing is replaced until you approve the checked backup."
-                :"Includes all scooter profiles and private setup keys, saved readings, telemetry history, rides and routes, charge recordings, preferences, widgets and saved layouts.");
-        paragraph("Android permissions, Bluetooth pairing, Shizuku access, temporary captures and map caches are not included. Scooter firmware settings are not changed by restoring saved readings.");
-        password=passwordField(restore?"Backup password":"New backup password (at least 8 characters)");
-        if(!restore){repeat=passwordField("Repeat password");paragraph("Keep this password somewhere safe. It is not saved in Volt and cannot be recovered. Save the backup outside this app before clearing storage.");}
+        if(!restore)included();
+        paragraph("Permissions and pairing not included.");
+        password=passwordField(restore?"Backup password":"New password");
+        if(!restore){repeat=passwordField("Repeat password");paragraph("Password can't be recovered.");}
         status=paragraph("");status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         progress=new ProgressBar(this);progress.setVisibility(View.GONE);content.addView(progress);
         action=button(restore?"Choose backup":"Create encrypted backup",this::start);
         action.setTag(restore?"full-restore-choose":"full-backup-create");
         closeAction=button("Close Volt",this::requestClose);
+    }
+    /** What an export holds, as an icon checklist; the private setup keys are marked. */
+    private void included(){
+        LinearLayout list=new LinearLayout(this);list.setOrientation(LinearLayout.VERTICAL);
+        list.setBackground(ui.shape(ui.surface,18,0));list.setPadding(ui.dp(14),ui.dp(2),ui.dp(14),ui.dp(2));
+        String[][] items={{"scooter","Scooter profiles + setup keys"},{"stats","Readings & telemetry"},{"route","Rides, routes, charges"},{"tune","Preferences & layouts"}};
+        StringBuilder spoken=new StringBuilder("Includes: ");
+        for(int i=0;i<items.length;i++){
+            if(i>0)ui.divider(list);
+            LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(ui.dp(48));
+            row.addView(ui.iconSquare(items[i][0],ui.accent),new LinearLayout.LayoutParams(ui.dp(32),ui.dp(32)));
+            TextView name=ui.text(items[i][1],14.5f,false);
+            LinearLayout.LayoutParams np=new LinearLayout.LayoutParams(0,-2,1);np.leftMargin=ui.dp(12);row.addView(name,np);
+            spoken.append(i>0?"; ":"").append(items[i][1]);
+            if(i==0){TextView mark=ui.text("Private",11.5f,false);mark.setTypeface(ui.semibold());mark.setTextColor(ui.danger);
+                mark.setBackground(ui.shape(Ui.withAlpha(ui.danger,40),100,0));mark.setPadding(ui.dp(9),ui.dp(3),ui.dp(9),ui.dp(3));
+                LinearLayout.LayoutParams mp=new LinearLayout.LayoutParams(-2,-2);mp.leftMargin=ui.dp(8);row.addView(mark,mp);spoken.append(", private");}
+            list.addView(row);
+        }
+        list.setFocusable(true);list.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
+        for(int i=0;i<list.getChildCount();i++)list.getChildAt(i).setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        list.setContentDescription(spoken.toString());
+        LinearLayout.LayoutParams lp=new LinearLayout.LayoutParams(-1,-2);lp.topMargin=ui.dp(14);content.addView(list,lp);
     }
     private void start(){
         if(busy||waitingForPicker||terminal)return;
@@ -125,14 +147,15 @@ public final class BackupActivity extends Activity {
             try{file=File.createTempFile("volt-encrypted-",".voltbackup",getCacheDir());
                 try(OutputStream out=new FileOutputStream(file)){AppDataBackup.write(this,out,secret);}
                 File ready=file;runOnUiThread(()->{if(isDestroyed()||isFinishing()){ready.delete();return;}exported=ready;busy=false;progress.setVisibility(View.GONE);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);launchSave();});
-            }catch(Exception failure){if(file!=null)file.delete();show(()->retry("The backup could not be created. Check free storage and try again. Backups support up to 2 GiB of data."));}
+            }catch(Exception failure){if(file!=null)file.delete();show(()->retry("Backup failed. Check free space."));}
             finally{Arrays.fill(secret,'\0');}
         });
     }
     private void launchSave(){
         if(busy||waitingForPicker||terminal||isDestroyed()||isFinishing())return;
         if(exported==null||!exported.isFile()){retry("The encrypted backup is unavailable. Create it again.");return;}
-        status.setText("Encrypted backup ready. Choose where to save it.");
+        status.setText("");
+        if(closeAction!=null)closeAction.setEnabled(true);
         action.setText("Save encrypted backup");action.setEnabled(true);action.setOnClickListener(v->launchSave());
         Intent picker=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("application/octet-stream");
         picker.putExtra(Intent.EXTRA_TITLE,"volt-"+new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm",java.util.Locale.ROOT).format(new java.util.Date())+".voltbackup");
@@ -141,51 +164,53 @@ public final class BackupActivity extends Activity {
     @Override protected void onActivityResult(int request,int result,Intent data){
         super.onActivityResult(request,result,data);waitingForPicker=false;
         if(terminal||isDestroyed()||isFinishing()){erasePassword();return;}
-        if(result!=RESULT_OK||data==null||data.getData()==null){erasePassword();status.setText("No file selected. Your app data is unchanged.");return;}
+        if(result!=RESULT_OK||data==null||data.getData()==null){erasePassword();status.setText("No file selected");return;}
         Uri uri=data.getData();
         if(request==PICK_BACKUP){char[] secret=pendingPassword;pendingPassword=null;if(secret==null){retry("Enter the password and choose the backup again.");return;}
             setBusy("Checking the encrypted backup…");
             submit(()->{try(InputStream in=getContentResolver().openInputStream(uri)){
                 if(in==null)throw new java.io.IOException();AppDataBackup.PreparedRestore checked=AppDataBackup.stage(this,in,secret);
                 runOnUiThread(()->{if(isDestroyed()||isFinishing()){submit(()->discardQuietly(checked));return;}staged=checked;busy=false;progress.setVisibility(View.GONE);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);confirmRestore();});
-            }catch(Exception failure){show(()->retry("The password is incorrect, or this backup is damaged, unsupported or too large. No app data was changed."));}
+            }catch(Exception failure){show(()->retry("Wrong password or bad file."));}
             finally{Arrays.fill(secret,'\0');}});
         }else if(request==SAVE_BACKUP){setBusy("Saving the encrypted backup…");
             File ready=exported;
             submit(()->{try(InputStream in=new FileInputStream(ready);OutputStream out=getContentResolver().openOutputStream(uri,"wt")){
                 if(out==null)throw new java.io.IOException();byte[] buffer=new byte[65536];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);out.flush();
-            }catch(Exception failure){show(()->retry("Saving failed. The chosen file may be incomplete; tap Save encrypted backup to choose a destination again. Do not clear app storage yet."));return;}
-            ready.delete();show(()->{exported=null;done("Encrypted backup saved. Keep the file and its password before clearing app storage. Restore it from the welcome screen or Developer options.");});});
+            }catch(Exception failure){show(()->retry("Save failed. Don't clear storage yet."));return;}
+            ready.delete();show(()->{exported=null;done("Backup saved.");});});
         }
     }
     private void confirmRestore(){
         if(staged==null)return;
+        if(closeAction!=null)closeAction.setEnabled(true);
         String date=java.text.DateFormat.getDateTimeInstance().format(new java.util.Date(staged.createdAtMs));
         status.setText("Backup checked · "+date+"\n"+staged.profileCount+" scooter profiles · "+staged.fileCount+" data files");
         confirmation=new AlertDialog.Builder(this).setTitle("Replace all saved app data?")
-                .setMessage("Use the backup from "+date+"? This replaces all scooter profiles and setup keys, readings, rides, charge recordings, preferences and dashboards on this installation. It does not merge them.\n\nAndroid permissions must be granted again after clearing storage.")
+                .setMessage("Replaces all app data here. Nothing merges.")
                 .setNegativeButton("Cancel",(d,n)->discardStaged())
                 .setOnCancelListener(d->discardStaged())
                 .setPositiveButton("Replace app data",(d,n)->applyRestore()).show();
     }
     private void applyRestore(){
         if(staged==null||busy)return;AppDataBackup.PreparedRestore approved=staged;staged=null;setBusy("Restoring your app data…");
-        submit(()->{try{AppDataBackup.apply(this,approved);show(()->done("All saved app data restored. Close and reopen Volt. Android permissions and Shizuku access may need to be granted again."));}
-            catch(Exception failure){show(()->done("The restore could not finish. Close and reopen Volt to recover the previous data before trying again. Do not clear app storage."));}
+        submit(()->{try{AppDataBackup.apply(this,approved);show(()->done("Restored. Reopen Volt."));}
+            catch(Exception failure){show(()->done("Restore failed. Reopen Volt. Don't clear storage."));}
             finally{discardQuietly(approved);}});
     }
-    private void discardStaged(){AppDataBackup.PreparedRestore old=staged;staged=null;if(old!=null)submit(()->discardQuietly(old));retry("Restore cancelled. Your app data is unchanged.");}
+    private void discardStaged(){AppDataBackup.PreparedRestore old=staged;staged=null;if(old!=null)submit(()->discardQuietly(old));retry("Cancelled");}
     private static void submit(Runnable work){OPERATIONS.incrementAndGet();WORKER.execute(()->{try{work.run();}finally{OPERATIONS.decrementAndGet();}});}
     private void show(Runnable update){runOnUiThread(()->{if(!isDestroyed()&&!isFinishing())update.run();});}
     private void discardQuietly(AppDataBackup.PreparedRestore value){try{AppDataBackup.discard(this,value);}catch(java.io.IOException ignored){/* Startup recovery removes abandoned staging; never remove a transaction here. */}}
-    private void setBusy(String message){busy=true;status.setText(message);progress.setVisibility(View.VISIBLE);if(action!=null)action.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
-    private void retry(String message){busy=false;status.setText(message);progress.setVisibility(View.GONE);if(action!=null)action.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
-    private void done(String message){busy=false;terminal=true;status.setText(message);progress.setVisibility(View.GONE);if(action!=null)action.setVisibility(View.GONE);if(closeAction==null)closeAction=button("Close Volt",this::requestClose);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
+    private void setBusy(String message){busy=true;status.setText(message);progress.setVisibility(View.VISIBLE);if(action!=null)action.setEnabled(false);if(closeAction!=null)closeAction.setEnabled(false);getWindow().addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
+    private void retry(String message){busy=false;status.setText(message);progress.setVisibility(View.GONE);if(action!=null)action.setEnabled(true);if(closeAction!=null)closeAction.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
+    private void done(String message){busy=false;terminal=true;status.setText(message);progress.setVisibility(View.GONE);if(action!=null)action.setVisibility(View.GONE);if(closeAction==null)closeAction=button("Close Volt",this::requestClose);closeAction.setEnabled(true);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);}
     private void erasePassword(){if(pendingPassword!=null){Arrays.fill(pendingPassword,'\0');pendingPassword=null;}}
     private void requestClose(){
-        if(busy||OPERATIONS.get()>0){status.setText("Please wait until this operation finishes. Keep Volt open.");return;}
+        // Close Volt is disabled while busy; Back lands here too and simply waits.
+        if(busy||OPERATIONS.get()>0)return;
         if(terminal){closeProcess();return;}
-        new AlertDialog.Builder(this).setTitle("Close Volt?").setMessage("The scooter connection is paused. Reopen Volt when you’re ready to continue.")
+        new AlertDialog.Builder(this).setTitle("Close Volt?")
                 .setNegativeButton("Stay here",null).setPositiveButton("Close",(d,n)->closeProcess()).show();
     }
     private void closeProcess(){

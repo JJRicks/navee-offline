@@ -83,6 +83,7 @@ public final class DashboardValidation extends Instrumentation {
             verifyScooterStatsMigration();
             verifyClockFormats();
             seedSyntheticProfileAndHistory(); launch();
+            verifyLayoutPickerRouting();
             for (String destination : DESTINATIONS) { clickDescription(destination); assertNavigationFits(); assertNoScooterWork(); }
             clickDescription("Home"); awaitDashboard();
             main(() -> require(types().equals(new HashSet<>(Arrays.asList(DEFAULT_TYPES)))
@@ -174,7 +175,11 @@ public final class DashboardValidation extends Instrumentation {
                 Object tile = tileById(metricId); TextView amount = (TextView)field(tile, "big");
                 require(amount.getText().toString().contains("73"), "Big reading did not render the cached parameter");
                 require(amount.getCurrentTextColor() == activity.ui().muted, "Cached big reading is presented as live");
-                require(((TextView)field(tile, "footer")).getText().toString().contains("Last seen"), "Cached widget lacks its stale-reading label");
+                TextView footer = (TextView)field(tile, "footer");
+                require(footer.getVisibility() == View.VISIBLE
+                                ? String.valueOf(footer.getContentDescription()).startsWith("Last seen")
+                                : ((TextView)field(dashboard(), "status")).getText().toString().contains("last seen"),
+                        "Cached widget lacks its stale-reading age");
             });
             int columns = ((Number)field(grid(), "columns")).intValue();
             int selectedWidth = Math.max(Math.min(3, columns), ((Number)invoke(grid(), "minimumWidth",
@@ -263,7 +268,7 @@ public final class DashboardValidation extends Instrumentation {
             result.putBoolean("native_drag_gesture_tested", true); cleanup(); finish(0, result);
         } catch (Throwable error) {
             result.putString("result", "FAIL"); result.putString("error", error.getClass().getSimpleName() + ": " + error.getMessage());
-            result.putString("stack_trace", android.util.Log.getStackTraceString(error));
+            result.putString("stack", android.util.Log.getStackTraceString(error));
             result.putStringArrayList("completed_checks", new ArrayList<>(checks));
             try { if (admitted && activity != null && !activity.isDestroyed()) screenshot("failure"); } catch (Throwable ignored) { }
             result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
@@ -312,13 +317,27 @@ public final class DashboardValidation extends Instrumentation {
         require("My commute".equals(config().slot(0).name), "Cancel replaced a saved slot");
         check("Two slots start empty beside the restorable All widgets example; save enables restore and cancel leaves an existing slot intact");
 
+        // Restoring defaults acts at once and offers Undo instead of a confirmation.
         clickText(dialogRoot(), "Restore default widgets");
-        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        require(config().widgets.size() == DEFAULT_TYPES.length, "Restore default widgets did not apply");
+        // A fold/rotation rebuild must not strand the newly restored default without its Undo.
+        recreateActivity();
+        require(dashboard().isEditing(), "Activity recreation exited dashboard editing");
+        await(() -> field(dashboard(), "notice") instanceof android.widget.PopupWindow
+                        && ((android.widget.PopupWindow)field(dashboard(), "notice")).isShowing(),
+                4000, "Restoring defaults lost its Undo offer after activity recreation");
+        main(() -> {
+            android.widget.PopupWindow notice = (android.widget.PopupWindow)field(dashboard(), "notice");
+            require(notice != null && notice.isShowing(), "Defaults restored notice is missing");
+            View undo = notice.getContentView().findViewWithTag("dashboard-notice-action");
+            require(undo != null && undo.isClickable(), "Defaults restored notice lacks Undo");
+            undo.performClick();
+        });
+        waitForIdleSync();
         require(expected.equals(settings().getString("dashboard_v1_" + profileId, "")),
-                "Cancelled default reset changed the dashboard");
+                "Undo after restoring defaults did not bring the dashboard back");
         clickText(root(), "Layout");
         clickText(dialogRoot(), "Restore default widgets");
-        click(dialog().getButton(AlertDialog.BUTTON_POSITIVE));
         require(config().widgets.size() == DEFAULT_TYPES.length && config().slot(0).widgetCount == DEFAULT_TYPES.length + 1,
                 "Default reset overwrote a saved slot");
         clickText(root(), "Layout");
@@ -371,8 +390,7 @@ public final class DashboardValidation extends Instrumentation {
             });
         }
         screenshot("slots-large-light");
-        clickText(dialogRoot(), "Restore default widgets");
-        click(dialog().getButton(AlertDialog.BUTTON_NEGATIVE));
+        require(findText(dialogRoot(), "Restore default widgets") != null, "Default reset is unreachable");
         assertNoScooterWork();
         check("Light theme and 140% text keep slot actions and default reset reachable with full touch targets");
     }
@@ -641,15 +659,29 @@ public final class DashboardValidation extends Instrumentation {
                 Object tile = tile(type);
                 Object footer = field(tile, "footer");
                 require(!(footer instanceof TextView) || !((TextView)footer).isShown()
-                                || !((TextView)footer).getText().toString().contains("Last seen"),
+                                || !spoken((TextView)footer).contains("Last seen"),
                         type + " draws its own Last seen footer; the header carries the time");
                 require(!bodyText(tile).contains("Last seen"), type + " repeats Last seen inside its card");
             }
-            // The header's status line now carries the time; the old caption below it is gone.
-            Object stale = optionalField(dashboard(), "stale");
-            require(!(stale instanceof View) || !((View)stale).isShown()
-                            || !(stale instanceof TextView) || ((TextView)stale).length() == 0,
-                    "Home still shows a separate Last seen caption under the header");
+            // The header's status line now carries the time; no other caption repeats it.
+            assertSingleStatusLine();
+            Map<String, TelemetryHistory.Reading> cached = activity.service().displayReadings();
+            long older = System.currentTimeMillis() - 2 * 86400000L;
+            for (String type : new String[] {"overview", "tiles"}) {
+                Map<String, TelemetryHistory.Reading> changed = new LinkedHashMap<>(cached);
+                String key = type.equals("overview") ? "battery_percent" : "power_w";
+                TelemetryHistory.Reading reading = cached.get(key);
+                require(reading != null, "Missing age fixture " + key);
+                changed.put(key, new TelemetryHistory.Reading(reading.key, reading.label, reading.group,
+                        reading.value, reading.unit, reading.number, older, false));
+                Object card = tile(type);
+                invoke(card, "refresh", new Class<?>[] {Map.class}, changed);
+                TextView age = (TextView)field(card, "footer");
+                require(age.getVisibility() == View.VISIBLE && age.getText().toString().contains("d")
+                                && String.valueOf(age.getContentDescription()).startsWith("Last seen"),
+                        type + " hides readings older than the header's last-seen time");
+            }
+            invoke(dashboard(), "refresh");
         });
         assertNoScooterWork();
         check("Offline Lock bar offers Connect with an unknown state; overview, reading and setting tiles show cached values without their own Last seen footers");
@@ -855,6 +887,30 @@ public final class DashboardValidation extends Instrumentation {
         });
         assertNoScooterWork();
     }
+    /** Exercise the actual result dispatcher, not just DashboardConfig's JSON importer. */
+    private void verifyLayoutPickerRouting() throws Exception {
+        awaitDashboard();
+        File portable = new File(getTargetContext().getCacheDir(), "dashboard-result-fixture.json");
+        String previous = config().exportLayouts();
+        try (FileOutputStream out = new FileOutputStream(portable)) {
+            out.write(previous.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        int request = ((Number)field(activity, "IMPORT_LAYOUTS")).intValue();
+        require(request != local.navee.offlinelock.ShizukuSetupActivity.REQUEST,
+                "Dashboard picker and Shizuku share an activity result code");
+        main(() -> invoke(activity, "onActivityResult", new Class<?>[] {int.class, int.class, Intent.class},
+                request, android.app.Activity.RESULT_OK, new Intent().setData(android.net.Uri.fromFile(portable))));
+        await(() -> field(activity, "controlDialog") instanceof AlertDialog
+                        && ((AlertDialog)field(activity, "controlDialog")).isShowing(),
+                4000, "Dashboard file result never reached its import confirmation");
+        AlertDialog preview = (AlertDialog)field(activity, "controlDialog");
+        require("Import layouts".contentEquals(preview.getButton(AlertDialog.BUTTON_POSITIVE).getText()),
+                "Layout file opened the wrong result flow");
+        main(() -> preview.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());
+        require(previous.equals(config().exportLayouts()), "Cancelled picker confirmation changed dashboards");
+        portable.delete();
+        check("Layout picker reaches profile-bound confirmation independently of Shizuku; cancelling preserves layouts");
+    }
     private void awaitDashboard() { await(() -> field(activity, "screen") instanceof DashboardScreen && grid().getWidth() > 0,
             5000, "Dashboard did not attach"); waitForIdleSync(); }
     private void recreateActivity() {
@@ -939,8 +995,9 @@ public final class DashboardValidation extends Instrumentation {
         }); assertNoScooterWork();
     }
     private void assertDisabledActions(View view) {
-        if ("Rename scooter".contentEquals(view.getContentDescription() == null ? "" : view.getContentDescription())) {
-            require(view.isEnabled(), "Edit-only scooter rename is disabled");
+        String spoken = view.getContentDescription() == null ? "" : view.getContentDescription().toString();
+        if ("Rename scooter".equals(spoken) || spoken.endsWith(". Edit note")) {
+            require(view.isEnabled(), "Edit-only action is disabled: " + spoken);
         } else if (view.isClickable()) require(!view.isEnabled(), "Widget action remains enabled while editing: " + view.getContentDescription());
         if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) assertDisabledActions(((ViewGroup)view).getChildAt(i));
     }
@@ -1389,9 +1446,9 @@ public final class DashboardValidation extends Instrumentation {
     }
     private void setPosition(String id, int column, int row) {
         View grip = findDescription((View)tileById(id), "Move " + widgetById(id).title);
-        require(grip != null, "Move grip is missing"); click(grip); List<EditText> inputs = all(dialogRoot(), EditText.class);
-        require(inputs.size() == 2, "Move options need a column and row");
-        main(() -> { inputs.get(0).setText(Integer.toString(column)); inputs.get(1).setText(Integer.toString(row)); });
+        require(grip != null, "Move grip is missing"); click(grip); List<NumberPicker> pickers = all(dialogRoot(), NumberPicker.class);
+        require(pickers.size() == 2, "Move options need a column and row");
+        main(() -> { pickers.get(0).setValue(column); pickers.get(1).setValue(row); });
         click(dialog().getButton(AlertDialog.BUTTON_POSITIVE)); waitForIdleSync();
     }
     private void verifyEditAffordances(String id) {
@@ -1454,7 +1511,8 @@ public final class DashboardValidation extends Instrumentation {
                 "Tapping the resize handle must open size, not the options menu");
         closeDialog();
         click(grip);
-        require(all(dialogRoot(), EditText.class).size() == 2 && findText(dialogRoot(), "Color") == null,
+        require(all(dialogRoot(), NumberPicker.class).size() == 2 && findText(dialogRoot(), "Column") != null
+                && findText(dialogRoot(), "Color") == null,
                 "Tapping the move grip must open accessible placement, not widget options");
         closeDialog();
     }
@@ -1770,7 +1828,7 @@ public final class DashboardValidation extends Instrumentation {
             for (Object tile : new Object[] {chargeTile, batteryTile}) {
                 invoke(tile, "refreshCharging", new Class<?>[] {Map.class}, cached);
                 require("—".contentEquals(((TextView)field(tile, "chargingWatts")).getText())
-                        && "—".contentEquals(((TextView)field(tile, "chargingEta")).getText()),
+                        && !((TextView)field(tile, "chargingEta")).getText().toString().startsWith("≈"),
                         "Stale cached charging values produced a live power or time estimate");
                 require(((TextView)field(tile, "chargingWatts")).getCurrentTextColor() == activity.ui().muted,
                         "Unavailable charging power is styled as live");
@@ -1791,26 +1849,24 @@ public final class DashboardValidation extends Instrumentation {
                     invoke(tile, "refreshCharging", new Class<?>[] {Map.class}, preview);
                     require("104 W".contentEquals(((TextView)field(tile, "chargingWatts")).getText()),
                             "Charge widget did not format battery-side V × |I|");
-                    require(captionMeaning((TextView)field(tile, "chargingEtaLabel")).contains("80%"),
+                    require(spoken((TextView)field(tile, "chargingEtaLabel")).contains("80%"),
                             "ETA label ignored the configured charge cutoff");
                     require("≈ 2h 11m".contentEquals(((TextView)field(tile, "chargingEta")).getText()),
                             "ETA did not use the remaining Ah to the cutoff");
                 }
                 assertBatteryMode(batteryTile, true, "Fresh active charging state");
-                require("2.00 A".contentEquals(((TextView)field(chargeTile, "chargingAmps")).getText()),
-                        "Detailed charging card lost its measured current");
                 preview.remove("charge_limit_percent");
                 invoke(chargeTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
-                require("Time to full".equals(captionMeaning((TextView)field(chargeTile, "chargingEtaLabel")))
+                require("Time to 100% if uncapped".equals(spoken((TextView)field(chargeTile, "chargingEtaLabel")))
                         && "≈ 3h 38m".contentEquals(((TextView)field(chargeTile, "chargingEta")).getText()),
                         "Unknown cutoff did not keep the hypothetical full estimate separate");
-                require(((TextView)field(chargeTile, "chargingNote")).getText().toString().contains("cutoff unknown"),
+                require(String.valueOf(((TextView)field(chargeTile, "chargingEta")).getContentDescription()).contains("cutoff unknown"),
                         "Unknown charge cutoff was not explained");
                 TelemetryHistory.Reading current = preview.get("current_a");
                 preview.put("current_a", current.stale());
                 invoke(chargeTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
                 require("—".contentEquals(((TextView)field(chargeTile, "chargingWatts")).getText())
-                        && "—".contentEquals(((TextView)field(chargeTile, "chargingEta")).getText()),
+                        && !((TextView)field(chargeTile, "chargingEta")).getText().toString().startsWith("≈"),
                         "One stale electrical input did not suppress the charging estimate");
                 syntheticReading(preview, "charging_state", "Not charging", "", 0d, wall);
                 invoke(batteryTile, "refreshCharging", new Class<?>[] {Map.class}, preview);
@@ -1826,11 +1882,6 @@ public final class DashboardValidation extends Instrumentation {
                 invoke(batteryTile, "refreshCharging", new Class<?>[] {Map.class}, cached);
             }
         });
-    }
-    private String captionMeaning(TextView caption) {
-        // Responsive captions may render their short label or icon on the next layout.
-        CharSequence description = caption.getContentDescription();
-        return (description == null ? caption.getText() : description).toString();
     }
     private void assertBatteryMode(Object batteryTile, boolean charging, String context) {
         View normal = (View)field(batteryTile, "batteryData"), details = (View)field(batteryTile, "chargingData");
@@ -1852,8 +1903,8 @@ public final class DashboardValidation extends Instrumentation {
                 for (Object tile : tiles()) {
                     invoke(tile, "refresh", new Class<?>[] {Map.class}, preview);
                     TextView footer = (TextView)field(tile, "footer");
-                    require(!footer.isShown() || !footer.getText().toString().toLowerCase(Locale.ROOT).contains("live"),
-                            "A current widget repeats its live status: " + footer.getText());
+                    require(!footer.isShown() || !spoken(footer).toLowerCase(Locale.ROOT).contains("live"),
+                            "A current widget repeats its live status: " + spoken(footer));
                 }
             } finally {
                 for (Object tile : tiles()) invoke(tile, "refresh", new Class<?>[] {Map.class}, cached);
@@ -1895,7 +1946,7 @@ public final class DashboardValidation extends Instrumentation {
     private void scrollHomeTop() { main(() -> ((ScrollView)field(activity, "scroll")).scrollTo(0, 0)); waitForIdleSync(); }
     private void assertNavigationFits() {
         main(() -> { for (String name : DESTINATIONS) {
-            View item = findDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
+            View item = findActionableDescription(root(), name); require(item != null && item.isShown(), "Missing navigation " + name);
             Rect visible = new Rect(); require(item.getGlobalVisibleRect(visible) && visible.width() >= item.getWidth() - 2
                     && visible.height() >= item.getHeight() - 2, "Navigation target is clipped: " + name);
             TextView caption = first(item, TextView.class);
@@ -1906,14 +1957,14 @@ public final class DashboardValidation extends Instrumentation {
                 require(item.getWidth() >= minimum && item.getHeight() >= minimum, "Navigation target smaller than 48dp: " + name); }
         }});
     }
-    private void clickDescription(String label) { View target = findDescription(root(), label); require(target != null, "Missing navigation " + label); click(target); }
+    private void clickDescription(String label) { View target = findActionableDescription(root(), label); require(target != null, "Missing navigation " + label); click(target); }
     private void clickText(View tree, String label) {
         TextView target = findActionableText(tree, tree, label);
         require(target != null, "Missing enabled UI action " + label); click(target);
     }
     private void click(View target) {
         View actionable = target; while (!actionable.isClickable() && actionable.getParent() instanceof View) actionable = (View)actionable.getParent();
-        final View button = actionable; require(button.isClickable() && button.isEnabled(), "UI action is disabled"); reveal(button);
+        final View button = actionable; require(button.isClickable() && button.isEnabled(), "UI action is disabled: " + String.valueOf(button.getContentDescription()) + (button instanceof TextView ? " / " + ((TextView)button).getText() : "") + " (" + button.getClass().getSimpleName() + ")"); reveal(button);
         main(() -> require(button.performClick(), "UI action did not dispatch")); waitForIdleSync();
     }
     private void reveal(View view) { main(() -> view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true)); waitForIdleSync(); }
@@ -1963,10 +2014,35 @@ public final class DashboardValidation extends Instrumentation {
         try { Method method = value.getClass().getDeclaredMethod(name, signature); method.setAccessible(true); return method.invoke(value, args); }
         catch (ReflectiveOperationException error) { throw new IllegalStateException("Cannot invoke " + name + ": " + error.getCause(), error); }
     }
+    /** Match the action itself, not a decorative image with the same accessible label. */
+    private static View findActionableDescription(View root, String description) {
+        if (root.isShown() && root.isClickable() && root.isEnabled()
+                && description.contentEquals(root.getContentDescription() == null ? "" : root.getContentDescription())) return root;
+        if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) {
+            View found = findActionableDescription(((ViewGroup)root).getChildAt(i), description);
+            if (found != null) return found;
+        }
+        return null;
+    }
     private static View findDescription(View root, String description) {
         if (root.isShown() && description.contentEquals(root.getContentDescription() == null ? "" : root.getContentDescription())) return root;
         if (root instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)root).getChildCount(); i++) { View found = findDescription(((ViewGroup)root).getChildAt(i), description); if (found != null) return found; }
         return null;
+    }
+    /** The header's text column holds one status line (hidden while editing) and no second caption. */
+    private void assertSingleStatusLine() {
+        TextView status = (TextView)field(dashboard(), "status");
+        ViewGroup words = (ViewGroup)status.getParent();
+        int lines = 0;
+        for (int i = 0; i < words.getChildCount(); i++)
+            if (words.getChildAt(i) instanceof TextView && words.getChildAt(i).getVisibility() != View.GONE) lines++;
+        require(lines == (status.getVisibility() == View.GONE ? 0 : 1),
+                "Home header must have exactly one status line, found " + lines);
+    }
+    /** What TalkBack reads: the description when set (fitted captions and age chips), else the text. */
+    private static String spoken(TextView view) {
+        CharSequence description = view.getContentDescription();
+        return String.valueOf(description != null && description.length() > 0 ? description : view.getText());
     }
     private static TextView findText(View root, String text) {
         if (root.isShown() && root instanceof TextView && text.contentEquals(((TextView)root).getText())) return (TextView)root;

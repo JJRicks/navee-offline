@@ -2,6 +2,11 @@
 
 ## Unreleased
 
+- Improve UT5 MAX stock-charger time estimates by default, combining live charging current with an experimental recorded finishing curve. Personal recordings can refine estimates; other models and incompatible charging power keep the live-rate fallback.
+- Simplify Home, Scooter, Rides, preferences and setup screens with concise labels, status chips, icons and tooltips. Keep stale-data ages, charging assumptions, capture consent and privacy choices visible where they matter.
+- Keep charger choices unchanged when cancelling charge capture, restore Close after cancelling a backup export, and route dashboard layout imports to their own confirmation.
+- Keep navigation labels and expanded ride charts usable with larger text sizes.
+- Base low-speed ride-chart shading on wheel speed, and limit hatch drawing to the visible chart when zoomed.
 - Keep lock-slider thumbs inside short or tall cards, preserve separate edit/resize touch targets in one-row widgets, and wrap reading tiles when their numbers need more space.
 - Keep widget content stationary when entering edit mode and use the recorder’s icon-only action when a compact card cannot fit its label.
 

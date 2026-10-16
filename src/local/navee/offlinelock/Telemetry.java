@@ -39,6 +39,7 @@ public final class Telemetry {
         }
     }
 
+    private static final String RAW_SUFFIX = " (raw)";
     private static final int[] READ_COMMANDS = {
         0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x79, 0x7b, 0x90, 0x91, 0x92
     };
@@ -227,6 +228,50 @@ public final class Telemetry {
         String value = code == Math.rint(code) ? String.format(Locale.US, "%.0f", code)
                 : Double.toString(code);
         return value + " (raw)";
+    }
+
+    /**
+     * Whether Live Stats marks a reading RAW (once, as a chip): its value carries the
+     * " (raw)" suffix or its full name says the field is undecoded.
+     */
+    public static boolean rawReading(String label, String value) {
+        return (value != null && value.endsWith(RAW_SUFFIX)) || (label != null && label.contains("(raw"));
+    }
+
+    /**
+     * Short Live Stats wording for a stored value. Stored values, history and exports keep
+     * their full text (codes, "(raw)", "(estimate)"), so Diagnostics still has them.
+     */
+    public static String displayValue(String key, String value, Double number) {
+        if (value == null || key == null) return value;
+        switch (key) {
+            case "remaining_range_km": value = value.replace(" km (estimate)", " km"); break;
+            case "ride_read_raw":
+                if (value.startsWith("Acknowledged;")) return "Acknowledged";
+                break;
+            case "ride_report_format":
+                if (value.startsWith("v1:")) return "v1";
+                if (value.startsWith("v0:")) return "v0";
+                break;
+            case "stored_trips":
+                if (value.startsWith("Unknown history format ")) {
+                    String rest = value.substring("Unknown history format ".length());
+                    int records = rest.indexOf(" records");
+                    return records < 0 ? value : "Unknown format " + rest.substring(0, records)
+                            .replace("; ", " · ") + " records";
+                }
+                if (number != null && number >= 1 && value.startsWith("Trip ")) {
+                    long trips = Math.round(number);
+                    return trips + (trips == 1 ? " trip" : " trips");
+                }
+                break;
+            case "display_units": case "warning_code": case "battery_status": case "lock_status":
+                // "Imperial (0)", "None (0)", "Locked (1)", "Abnormal; code 3": the word only.
+                if (!value.endsWith(RAW_SUFFIX)) value = value.replaceAll(" \\([0-9]+\\)$", "").replaceAll("; code [0-9]+$", "");
+                break;
+            default: break;
+        }
+        return value.endsWith(RAW_SUFFIX) ? value.substring(0, value.length() - RAW_SUFFIX.length()) : value;
     }
 
     /** Defensive copies of the latest accepted read/report payloads, INCLUDING response status. */

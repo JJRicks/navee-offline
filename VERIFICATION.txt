@@ -1,3 +1,27 @@
+HOME, CHARGING AND CONCISE UI INTEGRATION (PRs #37–39)
+October 15, 2026
+
+- Each PR received independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra review;
+  subsequent functional fixes received cross-review. Approved design-reference
+  changes were checked across Home, Scooter, Rides, More and owner setup.
+- All 29 deterministic core suites pass (64,080 assertions/checks). App and
+  separate native runner builds pass signature/alignment checks.
+- Native 344 dp checks pass for charging, app organization, backup cancellation,
+  ride analysis, battery widgets, live stats, the complete dashboard journey and
+  saved-layout restore/Undo across activity recreation.
+- Native 725 dp/140% system-font checks pass for charging, ride analysis and
+  app organization. The latter also compounds 140% app text. Corrected rail
+  caption clipping and expanded-chart height reservation; both ride variants
+  pass 181 checks, including stable height while scrubbing.
+- Native regressions also cover dashboard-import result routing, cancelled
+  charge-dialog preferences, older-than-header cached values, uncapped ETA labels,
+  bounded zoomed hatch drawing, and unchanged widget content geometry in Edit.
+- Emulator profiles/readings are synthetic; Bluetooth is disabled. No physical
+  phone installation, scooter command, release or website deployment is part of
+  this closeout. Real-device layout and charging-model accuracy remain owner tests.
+
+See docs/validation/ui-closeout.md and docs/validation/charge-finishing-estimates.md.
+
 HOME REDESIGN FOLLOW-UP GEOMETRY (PR #37)
 October 15, 2026
 
