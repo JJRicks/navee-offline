@@ -33,6 +33,10 @@ public final class RideBackupActivity extends Activity {
     private final android.os.Handler handler=new android.os.Handler(android.os.Looper.getMainLooper());
     private android.window.OnBackInvokedCallback backCallback;
     @Override public void onCreate(Bundle state) {
+        Intent active=DataMaintenance.preparedTransfer();
+        if(DataMaintenance.active()&&(active==null||!getComponentName().equals(active.getComponent()))){
+            super.onCreate(state);startActivity((active==null?new Intent(this,MainActivity.class):active).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));finish();return;
+        }
         android.content.SharedPreferences settings=getSharedPreferences("app_settings",MODE_PRIVATE);
         String theme=settings.getString("theme","dark");
         boolean dark=theme.equals("dark")||(theme.equals("system")&&(getResources().getConfiguration().uiMode&android.content.res.Configuration.UI_MODE_NIGHT_MASK)==android.content.res.Configuration.UI_MODE_NIGHT_YES);
@@ -48,7 +52,7 @@ public final class RideBackupActivity extends Activity {
         boolean previous=sessionStarted;sessionStarted=true;
         heading(restore?"Restore rides":"Back up rides");
         if(previous||state!=null||!DataMaintenance.active()) {
-            DataMaintenance.enter();status=paragraph("Finishing the previous backup session…");progress=new ProgressBar(this);content.addView(progress);close=button("Close Volt",this::requestClose);terminal=true;
+            DataMaintenance.enter();DataMaintenance.preparedTransfer(new Intent(this,RideBackupActivity.class));status=paragraph("Finishing the previous backup session…");progress=new ProgressBar(this);content.addView(progress);close=button("Close Volt",this::requestClose);terminal=true;
             handler.post(new Runnable(){public void run(){if(isDestroyed())return;if(OPERATIONS.get()>0){busy=true;close.setEnabled(false);handler.postDelayed(this,200);}else done("Close and reopen Volt to continue.");}});return;
         }
         paragraph(restore?"Add saved rides without replacing recordings already on this phone.":"Every saved ride, with its full scooter readings, route, phone sensors, name and notes.");
@@ -82,13 +86,21 @@ public final class RideBackupActivity extends Activity {
         super.onActivityResult(request,result,data);waiting=false;
         if(terminal||isDestroyed()||isFinishing())return;
         if(result!=RESULT_OK||data==null||data.getData()==null){retry("No file selected");return;}Uri uri=data.getData();
-        if(request==SAVE){File ready=exported;setBusy("Saving your ride backup…");submit(()->{try(InputStream in=new FileInputStream(ready);OutputStream out=getContentResolver().openOutputStream(uri,"wt")){
-            if(out==null)throw new IOException("Cannot open the selected destination.");copy(in,out);out.flush();ready.delete();show(()->{exported=null;done("Ride backup saved.");});
+        if(request==SAVE){File ready=exported;setBusy("Saving your ride backup…");submit(()->{try{
+            saveExport(ready,getContentResolver().openOutputStream(uri,"wt"));
         }catch(Exception failure){show(()->retry("The backup could not be saved. Try another destination."));}});}
         else if(request==PICK){setBusy("Checking your ride backup…");submit(()->{try(InputStream in=getContentResolver().openInputStream(uri)){
             if(in==null)throw new IOException("The selected file could not be opened.");RideArchive.Prepared checked=RideArchive.stage(RideBackup.storage(this),in);
             runOnUiThread(()->{if(isDestroyed()||isFinishing()){submit(()->discard(checked));return;}prepared=checked;retry(checked.rides.size()+(checked.rides.size()==1?" saved ride found":" saved rides found"));selectScooters();});
         }catch(Exception failure){show(()->retry(message(failure)));}});}
+    }
+    private void saveExport(File ready,OutputStream destination){
+        try(OutputStream out=destination;InputStream in=new FileInputStream(ready)){
+            if(out==null)throw new IOException("Cannot open the selected destination.");copy(in,out);out.flush();
+        }catch(Exception failure){show(()->retry("The backup could not be saved. Try another destination."));return;}
+        // Document providers can finish uploading or report failure during close(). Keep the
+        // only prepared copy and the retry action until every resource closes successfully.
+        ready.delete();show(()->{exported=null;done("Ride backup saved.");});
     }
     private void selectScooters(){
         action.setVisibility(View.GONE);mappings.clear();boolean unknown=false;

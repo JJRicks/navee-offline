@@ -54,6 +54,14 @@ try:
         passed = 'status=PASS' in output and 'status=FAIL' not in output
         results.append(dict(case=case, passed=passed)); print(f'{case}: {"PASS" if passed else "FAIL"}', flush=True)
         if not passed: print(output, flush=True)
+        if passed:
+            reopened = run('shell', 'am', 'instrument', '-w', '-e', 'mode', 'check-reopened-range',
+                           'local.navee.offlinelock.tests/local.navee.offlinelock.tests.' + runner)
+            (destination / 'reopened-range.txt').write_text(reopened)
+            reopened_ok = 'status=PASS' in reopened and 'status=FAIL' not in reopened
+            results.append(dict(case=case + ':cold-reopen', passed=reopened_ok))
+            print(f'{case}:cold-reopen: {"PASS" if reopened_ok else "FAIL"}', flush=True)
+            if not reopened_ok: print(reopened, flush=True)
 finally:
     run('shell', 'wm', 'size', 'reset', check=False); run('shell', 'wm', 'density', 'reset', check=False)
     run('shell', 'settings', 'put', 'system', 'font_scale', '1.0', check=False)

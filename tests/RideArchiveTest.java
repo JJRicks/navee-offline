@@ -60,6 +60,27 @@ public final class RideArchiveTest {
             RideStore.Summary mappedRide=new RideStore(new File(mapped.files(),"rides")).get(id);check(mappedRide.scooterId.equals("new-owner")&&mappedRide.sampleCount==1250,"mapping preserves samples");
             RideArchive.Prepared mappedAgain=stage(mapped,bytes);RideArchive.Plan mappedDup=RideArchive.plan(mapped,mappedAgain,mapping("source","new-owner"));check(mappedDup.identical==1&&mappedDup.added==0,"same archive remap repeated without duplicate training rides");RideArchive.apply(mapped,mappedDup);
             RideArchive.Prepared differentlyMapped=stage(mapped,bytes);RideArchive.Plan mappedConflict=RideArchive.plan(mapped,differentlyMapped,mapping("source","other"));check(mappedConflict.conflicts==1&&mappedConflict.added==0,"different requested association cannot duplicate UUID");RideArchive.discard(mapped,differentlyMapped);
+            // Checksums authenticate bytes, not their meaning. Earlier START-like records may
+            // be ignored by the journal reader, so reassociation must find the same valid START.
+            LinkedHashMap<String,byte[]> remapFiles=unzip(bytes);remapFiles.remove("manifest.bin");
+            String originalJournal=new String(remapFiles.get("rides/"+id+".csv"),"UTF-8");
+            String ignoredStarts=startRecord("2","1000000","0","unsupported-scooter")
+                    +startRecord("1","not-a-clock","0","invalid-wall-scooter")
+                    +startRecord("1","1000000","9223372036854775808","invalid-mono-scooter");
+            int headerEnd=originalJournal.indexOf('\n')+1;
+            remapFiles.put("rides/"+id+".csv",(originalJournal.substring(0,headerEnd)+ignoredStarts+originalJournal.substring(headerEnd)).getBytes("UTF-8"));
+            byte[] ignoredStartArchive=crafted(remapFiles,profile("source"));
+            Storage remapIgnored=new Storage(new File(root,"mapped-ignored-starts"));RideArchive.Prepared ignoredPrepared=stage(remapIgnored,ignoredStartArchive);
+            check(ignoredPrepared.rides.get(0).scooterId.equals("source"),"reader skips unsupported schema and malformed-clock START records");
+            RideArchive.Plan ignoredPlan=RideArchive.plan(remapIgnored,ignoredPrepared,mapping("source","new-owner"));
+            File stagedMapped=new File(ignoredPrepared.directory,"rides/"+id+".csv");
+            check(RideStore.inspectJournal(stagedMapped).scooterId.equals("new-owner"),"staged reassociation changes the reader-accepted START before installation");
+            check(new String(Files.readAllBytes(stagedMapped.toPath()),"UTF-8").contains(ignoredStarts),"ignored START records remain unchanged");
+            RideArchive.apply(remapIgnored,ignoredPlan);
+            RideStore.Summary ignoredMapped=RideStore.inspectJournal(new File(remapIgnored.files(),"rides/"+id+".csv"));
+            check(ignoredMapped.scooterId.equals("new-owner")&&ignoredMapped.sampleCount==1250&&ignoredMapped.label.equals("Renamed ride 🛴")&&ignoredMapped.notes.contains("second line"),"accepted START remap preserves full ride and metadata");
+            RideArchive.Plan ignoredRepeat=RideArchive.plan(remapIgnored,stage(remapIgnored,ignoredStartArchive),mapping("source","new-owner"));
+            check(ignoredRepeat.identical==1&&ignoredRepeat.added==0&&ignoredRepeat.conflicts==0,"ignored START remap is idempotent on repeated restore");RideArchive.apply(remapIgnored,ignoredRepeat);
             Storage kept=new Storage(new File(root,"kept"));String existing=ride(kept,"source",false);RideArchive.apply(kept,RideArchive.plan(kept,stage(kept,bytes),mapping("source","source")));check(new RideStore(new File(kept.files(),"rides")).list().size()==2&&new File(kept.files(),"rides/"+existing+".csv").exists(),"unrelated rides preserved by merge");
             for(int boundary=1;boundary<=3;boundary++) {
                 Storage broken=new Storage(new File(root,"broken"+boundary));String existingId=ride(broken,"source",false);broken.failCopy=boundary;
@@ -104,6 +125,10 @@ public final class RideArchiveTest {
             check(!RideArchive.needsRecovery(cancel),"invalid archives leave no private staging");
             System.out.println("RideArchiveTest: "+checks+" checks passed (full journals, idempotent merge, mapping, corruption, rollback and recovery)");
         } finally {AppDataArchive.deleteTree(root);}
+    }
+    private static String startRecord(String schema,String wall,String mono,String profile) {
+        String[] fields=new String[15];Arrays.fill(fields,"");fields[0]=schema;fields[1]="START";fields[3]=wall;fields[4]=mono;fields[6]=profile;
+        return String.join(",",fields)+"\n";
     }
     private static byte[] crafted(LinkedHashMap<String,byte[]> files,Map<String,String> profiles)throws Exception {
         ByteArrayOutputStream raw=new ByteArrayOutputStream();DataOutputStream out=new DataOutputStream(raw);

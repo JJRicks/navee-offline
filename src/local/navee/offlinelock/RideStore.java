@@ -603,7 +603,7 @@ public final class RideStore {
                 String event = r.get(1);
                 try {
                     long wall = Long.parseLong(r.get(3)), mono = Long.parseLong(r.get(4));
-                    if ("START".equals(event) && a == null) {
+                    if (a == null && acceptedStartRecord(r)) {
                         a = new Accumulator(id, r.get(6), r.get(8), wall, mono);
                         a.keepAllPoints = keepAll;
                         a.direction = direction(r.get(13));
@@ -642,6 +642,15 @@ public final class RideStore {
         return new Summary(parsed);
     }
 
+    /** The reader ignores unsupported schemas and START records with invalid clocks. */
+    private static boolean acceptedStartRecord(List<String> record) {
+        if (record.size() != 15 || !"1".equals(record.get(0)) || !"START".equals(record.get(1))) return false;
+        try {
+            Long.parseLong(record.get(3)); Long.parseLong(record.get(4));
+            return true;
+        } catch (NumberFormatException ignored) { return false; }
+    }
+
     /** Only used on private staging after the rider explicitly chooses a destination scooter. */
     static void reassignJournal(File source, String profile) throws IOException {
         if (profile == null || profile.isEmpty() || profile.length() > 160)
@@ -653,14 +662,17 @@ public final class RideStore {
                 Writer out = new BufferedWriter(new OutputStreamWriter(bytes, "UTF-8"))) {
             List<String> record;
             while ((record = csvRecord(in)) != null) {
-                if (!mapped && record.size() == 15 && "START".equals(record.get(1))) {
+                if (!mapped && acceptedStartRecord(record)) {
                     record.set(6, profile); mapped = true;
                 }
                 out.write(csvRow(record));
             }
             out.flush(); bytes.getFD().sync();
         } catch (IOException failure) { temporary.delete(); throw failure; }
-        if (!mapped || !temporary.renameTo(source)) { temporary.delete(); throw new IOException("Could not associate the restored ride."); }
+        try {
+            if (!mapped || !profile.equals(inspectJournal(temporary).scooterId) || !temporary.renameTo(source))
+                throw new IOException("Could not associate the restored ride.");
+        } catch (IOException failure) { temporary.delete(); throw failure; }
     }
 
     private static CurrentDirection direction(String value) {

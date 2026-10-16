@@ -169,8 +169,15 @@ public final class MainActivity extends Activity implements ScreenHost {
     @Override public void onCreate(Bundle saved){
         if (DataMaintenance.active()) {
             startupRedirect = true; super.onCreate(saved);
-            startActivity(new Intent(this, BackupActivity.class).addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
-            finish(); return;
+            TextView preparing = new TextView(this); preparing.setText("Preparing your app data…");
+            preparing.setGravity(Gravity.CENTER); setContentView(preparing);
+            handler.post(new Runnable(){public void run(){
+                if(isDestroyed()||isFinishing())return;
+                Intent transfer=DataMaintenance.preparedTransfer();
+                if(transfer==null){handler.postDelayed(this,100);return;}
+                startActivity(transfer.addFlags(Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));finish();
+            }});
+            return;
         }
         if (!DataMaintenance.readyForStartup(this)) {
             startupRedirect = true; super.onCreate(saved);
@@ -2203,6 +2210,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 transfer.putStringArrayListExtra("profile_ids",ids).putStringArrayListExtra("profile_names",names);
             }
             if(error!=null)transfer.putExtra("preparation_error",error);
+            DataMaintenance.preparedTransfer(transfer);
             startActivity(transfer);stopService(new Intent(this,ScooterService.class));finish();
         };
         if(scooterService==null){DataMaintenance.enter();prepared.accept(null);}
