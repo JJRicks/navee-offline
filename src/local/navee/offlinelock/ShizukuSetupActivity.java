@@ -23,7 +23,7 @@ import android.widget.TextView;
 
 /** Explicit, optional phone-only setup. An unexported Activity, separate from normal BLE operation. */
 public final class ShizukuSetupActivity extends Activity {
-    public static final int REQUEST = 203;
+    public static final int REQUEST = 204;
     /** Result when the owner chose to import a backup file instead of capturing here. */
     public static final int RESULT_IMPORT_BACKUP = RESULT_FIRST_USER;
     private static final String SHIZUKU_PACKAGE = "moe.shizuku.privileged.api";

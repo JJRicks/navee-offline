@@ -154,8 +154,8 @@ public final class RideChartView extends View {
         paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(1)); paint.setColor(Ui.withAlpha(ui.muted, 110));
         for (double[] runs : hatches) for (int i = 0; i + 1 < runs.length; i += 2) {
             if (runs[i + 1] < from || runs[i] > to) continue;
-            float left = plot.left + (float) ((runs[i] - from) / (to - from)) * plot.width();
-            float right = plot.left + (float) ((runs[i + 1] - from) / (to - from)) * plot.width();
+            float left = plot.left + (float) ((Math.max(from, runs[i]) - from) / (to - from)) * plot.width();
+            float right = plot.left + (float) ((Math.min(to, runs[i + 1]) - from) / (to - from)) * plot.width();
             if (right - left < ui.dp(2)) continue;
             canvas.save(); canvas.clipRect(left, plot.bottom - band, right, plot.bottom);
             for (float x = left - band; x < right; x += step) canvas.drawLine(x, plot.bottom, x + band, plot.bottom - band, paint);

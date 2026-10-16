@@ -30,7 +30,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             main(() -> { ScooterProfiles profiles = new ScooterProfiles(context); profiles.create("Synthetic ride validation", "000000000000", 0); });
             activity = (MainActivity) startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             long until = SystemClock.uptimeMillis() + 8000; while (activity.service() == null && SystemClock.uptimeMillis() < until) SystemClock.sleep(40);
-            check(activity.service() != null, "Service ready"); mapPreferences(); seed();
+            check(activity.service() != null, "Service ready"); main(this::verifyBoundedHatching); mapPreferences(); seed();
             main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen) field(activity, "screen"); }); settle();
             verifyRideNaming();
             main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
@@ -300,6 +300,22 @@ public final class RidesAnalysisValidation extends Instrumentation {
         touch(chart,start+1600,40,MotionEvent.ACTION_UP,new float[]{activity.ui().dp(8),cy});
         check(((Number)field(chart,"axisScroll")).doubleValue() > oldScroll, "Color scale rail scrolls independently");
         check(plot.width() > chart.getWidth() * .55, "Plot retains most of the screen with five axes selected");
+    }
+    /** Zooming a long low-speed interval costs only the visible number of hatch strokes. */
+    void verifyBoundedHatching() {
+        RideChartView chart = new RideChartView(activity.ui());
+        ((android.graphics.RectF)field(chart, "plot")).set(0, 0, activity.ui().dp(300), activity.ui().dp(180));
+        setField(chart, "from", 900000d); setField(chart, "to", 901000d);
+        @SuppressWarnings("unchecked") List<double[]> spans = (List<double[]>)field(chart, "hatches");
+        spans.add(new double[] {0, 1800000});
+        final int[] strokes = {0};
+        android.graphics.Canvas canvas = new android.graphics.Canvas() {
+            @Override public void drawLine(float x1, float y1, float x2, float y2, android.graphics.Paint paint) {
+                if (++strokes[0] > 100) throw new AssertionError("Offscreen hatching exceeded viewport budget");
+            }
+        };
+        invoke(chart, "drawHatches", new Class[] {android.graphics.Canvas.class}, canvas);
+        check(strokes[0] > 0 && strokes[0] <= 100, "Thirty-minute interval zoomed to one second draws only visible hatch strokes");
     }
     void verifyInspection(RideChartView chart) {
         chart.reset(); android.graphics.RectF plot = (android.graphics.RectF)field(chart, "plot");

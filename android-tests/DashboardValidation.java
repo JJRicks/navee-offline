@@ -83,6 +83,7 @@ public final class DashboardValidation extends Instrumentation {
             verifyScooterStatsMigration();
             verifyClockFormats();
             seedSyntheticProfileAndHistory(); launch();
+            verifyLayoutPickerRouting();
             for (String destination : DESTINATIONS) { clickDescription(destination); assertNavigationFits(); assertNoScooterWork(); }
             clickDescription("Home"); awaitDashboard();
             main(() -> require(types().equals(new HashSet<>(Arrays.asList(DEFAULT_TYPES)))
@@ -881,6 +882,30 @@ public final class DashboardValidation extends Instrumentation {
                     "Restoring an unknown model incorrectly retained the UT5 MAX image");
         });
         assertNoScooterWork();
+    }
+    /** Exercise the actual result dispatcher, not just DashboardConfig's JSON importer. */
+    private void verifyLayoutPickerRouting() throws Exception {
+        awaitDashboard();
+        File portable = new File(getTargetContext().getCacheDir(), "dashboard-result-fixture.json");
+        String previous = config().exportLayouts();
+        try (FileOutputStream out = new FileOutputStream(portable)) {
+            out.write(previous.getBytes(java.nio.charset.StandardCharsets.UTF_8));
+        }
+        int request = ((Number)field(activity, "IMPORT_LAYOUTS")).intValue();
+        require(request != local.navee.offlinelock.ShizukuSetupActivity.REQUEST,
+                "Dashboard picker and Shizuku share an activity result code");
+        main(() -> invoke(activity, "onActivityResult", new Class<?>[] {int.class, int.class, Intent.class},
+                request, android.app.Activity.RESULT_OK, new Intent().setData(android.net.Uri.fromFile(portable))));
+        await(() -> field(activity, "controlDialog") instanceof AlertDialog
+                        && ((AlertDialog)field(activity, "controlDialog")).isShowing(),
+                4000, "Dashboard file result never reached its import confirmation");
+        AlertDialog preview = (AlertDialog)field(activity, "controlDialog");
+        require("Import layouts".contentEquals(preview.getButton(AlertDialog.BUTTON_POSITIVE).getText()),
+                "Layout file opened the wrong result flow");
+        main(() -> preview.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());
+        require(previous.equals(config().exportLayouts()), "Cancelled picker confirmation changed dashboards");
+        portable.delete();
+        check("Layout picker reaches profile-bound confirmation independently of Shizuku; cancelling preserves layouts");
     }
     private void awaitDashboard() { await(() -> field(activity, "screen") instanceof DashboardScreen && grid().getWidth() > 0,
             5000, "Dashboard did not attach"); waitForIdleSync(); }
