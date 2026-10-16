@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Restore horizontal padding around the Lock bar's Connect and Cancel buttons, including after connection-state changes.
+
 ## 1.2.1 — 2026-10-15
 
 - Show charge recordings in one ride-style chart with colored category toggles, fullscreen, pinch zoom, panning and raw-sample inspection.
