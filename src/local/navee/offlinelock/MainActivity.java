@@ -486,7 +486,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         connectionAction.setMaxLines(1);
         connectionAction.setPadding(design.dp(16),0,design.dp(16),0);
         connectionAction.setMinWidth(design.dp(48));
-        connectionAction.setBackground(compactPill(connectionAction.getBackground()));
+        setConnectionActionBackground(connectionAction.getBackground());
         LinearLayout content=new CompactLockRow(offline,offlineTitle,connectionAction);
         // The row fills its frameless cell: connected, the slider is the whole card; offline,
         // the row draws its own card. Every control keeps the full cell height as its touch target.
@@ -551,7 +551,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                     @Override public CharSequence getTransformation(CharSequence source,View view){return "";}
                     @Override public void onFocusChanged(View view,CharSequence source,boolean focused,int direction,android.graphics.Rect previous){}
                 }:words);
-                action.setPadding(design.dp(icon?14:16),0,design.dp(icon?14:16),0);
+                action.setPadding(design.dp(icon?14:16),action.getPaddingTop(),design.dp(icon?14:16),action.getPaddingBottom());
                 action.setCompoundDrawablesRelative(icon?glyph:null,null,null,null);
                 action.setCompoundDrawablePadding(0);
                 LinearLayout.LayoutParams p=(LinearLayout.LayoutParams)action.getLayoutParams();
@@ -569,6 +569,12 @@ public final class MainActivity extends Activity implements ScreenHost {
     /** A Lock bar button's pill, inset top and bottom inside its full-height touch target. */
     private android.graphics.drawable.Drawable compactPill(android.graphics.drawable.Drawable fill){
         return new android.graphics.drawable.InsetDrawable(fill,0,design.dp(COMPACT_LOCK_INSET),0,design.dp(COMPACT_LOCK_INSET));
+    }
+    private void setConnectionActionBackground(android.graphics.drawable.Drawable fill){
+        int left=connectionAction.getPaddingLeft(),right=connectionAction.getPaddingRight();
+        connectionAction.setBackground(compactLock?compactPill(fill):fill);
+        // InsetDrawable supplies vertical padding but also resets both horizontal sides to zero.
+        if(compactLock)connectionAction.setPadding(left,connectionAction.getPaddingTop(),right,connectionAction.getPaddingBottom());
     }
     /** Offline lock bar status: drops its icon square before it would cut the state short. */
     private final class CompactLockStatus extends LinearLayout {
@@ -935,7 +941,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 android.graphics.drawable.Drawable fill=new android.graphics.drawable.RippleDrawable(
                         ColorStateList.valueOf(Ui.withAlpha(busy?design.accent:android.graphics.Color.WHITE,35)),
                         design.shape(busy?design.raised:design.accent,14,busy?design.outline:0),null);
-                connectionAction.setBackground(compactLock?compactPill(fill):fill);
+                setConnectionActionBackground(fill);
             }
             final BleController bleRef=ble;
             connectionAction.setOnClickListener(v->{if(busy){if(bleRef!=null)bleRef.disconnect();redraw();}else connect();});
