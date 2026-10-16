@@ -259,7 +259,7 @@ public final class ScooterService extends Service {
             chargeStore.start(activeProfileId(),charger,wall,mono);chargeEndingMono=0;
             chargeRecovery=new ChargeRecoveryPolicy(activeProfileId(),ble.currentTransportSerial(),mono,ble.intentionalDisconnectSequence());
             ble.recordDiagnostic(ConnectionEventLog.Reason.CHARGE_STARTED,-1);setChargeChargerForCapture(charger);
-            chargeStore.sample(chargeFrame(mono,wall));chargeStatus="Charge recording started";
+            chargeStore.sample(chargeFrame(mono,wall),chargeRecordingEstimate());chargeStatus="Charge recording started";
             cancelBackgroundDeadline();applyWorkPolicy(false);updateNotification();changed();return isChargeRecording();
         }catch(IOException|IllegalStateException failure){chargeStatus="Could not start charge recording";finishChargeCapture(ChargeSessionStore.Stop.ERROR);changed();return false;}
     }
@@ -295,6 +295,20 @@ public final class ScooterService extends Service {
                 chargeStatus=message==null?"Charge recordings cleared":message;changed();if(completion!=null)completion.run();});});return true;
     }
     public boolean chargeExporting(){return chargeExporting;}
+    /** Read only this scooter's closed journals off-main; never re-run today's estimator on history. */
+    public boolean loadChargeRecordings(Consumer<List<ChargeSessionStore.HistorySession>> completion){
+        if(destroyed||dataMaintenance||chargeStore==null||activeProfileId().isEmpty())return false;
+        final String profile=activeProfileId();
+        chargeWorker.execute(()->{
+            List<ChargeSessionStore.HistorySession> recordings=null;
+            try{recordings=chargeStore.recordings(profile);}catch(IOException unavailable){}
+            final List<ChargeSessionStore.HistorySession> result=recordings;
+            handler.post(()->{
+                if(destroyed)return;
+                completion.accept(!dataMaintenance&&profile.equals(activeProfileId())?result:null);
+            });
+        });return true;
+    }
     /** The profile is captured before work starts so changing screens cannot export a different scooter. */
     public boolean exportChargeRecordings(Consumer<File> completion){
         if(destroyed||chargeStore==null||isChargeRecording()||chargeExporting||activeProfileId().isEmpty())return false;
@@ -349,7 +363,8 @@ public final class ScooterService extends Service {
                         finishChargeCapture(ChargeSessionStore.Stop.READINGS_STOPPED);
                     return;
                 }
-                boolean completed=frame.usableCompletion()&&chargeStore.sampleCompletion(frame);
+                ChargeSessionStore.Estimate estimate=chargeRecordingEstimate();
+                boolean completed=frame.usableCompletion()&&chargeStore.sampleCompletion(frame,estimate);
                 if(!isChargeRecording()){chargeStatus="Charge recording reached its storage or time limit";refreshChargeCurves();applyWorkPolicy(false);return;}
                 if(completed)stop=ChargeSessionStore.Stop.COMPLETE;
                 else if(ChargeSessionStore.fresh(frame.state,mono)&&frame.state.value!=1){
@@ -362,7 +377,7 @@ public final class ScooterService extends Service {
                 }
                 else{
                     chargeEndingMono=0;
-                    boolean sampled=chargeStore.sample(frame);
+                    boolean sampled=chargeStore.sample(frame,estimate);
                     if(!isChargeRecording()){chargeStatus="Charge recording reached its storage or time limit";refreshChargeCurves();applyWorkPolicy(false);return;}
                     if(sampled&&frame.soc.value>=100)stop=ChargeSessionStore.Stop.COMPLETE;
                     else if(mono<chargeStore.lastFreshMono()||mono-chargeStore.lastFreshMono()>30000)stop=ChargeSessionStore.Stop.READINGS_STOPPED;
@@ -406,6 +421,10 @@ public final class ScooterService extends Service {
     private ChargingEstimate.Value chargingValue(Map<String,TelemetryHistory.Reading> readings,String key){
         TelemetryHistory.Reading reading=readings.get(key);
         return new ChargingEstimate.Value(reading==null?null:reading.number,reading!=null&&reading.live,reading==null?0:reading.capturedWallMs);
+    }
+    /** Same service calculation used by the dashboard, also evaluated with the screen off. */
+    private ChargeSessionStore.Estimate chargeRecordingEstimate(){
+        return ChargingEstimate.recordingSnapshot(chargingEstimate(displayReadings()));
     }
     /** Fresh paired data first; recognized models get defaults without requiring capture setup. */
     public ChargingEstimate.Result chargingEstimate(Map<String,TelemetryHistory.Reading> readings){

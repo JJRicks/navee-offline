@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Save charging-time predictions, estimator version and estimate sources with charge samples, including while recording in the background.
+- Inspect saved charges with Time remaining and Predicted finish graphs, raw sample values and an observed-100% comparison when the finish was captured. Older recordings remain readable without invented historical estimates.
+- Give direct-toggle setting tiles a power-button cue instead of a navigation arrow; keep arrows for settings that open another view.
+
 ## 1.1.0 — 2026-10-15
 
 - Improve UT5 MAX stock-charger time estimates by default, combining live charging current with an experimental recorded finishing curve. Personal recordings can refine estimates; other models and incompatible charging power keep the live-rate fallback.

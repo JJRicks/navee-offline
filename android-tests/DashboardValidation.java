@@ -110,6 +110,16 @@ public final class DashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Persisted synthetic readings did not load");
             verifyHomeWidgetsOffline();
+            if ("home-widgets".equals(arguments.getString("mode"))) {
+                verifySettingToggleCueSimulation();
+                result.putString("result", "PASS");
+                result.putStringArrayList("checks", new ArrayList<>(checks));
+                result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
+                result.putInt("check_count", checks.size());
+                result.putInt("width_dp", getTargetContext().getResources().getConfiguration().screenWidthDp);
+                result.putInt("scooter_mutations", 0);
+                cleanup(); finish(0, result); return;
+            }
             // The photo card is no longer in the default; add it explicitly so its offline checks keep running.
             seedScooterCard();
             assertCachedReadings();
@@ -654,6 +664,24 @@ public final class DashboardValidation extends Instrumentation {
             String settings = bodyText(tile("shortcuts")).toLowerCase(Locale.ROOT);
             require(settings.contains("top speed") && settings.contains("charge schedule"),
                     "Setting tiles lack their default Top speed and Charge schedule tiles: " + settings);
+            View schedule = ((View)tile("shortcuts")).findViewWithTag("setting-tile:feature:timed_charging");
+            require(schedule != null && "setting-action:power".equals(((View)field(schedule, "icon")).getTag()),
+                    "Charge schedule toggles directly but lacks its power-button cue");
+            View powerCue = (View)field(schedule, "icon");
+            require(!powerCue.isEnabled() && powerCue.getAlpha() < 1f
+                            && ((Integer)field(powerCue, "color")) == activity.ui().muted,
+                    "Disconnected Charge schedule power cue looks available or On");
+            require(String.valueOf(schedule.getContentDescription()).endsWith(", toggle"),
+                    "Charge schedule lost its direct-toggle accessibility hint");
+            View speed = ((View)tile("shortcuts")).findViewWithTag("setting-tile:feature:maximum_speed");
+            float textFactor = Math.max(1, activity.ui().textScale * getTargetContext().getResources().getConfiguration().fontScale);
+            require(schedule.getWidth() < activity.ui().dp(110 * textFactor) || powerCue.getVisibility() == View.VISIBLE,
+                    "Charge schedule hides its power-button cue where there is room");
+            require(speed != null && (speed.getWidth() < activity.ui().dp(110 * textFactor)
+                            || ((View)field(speed, "icon")).getVisibility() == View.VISIBLE),
+                    "Top speed opens an editor but lost its navigation chevron where there is room");
+            require("setting-action:chevron".equals(((View)field(speed, "icon")).getTag()),
+                    "Top speed lost its navigation cue");
 
             for (String type : new String[] {"lockbar", "overview", "tiles", "shortcuts"}) {
                 Object tile = tile(type);
@@ -685,6 +713,87 @@ public final class DashboardValidation extends Instrumentation {
         });
         assertNoScooterWork();
         check("Offline Lock bar offers Connect with an unknown state; overview, reading and setting tiles show cached values without their own Last seen footers");
+    }
+    /** Focused mode only: the existing simulator exercises real tile actions without a BLE transport. */
+    private void verifySettingToggleCueSimulation() throws Exception {
+        boolean wasDeveloper = settings().getBoolean("developer_options", false);
+        try {
+            main(() -> {
+                settings().edit().putBoolean("developer_options", true).commit();
+                require(activity.service().setSimulation(true), "Could not enable isolated setting-tile simulation");
+                require(activity.service().ble.set("timed_charging", 0), "Could not seed simulated Charge schedule Off");
+                activity.redraw();
+                assertSettingToggleCue(true, activity.ui().muted, "Off");
+            });
+            settingToggleScreenshot("setting-toggle-off");
+            main(() -> {
+                settingToggleTile().performClick();
+                require(Integer.valueOf(1).equals(activity.service().ble.featureValue("timed_charging")),
+                        "Charge schedule tile did not toggle the simulated value On");
+                assertSettingToggleCue(true, activity.ui().accent, "On");
+            });
+            settingToggleScreenshot("setting-toggle-on");
+            main(() -> {
+                settingToggleTile().performClick();
+                require(Integer.valueOf(0).equals(activity.service().ble.featureValue("timed_charging")),
+                        "Charge schedule tile did not toggle the simulated value Off");
+                assertSettingToggleCue(true, activity.ui().muted, "Off after tap");
+            });
+            main(() -> {
+                try {
+                    Class<?> mutation = Class.forName("local.navee.offlinelock.BleController$Mutation");
+                    java.lang.reflect.Constructor<?> constructor = mutation.getDeclaredConstructor(String.class, int.class, int.class, long.class);
+                    constructor.setAccessible(true);
+                    setField(activity.service().ble, "mutation", constructor.newInstance("timed_charging", 0, 0, 0L));
+                } catch (ReflectiveOperationException error) { throw new IllegalStateException("Cannot seed isolated pending control", error); }
+                invoke(dashboard(), "refresh");
+                assertSettingToggleCue(false, activity.ui().muted, "Pending");
+                settingToggleTile().performClick();
+                require(Integer.valueOf(0).equals(activity.service().ble.featureValue("timed_charging")),
+                        "Pending setting tile bypassed the existing mutation guard");
+                setField(activity.service().ble, "mutation", null);
+                invoke(dashboard(), "toggleEditing");
+                assertSettingToggleCue(false, activity.ui().muted, "Editing");
+                settingToggleTile().performClick();
+                require(Integer.valueOf(0).equals(activity.service().ble.featureValue("timed_charging")),
+                        "Editing setting tile changed the simulated value");
+                invoke(dashboard(), "toggleEditing");
+                assertSettingToggleCue(true, activity.ui().muted, "After editing");
+                activity.service().ble.disconnect(); activity.redraw();
+                assertSettingToggleCue(false, activity.ui().muted, "Disconnected");
+            });
+        } finally {
+            main(() -> {
+                setField(activity.service().ble, "mutation", null);
+                if (dashboard().isEditing()) invoke(dashboard(), "toggleEditing");
+                require(activity.service().setSimulation(false), "Could not stop setting-tile simulation");
+                settings().edit().putBoolean("developer_options", wasDeveloper).commit(); activity.redraw();
+            });
+        }
+        assertNoScooterWork();
+        check("Charge schedule uses a neutral Off and accented On power cue; pending, editing and disconnected cues are muted, with no real scooter writes");
+    }
+    private void settingToggleScreenshot(String name) throws Exception {
+        // Simulation changes can post a screen rebuild; let that and its transition finish first.
+        waitForIdleSync(); SystemClock.sleep(350);
+        main(() -> {
+            activity.redraw(); View toggle = settingToggleTile();
+            toggle.requestRectangleOnScreen(new Rect(0, 0, toggle.getWidth(), toggle.getHeight()), true);
+        });
+        awaitSettledLayout(); screenshot(name);
+    }
+    private View settingToggleTile() {
+        View tile = ((View)tile("shortcuts")).findViewWithTag("setting-tile:feature:timed_charging");
+        require(tile != null, "Missing Charge schedule tile"); return tile;
+    }
+    private void assertSettingToggleCue(boolean available, int color, String phase) {
+        View tile = settingToggleTile(), cue = (View)field(tile, "icon");
+        require("setting-action:power".equals(cue.getTag()), phase + ": toggle cue is not a power icon");
+        require(cue.isEnabled() == available && Math.abs(cue.getAlpha() - (available ? 1f : .45f)) < .001f,
+                phase + ": cue availability does not match the action");
+        require(((Integer)field(cue, "color")) == color, phase + ": incorrect power-cue color");
+        require(!cue.isClickable() && String.valueOf(tile.getContentDescription()).endsWith(", toggle"),
+                phase + ": cue split the tile's single accessible toggle target");
     }
     /**
      * The default Home uses the Lock bar, and Lock and Lock bar are exclusive, so swap the classic

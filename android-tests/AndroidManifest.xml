@@ -18,6 +18,7 @@
   <instrumentation android:name="local.navee.offlinelock.tests.RidesAnalysisValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated unified ride analysis validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.BatteryWidgetValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated battery widget presentation validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ChargeCaptureValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge capture validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.ChargeEstimateValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge estimate history validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.QuickHapticsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated Quick access haptics validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ConnectionHapticsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated connection haptics validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.AppDataBackupValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated encrypted full app backup validation" />

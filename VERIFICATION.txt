@@ -1,3 +1,28 @@
+UNRELEASED — CHARGE PREDICTION HISTORY AND TOGGLE CUES
+October 15, 2026
+
+- All 30 deterministic core suites pass (70,671 assertions/checks). App and
+  separate native runner builds pass signature/alignment verification.
+- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews found numeric
+  chart-bound edge cases; fixes received follow-up review. No outstanding
+  actionable findings remain.
+- Native prediction-history checks pass 85 assertions each at 344x882 dp dark,
+  725x604 dp light/140% system font and 600x344 dp dark/140% system font. They
+  cover service-side capture, legacy records, both graph modes, raw inspection,
+  expanded graphs, safe system insets, cutoff/finish semantics, extreme finite
+  values and profile-switch dismissal.
+- Existing native charge-capture checks pass 174 assertions each at 344x882 dp
+  dark and 725x604 dp light/140% system font, including screen-off protection,
+  recovery and notification behavior.
+- Focused native Home checks pass at 344 and 725 dp (the latter at 140% system
+  font), including simulated Charge schedule Off/On, pending/edit/disconnected
+  cues and zero real scooter mutations.
+- Tests use a disposable emulator and synthetic records. No physical charge,
+  phone install or release is part of this PR. Existing sessions cannot acquire
+  historical predictions retrospectively; the estimator itself is unchanged.
+
+See docs/validation/charge-estimate-history.md.
+
 VOLT 1.1.0 — HOME, CHARGING AND CONCISE UI (versionCode 29)
 October 15, 2026
 
