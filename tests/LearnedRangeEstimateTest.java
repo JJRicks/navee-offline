@@ -11,7 +11,8 @@ public final class LearnedRangeEstimateTest {
     private static int checks;
     public static void main(String[] args) throws Exception {
         try {
-            poolingAndScope(); quality(); completedAndFullDetail();
+            if (args.length > 0 && args[0].equals("memory-pressure")) { memoryPressure(); return; }
+            poolingAndScope(); quality(); completedAndFullDetail(); streamingParity(); storageStates(); memorySubprocess();
             System.out.println("LearnedRangeEstimateTest: " + checks + " assertions passed");
         } finally { for (File file : directories) remove(file); }
     }
@@ -67,6 +68,77 @@ public final class LearnedRangeEstimateTest {
         longRide.store.delete(longRide.id);
         check(LearnedRangeEstimate.calculate("A",Collections.emptyList(),NOW).fullRangeKm == null, "Recalculation without deleted history clears model");
     }
+    private static void streamingParity() throws Exception {
+        for (String mode : Arrays.asList("normal", "gap", "rebound", "one_rebound", "charging", "reset",
+                "missing_first_soc", "missing_last_odo", "speed_missing", "soc_missing", "clock", "no_temperature",
+                "distance_mismatch", "single_charging_sample")) {
+            Fixture f = fixture("A",20,3,mode,NOW,1000);
+            LearnedRangeEstimate.Result full = LearnedRangeEstimate.calculate("A", Arrays.asList(f.evidence()), NOW);
+            LearnedRangeEstimate.Result streamed = f.store.learnedRange("A", NOW);
+            check(full.status == streamed.status && full.rides == streamed.rides
+                    && full.rejectedRides == streamed.rejectedRides && full.distanceKm == streamed.distanceKm
+                    && full.batteryPoints == streamed.batteryPoints, "Every-sample streaming parity: " + mode);
+        }
+        Fixture active = fixture("A",20,3,"active",NOW,1000);
+        LearnedRangeEstimate.Result r = active.store.learnedRange("A",NOW);
+        check(r.status == LearnedRangeEstimate.Status.INSUFFICIENT && r.rides == 0 && r.unreadableRides == 0,
+                "Active capture is intentionally omitted, not an analysis failure");
+    }
+    private static void storageStates() throws Exception {
+        File dir = Files.createTempDirectory("volt-range-batch-").toFile(); directories.add(dir);
+        RideStore store = new RideStore(dir);
+        check(store.learnedRange("A",NOW).status == LearnedRangeEstimate.Status.INSUFFICIENT, "True empty archive has insufficient status");
+        check(LearnedRangeEstimate.unavailable("A","read failed").status == LearnedRangeEstimate.Status.UNAVAILABLE, "Read error has distinct unavailable status");
+        File broken = new File(dir,UUID.randomUUID()+".csv"); Files.write(broken.toPath(),"invalid journal".getBytes("UTF-8"));
+        LearnedRangeEstimate.Result failed = store.learnedRange("A",NOW);
+        check(failed.status == LearnedRangeEstimate.Status.UNAVAILABLE && failed.unreadableRides == 1,
+                "Unreadable archive cannot look like no ride history");
+        for(int n=0;n<3;n++) { Fixture f=fixture("A",8,2,"normal",NOW,600);f.store.exportCsv(f.id,new File(dir,f.id+".csv")); }
+        LearnedRangeEstimate.Result partial = store.learnedRange("A",NOW);
+        check(partial.status == LearnedRangeEstimate.Status.READY && partial.rides == 3 && partial.unreadableRides == 1,
+                "Unreadable unrelated file does not discard verified sufficient evidence");
+        near(25,partial.fullRangeKm,"Streaming pool unchanged");
+        File moved = new File(dir.getParentFile(),dir.getName()+"-moved"); directories.add(moved);
+        check(dir.renameTo(moved),"Rename fixture directory");
+        try { store.learnedRange("A",NOW);throw new AssertionError("Missing directory was reported empty"); }
+        catch(IOException expected) { checks++; }
+        check(moved.renameTo(dir),"Restore fixture directory");
+        Fixture source=fixture("A",20,3,"normal",NOW,1000);
+        // Simulate the two metadata observations around a concurrent file replacement, without
+        // nondeterministic sleep/thread timing or changing the real reader/parser.
+        final boolean[] armed={false}; final int[] lengths={0};
+        File changedFile=new File(source.directory,source.id+".csv") {
+            @Override public long length(){long actual=super.length();return armed[0]&&++lengths[0]>1?actual+1:actual;}
+        };
+        File changedDirectory=new File(source.directory.getPath()) {
+            @Override public File[] listFiles(){return new File[]{changedFile};}
+        };
+        RideStore changing = new RideStore(changedDirectory);armed[0]=true;
+        try { changing.learnedRange("A",NOW);throw new AssertionError("Mixed journal snapshot accepted"); }
+        catch(RideStore.JournalChangedException expected) { checks++; }
+    }
+    private static void memorySubprocess() throws Exception {
+        String java = new File(System.getProperty("java.home"),"bin/java").getPath();
+        Process child = new ProcessBuilder(java,"-Xmx64m","-XX:+UseSerialGC","-cp",System.getProperty("java.class.path"),
+                LearnedRangeEstimateTest.class.getName(),"memory-pressure").inheritIO().start();
+        check(child.waitFor()==0,"Bounded streaming under memory pressure");
+    }
+    private static void memoryPressure() throws Exception {
+        Fixture f=fixture("A",20,3,"normal",NOW,1000);
+        Runtime runtime=Runtime.getRuntime(); System.gc();
+        List<byte[]> pressure=new ArrayList<>();
+        // Hold enough live memory to trigger the existing full-detail reserve, leaving ample
+        // space for a bounded frame/preview. This reproduces the old false analysis failure.
+        while(runtime.maxMemory()-(runtime.totalMemory()-runtime.freeMemory()) > 6L*1024*1024)
+            pressure.add(new byte[256*1024]);
+        try { f.store.fullTrend(f.id);throw new AssertionError("Expected full-detail memory guard"); }
+        catch(RideStore.DetailMemoryException expected) { checks++; }
+        LearnedRangeEstimate.Result result=f.store.learnedRange("A",NOW);
+        check(result.rides==1 && result.rejectedRides==0 && result.status==LearnedRangeEstimate.Status.INSUFFICIENT,
+                "Streaming remains valid when old full-list path trips its memory guard");
+        check(pressure.size()>0,"Keep memory pressure reachable through analysis");
+        System.out.println("Learned range memory pressure: full-detail guard reproduced; streaming passed");
+    }
     private static Fixture fixture(String profile, double drop, double km, String mode, long end, int seconds) throws Exception {
         File dir = Files.createTempDirectory("volt-range-").toFile(); directories.add(dir);
         RideStore store = new RideStore(dir); long start = end - seconds*1000L;
@@ -87,11 +159,11 @@ public final class LearnedRangeEstimateTest {
             store.sample(start+mono+(mode.equals("clock")&&sec>seconds/2?30000:0),mono,values);
         }
         if (!mode.equals("active")) store.stop(end+(mode.equals("clock")?30000:0),seconds*1000L);
-        return new Fixture(store,id);
+        return new Fixture(store,id,dir);
     }
     private static final class Fixture {
-        final RideStore store; final String id;
-        Fixture(RideStore store,String id){this.store=store;this.id=id;}
+        final RideStore store; final String id; final File directory;
+        Fixture(RideStore store,String id,File directory){this.store=store;this.id=id;this.directory=directory;}
         LearnedRangeEstimate.Evidence evidence() throws Exception { return LearnedRangeEstimate.inspect(store.get(id),store.fullTrend(id)); }
     }
     private static void near(double expected,Double actual,String message){check(actual!=null&&Math.abs(expected-actual)<1e-7,message+" expected="+expected+" actual="+actual);}

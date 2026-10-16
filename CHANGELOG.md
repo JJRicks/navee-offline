@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.3.1 — 2026-10-16
+
+- Simplify **Scooter → Range estimate** to **Scooter's estimate** (default, following drive mode) and **Volt's estimate (learned)**. Remove the duplicate App preferences entry; keep existing quick-access shortcuts working offline.
+- Grey out Volt's option until enough usable rides exist, with a brief explanation when tapped. Show a short introduction only on the first usable selection.
+- Stream recorded rides for analysis to avoid temporary memory-limit failures. Distinguish checking, insufficient history and read failures; allow an immediate retry after a read error.
+- Update an open picker when a ride finishes and guard against stale choices after history or scooter changes. Keep simulation separate from real ride learning.
+
+Install over your existing Volt APK to preserve setup and recordings. Range learning remains local and experimental; the calculation and eligibility thresholds are unchanged. Volt is an independent community project, not affiliated with, endorsed by or sponsored by NAVEE.
+
 ## 1.3.0 — 2026-10-16
 
 - Back up and restore complete ride recordings from Rides, including any recorded routes and phone motion, names and notes.

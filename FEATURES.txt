@@ -1,5 +1,5 @@
 VOLT — UT5 MAX FEATURE AVAILABILITY
-Current version: 1.3.0 (versionCode 35)
+Current version: 1.3.1 (versionCode 36)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -84,8 +84,9 @@ Useful details:
   lamp output. A separate manual main-headlight command has not been verified;
   use the scooter's power button. The OEM says manually changing the headlight
   temporarily suspends automatic control until the scooter restarts.
-- Follow riding mode chooses a supported firmware range estimator while fresh
-  status confirms the scooter is stationary. Fixed choices disable following.
+- Scooter > Range estimate > Scooter's estimate enables drive-mode following,
+  choosing a supported firmware estimator while fresh status confirms the
+  scooter is stationary.
   Firmware without Eco support uses D-mode for Eco/Walk. Automatic attempts
   remain bounded across reconnects. This changes the scooter's prediction, not
   battery capacity or measured odometer; active Boost detection is unavailable.
@@ -378,22 +379,27 @@ history does not extend the fixed ten-second idle background deadline.
 
 RANGE LEARNED FROM YOUR RIDES
 
-More > App preferences > Range estimate offers Scooter (default) or Learned,
-saved separately for each scooter. Learned uses only that profile's completed
-ride recordings on this phone; no other rider's range baseline ships with Volt.
+Scooter > Range estimate offers Scooter's estimate (default, following drive
+mode) or Volt's estimate (learned), saved separately for each scooter. Volt's
+estimate uses only that profile's completed ride recordings on this phone;
+no other rider's range baseline ships with Volt.
 It divides total accepted odometer distance by total battery-percentage points
 used, then applies that rate to the displayed battery level.
 
 Needs at least three usable rides, 20 battery points and 3 km within 90 days.
-Full journals are checked for movement, fresh battery/distance endpoints,
-coverage, gaps, clock changes, charging and gauge rebounds. The preference
-sheet shows accepted evidence and the battery levels/temperatures represented.
-Insufficient history or a missing battery level leaves the scooter's estimate;
-a stale battery level produces a stale estimate.
+Every committed sample is checked in a streaming pass for movement, fresh
+battery/distance endpoints, coverage, gaps, clock changes, charging and gauge
+rebounds. With insufficient history, Volt's option is greyed but tappable for
+a brief more-rides explanation. The first usable selection shows a short intro.
+The picker distinguishes loading from an unreadable-history failure with retry;
+it does not show a detailed evidence block. An unavailable learned estimate or
+missing battery level leaves the scooter's estimate; a stale battery level
+produces a stale estimate.
 
 Applies to Scooter overview, Your scooter and Battery overview. Generic reading
 widgets, gauges, charts, Live Stats and raw exports keep the reported range.
-The preference sends no scooter command or change to Follow riding mode.
+Choosing Volt's estimate changes local display only; choosing Scooter's estimate
+enables guarded drive-mode following.
 This is a preliminary estimate for similar riding, with no guaranteed distance
 to empty or capacity/health claim. Hills, speed, payload, weather, rounding and
 unobserved battery levels limit accuracy. See docs/validation/learned-range.md.

@@ -64,6 +64,10 @@ final class QuickAccessGrid extends ViewGroup {
             String state = feature == null || feature.sensitive ? ""
                     : pending ? "Updating…" : value == null ? "—"
                     : DisplayUnits.featureValue(feature, value, units);
+            if (feature != null && feature.key.equals("range_algorithm")) {
+                featureLive = service != null && service.profiles.active() != null;
+                state = featureLive && service.usesLearnedRange() ? "Volt (learned)" : "Scooter";
+            }
             boolean showSchedule = feature != null && feature.key.equals("timed_charging")
                     && schedule != null && schedule.number != null && schedule.number > 0;
             if (showSchedule) {
