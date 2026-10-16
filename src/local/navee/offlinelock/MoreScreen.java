@@ -95,7 +95,8 @@ public final class MoreScreen implements AppScreen {
     private Row developerIndexRow, simulationRow;
     private TextView simulationStatus, chargeCaptureStatus, chargeCurveValue;
     private LinearLayout chargeCurve;
-    private Row chargeCaptureRow, clearChargeRow, exportChargeRow;
+    private Row chargeCaptureRow, clearChargeRow, exportChargeRow, chargeHistoryRow;
+    private ChargeHistoryDialog chargeHistoryDialog;
     private SegmentedSelector chargeChargerSelector;
     private ChargeSessionStore.Charger chosenCharger=ChargeSessionStore.Charger.STOCK;
     private android.widget.Toast developerCountdown;
@@ -205,6 +206,7 @@ public final class MoreScreen implements AppScreen {
     @Override public void close() {
         saveWideScroll();
         closed = true;
+        if (chargeHistoryDialog != null) chargeHistoryDialog.close();
         if (developerCountdown != null) { developerCountdown.cancel(); developerCountdown = null; }
         for (SegmentedSelector selector : preferenceSelectors) selector.finishMotion();
         for (AlertDialog dialog : new ArrayList<>(dialogs)) if (dialog.isShowing()) dialog.dismiss();
@@ -1672,6 +1674,10 @@ public final class MoreScreen implements AppScreen {
         });chargeCaptureRow.view.setTag("charge-capture-action");
         chargeCaptureStatus=footnote("");chargeCaptureStatus.setTag("charge-capture-status");
         LinearLayout chargeData=group();
+        chargeHistoryRow=row(chargeData,"chart","Charge recordings", "Saved estimates & finish times",()->{
+            if(chargeHistoryDialog!=null)chargeHistoryDialog.close();
+            chargeHistoryDialog=new ChargeHistoryDialog(host);chargeHistoryDialog.show();
+        });chargeHistoryRow.view.setTag("charge-history-action");
         exportChargeRow=row(chargeData,"download","Export charge recordings", "JSON · this scooter",()->{
             ScooterService s=service();if(s==null)return;
             if(!s.exportChargeRecordings(file->{
@@ -1736,6 +1742,7 @@ public final class MoreScreen implements AppScreen {
             refreshChargeCurve(s);
             clearChargeRow.enabled(enabled&&s!=null&&!capturing&&!s.chargeExporting());
             exportChargeRow.enabled(enabled&&s!=null&&!capturing&&!s.chargeExporting());
+            chargeHistoryRow.enabled(enabled&&s!=null&&s.profiles!=null&&s.profiles.active()!=null);
             chargeChargerSelector.setAlpha(capturing?.5f:1f);
             setChildrenEnabled(chargeChargerSelector,!capturing);
         }
@@ -1888,6 +1895,7 @@ public final class MoreScreen implements AppScreen {
     }
 
     @Override public void refresh() {
+        if(chargeHistoryDialog!=null)chargeHistoryDialog.refresh();
         ScooterService s = service(); if (s == null) return;
         refreshDeveloper();
         if (shownSection().equals("Data")) refreshHistoryStorage();

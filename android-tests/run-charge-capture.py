@@ -12,6 +12,7 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--app', type=Path, required=True)
 parser.add_argument('--runner', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
+parser.add_argument('--suite', choices=['capture', 'estimates'], default='capture')
 parser.add_argument('--case', action='append', help='widthxheight:theme:system-font-scale[:reduced]')
 args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
@@ -44,11 +45,13 @@ try:
         run('shell', 'pm', 'clear', 'local.navee.offlinelock')
         for permission in ('BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT', 'POST_NOTIFICATIONS'):
             run('shell', 'pm', 'grant', 'local.navee.offlinelock', 'android.permission.' + permission)
+        runner = 'ChargeEstimateValidation' if args.suite == 'estimates' else 'ChargeCaptureValidation'
         output = run('shell', 'am', 'instrument', '-w', '-e', 'theme', theme,
-                     'local.navee.offlinelock.tests/local.navee.offlinelock.tests.ChargeCaptureValidation')
+                     'local.navee.offlinelock.tests/local.navee.offlinelock.tests.' + runner)
         destination = args.out / case.replace(':', '-'); destination.mkdir(exist_ok=True)
         (destination / 'result.txt').write_text(output)
-        run('pull', '/sdcard/Android/data/local.navee.offlinelock/files/charge-validation', str(destination.resolve()), check=False)
+        directory = 'charge-estimate-validation' if args.suite == 'estimates' else 'charge-validation'
+        run('pull', '/sdcard/Android/data/local.navee.offlinelock/files/' + directory, str(destination.resolve()), check=False)
         passed = 'result=PASS' in output and 'result=FAIL' not in output
         results.append(dict(case=case, passed=passed)); print(f'{case}: {"PASS" if passed else "FAIL"}', flush=True)
         if not passed: print(output, flush=True)

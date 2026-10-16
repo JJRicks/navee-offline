@@ -10,7 +10,7 @@ import java.util.function.Consumer;
 /**
  * Height-aware shortcuts: use available room without clipping text or shrinking touch targets.
  * The same catalog, values and actions also drive Setting tiles: separate cards with a label over
- * the current value and a chevron, the first one highlighted while connected.
+ * the current value and a power cue for toggles or a chevron for panels, the first one highlighted while connected.
  */
 final class QuickAccessGrid extends ViewGroup {
     private final ScreenHost host;
@@ -84,7 +84,12 @@ final class QuickAccessGrid extends ViewGroup {
                 boolean muted = feature != null && !featureLive;
                 cell.label.setTextColor(highlight ? Ui.withAlpha(ui.onAccent, 220) : ui.muted);
                 cell.value.setTextColor(highlight ? ui.onAccent : muted ? ui.muted : ui.text);
-                ((Chevron) cell.icon).setColor(highlight ? ui.onAccent : ui.muted);
+                if (cell.entry.directToggle()) {
+                    boolean available = !editing && featureLive && value != null && ble.featureValue(feature.key) != null
+                            && ble.pending() == null && !ble.readOnlyModel()
+                            && (!feature.requiresParked || ble.stationary());
+                    ((TileAction) cell.icon).appearance(selected && available ? ui.accent : ui.muted, available, highlight);
+                } else ((TileAction) cell.icon).appearance(highlight ? ui.onAccent : ui.muted, !editing, false);
                 if (cell.highlighted != highlight || cell.isSelected() != selected) {
                     cell.highlighted = highlight; cell.setSelected(selected); cell.updateBackground();
                 }
@@ -107,14 +112,38 @@ final class QuickAccessGrid extends ViewGroup {
         }
     }
 
-    /** The setting tile's trailing chevron; recoloured on the highlighted tile. */
-    private final class Chevron extends View {
+    /** Decorative cue within the tile's single touch target and accessibility action. */
+    private final class TileAction extends View {
+        final String glyph;
+        final android.graphics.Paint ring = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         int color;
-        Chevron(int color) { super(host.activity()); this.color = color; setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO); }
-        void setColor(int next) { if (next != color) { color = next; invalidate(); } }
+        boolean highlighted;
+        TileAction(boolean toggle) {
+            super(host.activity()); glyph = toggle ? "power" : "chevron"; color = ui.muted;
+            setTag("setting-action:" + glyph);
+            setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        void appearance(int next, boolean available, boolean onHighlight) {
+            setEnabled(available); setAlpha(available ? 1f : .45f);
+            if (next != color || highlighted != onHighlight) { color = next; highlighted = onHighlight; invalidate(); }
+        }
         @Override protected void onDraw(android.graphics.Canvas canvas) {
             float size = Math.min(getWidth(), getHeight());
-            if (size > 0) ui.drawIcon(canvas, "chevron", color, getWidth() / 2f, getHeight() / 2f, size);
+            if (size <= 0) return;
+            float x = getWidth() / 2f, y = getHeight() / 2f;
+            if (glyph.equals("power")) {
+                float stroke = ui.dp(1), radius = (size - stroke) / 2f;
+                if (highlighted) {
+                    // The first tile has an accent background; retain a neutral interior so On stays legible.
+                    ring.setStyle(android.graphics.Paint.Style.FILL); ring.setColor(ui.surface);
+                    canvas.drawCircle(x, y, radius, ring);
+                }
+                ring.setStyle(android.graphics.Paint.Style.STROKE); ring.setStrokeWidth(stroke);
+                ring.setColor(Ui.withAlpha(highlighted ? ui.onAccent : color, 90));
+                canvas.drawCircle(x, y, radius, ring);
+                size *= .55f;
+            }
+            ui.drawIcon(canvas, glyph, color, x, y, size);
         }
     }
 
@@ -141,10 +170,11 @@ final class QuickAccessGrid extends ViewGroup {
                 value.setLineSpacing(0, 1);
                 words.addView(value, new LinearLayout.LayoutParams(-1, -2));
                 addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-                icon = new Chevron(ui.muted);
-                LinearLayout.LayoutParams chevron = new LinearLayout.LayoutParams(ui.dp(16), ui.dp(16));
-                chevron.setMarginStart(ui.dp(6));
-                addView(icon, chevron);
+                icon = new TileAction(entry.directToggle());
+                int side = ui.dp(entry.directToggle() ? 28 : 16);
+                LinearLayout.LayoutParams indicator = new LinearLayout.LayoutParams(side, side);
+                indicator.setMarginStart(ui.dp(6));
+                addView(icon, indicator);
                 setTooltipText(entry.label); updateBackground();
                 for (View child : new View[]{words, label, value, icon})
                     child.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -187,7 +217,7 @@ final class QuickAccessGrid extends ViewGroup {
                     Math.round(android.graphics.Color.green(from) + (android.graphics.Color.green(to) - android.graphics.Color.green(from)) * a),
                     Math.round(android.graphics.Color.blue(from) + (android.graphics.Color.blue(to) - android.graphics.Color.blue(from)) * a));
         }
-        /** Setting tile content at this width: value shrinks to fit, chevron and label drop when needed. */
+        /** Setting tile content at this width: value shrinks to fit, action cue and label drop when needed. */
         void measureTile(int width, boolean refit, int rowLimit) {
             if (!refit) {
                 measure(MeasureSpec.makeMeasureSpec(width, MeasureSpec.EXACTLY),
@@ -200,11 +230,18 @@ final class QuickAccessGrid extends ViewGroup {
             int vertical = ui.dp(tileCompact ? 3 : 8);
             setPadding(ui.dp(14), vertical, ui.dp(12), vertical);
             int text = width - getPaddingLeft() - getPaddingRight()
-                    - (icon.getVisibility() == VISIBLE ? ui.dp(22) : 0);
+                    - (icon.getVisibility() == VISIBLE ? icon.getLayoutParams().width + ui.dp(6) : 0);
             // Label and value are single lines without extra spacing, so their font metrics are their heights.
             int room = rowLimit - getPaddingTop() - getPaddingBottom() - (label.getVisibility() == VISIBLE
                     ? label.getPaint().getFontMetricsInt().descent - label.getPaint().getFontMetricsInt().ascent : 0);
             float size = 18 * ui.textScale, floor = 12 * ui.textScale;
+            // A long scheduled time gets the space before its decorative cue does.
+            value.setTextSize(floor);
+            if (entry.directToggle() && icon.getVisibility() == VISIBLE
+                    && value.getPaint().measureText(value.getText().toString()) > text) {
+                icon.setVisibility(GONE);
+                text += icon.getLayoutParams().width + ui.dp(6);
+            }
             value.setTextSize(size);
             while (size > floor && (value.getPaint().measureText(value.getText().toString()) > text
                     || value.getPaint().getFontMetricsInt().descent - value.getPaint().getFontMetricsInt().ascent > room)) {

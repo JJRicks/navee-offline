@@ -7,11 +7,47 @@ import java.util.*;
 /** Bounded private charge journals and conservative, charger-specific SOC curves. No Android API. */
 public final class ChargeSessionStore {
     public static final long SAMPLE_INTERVAL_MS = 10000, MAX_FRAME_AGE_MS = 5000, MAX_GAP_MS = 25000;
-    public static final long MAX_SESSION_MS = 18 * 60 * 60 * 1000L, MAX_FILE_BYTES = 1_000_000;
+    // Estimate metadata keeps the same sample/session limits; even maximum-length rows fit.
+    public static final long MAX_SESSION_MS = 18 * 60 * 60 * 1000L, MAX_FILE_BYTES = 3_500_000;
     public static final int MAX_SESSIONS = 20, MAX_SAMPLES = 6500;
     private static final int MIN_BINS = 10;
     public enum Charger { STOCK, HIGH_SPEED }
     public enum Stop { STOPPED, COMPLETE, CHARGING_ENDED, DISCONNECTED, PROFILE_CHANGED, READINGS_STOPPED, LIMIT, ERROR, PROCESS_ENDED, INTERRUPTED, RECOVERY_TIMEOUT, CONNECTION_FAILED, BLUETOOTH_OFF, PERMISSION_LOST, IDENTITY_CHANGED }
+    public enum Source { CURRENT_RATE, STOCK_REFERENCE, PERSONAL }
+    /** A prediction made at capture time, never recalculated when a recording is read. */
+    public static final class Estimate {
+        public final String version;
+        public final Double remainingMinutesToFull, remainingMinutesToLimit, targetPercent;
+        public final Source fullSource, limitSource;
+        public final int learnedSessions;
+        public Estimate(String version, Double full, Double limit, Double target, Source fullSource, Source limitSource, int learnedSessions) {
+            if(version==null||!version.matches("[A-Za-z0-9_.-]{1,64}"))throw new IllegalArgumentException("Invalid estimator version");
+            this.version=version;this.remainingMinutesToFull=duration(full);this.targetPercent=target!=null&&between(target,0,100)&&target>0?target:null;
+            this.remainingMinutesToLimit=this.targetPercent==null?null:duration(limit);
+            this.fullSource=this.remainingMinutesToFull==null?null:fullSource;
+            this.limitSource=this.remainingMinutesToLimit==null?null:limitSource;
+            this.learnedSessions=this.fullSource==Source.PERSONAL||this.limitSource==Source.PERSONAL?Math.max(0,Math.min(MAX_SESSIONS,learnedSessions)):0;
+        }
+        private static Double duration(Double value){return value!=null&&Double.isFinite(value)&&value>=0?value:null;}
+    }
+    public static final class HistoryPoint {
+        public final long wall,mono;public final double batteryPercent,voltage,current,power;public final Double temperature;
+        public final boolean gap;public final Estimate estimate;
+        private HistoryPoint(Point point){wall=point.wall;mono=point.mono;batteryPercent=point.soc;voltage=point.voltage;current=point.current;power=point.signedPower;temperature=point.temperature;gap=point.gap;estimate=point.estimate;}
+    }
+    /** Immutable, profile-scoped history for charts. Completion means observed displayed 100%. */
+    public static final class HistorySession {
+        public final String id,profile;public final Charger charger;public final Stop stop;
+        public final long startedWall,startedMono;public final List<HistoryPoint> points;
+        public final Long observedCompleteMono,observedCompleteWall;
+        private HistorySession(String id,Session session){
+            this.id=id;profile=session.profile;charger=session.charger;stop=session.stop;startedWall=session.startedWall;startedMono=session.startedMono;
+            List<HistoryPoint> copy=new ArrayList<>();for(Point point:session.points)copy.add(new HistoryPoint(point));points=Collections.unmodifiableList(copy);
+            observedCompleteMono=session.observedCompletion();observedCompleteWall=observedCompleteMono==null?null:clockAt(observedCompleteMono);
+        }
+        /** One stable wall-clock anchor avoids artificial jumps when the phone clock changes. */
+        public long clockAt(long mono){return startedWall+(mono-startedMono);}
+    }
     public static final class Value {
         public final Double value; public final long mono; public final int source;
         public Value(Double value, long mono, int source) { this.value = value; this.mono = mono; this.source = source; }
@@ -144,22 +180,28 @@ public final class ChargeSessionStore {
     public synchronized long startedMono(){return startMono;}
     public synchronized void start(String profile,Charger charger,long wall,long mono) throws IOException {
         if(active!=null)throw new IllegalStateException("A charge capture is already active");
-        if(profile==null||!profile.matches("[A-Za-z0-9_-]{1,128}")||charger==null||wall<=0||mono<=0)throw new IllegalArgumentException("Choose a scooter and charger");
+        if(profile==null||!profile.matches("[A-Za-z0-9_-]{1,128}")||charger==null||wall<=0||mono<=0||wall>Long.MAX_VALUE-MAX_SESSION_MS||mono>Long.MAX_VALUE-MAX_SESSION_MS)throw new IllegalArgumentException("Choose a scooter and charger");
         pruneTo(MAX_SESSIONS-1);
         File file=new File(directory,UUID.randomUUID().toString()+".active");
-        append(file,"charge-v1,"+profile+","+charger.name()+","+wall+","+mono+"\n");
+        append(file,"charge-v2,"+profile+","+charger.name()+","+wall+","+mono+"\n");
         this.active=file;this.profile=profile;this.charger=charger;startMono=mono;lastFreshMono=mono;
         lastWriteMono=lastElectricalMono=0;lastSoc=lastPower=lastVoltage=null;samples=0;gap=true;
     }
     /** Returns true only for a newly committed, fresh paired sample. Rejected samples break continuity. */
     public synchronized boolean sample(Frame frame) throws IOException {
-        return sample(frame,false);
+        return sample(frame,ChargingEstimate.recordingSnapshot(null));
+    }
+    public synchronized boolean sample(Frame frame,Estimate estimate) throws IOException {
+        return sample(frame,false,estimate);
     }
     /** A final fresh 100% packet may arrive after charging flips off. It never starts a capture. */
     public synchronized boolean sampleCompletion(Frame frame) throws IOException {
-        return samples>0 && sample(frame,true);
+        return sampleCompletion(frame,ChargingEstimate.recordingSnapshot(null));
     }
-    private boolean sample(Frame frame,boolean completion) throws IOException {
+    public synchronized boolean sampleCompletion(Frame frame,Estimate estimate) throws IOException {
+        return samples>0 && sample(frame,true,estimate);
+    }
+    private boolean sample(Frame frame,boolean completion,Estimate estimate) throws IOException {
         if(active==null)return false;
         if(frame==null||!(completion?frame.usableCompletion():frame.usable())){gap=true;return false;}
         if(frame.mono<startMono||frame.mono-startMono>MAX_SESSION_MS||samples>=MAX_SAMPLES||active.length()>=MAX_FILE_BYTES){stop(Stop.LIMIT);return false;}
@@ -176,7 +218,10 @@ public final class ChargeSessionStore {
         if(spike){gap=true;return false;}
         if(lastSoc!=null&&(frame.soc.value<lastSoc||frame.soc.value-lastSoc>1))gap=true;
         Double temperature=fresh(frame.temperature,frame.mono)&&between(frame.temperature.value,-40,100)?frame.temperature.value:null;
-        String line="s,"+frame.wall+","+frame.mono+","+frame.soc.value+","+frame.voltage.value+","+frame.current.value+","+power+","+(temperature==null?"":temperature)+","+(gap||discontinuity?1:0)+"\n";
+        Estimate saved=estimate==null?ChargingEstimate.recordingSnapshot(null):estimate;
+        String line="s,"+frame.wall+","+frame.mono+","+frame.soc.value+","+frame.voltage.value+","+frame.current.value+","+power+","+(temperature==null?"":temperature)+","+(gap||discontinuity?1:0)
+                +","+saved.version+","+csv(saved.remainingMinutesToFull)+","+csv(saved.remainingMinutesToLimit)+","+csv(saved.targetPercent)
+                +","+csv(saved.fullSource)+","+csv(saved.limitSource)+","+saved.learnedSessions+"\n";
         append(active,line);samples++;lastWriteMono=frame.mono;lastElectricalMono=frame.voltage.mono;
         lastSoc=frame.soc.value;lastPower=power;lastVoltage=frame.voltage.value;gap=false;
         return true;
@@ -217,6 +262,19 @@ public final class ChargeSessionStore {
         }
         return new Snapshot(curves,sessions,bytes);
     }
+    /** Call on an analysis worker. Active files are excluded, so each returned session is stable. */
+    public List<HistorySession> recordings(String targetProfile)throws IOException {
+        if(targetProfile==null||!targetProfile.matches("[A-Za-z0-9_-]{1,128}"))throw new IllegalArgumentException("Select a scooter");
+        final List<File> source;synchronized(this){source=files();}
+        List<HistorySession> result=new ArrayList<>();
+        for(File file:source){
+            if(!file.getName().endsWith(".csv"))continue;
+            Session session;
+            try{session=read(file);}catch(FileNotFoundException removed){if(!file.exists())continue;throw removed;}
+            if(session!=null&&targetProfile.equals(session.profile))result.add(new HistorySession(file.getName().replace(".csv",""),session));
+        }
+        Collections.reverse(result);return Collections.unmodifiableList(result);
+    }
     /** Stream saved journals for one scooter. No owner credentials, names, or radio identifiers. */
     public synchronized int exportJson(String targetProfile, Writer out) throws IOException {
         if(targetProfile==null||!targetProfile.matches("[A-Za-z0-9_-]{1,128}"))throw new IllegalArgumentException("Select a scooter");
@@ -231,19 +289,28 @@ public final class ChargeSessionStore {
             out.write("{\"id\":\""+file.getName().replace(".csv","")+"\",\"profile_id\":\""+session.profile
                     +"\",\"charger\":\""+session.charger.name()+"\",\"started_wall_ms\":"+session.startedWall
                     +",\"started_elapsed_ms\":"+session.startedMono+",\"stop_reason\":"+(session.stop==null?"null":"\""+session.stop.name()+"\"")
-                    +",\"qualified_for_learning\":"+(session.evidence()!=null)+",\"samples\":[");
+                    +",\"qualified_for_learning\":"+(session.evidence()!=null)+",\"observed_complete_elapsed_ms\":"+session.observedCompletion()+",\"samples\":[");
             boolean first=true;
             for(Point point:session.points) {
                 if(!first)out.write(",");first=false;
                 out.write("{\"wall_ms\":"+point.wall+",\"elapsed_ms\":"+point.mono+",\"battery_percent\":"+point.soc
                         +",\"voltage_v\":"+point.voltage+",\"current_a\":"+point.current+",\"power_w\":"+point.signedPower
-                        +",\"temperature_c\":"+point.temperature+",\"gap_before\":"+point.gap+"}");
+                        +",\"temperature_c\":"+point.temperature+",\"gap_before\":"+point.gap+",\"estimate\":");
+                writeEstimateJson(out,point.estimate);out.write("}");
             }
             out.write("]}");
         }
         out.write("]}");out.flush();return count;
     }
     public static String key(String profile,Charger charger){return profile+":"+charger.name();}
+    private static String csv(Object value){return value==null?"":value.toString();}
+    private static void writeEstimateJson(Writer out,Estimate value)throws IOException{
+        if(value==null){out.write("null");return;}
+        out.write("{\"estimator_version\":\""+value.version+"\",\"remaining_minutes_to_full\":"+value.remainingMinutesToFull
+                +",\"remaining_minutes_to_limit\":"+value.remainingMinutesToLimit+",\"target_percent\":"+value.targetPercent
+                +",\"full_source\":"+(value.fullSource==null?"null":"\""+value.fullSource.name()+"\"")
+                +",\"limit_source\":"+(value.limitSource==null?"null":"\""+value.limitSource.name()+"\"")+",\"learned_sessions\":"+value.learnedSessions+"}");
+    }
     public static boolean fresh(Value value,long now){return value!=null&&value.value!=null&&Double.isFinite(value.value)&&value.source>=0&&value.mono>0&&now>=value.mono&&now-value.mono<=MAX_FRAME_AGE_MS;}
     private static boolean between(double value,double low,double high){return Double.isFinite(value)&&value>=low&&value<=high;}
     private static void append(File file,String text)throws IOException{
@@ -299,9 +366,10 @@ public final class ChargeSessionStore {
     }
     private static final class Point {
         final long wall,mono;final double soc,power,voltage,current,signedPower;final Double temperature;final boolean gap;
-        Point(long wall,long mono,double soc,double voltage,double current,double signedPower,Double temperature,boolean gap){
+        final Estimate estimate;
+        Point(long wall,long mono,double soc,double voltage,double current,double signedPower,Double temperature,boolean gap,Estimate estimate){
             this.wall=wall;this.mono=mono;this.soc=soc;this.voltage=voltage;this.current=current;this.signedPower=signedPower;
-            this.power=Math.abs(signedPower);this.temperature=temperature;this.gap=gap;
+            this.power=Math.abs(signedPower);this.temperature=temperature;this.gap=gap;this.estimate=estimate;
         }
     }
     private static final class Evidence {
@@ -377,7 +445,15 @@ public final class ChargeSessionStore {
         }
     }
     private static final class Session {
-        String profile;Charger charger;Stop stop;long startedWall,startedMono;List<Point> points=new ArrayList<>();
+        String profile;Charger charger;Stop stop;long startedWall,startedMono;int format;List<Point> points=new ArrayList<>();
+        Long observedCompletion(){
+            if(stop!=Stop.COMPLETE||points.size()<2)return null;
+            long previous=startedMono-1;
+            for(Point point:points){if(point.mono<startedMono||point.mono<=previous||point.mono-startedMono>MAX_SESSION_MS)return null;previous=point.mono;}
+            Point end=points.get(points.size()-1),before=points.get(points.size()-2);
+            // A reconnect already at 100% tells us it finished during the gap, not when.
+            return end.soc==100&&before.soc<100&&!end.gap&&end.mono-before.mono<=MAX_GAP_MS?end.mono:null;
+        }
         Evidence evidence(){
             if(stop==null||stop==Stop.INTERRUPTED||stop==Stop.PROCESS_ENDED||stop==Stop.ERROR||points.size()<61)return null;
             Evidence result=new Evidence();result.finishing=FinishingCurve.from(this);boolean[] repeated=new boolean[100];List<Double> powerSamples=new ArrayList<>();
@@ -414,19 +490,32 @@ public final class ChargeSessionStore {
                 if(++lines>MAX_SAMPLES+3||line.length()>512)return null;
                 String[] parts=line.split(",",-1);
                 try{
-                    if(lines==1){if(parts.length!=5||!parts[0].equals("charge-v1")||!parts[1].matches("[A-Za-z0-9_-]{1,128}"))return null;session.profile=parts[1];session.charger=Charger.valueOf(parts[2]);session.startedWall=Long.parseLong(parts[3]);session.startedMono=Long.parseLong(parts[4]);if(session.startedWall<=0||session.startedMono<=0)return null;}
+                    if(lines==1){if(parts.length!=5||!(parts[0].equals("charge-v1")||parts[0].equals("charge-v2"))||!parts[1].matches("[A-Za-z0-9_-]{1,128}"))return null;session.format=parts[0].equals("charge-v1")?1:2;session.profile=parts[1];session.charger=Charger.valueOf(parts[2]);session.startedWall=Long.parseLong(parts[3]);session.startedMono=Long.parseLong(parts[4]);if(session.startedWall<=0||session.startedMono<=0||session.startedWall>Long.MAX_VALUE-MAX_SESSION_MS||session.startedMono>Long.MAX_VALUE-MAX_SESSION_MS)return null;}
                     else if(parts.length==2&&parts[0].equals("end")){if(session.stop!=null)return null;session.stop=Stop.valueOf(parts[1]);}
-                    else if(parts.length==9&&parts[0].equals("s")&&session.stop==null){
+                    else if(parts.length==(session.format==1?9:16)&&parts[0].equals("s")&&session.stop==null){
+                        if(session.points.size()>=MAX_SAMPLES)return null;
                         long wall=Long.parseLong(parts[1]),mono=Long.parseLong(parts[2]);double soc=Double.parseDouble(parts[3]);
                         double volts=Double.parseDouble(parts[4]),amps=Double.parseDouble(parts[5]),power=Double.parseDouble(parts[6]);
                         if(wall<=0||mono<=0||!between(soc,0,100)||!between(volts,1,100)||!between(amps,-30,30)||!between(power,-3000,3000)
                                 ||Math.abs(volts*amps-power)>.001||!(parts[8].equals("0")||parts[8].equals("1")))return null;
                         if(!parts[7].isEmpty()&&!between(Double.parseDouble(parts[7]),-40,100))return null;
-                        session.points.add(new Point(wall,mono,soc,volts,amps,power,parts[7].isEmpty()?null:Double.valueOf(parts[7]),parts[8].equals("1")));
+                        session.points.add(new Point(wall,mono,soc,volts,amps,power,parts[7].isEmpty()?null:Double.valueOf(parts[7]),parts[8].equals("1"),session.format==1?null:readEstimate(parts)));
                     }else return null;
                 }catch(IllegalArgumentException bad){return null;}
             }
         }
         return session.profile==null?null:session;
+    }
+    /** A corrupt optional prediction must not erase sound raw measurements or learned evidence. */
+    private static Estimate readEstimate(String[] parts){
+        try{
+            Double full=optionalNumber(parts[10]),limit=optionalNumber(parts[11]),target=optionalNumber(parts[12]);
+            int sessions=Integer.parseInt(parts[15]);
+            if(full!=null&&full<0||limit!=null&&limit<0||target!=null&&(target<=0||target>100)||sessions<0||sessions>MAX_SESSIONS)return null;
+            return new Estimate(parts[9],full,limit,target,parts[13].isEmpty()?null:Source.valueOf(parts[13]),parts[14].isEmpty()?null:Source.valueOf(parts[14]),sessions);
+        }catch(IllegalArgumentException malformed){return null;}
+    }
+    private static Double optionalNumber(String value){
+        if(value.isEmpty())return null;double number=Double.parseDouble(value);if(!Double.isFinite(number))throw new IllegalArgumentException("Invalid estimate");return number;
     }
 }

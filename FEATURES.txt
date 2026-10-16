@@ -452,6 +452,14 @@ Android's save picker, including original readings, timestamps, gaps, stop reaso
 and manual charger label. Capture must stop before export. Owner credentials,
 names, MAC addresses, PINs and location are excluded.
 
+New charge samples also retain the original full/limit time estimates, limit,
+estimator version and source (live rate, stock reference or personal curve).
+More → Developer options → Charge recordings shows Time remaining and Predicted
+finish graphs with full-resolution touch inspection and fullscreen views. An
+observed 100% finish provides a reference and prediction error; incomplete
+recordings and lower cutoffs are never compared to a guessed completion time.
+Older journals have no historical predictions; estimates are not backfilled.
+
 
 PHONE RECORDING AND ROUTE MAPS
 

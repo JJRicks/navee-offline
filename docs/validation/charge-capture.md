@@ -38,9 +38,12 @@ Validated October 14, 2026. This change is stacked on
 ## Data and qualification
 
 The app-private `files/charge-recordings` directory contains UUID-named journals.
-Each starts with `charge-v1,profile-id,charger,start-wall-ms,start-monotonic-ms`,
-then rows of `s,wall-ms,monotonic-ms,SOC,volts,signed-amps,signed-watts,temp-C,gap`,
-and ends with a stop reason. Missing temperature is blank. No owner token, MAC,
+New journals start with `charge-v2,profile-id,charger,start-wall-ms,start-monotonic-ms`;
+the original `charge-v1` journals remain readable. Sample rows retain
+`s,wall-ms,monotonic-ms,SOC,volts,signed-amps,signed-watts,temp-C,gap`, followed
+in v2 by the captured estimates and their version/source metadata, and end with
+a stop reason. See [estimate history](charge-estimate-history.md). Missing
+temperature is blank. No owner token, MAC,
 location, or account data is copied into these files. Nothing is uploaded.
 
 Samples are normally at most once every ten seconds. The final 100% sample may
@@ -50,8 +53,9 @@ source opcode. Out-of-range values, electrical spikes and invalid samples are
 rejected. Temperature is optional. SOC rollbacks, skipped percentages, gaps over
 25 seconds and wall-clock discontinuities break the affected curve interval.
 
-Retention is at most 20 journals, approximately 20 MB in total, with an 18-hour,
-6,500-sample and approximately 1 MB cap per journal. Non-qualifying captures are
+Retention is at most 20 journals, approximately 70 MB in total, with an 18-hour,
+6,500-sample and approximately 3.5 MB cap per journal. The byte cap accommodates
+the longest versioned prediction rows; typical files are smaller. Non-qualifying captures are
 removed first. If all remaining files qualify, pruning removes the oldest file
 from the largest profile/charger bucket, balancing coverage instead of allowing
 frequent stock captures to evict a minority high-speed curve. Two sessions per

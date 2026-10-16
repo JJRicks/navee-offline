@@ -2,11 +2,22 @@ package local.navee.offlinelock;
 
 /** Fresh battery-side charging measurements, model defaults and optional personal charge curves. */
 public final class ChargingEstimate {
+    /** Bump whenever the prediction algorithm/reference changes; independent of app versions. */
+    public static final String ESTIMATOR_VERSION = "ut5-reference-personal-v1";
     public static final double MINIMUM_ETA_CURRENT_A = 0.05;
     /** Short UI label when measured current is too low for a time estimate. */
     public static final String LOW_CURRENT = "Low current";
 
     private ChargingEstimate() {}
+
+    /** Preserve exactly the result used at capture time, including unavailable predictions. */
+    public static ChargeSessionStore.Estimate recordingSnapshot(Result result) {
+        if(result==null)return new ChargeSessionStore.Estimate(ESTIMATOR_VERSION,null,null,null,null,null,0);
+        return new ChargeSessionStore.Estimate(ESTIMATOR_VERSION,result.remainingMinutesToFull,result.remainingMinutesToLimit,result.targetPercent,
+                result.learnedToFull?ChargeSessionStore.Source.PERSONAL:result.referenceToFull?ChargeSessionStore.Source.STOCK_REFERENCE:ChargeSessionStore.Source.CURRENT_RATE,
+                result.learnedToLimit?ChargeSessionStore.Source.PERSONAL:result.referenceToLimit?ChargeSessionStore.Source.STOCK_REFERENCE:ChargeSessionStore.Source.CURRENT_RATE,
+                result.learnedSessions);
+    }
 
     /**
      * A reading whose freshness has already been checked by its caller. Voltage and current must
