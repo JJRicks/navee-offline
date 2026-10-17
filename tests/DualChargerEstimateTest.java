@@ -25,21 +25,25 @@ public final class DualChargerEstimateTest {
         check(ChargingEstimate.forScooter(unknown,live(97),live(15.3),2538,null,null)==unknown,
                 "Ambiguous late connection cannot silently become a stock reference");
         ChargerDetection detection=new ChargerDetection();
-        for(int i=0;i<3;i++)detection.observe("one:transport1",2538,true,60d,51.71,10.09,1000+i*2000,1000+i*2000);
-        check(detection.selected()==fast,"Fresh fast bulk frames select high-speed");
-        ChargingEstimate.Result bulk=estimate(60,51.71,10.09,100d,2538,detection.selected(),null);
+        for(int i=0;i<3;i++)detection.observe("one",2538,true,60d,51.71,10.09,1000+i*2000,1000+i*2000);
+        check(detection.selected("one",5000)==fast,"Fresh fast bulk frames select high-speed");
+        ChargingEstimate.Result bulk=estimate(60,51.71,10.09,100d,2538,detection.selected("one",5000),null);
         check(bulk.referenceToFull&&!bulk.learnedToFull&&bulk.referenceCharger==fast,"Fast default needs no personal recordings");
         near(49.25,bulk.remainingMinutesToFull,1,"Bulk includes the observed future taper");
         ChargeSessionStore.Estimate saved=ChargingEstimate.recordingSnapshot(bulk);
         check(saved.fullSource==ChargeSessionStore.Source.FAST_REFERENCE&&saved.limitSource==ChargeSessionStore.Source.FAST_REFERENCE,
                 "Fast reference does not masquerade as stock or personal evidence");
         check(saved.version.equals("ut5-dual-charger-v3"),"Algorithm changes carry a new capture version");
-        detection.observe("one:transport1",2538,true,97d,54.318,2.21,7000,7000);
-        check(detection.selected()==fast,"Known fast taper cannot become stock at 120W");
-        ChargingEstimate.Result late=estimate(97,54.318,2.21,100d,2538,detection.selected(),null);
+        detection.observe("one",2538,true,97d,54.318,2.21,7000,7000);
+        check(detection.selected("one",7000)==fast,"Known fast taper cannot become stock at 120W");
+        ChargingEstimate.Result late=estimate(97,54.318,2.21,100d,2538,detection.selected("one",7000),null);
         near(16.55,late.remainingMinutesToFull,1.5,"Fast family uses its own late-charge timing");
-        detection.observe("one:transport2",2538,true,97d,54.318,2.21,9000,9000);
-        check(detection.selected()==null,"A fresh connection in the overlap returns unknown");
+        detection.observe("one",2538,true,97d,54.318,0d,30000,30000);
+        detection.observe("one",2538,true,97d,54.318,2.21,40000,40000);
+        check(detection.selected("one",40000)==fast,"A reconnect and an unusable frame within this charge keep the family");
+        detection.observe("one",2538,false,97d,null,null,42000,42000);
+        detection.observe("one",2538,true,97d,54.318,2.21,44000,44000);
+        check(detection.selected("one",44000)==null,"A new charge in the overlap returns unknown");
         check(!estimate(60,52,2,100d,2538,fast,null).referenceToFull,"Fast manual override still checks compatible power");
         check(!estimate(60,51.71,10.09,100d,2538,stock,null).referenceToFull,"Stock manual override rejects fast power");
         check(!estimate(60,51.71,10.09,100d,9999,fast,null).referenceToFull,"Other models keep their live fallback");
