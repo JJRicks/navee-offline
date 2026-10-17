@@ -1,0 +1,81 @@
+{
+  "format": "volt-dashboard-layouts",
+  "version": 1,
+  "columns": 3,
+  "widgets": [
+    {
+      "id": "w1",
+      "type": "battery",
+      "title": "Synthetic",
+      "metric": "speed_kmh",
+      "note": "Synthetic note",
+      "color": 1,
+      "window": 120000,
+      "min": 0,
+      "max": 100,
+      "advertisedWh": 0,
+      "showDisconnect": true,
+      "absoluteAxis": false,
+      "keys": [
+        "battery_percent"
+      ],
+      "layouts": {
+        "2": [
+          0,
+          0,
+          2,
+          2
+        ],
+        "4": [
+          0,
+          0,
+          2,
+          2
+        ]
+      }
+    }
+  ],
+  "slots": [
+    {
+      "version": 1,
+      "name": "Shared slot",
+      "savedAt": 1760000000000,
+      "columns": 3,
+      "widgets": [
+        {
+          "id": "w1",
+          "type": "battery",
+          "title": "Synthetic",
+          "metric": "speed_kmh",
+          "note": "Synthetic note",
+          "color": 1,
+          "window": 120000,
+          "min": 0,
+          "max": 100,
+          "advertisedWh": 0,
+          "showDisconnect": true,
+          "absoluteAxis": false,
+          "keys": [
+            "battery_percent"
+          ],
+          "layouts": {
+            "2": [
+              0,
+              0,
+              2,
+              2
+            ],
+            "4": [
+              0,
+              0,
+              2,
+              2
+            ]
+          }
+        }
+      ]
+    },
+    null,
+    null
+  ]
+}
