@@ -1,6 +1,8 @@
 # Ride backup and restore
 
-Rides → Ride backups transfers completed recordings only. The feature preserves the raw scooter journal, optional raw phone journal, and optional raw motion CSV as a group. These include every saved sample, names, notes, original clocks, gaps and current-direction events. It does not reconstruct recordings from chart previews or analysis JSON.
+Ride backups are now part of [Back up & restore](unified-backup.md): **Rides → Ride backups** opens it with Rides preselected, and new ride backups are encrypted `.voltbackup` files. Volt no longer writes `.voltrides` files, but **Restore** still imports them through the same scooter mapping, duplicate checks and transaction as other backups (the original ride-transfer recovery below still finishes an interruption left by an older version). This page describes the `.voltrides` format and the rules every ride restore keeps.
+
+Ride transfers carry completed recordings only. The feature preserves the raw scooter journal, optional raw phone journal, and optional raw motion CSV as a group. These include every saved sample, names, notes, original clocks, gaps and current-direction events. It does not reconstruct recordings from chart previews or analysis JSON.
 
 ## File and privacy
 

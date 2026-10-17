@@ -1,10 +1,10 @@
 # Unified backup and restore (design)
 
-Status: design for review, not implemented. Baseline Volt 1.3.1 (`d3d61e8`). The storage it covers is listed in [App storage inventory](app-storage-inventory.md).
+Status: implemented on top of Volt 1.3.1 (`d3d61e8`); the decisions on the earlier open questions are recorded under [Decisions](#decisions), and differences from the first draft under [Implementation notes](#implementation-notes). Emulator journeys still need a run on disposable emulators. The storage it covers is listed in [App storage inventory](app-storage-inventory.md).
 
 ## Goal
 
-There will be one **Back up & restore** entry in ordinary settings, replacing the developer full backup, Rides → Ride backups and Dashboard backups. The user picks categories, sees counts and a preview, and gets anything from a single category up to a complete portable copy of the app after **Clear storage**. Files from the old features still import. The existing crypto, bounded parsing, validation-before-mutation, writer drain, fsync ordering, rollback and startup recovery are reused, not replaced.
+There is one **Back up & restore** entry in ordinary settings, replacing the developer full backup, the separate ride backups and settings Dashboard backups. The user picks categories, sees counts and a preview, and gets anything from a single category up to a complete portable copy of the app after **Clear storage**. Files from the old features still import. The existing crypto, bounded parsing, validation-before-mutation, writer drain, fsync ordering, rollback and startup recovery are reused, not replaced.
 
 ## Current state (1.3.1)
 
@@ -95,7 +95,7 @@ The profile table lists every profile referenced by an exported category, plus a
 | `.voltrides` | ZIP whose first entry is a `volt-ride-backup` manifest | `rides` only, unencrypted, existing RideArchive validation; its source-profile list feeds mapping |
 | Dashboard JSON | `"format":"volt-dashboard-layouts"` | `dashboards` only, one source ("Layout file") mapped to one destination scooter (default: selected scooter) |
 
-The new code no longer writes `.voltrides` files or full v1 backups. Dashboard JSON export is kept only if open question 1 keeps it.
+The new code no longer writes `.voltrides` files or full v1 backups. Dashboard JSON export stays only on Home → Edit → Layout as a sharing tool (decision 1).
 
 ## Restore semantics
 
@@ -113,7 +113,7 @@ The new code no longer writes `.voltrides` files or full v1 backups. Dashboard J
 | App preferences | Backup wins: each category key takes the backup value, and keys of this category missing from the backup are removed (back to default). |
 | Rides | Add-only by UUID, as RideArchive today. Identical groups are skipped. A differing or partial local group is kept and counted as a conflict. No new UUID is ever synthesized. Hardening: a ride whose mapped profile and START wall and monotonic clocks equal an existing ride with another UUID also counts as a conflict. Orphan phone sidecars are skipped and counted. `ride_comparison` and `ride_selected` stay local. |
 | Charges | Same as rides by UUID. `<uuid>.active` and `<uuid>.csv` are the same identity. Journals are validated by `ChargeSessionStore` parsing, which v1 did not do. An imported `.active` becomes interrupted at the next startup, which is existing behaviour. |
-| Readings history | Merge the database by mapped profile. Rows are unioned on the existing UNIQUE keys (`detail(pid,kid,wall)`, `minute`/`daily(pid,kid,bucket)`), and this phone's row wins on collision. `latest` keeps this phone's snapshot; otherwise the newest backup snapshot is used. Profile and key IDs are remapped by name. The result must pass `integrity_check` and the schema check, and stay within the history size limit (open question 6). |
+| Readings history | Merge the database by mapped profile. Rows are unioned on the existing UNIQUE keys (`detail(pid,kid,wall)`, `minute`/`daily(pid,kid,bucket)`), and this phone's row wins on collision. `latest` keeps this phone's snapshot; otherwise the newest backup snapshot is used. Profile and key IDs are remapped by name. The result must pass `integrity_check` and the schema check, and stay within the history size limit (decision 6). |
 | Scooter preferences | For each mapped scooter, replace its `range_source_`, `range_follow_mode_`, `charge_charger_` and `control_evidence` entries. |
 
 ### Profile resolution (dependencies)
@@ -147,7 +147,7 @@ The app must be reopened after any transfer, including cancel. Derived models ar
 
 Copy is short. The screen keeps FLAG_SECURE, follows the user's theme and text size (as RideBackupActivity does), uses 48 dp rows with checkbox semantics and spoken counts, and a polite live region for status. It has no decorative animation, and any expand honours `Ui.motionEnabled()`.
 
-**Entry.** More → **Your data** → **Back up & restore** opens a dialog with **Back up** and **Restore**. Then a confirm: "Volt pauses until you reopen it." / Continue. Onboarding's "Restore a full app backup" goes straight to Restore.
+**Entry.** More → About & permissions → **Your data** → **Back up & restore** opens a dialog with **Back up** and **Restore**. Then a confirm: "Volt pauses until you reopen it." / Continue. Onboarding's "Restore a backup" goes straight to Restore.
 
 **Back up** (BackupActivity):
 
@@ -190,10 +190,10 @@ A note under the category list: "Permissions and Bluetooth pairing aren't includ
 
 - Developer options: remove **Export/Restore all app data**. Keep **Load All widgets into slot 3**.
 - More → App preferences → **Dashboard backups**: remove.
-- Rides → **Ride backups**: becomes a shortcut into the unified flow with only Rides preselected (open question 2).
-- Home → Edit → Layout → Export/Import: see open question 1.
-- MainActivity `fullBackup`/`rideBackup` collapse into `dataBackup(boolean restore, String preselect)` on `ScreenHost`. RideBackupActivity and its manifest entry are removed, and its mapping UI moves into BackupActivity. `BackupExportCache` keeps the `volt-encrypted-*.voltbackup` pattern for prepared exports.
-- Profile → **Save private owner backup** (plain owner JSON for the desktop helper and onboarding import) is not a data backup and is unchanged (open question 8).
+- Rides → **Ride backups**: a shortcut into the unified flow with only Rides preselected (decision 2).
+- Home → Edit → Layout → Export/Import: kept as a plain layout-file sharing tool (decision 1).
+- MainActivity `fullBackup`/`rideBackup` collapse into `dataBackup(Boolean restore, String preselect)` on `ScreenHost` (a null direction shows the Back up / Restore dialog). RideBackupActivity and its manifest entry are removed, and its mapping UI moves into BackupActivity. `BackupExportCache` keeps the `volt-encrypted-*.voltbackup` pattern for prepared exports.
+- Profile → **Save private owner backup** (plain owner JSON for the desktop helper and onboarding import) is not a data backup and is unchanged (decision 8).
 
 ## Implementation plan
 
@@ -205,7 +205,7 @@ A note under the category list: "Permissions and Bluetooth pairing aren't includ
 6. Store helpers: `ChargeSessionStore.inspectJournal`/`reassignJournal` (Java 8, bounded); reuse `RideStore.inspectJournal`/`reassignJournal` and the RideArchive validators (package-private).
 7. `AppDataBackup` Android adapter: namespace-subset prefs read/commit, `mergeHistory(live, incoming, map, out)` with SQLite ATTACH and INSERT OR IGNORE, `usableSpace`, and the existing DB validation.
 8. `DataMaintenance.ensureRecovered` calls `BackupTransaction.recover`, then `RideBackup.recover`, then cache cleanup.
-9. UI: unified `BackupActivity`; `MoreScreen` entry and removals; `RidesScreen` shortcut; `OnboardingScreen` link; `MainActivity.beginBackup` and `ScreenHost`; `DashboardScreen` layout tool per open question 1; remove `RideBackupActivity` and its `AndroidManifest.xml` entry.
+9. UI: unified `BackupActivity`; `MoreScreen` entry and removals; `RidesScreen` shortcut; `OnboardingScreen` link; `MainActivity.beginBackup` and `ScreenHost`; `DashboardScreen` layout tool kept (decision 1); remove `RideBackupActivity` and its `AndroidManifest.xml` entry.
 10. Tests: pure suites listed below in a separate block at the end of `tests/run.sh`; update the android tests; `bash tests/run.sh`, `bash build.sh`, `bash android-tests/build.sh`.
 11. Docs: rewrite `docs/app-data-backup.md` (v2 format, categories, transaction) and note in `docs/ride-backups.md` that `.voltrides` is import-only. Update `docs/user-guide.md` (Back up and restore), `docs/getting-started.md`, `FEATURES.txt`, `PRIVACY.md` table, `README.md` line 41 and `SECURITY.md`. Keep `docs/app-storage-inventory.md` in sync.
 
@@ -245,6 +245,7 @@ Emulator only. Every test admits only `ranchu`/`goldfish`/`sdk_gphone` and refus
 - `DashboardTransferValidation`: JSON import through the unified flow, mapped to a chosen scooter.
 - `BackupInventoryValidation` (new): after populating every feature, list `shared_prefs`, `files`, `no_backup`, `databases` and `cache`, and assert that every namespace, key and file is classified by `BackupRegistry`.
 - `AppDataMaintenanceValidation`: unchanged drain and freeze guarantees for the unified entry.
+- `DashboardTransferValidation` also keeps its direct DashboardConfig export/import checks for the Home layout tool.
 
 ## Acceptance mapping
 
@@ -261,15 +262,50 @@ Emulator only. Every test admits only `ranchu`/`goldfish`/`sdk_gphone` and refus
 | Cancellation | BackupTransactionTest; BackupUiValidation |
 | Process death at transaction boundaries | BackupTransactionTest crash injection; existing interrupted-move emulator check |
 
-## Open questions
+## Decisions
 
-1. Should Home → Edit → Layout keep a plain **Export/Import layout file** for sharing layouts with other people? It would be unencrypted, layouts only. Recommendation: keep it there as a sharing tool and remove it from settings. Otherwise drop dashboard JSON export entirely and keep import.
-2. Should Rides → **Ride backups** stay as a shortcut that preselects Rides, or be removed so there is exactly one entry? Recommendation: keep the shortcut.
-3. Confirm retiring `.voltrides` *export*. New ride backups would always be encrypted and need a password. Import stays.
-4. Device-sensitive preferences (`text_scale`, `background_connection`, `keep_screen_awake`, `poll_interval_ms`) currently restore with App preferences. Should they be split into a separate "This phone" group?
-5. Restoring `map_basemap_enabled` turns online tiles back on in a new installation without showing the first-use explanation again. Recommendation: restore it, since it is the user's recorded choice, and show "Online map: on" in the preview. The alternative is to restore it as off.
-6. A merged history may exceed the 24 MiB database limit. Either prune the merged copy with TelemetryHistory's own retention rules before the swap (recommended), or refuse History merge and offer Replace everything.
-7. Is a per-scooter export filter (back up one scooter only) needed? This design exports all scooters for each selected category.
-8. Keep the plaintext **Save private owner backup** profile action? It is the desktop-helper interchange format, but it is a plaintext credential file.
-9. `control_evidence`: keep transferring the dormant cache, or delete the namespace in a migration and drop it from the registry?
-10. Default for a complete backup on a phone that already has data: Merge (recommended) or Replace everything?
+Recorded answers to the open questions of the first draft:
+
+1. Home → Edit → Layout keeps plain **Export/Import** of dashboard layout files as a sharing tool. Settings no longer have Dashboard backups. Restore also accepts layout files.
+2. Rides → **Ride backups** stays as a shortcut into Back up & restore with Rides preselected.
+3. `.voltrides` export is retired: new ride backups are always encrypted `.voltbackup` v2 files. `.voltrides` import stays.
+4. `text_scale`, `background_connection`, `keep_screen_awake` and `poll_interval_ms` stay in App preferences; there is no separate "This phone" group.
+5. `map_basemap_enabled` and `map_basemap_explained` restore as the user's recorded choice. The preview shows "Online map: on" whenever the restored result has it on.
+6. A merged history that would exceed the 24 MiB limit is pruned with TelemetryHistory's own retention rules (`applyRetention`) before it replaces history; if it is still too large the restore stops before any change.
+7. No per-scooter export filter.
+8. The plaintext **Save private owner backup** profile action is unchanged (desktop-helper interchange; out of scope).
+9. `control_evidence` keeps transferring, assigned to Scooter preferences. It never authorizes a control.
+10. A complete backup onto a phone with scooters, rides, charges or history defaults to Merge; onto an empty phone the Replace everything switch starts on.
+
+Registered ahead of sibling work: the Boolean `ride_auto_stop` (App preferences). Profile validation tolerates additive fields in `profiles.items` (for example `pid_advertised`, `pid_advertised_wall`, `name_default` and `fw_*`), type-checks only the known ones, and splices profile items as their exact text so those fields survive a merge. The registry test fails on unassigned keys found in the source and ignores registered keys this source never writes.
+
+## Implementation notes
+
+Classes: `BackupRegistry` (table and types), `BackupJson`/`BackupProfiles` (bounded JSON reading and profile splicing without Android), `BackupArchive` (export, staging of all four formats, destinations and the read-only plan), `BackupTransaction` (build, preflight, snapshot, apply, rollback, recovery), `AppDataBackup` (Android preferences, SQLite merge and validation, layout validation) and `BackupActivity` (the one screen). `RideBackupActivity` is removed. `DataMaintenance.ensureRecovered` runs `AppDataBackup.recover` (now `BackupTransaction.recover`, which hands a version 1 transaction to the version 1 rollback), then `RideBackup.recover`, then cache cleanup.
+
+Differences from the first draft:
+
+- The manifest's scooter table lists every local scooter whenever a scooter-linked category is selected, not only referenced ones, so export reads no journal. It holds names and serials only, inside the encryption.
+- Unreadable ride or charge files found in a backup are kept for Replace everything (1.3.1 copied them byte for byte) but are never merged; the preview counts them as skipped.
+- Each journal of a ride group is validated; an invalid sidecar skips the whole ride in a merge.
+- Staged charge journals take their start time as modification time, because charge pruning keeps the newest 20 by that time. A merge can still bring the total above 20; the charge store prunes the oldest on the next start, as it does today.
+- Merge history: rows are added with `INSERT OR IGNORE`, so this phone's row wins on every unique key; `latest` keeps this phone's snapshot, else the newest backup snapshot by its `wall`. Recording session numbers are copied as they are.
+- If a backup scooter is set to **Don't restore** while Scooters is selected, that scooter is not added either.
+- `onboarding` becomes `{onboarding_done: true}` when Scooters is merged and the result has a configured scooter, and in Replace everything when the backup's setup was finished.
+- A low-storage refusal or a "Saved data changed" refusal keeps the reviewed file staged, so the user can retry without choosing it again.
+
+## Emulator journeys
+
+Disposable emulators only (`ranchu`/`goldfish`/`sdk_gphone`), Bluetooth off, never a physical phone, no scooter commands. Build with `bash build.sh` and `bash android-tests/build.sh`, then:
+
+1. `python3 android-tests/run-backups.py --adb … --serial emulator-NNNN --app dist/navee-offline-lock.apk --runner .local/build/parked-validation/parked-validation.apk --out <dir>` runs, each after `pm clear`:
+   - `FullBackupJourneyValidation` `export` → pull `backup-journey.voltbackup` to the host → `pm clear` → push → `restore-check` (complete v2, Replace everything, every durable preference and file hash, excluded keys absent, real profile/dashboard/ride/phone/charge/history readers);
+   - `FullBackupJourneyValidation` `legacy-v1` with `tests/fixtures/legacy/full-v1.voltbackup` pushed as `legacy-v1.voltbackup`;
+   - `AppDataBackupValidation` (Android crypto, real SQLite validation and history merge, preference subset commit, post-commit failure rollback, staging removal);
+   - `DashboardTransferValidation` (layout file through the unified flow to a chosen scooter, plus the Home layout tool);
+   - `BackupUiValidation` at 344×882 dp dark/default font and 725×604 dp light/140% font, with `backup-categories.png` renders;
+   - `AppDataMaintenanceValidation` (writer drain and freeze);
+   - `BackupInventoryValidation` last, read-only, against the storage the journeys left.
+2. `python3 android-tests/run-ride-backups.py …` (default cases 344×882 dark/1 and 725×604 light/1.4): `.voltrides` import through Back up & restore with Rides preselected, destination choice, review and apply, no duplicate after a second import, failed provider close and retry, interrupted move recovery, then the cold `check-reopened-range` process relearning range from three restored rides.
+
+Inspect the mapping, preview and category renders. Physical-phone restore has not been exercised.

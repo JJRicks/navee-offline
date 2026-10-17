@@ -1,6 +1,6 @@
 # App storage inventory
 
-Every durable location Volt 1.3.1 writes, what it holds, which scooter profile it belongs to, and how a backup treats it. This is the source list for the backup category registry in [unified backups](unified-backup.md). When code adds a preference key, namespace, file or folder, add it here and to the registry in the same change.
+Every durable location Volt writes (baseline 1.3.1, with later additions noted), what it holds, which scooter profile it belongs to, and how a backup treats it. This is the source list for `BackupRegistry` ([unified backups](unified-backup.md)). When code adds a preference key, namespace, file or folder, add it here and to the registry in the same change; `BackupRegistryTest` fails on an unclassified key or root found in the source, and `BackupInventoryValidation` checks live emulator storage.
 
 Paths are relative to the app's private data directory (`/data/data/local.navee.offlinelock` or its per-user equivalent). `<pid>` is a scooter profile ID: the random UUID string stored in `profiles.items[].id`. Ride, phone and charge files are named by a recording UUID, written `<uuid>`.
 
@@ -48,6 +48,7 @@ The main settings file. It mixes global options, per-scooter entries (key ends i
 | `last_ride_label` | String | global | Durable | Default name for the next ride. |
 | `developer_options` | Boolean | global | Durable | Seven-tap unlock. |
 | `range_learned_intro_seen` | Boolean | global | Durable | Learned-range introduction shown. |
+| `ride_auto_stop` | Boolean | global | Durable | Conservatively end forgotten rides (added by the ride auto-stop work; registered ahead of it). |
 | `dashboard_columns` | Integer | global | Durable | Column choice shared by every scooter's dashboard. DashboardConfig. |
 | `dashboard_v1_<pid>` | String (JSON) | per scooter | Durable | Active dashboard: widgets, parameters, notes and a cell for every column count (folded and unfolded layouts live inside each widget). |
 | `dashboard_slot_v1_<pid>_<0..2>` | String (JSON) | per scooter | Durable | Saved layout slots. |
@@ -74,7 +75,7 @@ No fold or window posture is persisted. `FoldMonitor` reads the live window stat
 
 | Key | Type | Class | Holds |
 |---|---|---|---|
-| `items` | String (JSON array) | Durable, **secret** | Every profile: `id`, `name`, `identity` (12-hex owner credential), `role`, `mac`, `serial`, `lastConnected`. ScooterProfiles. |
+| `items` | String (JSON array) | Durable, **secret** | Every profile: `id`, `name`, `identity` (12-hex owner credential), `role`, `mac`, `serial`, `lastConnected`. ScooterProfiles. Compatibility work adds `pid_advertised`, `pid_advertised_wall`, `name_default` and `fw_*` fields; restores keep unknown fields and type-check the known ones. |
 | `active` | String | Durable | Selected profile ID. |
 | `legacy_migrated` | Boolean | Durable | The legacy `scooter` setup was migrated, or deliberately not. Stops a second migration creating a duplicate profile. |
 
@@ -117,12 +118,13 @@ One String per `<pid>`: JSON of the last command results. Since Volt 1.1.0 (`c7b
 | `databases/telemetry-history.db` | Durable | rows keyed by `profiles.name` = `<pid>` | SQLite v1: `latest` (last-seen readings per profile), `profiles`, `keys`, `detail`, `minute`, `daily` rollups. Rollups outlive pruned detail, so they are data, not a recomputable cache. Delete-journal mode, 24 MiB maximum. TelemetryHistory. |
 | `databases/telemetry-history.db-journal` | Pending | — | Must be absent or empty when closed. |
 | `no_backup/connection-events` (+ `.tmp`) | Diagnostic | mixed | Last 200 connection phases/reasons, 128 KiB cap. ConnectionEventLog. |
-| `no_backup/app-data-transfer/` | Pending | — | Full-restore stages, rollback snapshot and state marker. |
+| `files/missing-export` | — | — | Placeholder path MainActivity uses when no pending export is recorded; never created. |
+| `no_backup/app-data-transfer/` | Pending | — | Restore stages, transaction (`scope.bin`, `additions.bin`, `previous/`, `incoming/`, state marker). |
 | `no_backup/ride-transfer/` | Pending | — | Ride-restore stages and transaction. |
 | `cache/map-tiles/<sha256>/…` | Cache | — | Downloaded basemap tiles, `.meta`, `.part`, `network.meta`. MapTiles. |
 | `cache/charge-exports/charges-*.json` | Cache | one scooter | Developer charge export; removed after 24 h. |
 | `cache/ride-<uuid>.csv` | Cache | — | Ride sensor CSV export. |
-| `cache/volt-encrypted-*.voltbackup`, `cache/volt-rides-*.voltrides` | Cache | — | Prepared backup waiting for a destination; orphans removed at startup (BackupExportCache). |
+| `cache/volt-encrypted-*.voltbackup`, `cache/volt-rides-*.voltrides` | Cache | — | Prepared backup waiting for a destination (`.voltrides` only from older versions); orphans removed at startup (BackupExportCache). |
 | `/data/local/tmp/volt-owner-capture.lock/` | outside app storage | — | Shell-owned Shizuku capture lock. Not app data; never touched by backups. |
 
 Volt does not use external app storage, other databases or other private folders. Instrumentation tests use `getExternalFilesDir()` for disposable fixtures only.
