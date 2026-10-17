@@ -12,7 +12,7 @@ original measurements. Each v2 sample appends estimator version, remaining minut
 to full, remaining minutes to the configured limit, target percentage, full/limit
 source and the number of learned sessions. Missing predictions have blank numeric
 fields and still retain the estimator version. The sources are `CURRENT_RATE`,
-`STOCK_REFERENCE`, and `PERSONAL`; the two targets can have different sources.
+`STOCK_REFERENCE`, `FAST_REFERENCE`, and `PERSONAL`; the two targets can have different sources.
 
 The JSON export retains `navee-charge-recordings-v1` with additive fields:
 

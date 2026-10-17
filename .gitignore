@@ -51,3 +51,6 @@ bugreport-*
 .vscode/
 __pycache__/
 *.pyc
+
+# Sanitized calibration evidence: relative elapsed time and electrical measurements only.
+!/tests/fixtures/ut5-max-fast-charge-calibration.csv

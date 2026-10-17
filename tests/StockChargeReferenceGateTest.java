@@ -26,7 +26,7 @@ public final class StockChargeReferenceGateTest {
     private static ChargingEstimate.Result estimate(StockChargeReferenceGate gate, double soc,
             double watts, Double target, long frame, long now) {
         return ChargingEstimate.forScooter(baseline(soc, watts, target, frame), live(soc, frame),
-                live(15.3, frame), 2538, null, null, gate, SCOPE, frame, now);
+                live(15.3, frame), 2538, ChargeSessionStore.Charger.STOCK, null, gate, SCOPE, frame, now);
     }
 
     private static StockChargeReferenceGate entered() {
@@ -103,7 +103,7 @@ public final class StockChargeReferenceGateTest {
             ChargingEstimate.Result base = ChargingEstimate.calculate(live(1d, frame), live(volts, frame),
                     live(-watts / volts, frame), live(99d, frame), live(15.3, frame), live(100d, frame));
             ChargingEstimate.Result result = ChargingEstimate.forScooter(base, live(99d, frame), live(15.3, frame),
-                    2538, null, null, taperGate, SCOPE, frame, frame);
+                    2538, ChargeSessionStore.Charger.STOCK, null, taperGate, SCOPE, frame, frame);
             check(result.referenceToFull == (i < 3), "The 99% matcher honors two-frame grace, then expires");
             if (i < 3) check(result.remainingMinutesToFull < 1, "An accepted taper grace cannot jump to a sixteen-minute live-rate ETA");
             else near(base.remainingMinutesToFull, result.remainingMinutesToFull, 0, "Expired taper grace uses the fresh baseline");
@@ -136,7 +136,7 @@ public final class StockChargeReferenceGateTest {
             ChargingEstimate.Value soc = live(95d, 2000), rated = live(15.3, 2000);
             ChargingEstimate.Result base = baseline(95, 94.5, 100d, 2000);
             int pid = 2538;
-            ChargeSessionStore.Charger charger = null;
+            ChargeSessionStore.Charger charger = ChargeSessionStore.Charger.STOCK;
             if (invalid == 0) base = null;
             if (invalid == 1) base = ChargingEstimate.calculate(live(0d, 2000), live(54d, 2000), live(-2d, 2000), soc, rated, live(100d, 2000));
             if (invalid == 2) base = ChargingEstimate.calculate(live(1d, 2000), live(54d, 2000), new ChargingEstimate.Value(-2d, false, 2000), soc, rated, live(100d, 2000));

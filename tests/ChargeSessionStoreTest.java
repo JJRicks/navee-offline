@@ -58,7 +58,7 @@ public final class ChargeSessionStoreTest {
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(live,new ChargingEstimate.Value(52d,true,100),new ChargingEstimate.Value(-2d,true,100),new ChargingEstimate.Value(50d,true,100),new ChargingEstimate.Value(14.5,true,100),new ChargingEstimate.Value(80d,true,100));
         ChargingEstimate.Result adjusted=ChargingEstimate.withObservedCurve(baseline,new ChargingEstimate.Value(50d,true,100),p);
         check(adjusted.learnedToLimit&&!adjusted.learnedToFull&&adjusted.learnedSessions==2,"Result exposes mixed estimate sources");near(30,adjusted.remainingMinutesToLimit,"Learned cutoff replaces baseline");near(217.5,adjusted.remainingMinutesToFull,"Current-rate fallback retained for uncovered taper");
-        check(adjusted.status.contains("taper")&&adjusted.status.contains("manual"),"Fallback and selected charger are explained");
+        check(adjusted.status.contains("taper")&&adjusted.status.contains("stock"),"Fallback and selected charger are explained");
         check("From 2 past charges".equals(adjusted.label),"Short label names the learned source: "+adjusted.label);
         ChargingEstimate.Result unknownCutoff=ChargingEstimate.calculate(live,new ChargingEstimate.Value(52d,true,100),new ChargingEstimate.Value(-2d,true,100),new ChargingEstimate.Value(50d,true,100),new ChargingEstimate.Value(14.5,true,100),new ChargingEstimate.Value(null,true,100));
         ChargingEstimate.Result learnedUnknown=ChargingEstimate.withObservedCurve(unknownCutoff,new ChargingEstimate.Value(50d,true,100),learned);
@@ -133,7 +133,7 @@ public final class ChargeSessionStoreTest {
         ChargingEstimate.Result faster=observed(stockCurve,60,5.5);
         near(14.5*.4/5.5*60,faster.remainingMinutesToFull,"Twice the training current keeps the review's approximately 63-minute live estimate");
         check(!faster.learnedToFull&&!faster.learnedToLimit&&faster.learnedSessions==0,"Mismatched power cannot claim a learned ETA");
-        check(faster.status.contains("Live power differs")&&faster.status.contains("manual")&&!faster.status.contains("Observed average"),"Power mismatch is explicit without claiming charger identification");
+        check(faster.status.contains("Live power differs")&&faster.status.contains("selected charger")&&!faster.status.contains("Observed average"),"Power mismatch is explicit without claiming charger identification");
         check("Charger mismatch · rate estimate".equals(faster.label),"Short label marks the mismatch as a rate estimate");
         ChargingEstimate.Result same=observed(stockCurve,60,2.75);
         near(120,same.remainingMinutesToFull,"Compatible stock power keeps the learned 120-minute curve");

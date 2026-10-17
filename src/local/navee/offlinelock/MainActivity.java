@@ -1314,7 +1314,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             addRow("Battery",clockLine.card);extras.put(clockLine.card,new String[]{"Battery","sync scooter clock scheduled charging time timezone"});
             chargerLine=new SettingLine("battery","Charger for estimates",null);chargerLine.chevron(MainActivity.this::showChargerEstimateChoice);
             chargerLine.line.setTag("estimate-charger-setting");chargerLine.value.setTag("estimate-charger-value");
-            addRow("Battery",chargerLine.card);extras.put(chargerLine.card,new String[]{"Battery","charger for estimates stock high speed charging time remaining"});
+            addRow("Battery",chargerLine.card);extras.put(chargerLine.card,new String[]{"Battery","charger for estimates automatic auto stock high speed charging time remaining"});
             SettingLine security=new SettingLine("shield","PIN & proximity unlock",null);security.chevron(()->openMoreSection("Security"));
             addRow("Security",security.card);extras.put(security.card,new String[]{"Security","pin password proximity unlock pairing bluetooth bond security"});
             SettingLine identity=new SettingLine("pencil","Scooter name",null);identity.chevron(MainActivity.this::renameScooter);nameValue=identity.value;
@@ -1416,7 +1416,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             boolean chargerEditable=profile!=null&&!scooterService.isChargeRecording();
             chargerLine.line.setEnabled(chargerEditable);chargerLine.name.setTextColor(chargerEditable?design.text:design.muted);
             ChargeSessionStore.Charger charger=scooterService==null?null:scooterService.chargeCharger();
-            chargerLine.value.setText(charger==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":charger==null?"Stock (default)":"Stock");
+            ChargeSessionStore.Charger effective=scooterService==null?null:scooterService.effectiveChargeCharger();
+            chargerLine.value.setText(charger==null?(effective==null?"Automatic":"Auto · "+(effective==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":"Stock"))
+                    :charger==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":"Stock");
             chargerLine.setSub(scooterService!=null&&scooterService.isChargeRecording()?"Stop charge recording to change":null);
             if(choiceSheet!=null)choiceSheet.refresh();
         }
@@ -2054,19 +2056,21 @@ public final class MainActivity extends Activity implements ScreenHost {
         String profile=scooterService.profiles.active().id;
         final AlertDialog[] sheet=new AlertDialog[1];
         LinearLayout content=sheetContent("Charger for estimates",
-                "Choose the charger you use; Volt does not detect it. This changes estimates only, and is saved for this scooter.",
+                "Automatic recognizes UT5 MAX chargers from live charging power. You can choose a charger yourself instead.",
                 ()->{if(sheet[0]!=null)sheet[0].dismiss();});
-        SegmentedSelector selector=new SegmentedSelector(design,"Charger for estimates",new String[]{"Stock","High-speed"},choice->{
+        SegmentedSelector selector=new SegmentedSelector(design,"Charger for estimates",new String[]{"Auto","Stock","High-speed"},choice->{
             if(scooterService==null||scooterService.profiles.active()==null||!profile.equals(scooterService.profiles.active().id)){
                 if(sheet[0]!=null)sheet[0].dismiss();return;
             }
-            if(scooterService.setChargeCharger(choice==0?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED)){
+            if(scooterService.setChargeCharger(choice==0?null:choice==1?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED)){
                 if(sheet[0]!=null)sheet[0].dismiss();redraw();
             }else toast("Stop charge recording before changing the charger.");
         });
-        selector.setTag("estimate-charger-selector");selector.select(scooterService.chargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED?1:0,false);
+        selector.setTag("estimate-charger-selector");
+        ChargeSessionStore.Charger selected=scooterService.chargeCharger();
+        selector.select(selected==null?0:selected==ChargeSessionStore.Charger.STOCK?1:2,false);
         content.addView(selector,new LinearLayout.LayoutParams(-1,-2));
-        TextView explanation=design.caption("Stock enables the experimental UT5 MAX reference when readings match. High-speed uses live-rate or compatible learned estimates.");
+        TextView explanation=design.caption("Connecting near full may leave the charger uncertain; Volt uses the current rate until it knows. This preference changes estimates only and is saved for this scooter.");
         explanation.setPadding(0,design.dp(12),0,design.dp(4));content.addView(explanation);
         controlDialog=showSheet(content);sheet[0]=controlDialog;
     }
