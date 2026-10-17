@@ -121,7 +121,7 @@ public final class ModelRegistryTest {
         check(lock.support==CapabilityResolver.Support.KNOWN_ENCODING&&lock.evidence==CapabilityResolver.Evidence.SHARED_CONTRACT&&lock.variant==ModelRegistry.SHARED_LOCK,"Shared lock contract");
         check(ModelRegistry.rule("display_units",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("charge_limit",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM home-screen rows only (version 2)");
-        check(ModelRegistry.VERSION==2,"Registry version records the OEM home-screen rows");
+        check(ModelRegistry.VERSION==3,"Registry version records the guided-test table");
         check(ModelRegistry.rule("display_units",both("Q2547ZZ9US7777777","25381"),null,null).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict reason");
         boolean unknownKey=false;try{ModelRegistry.rule("not_a_feature",us,null,null);}catch(IllegalArgumentException expected){unknownKey=true;}
         check(unknownKey,"Unknown keys are rejected");
