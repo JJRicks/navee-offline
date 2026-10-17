@@ -312,6 +312,10 @@ public final class BleController {
         if(simulating()){queue.clear();discoveryQueue.clear();writing=false;return;}
         if(!workAllowed()||writing||queue.isEmpty()||gatt==null||writer==null)return;byte[] frame=queue.removeFirst();int cmd=frame[3]&255;int type=(writer.getProperties()&BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)!=0?BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE:BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT;
         DiscoveryCoordinator owner=discoveryQueue.remove(frame);
+        // Admission at enqueue time can expire while another GATT write is in flight.
+        // Recheck at the actual radio boundary, excluding only this mutation's own busy flag.
+        if(!MutationGate.mayTransmit(frame,mutation==null?null:mutation.bytes)){event("Unadmitted queued write dropped");pump();return;}
+        if(mutation!=null&&Arrays.equals(frame,mutation.bytes)&&!admitQueuedMutation()){pump();return;}
         if(owner!=null&&(!discovering||owner!=discovery||!owner.transmitted(cmd,now()))){pump();return;}
         if(frame.length==7&&readPolicy!=null)readPolicy.requested(cmd,now());
         if(frame.length==7&&cmd==0x70){outstandingStatusReads++;if(test!=null&&!test.terminal())test.onReadRequested(cmd,now());}
@@ -320,6 +324,31 @@ public final class BleController {
         if(!ScooterCommands.sensitiveCommand(cmd))event(String.format(Locale.ROOT,"Send 0x%02X (%d bytes)",cmd,frame.length));
         int result;if(Build.VERSION.SDK_INT>=33)result=gatt.writeCharacteristic(writer,frame,type);else{writer.setWriteType(type);writer.setValue(frame);result=gatt.writeCharacteristic(writer)?0:-1;}
         if(result!=0){writing=false;failed("Send failed",true,ConnectionEventLog.Reason.WRITE_FAILED,result);return;}int op=++writeOperation,session=generation;handler.postDelayed(()->{if(session==generation&&writing&&op==writeOperation)failed("Send failed",true,ConnectionEventLog.Reason.WRITE_TIMEOUT,-1);},3500);
+    }
+    private boolean admitQueuedMutation(){
+        Mutation pending=mutation;
+        if(pending==null||pending.sent)return false;
+        CapabilityResolver.Runtime rt=runtime(pending.key);rt.busy=false;
+        CapabilityResolver.Decision d=duringDiscovery(MutationGate.check(pending.request,descriptor(),status(),rt));
+        boolean unchanged=pending.variant==null||d.variant!=null&&pending.variant.id.equals(d.variant.id);
+        if(guided(pending))unchanged&=test!=null&&!test.terminal()&&test.awaitingWrite()
+                &&test.feature.equals(pending.key)&&profile()!=null&&test.profileId.equals(profile().id)
+                &&test.restoring()==(pending.request.origin==MutationGate.Origin.GUIDED_RESTORE);
+        if(d.available()&&unchanged&&pending.request.kind==MutationGate.Kind.SET){
+            try{byte[] current=d.variant.decode==FeatureVariant.Decode.UT5_FEATURE
+                    ?ScooterCommands.set(pending.key,pending.target,statusFrame):d.variant.encode(pending.target);
+                unchanged=Arrays.equals(current,pending.bytes);
+            }catch(IllegalArgumentException invalid){unchanged=false;}
+        }
+        if(pending.request.kind==MutationGate.Kind.PIN_ENABLE)
+            unchanged&=pinFresh()&&(pending.target!=0||!Integer.valueOf(1).equals(featureValue("proximity_key")));
+        if(d.available()&&unchanged&&guided(pending))unchanged=test.admitsQueuedWrite(status(),now());
+        if(d.available()&&unchanged)return true;
+        if(guided(pending)&&test!=null&&!test.terminal())test.onWriteRefused(now());
+        clearMutation();result(pending.key,"Cancelled before sending");
+        if(!d.available())refused(pending.request,d);else notice("Setting changed while waiting. Try again.");
+        if(guided(pending))stepTest();
+        return false;
     }
     private void incoming(byte[] bytes){
         if(simulating())return;
@@ -372,7 +401,7 @@ public final class BleController {
         if(readPolicy==null)readPolicy=identified?ReadPolicy.forLayer(layer):ReadPolicy.legacy();else readPolicy.layer(layer,identified);
         return readPolicy;
     }
-    private void poll(int session){if(simulating())return;handler.postDelayed(()->{if(simulating()||!workAllowed()||session!=generation||!authenticated||gatt==null)return;long silentLimit=visible||recording?12000:35000;if((lastFrameMs>0&&now()-lastFrameMs>silentLimit)||(statusMs>0&&now()-statusMs>silentLimit)){failed("Signal lost",true,ConnectionEventLog.Reason.READ_TIMEOUT,-1);return;}if(readPolicy!=null)readPolicy.tick(now());send(Protocol.frame(0x70,null));int interval=context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getInt("poll_interval_ms",2000);interval=Math.max(2000,Math.min(10000,interval));if(!discovering&&!testing()&&(visible||recording)&&now()-lastBatteryPollMs>=(recording?2000:interval)){for(int cmd:policy().periodicBattery())send(Protocol.frame(cmd,null));lastBatteryPollMs=now();}changed();poll(session);},visible||recording?2000:15000);}
+    private void poll(int session){if(simulating())return;handler.postDelayed(()->{if(simulating()||!workAllowed()||session!=generation||!authenticated||gatt==null)return;long silentLimit=visible||recording?12000:35000;if((lastFrameMs>0&&now()-lastFrameMs>silentLimit)||(statusMs>0&&now()-statusMs>silentLimit)){failed("Signal lost",true,ConnectionEventLog.Reason.READ_TIMEOUT,-1);return;}if(readPolicy!=null)readPolicy.tick(now());if(testing())stepTest();send(Protocol.frame(0x70,null));int interval=context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getInt("poll_interval_ms",2000);interval=Math.max(2000,Math.min(10000,interval));if(!discovering&&!testing()&&(visible||recording)&&now()-lastBatteryPollMs>=(recording?2000:interval)){for(int cmd:policy().periodicBattery())send(Protocol.frame(cmd,null));lastBatteryPollMs=now();}changed();poll(session);},visible||recording?2000:15000);}
     /** Every write's admission: the resolver decision for this request, on this session's fresh state. */
     private CapabilityResolver.Decision check(MutationGate.Request r){return duringDiscovery(MutationGate.check(r,descriptor(),status(),runtime(r.feature)));}
     private boolean gate(MutationGate.Request r){CapabilityResolver.Decision d=check(r);if(d.available())return true;refused(r,d);return false;}
@@ -598,6 +627,7 @@ public final class BleController {
      */
     private void stepTest(){
         if(test==null)return;
+        test.tick(now());
         if(mutation!=null&&guided(mutation)&&!test.awaitingWrite()){String key=mutation.key;List<String> o=test.outcomeTexts();result(key,o.isEmpty()?"Guided test":o.get(o.size()-1));clearMutation();message="Connected";}
         if(test.wantsRead()&&gatt!=null&&authenticated)send(Protocol.frame(0x70,null));
         Integer value=test.writeNow();
@@ -615,23 +645,23 @@ public final class BleController {
     }
 
     /**
-     * Queues one admitted mutation. The gate is evaluated again immediately before sending (same
-     * request, fresh state); if the decision changed nothing is sent.
+     * Queues one admitted mutation. pump() rechecks its fresh admission and encoding immediately
+     * before transmission; a request that became unsafe while queued is cancelled.
      */
     private boolean begin(MutationGate.Request request,FeatureVariant variant,int target,byte[] bytes,Long time){
         if(simulating())return false;
         CapabilityResolver.Decision again=check(request);
         if(!again.available()){if(request.feature.equals("pin"))Arrays.fill(bytes,(byte)0);refused(request,again);return false;}
         String key=request.feature;
-        mutation=new Mutation(key,bytes[3]&255,target,++mutationSequence);mutation.time=time;mutation.bytes=bytes;mutation.request=request;mutation.variant=variant;
+        mutation=new Mutation(key,bytes[3]&255,target,++mutationSequence);Mutation pending=mutation;mutation.time=time;mutation.bytes=bytes;mutation.request=request;mutation.variant=variant;
         message=key.equals("clock_sync")?"Setting the scooter’s clock from this phone…":"Applying "+ScooterCommands.find(key).label.toLowerCase(Locale.ROOT)+"…";changed();send(bytes);
-        return true;
+        return mutation==pending;
     }
     private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;if(guided(mutation)&&test!=null)test.onMutationTimeout(mutation.ack,now());String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed("Change not confirmed",true,ConnectionEventLog.Reason.COMMAND_CONFIRMATION_TIMEOUT,-1);}
     private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;result(key,evidence);clearMutation();notice(text);}
-    private void clearMutation(){if(mutation!=null&&mutation.desiredPin!=null){Arrays.fill(mutation.desiredPin,'\u0000');Arrays.fill(mutation.bytes,(byte)0);}mutation=null;}
+    private void clearMutation(){if(mutation!=null){for(Iterator<byte[]> i=queue.iterator();i.hasNext();)if(i.next()==mutation.bytes)i.remove();if(mutation.desiredPin!=null){Arrays.fill(mutation.desiredPin,'\u0000');Arrays.fill(mutation.bytes,(byte)0);}}mutation=null;}
     // Results describe this session only. Neither row captions nor Command evidence reload old outcomes.
     private void result(String key,String text){commandResults.put(key,text);resultTimes.put(key,System.currentTimeMillis());}
     /** A reconnect keeps this session's results (a cancelled change stays visible); another scooter starts clean. */

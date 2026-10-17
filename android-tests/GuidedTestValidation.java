@@ -544,8 +544,45 @@ public final class GuidedTestValidation extends Instrumentation {
 
     // ---- interrupt (process death between target and restore) ----------------------------------
 
-    /** Real production queue with delayed callbacks/replies, but an entirely synthetic GATT link. */
+    /** A fresh motion report invalidates a guided value still waiting behind a GATT write. */
+    private void queuedAdmissionSafety() throws Exception {
+        connect("mapped");
+        main(() -> {
+            ((Handler)field(activity.service().ble,"handler")).removeCallbacksAndMessages(null);
+            activity.service().ble.setTestParked(true);
+            activity.service().ble.startTest("display_units",0);
+        });
+        awaitPhase(GuidedTest.Phase.BASELINE,"fresh baseline before delayed queue");
+        SystemClock.sleep(200);
+        main(() -> {
+            fake.callbackDelayMs=1500;
+            invoke(activity.service().ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x70,null));
+        });
+        await(() -> {boolean[] writing={false}; main(() -> writing[0]=(Boolean)field(activity.service().ble,"writing")); return writing[0];},"status write did not occupy queue");
+        main(() -> {
+            BleController ble=activity.service().ble;
+            ble.approveTest();
+            require(ble.pending()!=null && fake.writes.isEmpty(),"test target should still be queued");
+            fake.notify(0x91,0,new byte[]{0,1,10});
+        });
+        await(() -> {boolean[] moving={false};main(() -> moving[0]=!activity.service().ble.stationary() && activity.service().ble.speedRaw()>0);return moving[0];},"moving push was not accepted");
+        main(() -> {
+            CapabilityResolver.Runtime rt=new CapabilityResolver.Runtime();
+            rt.ready=true;rt.motionSeen=true;rt.stationary=false;rt.test=true;rt.testFeature="display_units";rt.owner=true;rt.parkedConfirmed=true;
+            rt.nowMs=SystemClock.elapsedRealtime();
+            BleController ble=activity.service().ble;
+            StatusFields status=StatusFields.of((Protocol.Frame)field(ble,"statusFrame"),(Long)field(ble,"statusMs"));
+            CapabilityResolver.Decision shouldRefuse=MutationGate.check(new MutationGate.Request(MutationGate.Kind.SET,"display_units",0,MutationGate.Origin.GUIDED_TEST),ble.descriptor(),status,rt);
+            require(shouldRefuse.reason==CapabilityResolver.Reason.MOVING,"fresh admission should refuse motion");
+        });
+        await(() -> {boolean[] cleared={false};main(() -> cleared[0]=activity.service().ble.pending()==null);return cleared[0];},"Unsafe queued mutation was not cancelled",6000);
+        SystemClock.sleep(1800);
+        require(fake.writes.isEmpty(),"Queued target reached the scooter after fresh motion");
+        checks.add("A moving report while a guided target waits behind a GATT write cancels the target before transmission");
+    }
+
     private void queueLifecycle() throws Exception {
+        queuedAdmissionSafety();
         connect("ut5");
         main(() -> { ((Handler)field(activity.service().ble,"handler")).removeCallbacksAndMessages(null);activity.service().ble.setTestParked(true); fake.holdStatus=true;
             invoke(activity.service().ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x70,null)); });

@@ -105,6 +105,7 @@ header, main, footer { position: relative; z-index: 1; }
   padding: clamp(28px, 6vw, 80px) var(--gutter) 48px;
 }
 .pill {
+  position: relative; z-index: 1; /* Keep the link above the large heading glyph hit area. */
   display: inline-flex; align-items: center; gap: 10px; padding: 8px 16px 8px 12px; border-radius: 999px;
   border: 1px solid rgba(234, 37, 43, .4); background: rgba(234, 37, 43, .1); color: #ffd6d2;
   font-size: 14px; font-weight: 500; text-decoration: none; transition: background .2s, border-color .2s;

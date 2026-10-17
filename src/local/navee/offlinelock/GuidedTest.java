@@ -65,10 +65,12 @@ final class GuidedTest {
     // (or post-start) probe. Counting a mixed batch would let an older reply arriving last win.
     private int outstanding,needed=-1,replies;private boolean armed;
     private String note="";
+    private static final long READ_WAIT_MS=10000;
+    private long readDeadlineMs;
 
     private GuidedTest(TestJournal journal,String profileId,DeviceDescriptor d,FeatureVariant v,String feature,int target,long nowMs,long wallMs,Random random){
         this.journal=journal;this.profileId=profileId==null?"":profileId;this.descriptor=d;this.variant=v;this.feature=feature;this.target=target;
-        this.wallOffset=wallMs-nowMs;this.random=random;this.expected=target;
+        this.wallOffset=wallMs-nowMs;this.random=random;this.expected=target;this.readDeadlineMs=nowMs+READ_WAIT_MS;
     }
 
     /**
@@ -170,6 +172,7 @@ final class GuidedTest {
     }
     /** Every 0x70 reply (an unaccepted one is still an answer). */
     void onStatus(StatusFields s,long nowMs){
+        tick(nowMs);
         boolean requested=outstanding>0;
         if(requested)outstanding--;
         if(requested&&needed>0)replies++;
@@ -196,7 +199,7 @@ final class GuidedTest {
             add(Outcome.REJECTED,status,nowMs);
             if(phase==Phase.TARGET_AWAIT){
                 // Restoration is not needed, but it is verified: a fresh readback must equal the baseline.
-                verifyOnly=true;phase=Phase.RESTORE_AWAIT;arm();save(nowMs);
+                verifyOnly=true;phase=Phase.RESTORE_AWAIT;readDeadlineMs=nowMs+READ_WAIT_MS;arm();save(nowMs);
             }else outstanding("The scooter rejected setting it back (code "+status+").",nowMs);
             return;
         }
@@ -211,8 +214,15 @@ final class GuidedTest {
     }
     /** BleController refused or could not send the value writeNow() returned. */
     void onWriteRefused(long nowMs){
-        if(phase==Phase.TARGET_AWAIT&&!acked&&!verifyOnly){add(Outcome.INTERRUPTED,0,nowMs);verifyOnly=true;phase=Phase.RESTORE_AWAIT;arm();save(nowMs);}
+        if(phase==Phase.TARGET_AWAIT&&!acked&&!verifyOnly){add(Outcome.INTERRUPTED,0,nowMs);verifyOnly=true;phase=Phase.RESTORE_AWAIT;readDeadlineMs=nowMs+READ_WAIT_MS;arm();save(nowMs);}
         else if(phase==Phase.RESTORE_AWAIT&&!acked&&!verifyOnly){add(Outcome.INTERRUPTED,0,nowMs);outstanding("Volt could not send the restore.",nowMs);}
+    }
+    /** An unanswered older poll must never leave preparation or verification spinning forever.
+     * Do not discard the read counter: a late old reply must never become restoration evidence. */
+    void tick(long nowMs){
+        if((phase!=Phase.PRECHECK&&!verifying())||nowMs<readDeadlineMs)return;
+        if(phase==Phase.PRECHECK)end("Couldn't get a fresh baseline. Reconnect and try again. Nothing was changed.");
+        else{add(Outcome.INTERRUPTED,0,nowMs);outstanding("Couldn't verify the setting. Reconnect and review the unfinished test.",nowMs);}
     }
     /** Disconnect, Bluetooth off, background suspension or service end. */
     void onDisconnect(long nowMs){interrupt("The connection ended during the test.",nowMs);}
@@ -231,6 +241,15 @@ final class GuidedTest {
     }
     /** Whether the write handed out by writeNow() is the restore (GUIDED_RESTORE) rather than the target. */
     boolean restoring(){return phase==Phase.RESTORE_PENDING||phase==Phase.RESTORE_AWAIT;}
+    /** Last read-only precondition at actual transmission, after any GATT queue delay. */
+    boolean admitsQueuedWrite(StatusFields s,long nowMs){
+        if(!awaitingWrite()||terminal()||variant==null)return false;
+        Integer value=variant.read(s),wanted=phase==Phase.TARGET_AWAIT?baseline:expected;
+        if(value==null||!value.equals(wanted)||relatedChanged(s)){
+            conflict("A setting changed while the test was waiting. Review it before restoring.",nowMs);return false;
+        }
+        return true;
+    }
     /** The test wants a 0x70 read sent (baseline or verification). */
     boolean wantsRead(){return readWanted&&outstanding==0&&!terminal();}
     /** Waiting for the ACK or readback of our own write. */
