@@ -119,12 +119,14 @@ public final class BackupActivity extends Activity {
         field.setSaveEnabled(false);field.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
         field.setFilters(new InputFilter[]{new InputFilter.LengthFilter(128)});field.setMinHeight(ui.dp(56));content.addView(field);return field;
     }
+    /** Disabled (empty) categories read as unavailable, not as unchecked choices. */
+    private ColorStateList enabledColors(int color){return new ColorStateList(new int[][]{{-android.R.attr.state_enabled},{}},new int[]{ui.muted,color});}
     /** One 48 dp checkbox row; its count is spoken with the label. */
     private CheckBox checkRow(LinearLayout list,String id,String label,String detail,boolean enabled,boolean checked){
         if(list.getChildCount()>0)ui.divider(list);
         LinearLayout row=new LinearLayout(this);row.setGravity(Gravity.CENTER_VERTICAL);row.setMinimumHeight(ui.dp(48));
-        CheckBox box=new CheckBox(this);box.setText(label);box.setTextColor(ui.text);box.setTextSize(TypedValue.COMPLEX_UNIT_SP,15*textScale);
-        box.setButtonTintList(ColorStateList.valueOf(ui.accent));box.setMinHeight(ui.dp(48));box.setEnabled(enabled);box.setChecked(enabled&&checked);
+        CheckBox box=new CheckBox(this);box.setText(label);box.setTextColor(enabledColors(ui.text));box.setTextSize(TypedValue.COMPLEX_UNIT_SP,15*textScale);
+        box.setButtonTintList(enabledColors(ui.accent));box.setMinHeight(ui.dp(48));box.setEnabled(enabled);box.setChecked(enabled&&checked);
         box.setContentDescription(detail==null||detail.isEmpty()?label:label+", "+detail.replace(" · ",", "));if(id!=null)box.setTag("backup-category-"+id);
         row.addView(box,new LinearLayout.LayoutParams(0,-2,1));
         if(detail!=null&&!detail.isEmpty()){TextView value=ui.caption(detail);value.setTextSize(TypedValue.COMPLEX_UNIT_SP,13*textScale);value.setGravity(Gravity.END);
@@ -252,6 +254,9 @@ public final class BackupActivity extends Activity {
     private void askPassword(){
         retry("");if(password==null){password=passwordField("Backup password");content.removeView(password);content.addView(password,content.indexOfChild(status));}
         password.requestFocus();label(action,"Open backup");action.setTag("restore-open");action.setOnClickListener(v->openEncrypted());
+        // A wrong or damaged file must not strand the rider on it: another file can be chosen here.
+        if(content.findViewWithTag("restore-choose-again")==null){TextView again=ui.secondaryButton("Choose another file",this::choose);again.setTag("restore-choose-again");again.setContentDescription("Choose another file");
+            LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=ui.dp(12);content.addView(again,content.indexOfChild(closeAction),p);}
     }
     private void openEncrypted(){
         if(busy||terminal||picked==null)return;
@@ -324,6 +329,12 @@ public final class BackupActivity extends Activity {
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);choice.setAdapter(adapter);choice.setMinimumHeight(ui.dp(56));
             choice.setContentDescription("Destination for "+d.name);choice.setTag("restore-destination");
             choice.setSelection(d.suggested==null?ids.size()-1:Math.max(0,ids.indexOf(d.suggested)));
+            // A description replaces the spoken value, so it carries the current choice too.
+            final String source=d.name;
+            choice.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
+                public void onItemSelected(AdapterView<?> parent,View view,int position,long id){parent.setContentDescription("Destination for "+source+": "+names.get(position));}
+                public void onNothingSelected(AdapterView<?> parent){}});
+            choice.setContentDescription("Destination for "+source+": "+names.get(choice.getSelectedItemPosition()));
             content.addView(choice,new LinearLayout.LayoutParams(-1,-2));choices.put(d.source,choice);targets.put(d.source,ids);
         }
         if(onlySkip)paragraph("Include Scooters or set up a scooter first.");
