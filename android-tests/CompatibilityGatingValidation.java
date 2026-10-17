@@ -383,6 +383,15 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         do { main(() -> afterStop[0] = texts(root())); if (afterStop[0].contains("Interrupted")) break; SystemClock.sleep(100); } while (SystemClock.uptimeMillis() < until);
         if (!afterStop[0].contains("Interrupted")) screenshot(label + "-stop-failure");
         require(afterStop[0].contains("Interrupted"), label + ": Stop did not mark reads interrupted: " + afterStop[0].replace('\n', '|'));
+        main(() -> {
+            // A simulated region change clears the check only where it changes the descriptor: the UT5 MAX simulator ignores the region.
+            BleController ble = activity.service().ble; Object kept = invoke(ble, "discovery"); String region = ble.simulationRegion();
+            require(kept != null, label + ": no interrupted check to keep");
+            ble.setSimulationRegion(region); require(invoke(ble, "discovery") == kept, label + ": an unchanged region cleared the check");
+            ble.setSimulationRegion("DE".equals(region) ? "FR" : "DE");
+            require((invoke(ble, "discovery") == kept) == pid.isEmpty(), label + ": region change " + (pid.isEmpty() ? "cleared the UT5 MAX check" : "kept a check whose descriptor changed"));
+            ble.setSimulationRegion(region);
+        });
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
         checks.add(label + ": compatibility check holds writes, ends within bounds and previews its report");
     }
