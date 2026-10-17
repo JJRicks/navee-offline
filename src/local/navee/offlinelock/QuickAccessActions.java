@@ -24,6 +24,17 @@ public final class QuickAccessActions {
             return f != null && f.type == ScooterCommands.Type.TOGGLE && !f.experimental
                     && !f.sensitive && !f.key.equals("proximity_key");
         }
+        /**
+         * The connected model's decision: on another model's mapping a non-Lab on/off control toggles
+         * directly even where the UT5 MAX keeps it in Lab. The UT5 MAX and unmapped controls keep directToggle().
+         */
+        public boolean directToggle(CapabilityResolver.Decision d) {
+            ScooterCommands.Feature f = feature();
+            if (f == null || d == null || d.support != CapabilityResolver.Support.KNOWN_ENCODING || d.variant == null
+                    || d.variant.decode == FeatureVariant.Decode.UT5_FEATURE) return directToggle();
+            return f.type == ScooterCommands.Type.TOGGLE && !d.variant.lab && !f.sensitive
+                    && !f.key.equals("proximity_key") && Arrays.equals(d.variant.values, new int[]{0, 1});
+        }
     }
     private static final LinkedHashMap<String, Entry> ENTRIES = new LinkedHashMap<>();
     static {

@@ -15,6 +15,7 @@ public final class OemControlsTest {
         batch1Tables(); batch1Firmware(); batch1Region(); batch1Fields(); batch1Frames(); batch1Rules();
         batch2MaximumSpeed(); batch2SpeedLimit(); batch2StartSpeed(); batch2Energy(); batch2Frames();
         batch3Zones(); batch3GroupS(); batch3Frames();
+        quickAccessFollowsDecision();
         System.out.println("OemControls tests passed: "+assertions+" assertions");
     }
 
@@ -385,6 +386,27 @@ public final class OemControlsTest {
         for(int v=0;v<=5;v++)check((ModelRegistry.caution(decide("start_speed",model("24431"),d),v)!=null)==(v<3),"Caution below 3 km/h: "+v);
         CapabilityResolver.Decision ut5=decide("start_speed",ModelRegistryTest.serial("Q2538ZZ9DE7777777"),d);
         check(ut5.variant.id.equals("start_speed.ut5")&&ut5.allows(0)&&ut5.allows(5)&&ModelRegistry.caution(ut5,0)==null,"Every UT5 MAX keeps 0-5 and no prompt");
+    }
+
+    /** Quick Access tiles: the decided variant labels the value and decides direct toggles; the UT5 MAX is unchanged. */
+    private static void quickAccessFollowsDecision() {
+        byte[] d=data();
+        byte[] unset=d.clone();unset[31]=0;
+        check("Default (80%)".equals(decide("charge_limit",model("24431"),unset).oemLabel(0)),"Unset charge limit tile label");
+        byte[] on=d.clone();on[5]=1;
+        check("On".equals(decide("energy_recovery",model("25041"),on).oemLabel(1)),"On/off energy recovery tile label");
+        check(decide("maximum_speed",model("24431"),d).oemLabel(25)==null,"Speeds keep the rider's units");
+        DeviceDescriptor ut5=ModelRegistryTest.serial("Q2538ZZ9US7777777");
+        for(ScooterCommands.Feature f:ScooterCommands.catalog()){
+            CapabilityResolver.Decision x=decide(f.key,ut5,d);
+            QuickAccessActions.Entry e=QuickAccessActions.find("feature:"+f.key);
+            check(x.oemLabel(1)==null&&e.directToggle(x)==e.directToggle(),"UT5 MAX tile unchanged: "+f.key);
+            check(!f.sensitive||!e.directToggle(decide(f.key,model("24431"),d)),"Sensitive never direct on another model: "+f.key);
+        }
+        check(QuickAccessActions.find("feature:long_range_mode").directToggle(decide("long_range_mode",model("27451"),d)),"Long range toggles on 2745");
+        check(QuickAccessActions.find("feature:dual_drive").directToggle(decide("dual_drive",model("24431"),d)),"Dual motor toggles on 2443");
+        check(QuickAccessActions.find("feature:overspeed_control").directToggle(decide("overspeed_control",model("27011"),d)),"Overspeed toggles where mapped");
+        check(!QuickAccessActions.find("feature:energy_recovery").directToggle(decide("energy_recovery",model("25041"),on)),"A choice stays a choice");
     }
 
     /** Group M's energy recovery: on/off at offset 5 (== 1), unlocked and parked; turning it off shows the official app's caution. */

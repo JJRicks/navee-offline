@@ -1206,8 +1206,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String featureLabel(ScooterCommands.Feature feature,int value){
         if(feature.key.equals("start_speed")&&value==0)return "Standing start";
         // Another model's variant has its own labels; speeds keep the rider's units.
-        FeatureVariant variant=oemVariant(feature.key);
-        if(variant!=null&&!"km/h".equals(feature.unit))return variant.label(value);
+        String oem=scooterService==null?null:scooterService.ble.decision(feature.key).oemLabel(value);
+        if(oem!=null)return oem;
         return DisplayUnits.featureValue(feature,value,preferences.getString("units","mi"));
     }
     /** The decided variant when it is another model's (not the UT5 MAX catalogue), else null. */
@@ -1514,7 +1514,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if (!fresh || (feature.type != ScooterCommands.Type.TIME && actual == null)) {
             toast("No fresh value yet"); return;
         }
-        if (entry.directToggle()) {
+        if (entry.directToggle(decision)) {
             int target = actual == 1 ? 0 : 1;
             confirmChange(feature, target, () -> {
                 if (!ble.set(feature.key, target)) toast(ble.message());
