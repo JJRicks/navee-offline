@@ -61,8 +61,8 @@ final class GuidedTest {
     private TestJournal.Entry entry;
     private long approvedMs=-1;
     private boolean writeIssued,acked,verifyOnly,readWanted;
-    // Readback ordering: a 0x70 is conclusive only after every 0x70 request outstanding when the
-    // post-ACK (or post-start) read was sent has been answered, so a pre-write poll reply never counts.
+    // There are no wire request IDs. Drain older requests first, THEN transmit the post-ACK
+    // (or post-start) probe. Counting a mixed batch would let an older reply arriving last win.
     private int outstanding,needed=-1,replies;private boolean armed;
     private String note="";
 
@@ -155,18 +155,27 @@ final class GuidedTest {
 
     // ---- Inputs from BleController -------------------------------------------------------------
 
+    /** Seed before stepping a newly created test/restore; older session polls must drain too. */
+    void inheritOutstandingReads(int count){
+        if(outstanding!=0||needed!=-1||writeIssued)throw new IllegalStateException("Test already started");
+        outstanding=Math.max(0,count);
+    }
+
     /** A read frame was transmitted. Only 0x70 matters. */
     void onReadRequested(int cmd,long nowMs){
         if(cmd!=0x70)return;
-        outstanding++;readWanted=false;
-        if(armed){armed=false;needed=outstanding;replies=0;}
+        outstanding++;
+        if(armed){if(outstanding==1){armed=false;needed=1;replies=0;readWanted=false;}}
+        else readWanted=false;
     }
     /** Every 0x70 reply (an unaccepted one is still an answer). */
     void onStatus(StatusFields s,long nowMs){
-        if(outstanding>0)outstanding--;
-        if(needed>0)replies++;
-        if(terminal()||s==null||!s.accepted())return;
-        boolean conclusive=needed>0&&replies>=needed;
+        boolean requested=outstanding>0;
+        if(requested)outstanding--;
+        if(requested&&needed>0)replies++;
+        if(terminal())return;
+        boolean conclusive=requested&&needed>0&&replies>=needed;
+        if(s==null||!s.accepted()){if(conclusive)arm();return;}
         Integer value=variant.read(s);
         switch(phase){
             case PRECHECK: if(conclusive){needed=-1;capture(s);} return;
@@ -223,7 +232,7 @@ final class GuidedTest {
     /** Whether the write handed out by writeNow() is the restore (GUIDED_RESTORE) rather than the target. */
     boolean restoring(){return phase==Phase.RESTORE_PENDING||phase==Phase.RESTORE_AWAIT;}
     /** The test wants a 0x70 read sent (baseline or verification). */
-    boolean wantsRead(){return readWanted&&!terminal();}
+    boolean wantsRead(){return readWanted&&outstanding==0&&!terminal();}
     /** Waiting for the ACK or readback of our own write. */
     boolean awaitingWrite(){return (phase==Phase.TARGET_AWAIT||phase==Phase.RESTORE_AWAIT)&&writeIssued&&!verifyOnly;}
     /** Checking by a fresh read that nothing changed after a rejected or unsent write (no restore write). */

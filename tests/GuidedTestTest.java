@@ -17,7 +17,7 @@ public final class GuidedTestTest {
     private static final String PROFILE="owner-1";
     public static void main(String[] args) throws Exception {
         eligibility(); gate(); happyPaths(); rejected(); ackWithoutReadback(); readbackUnchanged(); readbackDifferent(); staleAndDuplicates();
-        writeRefused(); disconnectAtEveryPhase(); processDeath(); profileSwitch(); conflicts(); restartZeroWrites(); resume(); preconditions(); vocabulary();
+        writeRefused(); disconnectAtEveryPhase(); processDeath(); profileSwitch(); conflicts(); restartZeroWrites(); resume(); preconditions(); vocabulary(); inheritedPolls(); outOfOrderReplies();
         System.out.println("GuidedTest tests passed: "+assertions+" assertions");
     }
 
@@ -260,6 +260,8 @@ public final class GuidedTestTest {
         t.onStatus(status(data(),SEEN+40),NOW+310);          // reply to the pre-ACK poll (stale)
         check(t.phase()==GuidedTest.Phase.TARGET_AWAIT&&t.outcomes().isEmpty(),"A reply to a read sent before the ACK never confirms");
         t.onStatus(with(7,0),NOW+320);
+        check(t.phase()==GuidedTest.Phase.TARGET_AWAIT&&t.wantsRead(),"Mixed pre/post ACK requests drain before a fresh probe");
+        t.onReadRequested(0x70,NOW+321);t.onStatus(with(7,0),NOW+322);
         check(t.phase()==GuidedTest.Phase.OBSERVE&&t.outcomes().equals(list(GuidedTest.Outcome.SETTING_CONFIRMED)),"The follow-up reply confirms");
         t.onStatus(with(7,0),NOW+321);t.onAck(0x55,0,NOW+322);
         check(t.phase()==GuidedTest.Phase.OBSERVE&&t.outcomes().size()==1,"Duplicate notifications change nothing");
@@ -267,10 +269,52 @@ public final class GuidedTestTest {
         GuidedTest u=prepared(j,ut5(),"display_units",0,status(data(),SEEN));sendTarget(u,0x55);
         u.onStatus(StatusFields.of(StatusFieldsTest.notification(0x70,1,data()),SEEN),NOW+310);
         check(u.phase()==GuidedTest.Phase.TARGET_AWAIT,"An error reply is not a reading");
-        u.onStatus(with(7,0),NOW+330);check(u.phase()==GuidedTest.Phase.OBSERVE,"The next accepted reply is conclusive");
+        u.onStatus(with(7,0),NOW+320);check(u.phase()==GuidedTest.Phase.TARGET_AWAIT,"An unsolicited reply after an error is not a new probe");
+        u.onReadRequested(0x70,NOW+325);u.onStatus(with(7,0),NOW+330);check(u.phase()==GuidedTest.Phase.OBSERVE,"The next accepted probe is conclusive");
         // Another command's ACK is not ours.
         GuidedTest o=prepared(j,ut5(),"display_units",0,status(data(),SEEN));o.approve(NOW);o.writeNow();o.onAck(0x54,0,NOW+40);o.onReadRequested(0x70,NOW+50);o.onStatus(with(7,0),NOW+60);
         check(o.phase()==GuidedTest.Phase.TARGET_AWAIT,"Only the variant's command acknowledges");
+    }
+
+    private static void inheritedPolls() throws Exception {
+        TestJournal j=new TestJournal(new Memory());FeatureVariant v=variant("display_units",ut5());
+        GuidedTest t=new GuidedTest(j,PROFILE,ut5(),v,0,NOW,WALL,new Random(900));
+        t.inheritOutstandingReads(1); // ordinary A was already transmitted before startTest
+        t.onReadRequested(0x70,NOW+10); // baseline B
+        t.onStatus(with(7,1),NOW+20); // A
+        check(t.phase()==GuidedTest.Phase.PRECHECK&&!t.approve(NOW+21),"An inherited poll cannot impersonate the new baseline read");
+        t.onStatus(with(7,1),NOW+30); // B
+        check(t.phase()==GuidedTest.Phase.PRECHECK&&t.wantsRead(),"All inherited/mixed reads drain before baseline probe");
+        t.onReadRequested(0x70,NOW+30);t.onStatus(with(7,1),NOW+31);
+        check(t.phase()==GuidedTest.Phase.BASELINE&&t.approve(NOW+31)&&t.writeNow()==0,"Approval waits for both pre-write responses");
+        t.onAck(v.cmd,0,NOW+40);t.onReadRequested(0x70,NOW+41);
+        check(t.phase()==GuidedTest.Phase.TARGET_AWAIT&&!j.unresolved().isEmpty(),"Restore responsibility stays until fresh target readback");
+        t.onStatus(with(7,0),NOW+50);
+        check(t.phase()==GuidedTest.Phase.OBSERVE&&!t.restorationStatus().equals("confirmed"),"Actual target requires an explicit restore");
+        t.onDisconnect(NOW+60);TestJournal.Entry e=t.entry();
+        GuidedTest restore=GuidedTest.restoreFrom(j,e,v,ut5(),with(7,0),NOW+70,WALL+70);
+        restore.inheritOutstandingReads(1);
+        check(restore.writeNow()==1,"Explicit restore still writes baseline once");
+        restore.onAck(v.cmd,0,NOW+80);restore.onReadRequested(0x70,NOW+81);
+        restore.onStatus(with(7,1),NOW+82); // older read happens to contain baseline: still not proof
+        check(restore.phase()==GuidedTest.Phase.RESTORE_AWAIT&&!j.unresolved().isEmpty(),"An inherited reply cannot clear explicit restoration");
+        restore.onStatus(with(7,0),NOW+83); // genuine restore verification shows refusal
+        check(restore.phase()==GuidedTest.Phase.RESTORE_AWAIT&&restore.wantsRead(),"Mixed restore responses only drain the old requests");
+        restore.onReadRequested(0x70,NOW+84);restore.onStatus(with(7,0),NOW+85);
+        check(restore.phase()==GuidedTest.Phase.OUTSTANDING&&!j.unresolved().isEmpty(),"Failed actual restore remains outstanding");
+    }
+
+    private static void outOfOrderReplies(){
+        TestJournal j=new TestJournal(new Memory());GuidedTest t=prepared(j,ut5(),"display_units",0,with(7,1));
+        t.onReadRequested(0x70,NOW+10); // A snapshots the pre-write baseline
+        check(t.approve(NOW+20)&&t.writeNow()==0,"Target sent with ordinary poll pending");
+        t.onAck(0x55,0,NOW+30);check(!t.wantsRead(),"Wait for older poll before confirmation probe");
+        t.onReadRequested(0x70,NOW+40); // C: an already queued ordinary poll transmits after ACK
+        t.onStatus(with(7,0),NOW+50); // C arrives before A
+        t.onStatus(with(7,1),NOW+60); // A is the last reply, but is stale
+        check(t.phase()==GuidedTest.Phase.TARGET_AWAIT&&!j.unresolved().isEmpty()&&t.wantsRead(),"Last stale reply cannot falsely confirm restoration");
+        t.onReadRequested(0x70,NOW+70);t.onStatus(with(7,0),NOW+80);
+        check(t.phase()==GuidedTest.Phase.OBSERVE&&!t.restorationStatus().equals("confirmed"),"New probe sees actual target and preserves restore responsibility");
     }
 
     private static void writeRefused() {

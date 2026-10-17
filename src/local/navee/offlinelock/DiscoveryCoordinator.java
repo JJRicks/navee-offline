@@ -30,7 +30,7 @@ final class DiscoveryCoordinator {
 
     private final long startMs;
     private final List<Read> reads=new ArrayList<>(),passive=new ArrayList<>();
-    private Read outstanding;private long lastRequestMs=Long.MIN_VALUE/2;private boolean stopped,ended;
+    private Read outstanding;private long lastRequestMs=Long.MIN_VALUE/2;private boolean queued,stopped,ended;
 
     DiscoveryCoordinator(long startMs){
         this.startMs=startMs;
@@ -44,13 +44,14 @@ final class DiscoveryCoordinator {
     long startMs(){return startMs;}
 
     /**
-     * The next read to send now, or null. At most one read is outstanding; requests are at least
-     * SPACING_MS apart; an attempt times out after ATTEMPT_TIMEOUT_MS and is retried up to its
-     * class's attempt count (core 3, optional 2, probe 1).
+     * Reserves the next read for the transport queue, or null. Queue time is not an attempt:
+     * the caller must call transmitted() when the request actually leaves the queue. At most
+     * one read is reserved; attempts are at least SPACING_MS apart and time out after transmission.
      */
     Integer nextRead(long nowMs){
         if(finished(nowMs))return null;
         if(outstanding!=null){
+            if(queued)return null;
             if(nowMs-outstanding.requestedMs<ATTEMPT_TIMEOUT_MS)return null;
             if(outstanding.attempts>=maxAttempts(outstanding.cls))outstanding.outcome=Outcome.NO_RESPONSE;
             outstanding=null;
@@ -58,10 +59,17 @@ final class DiscoveryCoordinator {
         if(nowMs-lastRequestMs<SPACING_MS)return null;
         for(Read r:reads){
             if(r.resolved()||r.attempts>=maxAttempts(r.cls))continue;
-            r.attempts++;r.requestedMs=nowMs;outstanding=r;lastRequestMs=nowMs;
+            outstanding=r;queued=true;
             return r.cmd;
         }
         return null;
+    }
+
+    /** False means this queued work expired, was answered late, or was cancelled: do not send it. */
+    boolean transmitted(int cmd,long nowMs){
+        if(finished(nowMs)||!queued||outstanding==null||outstanding.cmd!=cmd)return false;
+        queued=false;outstanding.attempts++;outstanding.requestedMs=nowMs;lastRequestMs=nowMs;
+        return true;
     }
 
     /**
@@ -82,7 +90,7 @@ final class DiscoveryCoordinator {
         boolean late=outstanding!=r||nowMs-r.requestedMs>=ATTEMPT_TIMEOUT_MS;
         r.status=status&255;r.length=Math.max(0,Math.min(255,dataLength));r.firstMs=nowMs;r.late=late;
         r.outcome=status!=0?Outcome.REJECTED:dataLength<=0?Outcome.EMPTY_REPLY:dataLength<minimumLength(cmd)?Outcome.MALFORMED:Outcome.READ_SUPPORTED;
-        if(outstanding==r)outstanding=null;
+        if(outstanding==r){outstanding=null;queued=false;}
     }
 
     /** The link dropped: every unresolved read becomes INTERRUPTED and the check ends. */
@@ -91,7 +99,7 @@ final class DiscoveryCoordinator {
     void interrupt(long nowMs){
         if(ended)return;
         for(Read r:reads)if(!r.resolved())r.outcome=Outcome.INTERRUPTED;
-        outstanding=null;stopped=ended=true;
+        outstanding=null;queued=false;stopped=ended=true;
     }
     /** Ended by interrupt() or onDisconnect(), not by finishing. */
     boolean interrupted(){return stopped;}
@@ -101,11 +109,12 @@ final class DiscoveryCoordinator {
         if(ended)return true;
         long elapsed=nowMs-startMs;
         if(elapsed>=HARD_CAP_MS){
-            // Time is up: a read that was tried and never answered had no response; one that was never tried was cut short.
-            for(Read r:reads)if(!r.resolved())r.outcome=r.attempts>0?Outcome.NO_RESPONSE:Outcome.INTERRUPTED;
-            outstanding=null;ended=true;return true;
+            // A queued read, or an in-flight attempt whose full response window did not fit,
+            // was cut short. Neither is evidence that the scooter ignored a complete attempt.
+            for(Read r:reads)if(!r.resolved())r.outcome=r.attempts>0&&nowMs-r.requestedMs>=ATTEMPT_TIMEOUT_MS?Outcome.NO_RESPONSE:Outcome.INTERRUPTED;
+            outstanding=null;queued=false;ended=true;return true;
         }
-        if(outstanding!=null&&nowMs-outstanding.requestedMs>=ATTEMPT_TIMEOUT_MS&&outstanding.attempts>=maxAttempts(outstanding.cls)){
+        if(outstanding!=null&&!queued&&nowMs-outstanding.requestedMs>=ATTEMPT_TIMEOUT_MS&&outstanding.attempts>=maxAttempts(outstanding.cls)){
             outstanding.outcome=Outcome.NO_RESPONSE;outstanding=null;
         }
         for(Read r:reads)if(!r.resolved())return false;

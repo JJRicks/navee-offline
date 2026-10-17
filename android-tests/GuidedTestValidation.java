@@ -87,7 +87,8 @@ public final class GuidedTestValidation extends Instrumentation {
                 seed();
             }
             launch();
-            if (mode.equals("guided")) guided();
+            if (mode.equals("guided")) { guided(); queueLifecycle(); }
+            else if (mode.equals("queue")) queueLifecycle();
             else if (mode.equals("interrupt-start")) interruptStart();
             else if (mode.equals("interrupt-resume")) interruptResume();
             else throw new IllegalArgumentException("Unknown mode " + mode);
@@ -543,6 +544,88 @@ public final class GuidedTestValidation extends Instrumentation {
 
     // ---- interrupt (process death between target and restore) ----------------------------------
 
+    /** Real production queue with delayed callbacks/replies, but an entirely synthetic GATT link. */
+    private void queueLifecycle() throws Exception {
+        connect("ut5");
+        main(() -> { ((Handler)field(activity.service().ble,"handler")).removeCallbacksAndMessages(null);activity.service().ble.setTestParked(true); fake.holdStatus=true;
+            invoke(activity.service().ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x70,null)); });
+        await(() -> fake.heldStatus.size()>=1,"Ordinary poll A did not transmit");
+        main(() -> activity.service().ble.startTest("display_units",0));
+        SystemClock.sleep(100);
+        require(fake.heldStatus.size()==1,"Baseline probe transmitted before inherited poll drained");
+        main(() -> fake.releaseStatus());
+        await(() -> fake.heldStatus.size()>=1,"Baseline poll B did not transmit after A drained");
+        require(phaseNow().equals("PRECHECK"),"Inherited A falsely satisfied baseline B");
+        main(() -> fake.releaseStatus());awaitPhase(GuidedTest.Phase.BASELINE,"actual baseline B");
+        main(() -> invoke(activity.service().ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x70,null)));
+        await(() -> fake.heldStatus.size()>=1,"Pre-write ordinary poll did not transmit");
+        main(() -> activity.service().ble.approveTest());
+        await(() -> { boolean[] ack={false};main(() -> { Object mutation=field(activity.service().ble,"mutation");ack[0]=mutation!=null&&(Boolean)field(mutation,"ack"); });return ack[0]; },"Target ACK did not arrive");
+        // A competing ordinary read can already be queued; let its newer response arrive first.
+        main(() -> invoke(activity.service().ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x70,null)));
+        await(() -> fake.heldStatus.size()>=2,"Post-ACK competing poll did not transmit");
+        main(() -> { while(!fake.heldStatus.isEmpty())fake.releaseStatus(fake.heldStatus.size()-1); });
+        await(() -> fake.heldStatus.size()>=1,"Fresh target probe did not follow the drained mixed batch");
+        require(phaseNow().equals("TARGET_AWAIT")&&fake.value("display_units")==0,"Target must await its own readback");
+        main(() -> fake.releaseStatus());awaitPhase(GuidedTest.Phase.OBSERVE,"target C");
+        main(() -> { fake.holdStatus=false;while(!fake.heldStatus.isEmpty())fake.releaseStatus(); });
+        SystemClock.sleep(300);
+        // Model an interrupted test with a poll already in flight when the owner explicitly restores.
+        main(() -> {
+            BleController ble=activity.service().ble;ble.guidedTest().onDisconnect(SystemClock.elapsedRealtime());ble.closeTest();
+            fake.holdStatus=true;fake.set(7,1);invoke(ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x70,null));
+        });
+        await(() -> fake.heldStatus.size()>=1,"Pre-restore poll did not transmit");
+        require(fake.heldStatus.get(0)[7]==1,"Inherited restore poll did not capture baseline");
+        final String[] id={null};
+        main(() -> { fake.set(7,0);fake.ignoreWrites=true;BleController ble=activity.service().ble;
+            id[0]=ble.unresolvedTests().get(0).testId;ble.restoreTest(id[0]); });
+        SystemClock.sleep(100);
+        require(fake.heldStatus.size()>=1,"Inherited restore poll was lost");
+        // The ordinary ACK follow-up can also queue while draining. Deliver every newer
+        // response first and the inherited baseline last; none may serve as the fresh probe.
+        main(() -> { while(!fake.heldStatus.isEmpty())fake.releaseStatus(fake.heldStatus.size()-1); });
+        await(() -> fake.heldStatus.size()>=1,"Restore verification did not transmit after old poll drained");
+        require(phaseNow().equals("RESTORE_AWAIT"),"Inherited baseline reply falsely confirmed restoration");
+        main(() -> fake.releaseStatus());awaitPhase(GuidedTest.Phase.OUTSTANDING,"failed actual restore");
+        main(() -> { require(!activity.service().ble.unresolvedTests().isEmpty(),"Failed restore lost its journal");
+            fake.ignoreWrites=false;fake.holdStatus=false;while(!fake.heldStatus.isEmpty())fake.releaseStatus();activity.service().ble.restoreTest(id[0]); });
+        awaitPhase(GuidedTest.Phase.DONE,"actual explicit restore");
+        main(() -> activity.service().ble.closeTest());
+        checks.add("Session poll A cannot impersonate baseline B; reordered pre/post-write replies cannot falsely confirm restoration; inherited replies cannot clear a failed explicit restore");
+
+        // Three-second write callbacks are valid (below the 3.5 s write watchdog). Reads answer
+        // promptly after transmission, while the ordinary two-second status poll competes for FIFO space.
+        main(() -> { fake.allReads=true;fake.callbackDelayMs=3000;BleController ble=activity.service().ble;
+            invoke(ble,"poll",new Class<?>[]{int.class},(Integer)field(ble,"generation"));ble.startDiscovery(); });
+        await(() -> { boolean[] running={true};main(() -> running[0]=activity.service().ble.discovering());return !running[0]; },"Slow discovery exceeded its cap",40000);
+        main(() -> {
+            BleController ble=activity.service().ble;DiscoveryCoordinator d=ble.discovery();
+            require(d!=null&&!d.interrupted(),"Slow callbacks dropped the synthetic link");
+            boolean sawUnsent=false;
+            for(DiscoveryCoordinator.Read r:d.reads()){
+                if(r.attempts==0){sawUnsent=true;require(r.outcome==DiscoveryCoordinator.Outcome.INTERRUPTED,"Unsent read marked silent: "+r);}
+                else require(r.outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED,"Prompt successful read was marked failed: "+r);
+            }
+            require(sawUnsent,"Slow queue fixture did not exercise hard-cap truncation");
+            require(((java.util.Map<?,?>)field(ble,"discoveryQueue")).isEmpty(),"Finished check left queued work");
+            require(((ReadPolicy)field(ble,"readPolicy")).periodicBattery().length>0,"Discovery suppressed successful normal polling");
+            // Stop with both a tagged discovery frame and an ordinary frame still queued.
+            invoke(ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x72,null));ble.startDiscovery();
+            DiscoveryCoordinator next=ble.discovery();Integer cmd=next.nextRead(SystemClock.elapsedRealtime());
+            require(cmd!=null,"No discovery reservation");
+            invoke(ble,"send",new Class<?>[]{byte[].class,DiscoveryCoordinator.class},Protocol.frame(cmd,null),next);
+            invoke(ble,"send",new Class<?>[]{byte[].class},Protocol.frame(0x79,null));
+            require(!((java.util.Map<?,?>)field(ble,"discoveryQueue")).isEmpty(),"Stop fixture had no queued discovery work");
+            ble.stopDiscovery();
+            require(((java.util.Map<?,?>)field(ble,"discoveryQueue")).isEmpty(),"Stop left discovery requests queued");
+            boolean ordinary=false;for(Object value:(java.util.ArrayDeque<?>)field(ble,"queue"))if((((byte[])value)[3]&255)==0x79)ordinary=true;
+            require(ordinary,"Stopping discovery removed another caller's queued read");
+            ble.disconnect();require(((Integer)field(ble,"outstandingStatusReads"))==0,"Disconnect retained old session reads");
+        });
+        checks.add("Three-second GATT callbacks: attempted reads succeed, unsent reads are interrupted at cap; stop removes only its own queued work");
+    }
+
     private void interruptStart() throws Exception {
         connect("ut5");
         openCompatibility();
@@ -615,7 +698,8 @@ public final class GuidedTestValidation extends Instrumentation {
         final GuidedTestValidation owner; final String label;
         final byte[] state = new byte[44], baseline;
         final List<byte[]> writes = new CopyOnWriteArrayList<>(); final List<Integer> reads = new CopyOnWriteArrayList<>();
-        volatile boolean motion, ignoreWrites; volatile int speed, rejectNext;
+        volatile boolean motion, ignoreWrites, holdStatus, allReads; volatile int speed, rejectNext, callbackDelayMs;
+        final List<byte[]> heldStatus=new CopyOnWriteArrayList<>();private String serial;
         private final Handler handler = new Handler(Looper.getMainLooper());
         private BluetoothGatt gatt; private BluetoothGattCharacteristic writer, notifier; private BluetoothGattCallback callbacks;
         FakeScooter(GuidedTestValidation owner, String label) {
@@ -641,6 +725,7 @@ public final class GuidedTestValidation extends Instrumentation {
         /** Runs on the main looper: BleController's fields become an authenticated, ready session on this link. */
         void attach(BleController ble, ScooterProfiles.Profile p) {
             try {
+                serial=p.serial;
                 BluetoothAdapter adapter = owner.getTargetContext().getSystemService(BluetoothManager.class).getAdapter();
                 BluetoothDevice device = adapter.getRemoteDevice(p.mac);
                 Class<?> unsafeType = Class.forName("sun.misc.Unsafe"); Field theUnsafe = unsafeType.getDeclaredField("theUnsafe"); theUnsafe.setAccessible(true);
@@ -662,7 +747,7 @@ public final class GuidedTestValidation extends Instrumentation {
                     return r == int.class ? 0 : r == boolean.class ? false : r == long.class ? 0L : null;
                 };
                 setHidden(gatt, "mService", Proxy.newProxyInstance(service.getClassLoader(), new Class<?>[]{service}, radio));
-                setHidden(gatt, "mClientRegistered", true); setHidden(gatt, "mDeviceBusyLock", new Object()); setHidden(gatt, "mStateLock", new Object());
+                setHidden(gatt, "mClientRegistered", true); setHidden(gatt, "mDeviceBusy", false); setHidden(gatt, "mDeviceBusyLock", new Object()); setHidden(gatt, "mStateLock", new Object());
                 setHidden(gatt, "mDevice", device); setHidden(gatt, "mServices", new CopyOnWriteArrayList<BluetoothGattService>());
                 BluetoothGattService s = new BluetoothGattService(BleController.SERVICE, BluetoothGattService.SERVICE_TYPE_PRIMARY);
                 setHidden(s, "mDevice", device);
@@ -682,11 +767,12 @@ public final class GuidedTestValidation extends Instrumentation {
         /** One frame written by BleController: complete the GATT write, then answer like the scooter. */
         private void received(byte[] frame) {
             if (frame.length < 7 || (frame[0] & 255) != 0x55 || (frame[1] & 255) != 0xaa) return;
-            callbacks.onCharacteristicWrite(gatt, writer, 0);
+            final BluetoothGatt sentGatt=gatt;handler.postDelayed(() -> callbacks.onCharacteristicWrite(sentGatt, writer, 0),callbackDelayMs);
             int cmd = frame[3] & 255;
             if (frame.length == 7) {
                 reads.add(cmd);
-                if (cmd == 0x70) { notify(0x70, 0, state); if (motion) notify(0x91, 0, new byte[]{0, 0, (byte)speed}); }
+                if (cmd == 0x70) { if(holdStatus)heldStatus.add(state.clone());else notify(0x70, 0, state); if (motion) notify(0x91, 0, new byte[]{0, 0, (byte)speed}); }
+                else if(allReads)notify(cmd,0,cmd==0x74?serial.getBytes(StandardCharsets.US_ASCII):new byte[40]);
                 return; // other reads stay silent: this synthetic scooter only reports status
             }
             if (cmd == 0x30 || cmd == 0x31) throw new IllegalStateException("The synthetic link never authenticates");
@@ -697,6 +783,8 @@ public final class GuidedTestValidation extends Instrumentation {
             if (!ignoreWrites) state[at] = frame[5];
             notify(cmd, 0, new byte[0]);
         }
+        void releaseStatus(){releaseStatus(0);}
+        void releaseStatus(int index){if(heldStatus.size()>index)notify(0x70,0,heldStatus.remove(index));}
         private void notify(int cmd, int status, byte[] payload) {
             byte[] p = new byte[payload.length + 9]; p[0] = 0x55; p[1] = (byte)0xaa; p[3] = (byte)cmd; p[4] = (byte)(payload.length + 1); p[5] = (byte)status;
             System.arraycopy(payload, 0, p, 6, payload.length);

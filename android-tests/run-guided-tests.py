@@ -21,7 +21,7 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--app', type=Path, required=True)
 parser.add_argument('--runner', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
-parser.add_argument('--mode', default='all', choices=('all', 'guided', 'interrupt'))
+parser.add_argument('--mode', default='all', choices=('all', 'guided', 'interrupt', 'queue'))
 parser.add_argument('--case', action='append', help='widthxheight:theme:system-font-scale[:app-text-scale]')
 args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
@@ -76,9 +76,9 @@ try:
         variant = f'{width}x{height}-{theme}-font{font}-text{text}'
         destination = args.out / case.replace(':', '-'); destination.mkdir(exist_ok=True)
         passed = {}
-        if args.mode in ('all', 'guided'):
+        if args.mode in ('all', 'guided', 'queue'):
             fresh()
-            output = instrument('guided', theme, text, variant)
+            output = instrument('queue' if args.mode == 'queue' else 'guided', theme, text, variant)
             (destination / 'guided-result.txt').write_text(output)
             run('pull', REMOTE, str(destination.resolve()), check=False)
             passed['guided'] = 'result=PASS' in output and 'result=FAIL' not in output

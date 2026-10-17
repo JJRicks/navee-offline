@@ -28,7 +28,7 @@ public final class CompatibilityReportTest {
     private static DiscoveryCoordinator finishedCheck(){
         DiscoveryCoordinator d=new DiscoveryCoordinator(T0);long t=T0;
         while(!d.finished(t)){
-            Integer cmd=d.nextRead(t);
+            Integer cmd=transmit(d,t);
             if(cmd!=null){
                 if(cmd==0x7b)d.onFrame(cmd,3,0,t+30);          // rejected
                 else if(cmd==0x75){}                             // silent probe
@@ -138,15 +138,15 @@ public final class CompatibilityReportTest {
         check(summary.contains("0x7B optional: Rejected, code 3")&&summary.contains("0x75 probe: No response (1 attempt)")&&summary.contains("0x70 core: Read supported · 44 bytes"),"Summary read wording\n"+summary);
         check(summary.contains("0x90 yes (18 bytes)")&&summary.contains("0x91 not seen")&&summary.contains("absence is not proof"),"Passive reports and absence");
         // Interrupted is not "no response".
-        DiscoveryCoordinator d=new DiscoveryCoordinator(T0);d.nextRead(T0);d.onDisconnect(T0+10);
+        DiscoveryCoordinator d=new DiscoveryCoordinator(T0);transmit(d,T0);d.onDisconnect(T0+10);
         CompatibilityReport cut=new CompatibilityReport.Builder("1.3.1",new Random(4)).reads(d.reads(),d.passive(),T0).build();
         check(cut.json().contains("\"outcome\": \"interrupted\"")&&!cut.json().contains("no_response")&&cut.summary().contains("0x74 core: Interrupted"),"Interruption is its own outcome");
         // Late replies are flagged.
-        DiscoveryCoordinator l=new DiscoveryCoordinator(T0);l.nextRead(T0);l.onFrame(0x74,0,17,T0+2600);
+        DiscoveryCoordinator l=new DiscoveryCoordinator(T0);transmit(l,T0);l.onFrame(0x74,0,17,T0+2600);
         CompatibilityReport late=new CompatibilityReport.Builder("1.3.1",new Random(4)).reads(l.reads(),l.passive(),T0).build();
         check(late.json().contains("\"late\": true")&&late.json().contains("\"first_ms\": 2600")&&late.summary().contains("(late)"),"Late reply flagged with relative time");
         // A status-0 reply with no data is its own outcome, never "read supported".
-        DiscoveryCoordinator e=new DiscoveryCoordinator(T0);e.nextRead(T0);e.onFrame(0x74,0,17,T0+10);e.nextRead(T0+300);e.onFrame(0x70,0,43,T0+310);e.nextRead(T0+600);e.onFrame(0x73,0,0,T0+610);
+        DiscoveryCoordinator e=new DiscoveryCoordinator(T0);transmit(e,T0);e.onFrame(0x74,0,17,T0+10);transmit(e,T0+300);e.onFrame(0x70,0,43,T0+310);transmit(e,T0+600);e.onFrame(0x73,0,0,T0+610);
         CompatibilityReport empty=new CompatibilityReport.Builder("1.3.1",new Random(4)).reads(e.reads(),e.passive(),T0).build();
         check(empty.json().contains("\"outcome\": \"empty_reply\"")&&empty.summary().contains("0x73 core: Replied with no data (not proof of support)")&&!empty.summary().contains("0x73 core: Read supported"),"Empty reply is not read supported\n"+empty.summary());
         check(CompatibilityReport.parse(empty.json()).json().contains("\"outcome\": \"empty_reply\""),"Empty reply survives import");
@@ -252,4 +252,10 @@ public final class CompatibilityReportTest {
     }
     private static String repeat(String s,int n){StringBuilder b=new StringBuilder();for(int i=0;i<n;i++)b.append(s);return b.toString();}
     private static void check(boolean condition,String message){assertions++;if(!condition)throw new AssertionError(message);}
+    private static Integer transmit(DiscoveryCoordinator d,long now){
+        Integer cmd=d.nextRead(now);
+        if(cmd!=null&&!d.transmitted(cmd,now))throw new AssertionError("Reserved request could not transmit");
+        return cmd;
+    }
+
 }

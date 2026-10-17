@@ -24,6 +24,10 @@ public final class BleController {
     public final Telemetry telemetry=new Telemetry();
     private final Context context;private final ScooterProfiles profiles;private final Handler handler=new Handler(Looper.getMainLooper());private final BluetoothAdapter adapter;
     private final Protocol.Decoder decoder=new Protocol.Decoder();private final ArrayDeque<byte[]> queue=new ArrayDeque<>();private final ArrayList<String> events=new ArrayList<>();
+    /** Ownership is per queued frame, so stopping discovery never cancels ordinary polls or writes. */
+    private final IdentityHashMap<byte[],DiscoveryCoordinator> discoveryQueue=new IdentityHashMap<>();
+    /** All transmitted 0x70 reads in this session, including those sent before a guided test exists. */
+    private int outstandingStatusReads;
     private final LinkedHashMap<String,ScanResult> discoveries=new LinkedHashMap<>();private final LinkedHashMap<String,String> commandResults=new LinkedHashMap<>();
     private final HashMap<String,Long> resultTimes=new HashMap<>();private String resultsProfileId;
     /** Short connection states shared by the connection dialog, onboarding and the notification. */
@@ -261,7 +265,7 @@ public final class BleController {
         if(test!=null&&!test.terminal()){test.onDisconnect(now());event("Guided test interrupted");}testParked=false;
         readPolicy=null;authVariant="";
         ++generation;++writeOperation;stopScan();BluetoothGatt old=gatt;gatt=null;writer=null;if(old!=null){try{old.disconnect();}catch(Exception ignored){}try{old.close();}catch(Exception ignored){}}
-        queue.clear();decoder.reset();if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=null;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
+        queue.clear();discoveryQueue.clear();outstandingStatusReads=0;decoder.reset();if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=null;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
     }
     private void failed(String text,boolean retry,ConnectionEventLog.Reason reason,int code){
         if(simulating())return;
@@ -300,14 +304,17 @@ public final class BleController {
     };
     private void discover(BluetoothGatt g){if(simulating())return;if(g!=gatt||discovered)return;if(!workAllowed()){suspend();return;}discovered=true;if(!g.discoverServices())failed("Connection failed",true,ConnectionEventLog.Reason.SERVICE_DISCOVERY_FAILED,-1);}
     private void authenticate(){if(simulating())return;if(!workAllowed()){suspend();return;}if(profile==null||++authRounds>3){failed("Owner check failed",false,ConnectionEventLog.Reason.AUTHENTICATION_FAILED,-1);return;}state=State.AUTHENTICATING;message="Checking owner…";authenticated=false;challengePending=false;changed();send(Protocol.auth(Protocol.fromHex(profile.identity),1,profile.role));}
-    private void send(byte[] frame){if(simulating())return;if(!workAllowed()||gatt==null||writer==null)return;
+    private void send(byte[] frame){send(frame,null);}
+    private void send(byte[] frame,DiscoveryCoordinator owner){if(simulating())return;if(!workAllowed()||gatt==null||writer==null)return;
         // Last line of defence: a write that is not the admitted mutation never reaches the queue.
-        if(!MutationGate.mayTransmit(frame,mutation==null?null:mutation.bytes)){event("Unadmitted write dropped");return;}if(frame.length==7)for(byte[] existing:queue)if(Arrays.equals(frame,existing))return;if(frame.length>7&&authenticated)queue.addFirst(frame);else queue.addLast(frame);pump();}
+        if(!MutationGate.mayTransmit(frame,mutation==null?null:mutation.bytes)){event("Unadmitted write dropped");return;}if(frame.length==7)for(byte[] existing:queue)if(discoveryQueue.get(existing)==owner&&Arrays.equals(frame,existing))return;if(owner!=null)discoveryQueue.put(frame,owner);if(frame.length>7&&authenticated)queue.addFirst(frame);else queue.addLast(frame);pump();}
     private void pump(){
-        if(simulating()){queue.clear();writing=false;return;}
+        if(simulating()){queue.clear();discoveryQueue.clear();writing=false;return;}
         if(!workAllowed()||writing||queue.isEmpty()||gatt==null||writer==null)return;byte[] frame=queue.removeFirst();int cmd=frame[3]&255;int type=(writer.getProperties()&BluetoothGattCharacteristic.PROPERTY_WRITE_NO_RESPONSE)!=0?BluetoothGattCharacteristic.WRITE_TYPE_NO_RESPONSE:BluetoothGattCharacteristic.WRITE_TYPE_DEFAULT;
+        DiscoveryCoordinator owner=discoveryQueue.remove(frame);
+        if(owner!=null&&(!discovering||owner!=discovery||!owner.transmitted(cmd,now()))){pump();return;}
         if(frame.length==7&&readPolicy!=null)readPolicy.requested(cmd,now());
-        if(frame.length==7&&cmd==0x70&&test!=null&&!test.terminal())test.onReadRequested(cmd,now());
+        if(frame.length==7&&cmd==0x70){outstandingStatusReads++;if(test!=null&&!test.terminal())test.onReadRequested(cmd,now());}
         writing=true;if(mutation!=null&&Arrays.equals(frame,mutation.bytes)){mutation.sent=true;long token=mutation.token;int s=generation;handler.postDelayed(()->mutationTimeout(s,token),6500);}
         if(cmd==0x7a){pinReadPending=true;pinReadToken=mutation!=null&&mutation.ack?mutation.token:0;int s=generation;long request=++pinReadSequence;handler.postDelayed(()->{if(s==generation&&request==pinReadSequence&&pinReadPending){pinReadPending=false;notice("PIN status did not arrive. Tap Read PIN status to try again.");}},4500);}
         if(!ScooterCommands.sensitiveCommand(cmd))event(String.format(Locale.ROOT,"Send 0x%02X (%d bytes)",cmd,frame.length));
@@ -326,6 +333,7 @@ public final class BleController {
                 else if(!authenticated){authenticated=true;challengePending=false;if(authVariant.isEmpty())authVariant="challenge_free";event("Owner authenticated locally");message="Connecting…";policy();send(Protocol.frame(0x74,null));send(Protocol.frame(0x70,null));refresh(true);poll(generation);}
             }else if(f.cmd==0x31&&challengePending){if(f.error()!=0){failed("Owner check failed",false,ConnectionEventLog.Reason.AUTHENTICATION_FAILED,f.error());return;}int s=generation;handler.postDelayed(()->{if(s==generation)authenticate();},150);}
             else if(authenticated){
+                if(f.cmd==0x70&&outstandingStatusReads>0)outstandingStatusReads--;
                 if(readPolicy!=null)readPolicy.responded(f.cmd,f.error(),f.data.length-1,now());
                 if(discovering)discovery.onFrame(f.cmd,f.error(),f.data.length-1,now());
                 if(f.cmd!=0x7a&&f.cmd!=0x63)telemetry.accept(f.cmd,f.data,now());if(f.cmd==0x73)sessionFirmware=null;
@@ -468,7 +476,7 @@ public final class BleController {
         long t=now();
         if(simulating()?!ready():gatt==null||!authenticated){discovery.onDisconnect(t);finishDiscovery();changed();return;}
         Integer cmd=discovery.nextRead(t);
-        if(cmd!=null){if(simulating())simulatedReply(cmd,t);else send(Protocol.frame(cmd,null));changed();}
+        if(cmd!=null){if(simulating()){if(discovery.transmitted(cmd,t))simulatedReply(cmd,t);}else send(Protocol.frame(cmd,null),discovery);changed();}
         if(discovery.finished(t)){finishDiscovery();notice(discovery.interrupted()?"Compatibility check stopped":"Compatibility check finished");return;}
         handler.postDelayed(self,100);
     }
@@ -481,6 +489,7 @@ public final class BleController {
     /** Snapshot for the report while this session's evidence is still intact. */
     private void finishDiscovery(){
         discovering=false;
+        for(Iterator<byte[]> i=queue.iterator();i.hasNext();){byte[] frame=i.next();if(discoveryQueue.get(frame)==discovery){i.remove();discoveryQueue.remove(frame);}}
         discoveryDescriptor=descriptor();discoveryStatus=status();discoveryAuth=simulating()?null:authVariant;
         discoveryDecisions=CapabilityResolver.all(discoveryDescriptor,discoveryStatus,runtime(""));
         // Normal polling stops asking for what the check found silent on every attempt.
@@ -526,7 +535,7 @@ public final class BleController {
         if(!unresolvedTests().isEmpty()||!testJournal.canStart()){notice("Review the unfinished test first");return;}
         CapabilityResolver.Decision d=CapabilityResolver.admitTest(feature,target,descriptor(),status(),runtime(feature));
         if(!d.available()){notice(d.reasonText());return;}
-        try{test=new GuidedTest(testJournal,p.id,descriptor(),d.variant,target,now(),System.currentTimeMillis(),new java.security.SecureRandom());}
+        try{test=new GuidedTest(testJournal,p.id,descriptor(),d.variant,target,now(),System.currentTimeMillis(),new java.security.SecureRandom());test.inheritOutstandingReads(outstandingStatusReads);}
         catch(IllegalArgumentException e){notice(e.getMessage());return;}
         event("Guided test prepared");stepTest();
     }
@@ -561,7 +570,7 @@ public final class BleController {
         if(e==null||r==null||(r.state!=GuidedTest.ReviewState.RESTORE_NEEDED&&r.state!=GuidedTest.ReviewState.CHANGED_OUTSIDE)||!r.restorable){notice(r==null?"Test not found":r.text);return;}
         CapabilityResolver.Decision d=CapabilityResolver.admitTest(e.feature,e.baseline,descriptor(),status(),runtime(e.feature));
         if(!d.available()){notice(d.reasonText());return;}
-        try{test=GuidedTest.restoreFrom(testJournal,e,d.variant,descriptor(),status(),now(),System.currentTimeMillis());}
+        try{test=GuidedTest.restoreFrom(testJournal,e,d.variant,descriptor(),status(),now(),System.currentTimeMillis());test.inheritOutstandingReads(outstandingStatusReads);}
         catch(IOException|IllegalArgumentException failed){notice("Couldn't start the restore. Nothing was changed.");return;}
         event("Guided restore approved");stepTest();
     }
