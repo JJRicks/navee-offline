@@ -101,7 +101,9 @@ public final class ScooterService extends Service {
             guardedLifecycle = destroyed = true; stopSelf(); return;
         }
         settings = getSharedPreferences("app_settings", MODE_PRIVATE);
-        profiles=new ScooterProfiles(this);ble=new BleController(this,profiles);ble.setListener(this::changed);try{
+        profiles=new ScooterProfiles(this);ble=new BleController(this,profiles);ble.setListener(this::changed);
+        // A guided test interrupted by process death stays outstanding; nothing is written on restart.
+        ble.recoverTests();try{
             rides = new RideStore(new File(getFilesDir(), "rides"));
         }catch(IOException e){rides=null;}
         history=new TelemetryHistory(this);ensureDisplayCache();
@@ -769,8 +771,8 @@ public final class ScooterService extends Service {
         changed();
     }
     private void followRangeMode() {
-        // A running compatibility check holds every automatic write (MutationGate refuses them too).
-        if (destroyed || ble == null || selectingRange || ble.discovering()) return;
+        // A running compatibility check or guided test holds every automatic write (MutationGate refuses them too).
+        if (destroyed || ble == null || selectingRange || ble.discovering() || ble.testing()) return;
         ScooterProfiles.Profile profile = profiles.active();
         Telemetry.Metric mode = null;
         for (Telemetry.Metric metric : ble.telemetry.metrics()) if (metric.key.equals("driving_mode")) { mode = metric; break; }

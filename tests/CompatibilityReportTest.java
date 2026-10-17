@@ -48,13 +48,21 @@ public final class CompatibilityReportTest {
         DiscoveryCoordinator.Read pin=new DiscoveryCoordinator.Read(0x7a,ReadPolicy.Cls.CORE);pin.outcome=DiscoveryCoordinator.Outcome.READ_SUPPORTED;pin.status=0;pin.length=4321;pin.attempts=1;pin.firstMs=T0+4321;
         reads.add(pin);
         CapabilityResolver.Runtime rt=CapabilityResolverTest.parked();rt.nowMs=T0+1000;
-        List<CompatibilityReport.TestEntry> tests=Arrays.asList(
-            new CompatibilityReport.TestEntry("cruise_control","cruise_control.oem",0,1,Arrays.asList(CompatibilityReport.StepOutcome.ACK,CompatibilityReport.StepOutcome.READBACK_MATCHED),
-                Arrays.asList(120L,640L),CompatibilityReport.Observation.OBSERVED,CompatibilityReport.Restoration.CONFIRMED),
-            new CompatibilityReport.TestEntry("charge_start","x",1,2,null,null,null,null),     // time: never reported
-            new CompatibilityReport.TestEntry("pin","x",4,3,null,null,null,null));              // PIN: never reported
+        List<TestJournal.Entry> tests=Arrays.asList(
+            entry("turn_sound","turn_sound.oem",0,1,Arrays.asList("setting_confirmed","effect_observed","restoration_confirmed"),Arrays.asList(120L,640L,900L),"observed","confirmed"),
+            entry("charge_start","x",1,2,null,null,"not_checked","confirmed"),     // time: never reported
+            entry("pin","x",4,3,null,null,"not_checked","confirmed"),              // PIN: never reported
+            entry("cruise_control","cruise_control.oem",0,1,null,null,"observed","confirmed")); // riding control: never a guided test
         return new CompatibilityReport.Builder("1.3.1",random).device(descriptor,r,"aes").reads(reads,d.passive(),T0).fields(s)
             .decisions(CapabilityResolver.all(descriptor,s,rt)).tests(tests).build();
+    }
+    /** A journal entry seeded with a profile ID, test ID and wall times that must never reach a report. */
+    static TestJournal.Entry entry(String feature,String variant,int baseline,int target,List<String> outcomes,List<Long> elapsed,String effect,String restoration){
+        TestJournal.Entry e=new TestJournal.Entry();
+        e.testId="deadbeefcafebabe";e.profileId="p7777777";e.feature=feature;e.variantId=variant;e.pidPrefix="2443";e.pidSource="advertised";e.meterFw="2.0.3.1";
+        e.registryVersion=ModelRegistry.VERSION;e.baseline=baseline;e.target=target;e.phase="DONE";e.effect=effect;e.restoration=restoration;
+        if(outcomes!=null)e.outcomes=new ArrayList<>(outcomes);if(elapsed!=null)e.elapsedMs=new ArrayList<>(elapsed);
+        e.createdWall=1700000000000L;e.updatedWall=1700000000001L;e.resolved=true;return e;
     }
     private static DeviceDescriptor fixture(){
         DeviceDescriptor.Firmware fw=new DeviceDescriptor.Firmware("2.0.3.1","1.1.0","BMS7",null,null,T0);
@@ -143,16 +151,31 @@ public final class CompatibilityReportTest {
     }
     private static void tests() {
         CompatibilityReport report=build(fixture(),new Random(8));String json=report.json(),summary=report.summary();
-        check(json.contains("\"feature\": \"cruise_control\",\n      \"variant\"")||json.contains("\"variant\": \"cruise_control.oem\""),"Test entry kept");
-        check(!json.contains("\"feature\": \"charge_start\",\n      \"variant\"")&&!json.contains("\"variant\": \"x\""),"Time and PIN tests dropped");
-        check(json.contains("\"packet_evidence\"")&&json.contains("\"owner_observation\"")&&json.contains("\"outcomes\": [\"ack\", \"readback_matched\"]")&&json.contains("\"effect\": \"observed\""),"Packet evidence and owner observation are separate");
-        check(summary.contains("Packet evidence: ack, readback matched")&&summary.contains("Owner observation: observed")&&summary.contains("Restoration: confirmed"),"Summary keeps them apart\n"+summary);
-        // Every wire outcome stays distinct.
-        List<CompatibilityReport.StepOutcome> all=Arrays.asList(CompatibilityReport.StepOutcome.values());
-        CompatibilityReport every=new CompatibilityReport.Builder("1.3.1",new Random(9)).tests(Arrays.asList(new CompatibilityReport.TestEntry("turn_sound","turn_sound.oem",0,1,all,null,
-            CompatibilityReport.Observation.NOT_CHECKED,CompatibilityReport.Restoration.OUTSTANDING))).build();
-        check(every.json().contains("[\"rejected\", \"ack\", \"readback_unchanged\", \"readback_matched\", \"no_response\", \"interrupted\"]"),"Six distinct step outcomes");
-        check(every.json().contains("\"effect\": \"not_checked\""),"No owner check is explicit");
+        check(json.contains("\"variant\": \"turn_sound.oem\""),"Test entry kept");
+        check(!json.contains("\"variant\": \"x\"")&&!json.contains("cruise_control.oem"),"Time, PIN and riding tests dropped");
+        check(json.contains("\"packet_evidence\"")&&json.contains("\"owner_observation\"")&&json.contains("\"outcomes\": [\"setting_confirmed\", \"restoration_confirmed\"]")
+            &&json.contains("\"elapsed_ms\": [120, 900]")&&json.contains("\"effect\": \"observed\""),"Packet evidence and owner observation are separate\n"+json);
+        check(summary.contains("Packet evidence: Setting confirmed, Restoration confirmed")&&summary.contains("Owner observation: Effect observed")&&summary.contains("Restoration: Restoration confirmed"),"Summary keeps them apart\n"+summary);
+        check(!json.contains("p7777777")&&!json.contains("deadbeefcafebabe")&&!json.contains("1700000000000")&&!json.contains("\"phase\""),"No profile, test ID, wall time or phase");
+        // Every wire outcome keeps its docs/03 meaning; read support is not a test step and effect observed is the owner's.
+        List<String> all=new ArrayList<>();for(GuidedTest.Outcome o:GuidedTest.Outcome.values())all.add(o.token(3));
+        List<Long> times=new ArrayList<>();for(int i=0;i<all.size();i++)times.add(10L*i);
+        CompatibilityReport every=new CompatibilityReport.Builder("1.3.1",new Random(9)).tests(Arrays.asList(entry("turn_sound","turn_sound.oem",0,1,all,times,"not_checked","outstanding"))).build();
+        String everyJson=every.json(),everySummary=every.summary();
+        check(everyJson.contains("[\"rejected\", \"acknowledged_unconfirmed\", \"readback_unchanged\", \"readback_different\", \"setting_confirmed\", \"restoration_confirmed\", \"interrupted\"]")
+            &&everyJson.contains("\"step_values\": [3, null, 3, 3, null, null, null]")&&everyJson.contains("\"elapsed_ms\": [10, 20, 30, 40, 50, 70, 80]"),"Seven distinct step outcomes\n"+everyJson);
+        for(String text:new String[]{"Rejected, code 3","Acknowledged, unconfirmed","Readback unchanged, value 3","Readback different, value 3","Setting confirmed","Restoration confirmed","Interrupted/no response","Owner observation: Not checked","Restoration: Outstanding (not confirmed)"})
+            check(everySummary.contains(text),"Summary vocabulary "+text+"\n"+everySummary);
+        check(everyJson.contains("\"effect\": \"not_checked\"")&&everyJson.contains("\"restoration\": \"outstanding\""),"No owner check and an open restoration are explicit");
+        // Each step keeps its own rejection code.
+        CompatibilityReport twice=new CompatibilityReport.Builder("1.3.1",new Random(9)).tests(Arrays.asList(entry("turn_sound","turn_sound.oem",0,1,
+            Arrays.asList("setting_confirmed","effect_observed","rejected_5","rejected_7"),Arrays.asList(10L,20L,30L,40L),"observed","outstanding"))).build();
+        check(twice.summary().contains("Packet evidence: Setting confirmed, Rejected, code 5, Rejected, code 7")&&twice.json().contains("\"step_values\": [null, 5, 7]"),"Per-step codes\n"+twice.summary());
+        String bad=CompatibilityReport.parse(twice.json().replace("[null, 5, 7]","[4, 999, 7]")).json();
+        check(bad.contains("\"step_values\": [null, null, 7]"),"Imported values are bounded and only on valued steps\n"+bad);
+        String forged=everyJson.replace("\"restoration\": \"outstanding\"","\"restoration\": \"restored!\"").replace("\"interrupted\"]","\"interrupted\", \"effect_observed\", \"setting_confirmed_by_magic\"]");
+        String cleaned=CompatibilityReport.parse(forged).json();
+        check(cleaned.contains("\"restoration\": \"outstanding\"")&&!cleaned.contains("magic")&&!cleaned.contains("\"effect_observed\""),"An imported restoration is never upgraded and unknown steps drop\n"+cleaned);
     }
     private static void imports() {
         CompatibilityReport original=build(fixture(),new Random(10));

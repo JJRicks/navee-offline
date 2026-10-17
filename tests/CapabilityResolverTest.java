@@ -128,7 +128,8 @@ public final class CapabilityResolverTest {
         rt.motionSeen=false;check(decide("cruise_control",ut5,s,rt).reason==CapabilityResolver.Reason.NO_MOTION_REPORT,"No motion report");
         rt=parked();rt.discovery=true;check(decide("display_units",ut5,s,rt).reason==CapabilityResolver.Reason.DISCOVERY_ACTIVE,"Discovery");
         rt=parked();rt.test=true;rt.testFeature="display_units";
-        check(decide("display_units",ut5,s,rt).available()&&decide("headlight",ut5,s,rt).reason==CapabilityResolver.Reason.TEST_ACTIVE,"Test in progress");
+        // Ordinary changes wait for a guided test, its own feature included; only the test writes it (MutationGate).
+        check(decide("display_units",ut5,s,rt).reason==CapabilityResolver.Reason.TEST_ACTIVE&&decide("headlight",ut5,s,rt).reason==CapabilityResolver.Reason.TEST_ACTIVE,"Test in progress");
         rt=parked();rt.warningActive=true;
         check(decide("cruise_control",ut5,s,rt).available()&&decide("lock",ut5,s,rt).reason==CapabilityResolver.Reason.WARNING_ACTIVE,"Warnings block only locking");
     }

@@ -298,6 +298,18 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Compatibility")); settle();
         main(() -> require(field(more(), "compatibilityPanel") != null && texts(root()).contains("Run check"), label + ": Compatibility panel without Run check"));
         screenshot(label + "-more-compatibility");
+        // Guided setting tests need a real scooter: the simulator offers none and starts none.
+        main(() -> {
+            BleController ble = activity.service().ble; Map<String, Integer> unchanged = new TreeMap<>(ble.simulationFeatures());
+            for (String f : new String[]{"display_units", "headlight", "turn_sound", "auto_sensor", "range_algorithm"}) {
+                CapabilityResolver.Decision d = ble.testDecision(f);
+                require(!d.available() && (d.reason == CapabilityResolver.Reason.NEEDS_REAL_SCOOTER || d.support != CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated test offered for " + f + ": " + d);
+            }
+            ble.startTest("display_units", 0);
+            require(!ble.testing() && ble.guidedTest() == null && ble.unresolvedTests().isEmpty() && unchanged.equals(new TreeMap<>(ble.simulationFeatures())), label + ": the simulator ran a guided test");
+            require(ble.decision("display_units").reason != CapabilityResolver.Reason.TEST_ACTIVE, label + ": controls held by a test that never started");
+        });
+        revealText("TRY A SETTING", "Try a setting"); screenshot(label + "-compatibility-try");
         final Map<String, Integer> before = new TreeMap<>();
         main(() -> {
             BleController ble = activity.service().ble; before.putAll(ble.simulationFeatures());
@@ -435,7 +447,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         Set<String> allowed = new HashSet<>(Arrays.asList("format", "report_id", "app_version", "registry_version", "simulated", "device", "reads", "passive", "status_length", "fields", "decisions", "tests",
                 "pid", "pid_prefix", "pid_source", "pid_digits", "pid_conflict", "region", "region_source", "sku", "firmware", "meter", "controller", "bms", "screen", "uwb",
                 "transport", "auth", "layer", "role", "cmd", "class", "outcome", "status", "length", "attempts", "first_ms", "late", "seen", "offset", "name", "present", "value",
-                "feature", "support", "available", "reason", "evidence", "variant", "baseline", "target", "packet_evidence", "outcomes", "elapsed_ms", "owner_observation", "effect", "restoration"));
+                "feature", "support", "available", "reason", "evidence", "variant", "baseline", "target", "packet_evidence", "outcomes", "elapsed_ms", "step_values", "owner_observation", "effect", "restoration"));
         requireKeys(report, allowed, label);
         require("volt-compat-report-v1".equals(report.getString("format")) && report.getString("report_id").matches("[0-9a-f]{16}")
                 && !report.getString("app_version").isEmpty() && report.getInt("registry_version") > 0 && report.getBoolean("simulated"), label + ": report header");

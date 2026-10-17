@@ -29,6 +29,7 @@ final class MutationGate {
     }
 
     static CapabilityResolver.Decision check(Request r,DeviceDescriptor d,StatusFields s,CapabilityResolver.Runtime rt){
+        if(r.origin==Origin.GUIDED_TEST||r.origin==Origin.GUIDED_RESTORE)return guided(r,d,s,rt);
         CapabilityResolver.Decision decision;
         switch(r.kind){
             case SET: {
@@ -57,11 +58,21 @@ final class MutationGate {
                 if(rt!=null&&rt.discovery)return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.DISCOVERY_ACTIVE);
                 if(rt!=null&&rt.test)return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.TEST_ACTIVE);
                 return decision;
-            case GUIDED_TEST: case GUIDED_RESTORE:
-                // Guided tests write only the feature of their journal entry; there is no journal yet.
-                return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.TEST_ACTIVE);
             default: return decision;
         }
+    }
+
+    /**
+     * A guided test writes one value of the feature it is running (BleController sets rt.test and
+     * rt.testFeature only while that test's journal entry is committed), through the guided-test
+     * rule and its preconditions. Any other kind, feature or state is refused.
+     */
+    private static CapabilityResolver.Decision guided(Request r,DeviceDescriptor d,StatusFields s,CapabilityResolver.Runtime rt){
+        CapabilityResolver.Decision decision=CapabilityResolver.admitTest(r.feature,r.value,d,s,rt);
+        if(r.kind!=Kind.SET)return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.MODEL_EXCLUDED);
+        if(rt==null||!rt.test)return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.NO_TEST);
+        if(!r.feature.equals(rt.testFeature))return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.TEST_ACTIVE);
+        return decision;
     }
 
     /** Reads (7-byte frames without a length byte), 0x30 and 0x31 always pass; any other frame only if it is the admitted mutation. */
