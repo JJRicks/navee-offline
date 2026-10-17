@@ -413,7 +413,8 @@ public final class ModelRegistry {
                 if(!any(d,MAX_SPEED_ROW)&&!any(d,S)&&!any(d,Q)&&!any(d,H)&&!any(d,K)&&!any(d,L)&&!any(d,B)&&!any(d,C)&&!any(d,D)&&!any(d,O)&&!any(d,G))return excluded();
                 FeatureVariant table=maxSpeedTable(d);
                 if(table==null)return gated(oemMapped(SPEED_25_40_STEP5,"",false),CapabilityResolver.Reason.FULL_PID_NEEDED,CapabilityResolver.Precondition.FULL_PID);
-                Rule rule=oemMapped(table,any(d,"2585")?"OEM 2.1.9 asks before speeds above 32 km/h":"",false);
+                // The official prompt is for the US area only; CN and RU share the USA row without it.
+                Rule rule=oemMapped(table,any(d,"2585")&&"US".equals(d.oemArea())?SPEED_PROMPT_NOTE:"",false);
                 // OEM 2.1.9 blocks maximum speed for K and C below meter firmware 2.0.1.2.
                 if(any(d,K)||any(d,C)){rule=firmware(rule,meterBelow(d,"2.0.1.2"));if(rule.reason!=CapabilityResolver.Reason.NONE)return rule;}
                 // The row exists only in the OEM's USA bucket (its EU + server-location branch fails closed offline).
@@ -574,6 +575,8 @@ public final class ModelRegistry {
      * layer, where the official app asks first; the UT5 MAX keeps today's direct controls.
      */
     private static final String ASKS="The official app asks before this change. Volt has not tested it on this model.";
+    private static final String UNTESTED="Volt has not tested it on this model.";
+    private static final String SPEED_PROMPT_NOTE="OEM 2.1.9 asks before speeds above 32 km/h";
     private static final String SHOWS="The official app shows a caution for this change. Volt has not tested it on this model.";
     public static String caution(CapabilityResolver.Decision d,int value){
         if(d==null||d.layer==Layer.UT5_MAX||d.variant==null||d.evidence!=CapabilityResolver.Evidence.OEM_MAPPED)return null;
@@ -583,7 +586,8 @@ public final class ModelRegistry {
             case "dual_drive": return value==0?"Switch to single motor? "+ASKS:null;
             case "energy_recovery": return d.variant==OEM_ENERGY_BINARY&&value==0?"Turn off energy recovery? "+SHOWS:null;
             case "start_speed": return value<3?"Kick-start speed below 3 km/h. "+SHOWS:null;
-            case "maximum_speed": return value>32&&d.variant==SPEED_25_70?"Above 32 km/h: check the rules where you ride. "+ASKS:null;
+            case "maximum_speed": return value>32&&d.variant==SPEED_25_70?"Above 32 km/h: check the rules where you ride. "
+                    +(SPEED_PROMPT_NOTE.equals(d.oemNote)?ASKS:UNTESTED):null;
             default: return null;
         }
     }

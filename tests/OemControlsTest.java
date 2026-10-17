@@ -321,6 +321,13 @@ public final class OemControlsTest {
         // 2585 above 32 asks first (the official app's US prompt); other models and lower speeds do not.
         check(ModelRegistry.caution(decide("maximum_speed",model("25851"),d),40)!=null&&ModelRegistry.caution(decide("maximum_speed",model("25851"),d),32)==null
             &&ModelRegistry.caution(decide("maximum_speed",model("25471"),d),60)==null&&!decide("maximum_speed",model("25851"),d).oemNote.isEmpty(),"2585 prompt above 32 km/h");
+        // CN and RU share the USA row, but the official prompt is for the US area only: no OEM claim there.
+        for(String area:new String[]{"CN","RU"}){
+            CapabilityResolver.Decision x=decide("maximum_speed",model("25851",area),d);
+            String caution=ModelRegistry.caution(x,40);
+            check(x.available()&&x.oemNote.isEmpty()&&caution!=null&&!caution.contains("official app"),"2585 "+area+" makes no OEM prompt claim: "+caution);
+        }
+        check(ModelRegistry.caution(decide("maximum_speed",model("25851"),d),40).contains("official app asks"),"2585 US keeps the OEM prompt wording");
         // The UT5 MAX keeps its four choices; the wider allowlist never reaches it.
         CapabilityResolver.Decision ut5=decide("maximum_speed",ModelRegistryTest.serial("Q2538ZZ9US7777777"),d);
         check(Arrays.equals(ut5.values(),ints(25,32,40,50))&&!ut5.allows(60)&&!ut5.allows(45)&&ut5.variant.id.equals("maximum_speed.ut5"),"UT5 MAX maximum speed unchanged");
