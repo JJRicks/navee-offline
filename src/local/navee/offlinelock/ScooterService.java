@@ -66,6 +66,9 @@ public final class ScooterService extends Service {
     private long wakeLockRenewedMs;
     private PowerManager.WakeLock wakeLock;private boolean visible,foregroundStarted,gapMarked,workActive,destroyed;private int samples;private long lastNotification,backgroundDeadlineMs;
     private String trendProfile = "", recordingError;
+    /** Forgotten-ride decision for the active ride only; rebuilt unarmed after any restart. */
+    private RideAutoStopPolicy rideAutoStop;private long rideAutoStopDisconnects;
+    static final String RIDE_AUTO_STOP = "ride_auto_stop";private static final int AUTO_STOP_NOTICE = 72;
     private final RangeFollowPolicy rangeFollowPolicy = new RangeFollowPolicy();
     private boolean selectingRange;
     private final ArrayDeque<Ui.Point> power=new ArrayDeque<>(),voltage=new ArrayDeque<>(),speed=new ArrayDeque<>();
@@ -573,15 +576,62 @@ public final class ScooterService extends Service {
                             this, "Finishing the previous ride", android.widget.Toast.LENGTH_SHORT)
                     .show();
             return;}if(rides==null||!ble.ready()||isRecording())return;try{rides.setCurrentDirection(RideStore.CurrentDirection.POSITIVE_IS_DRAW);
-            rides.start(profiles.active().id,label,System.currentTimeMillis(),SystemClock.elapsedRealtime());invalidateCapacityEstimate();recordingError=null;gapMarked=false;samples=0;applyWorkPolicy(false);
+            rides.start(profiles.active().id,label,System.currentTimeMillis(),SystemClock.elapsedRealtime());invalidateCapacityEstimate();recordingError=null;gapMarked=false;samples=0;rideAutoStop=null;cancelAutoStopNotice();applyWorkPolicy(false);
             // Re-evaluate START_STICKY after the user starts a ride, rather than retaining
             // the idle service's earlier START_NOT_STICKY result.
             startService(new Intent(this,ScooterService.class).setAction("RECORDING_STARTED"));ble.refresh(false);}catch(IOException|IllegalStateException e){android.widget.Toast.makeText(this,e.getMessage(),android.widget.Toast.LENGTH_LONG).show();}}
 
-    public void stopRide(){if(!isRecording())return;try{rides.stop(System.currentTimeMillis(),SystemClock.elapsedRealtime());invalidateCapacityEstimate();recordingError=null;}catch(IOException e){
+    public void stopRide(){stopRide("");}
+    /** The one stop/save path: rider, notification and automatic stops share error handling, sensor drain and wake-lock release. */
+    private boolean stopRide(String reason){if(!isRecording())return false;rideAutoStop=null;try{rides.stop(System.currentTimeMillis(),SystemClock.elapsedRealtime(),reason);invalidateCapacityEstimate();recordingError=null;}catch(IOException e){
             recordingError =
                     "Storage full · free space, then Retry save";
-            android.widget.Toast.makeText(this,recordingError,android.widget.Toast.LENGTH_LONG).show();changed();return;}stopPhoneRecording();if(wakeLock.isHeld()&&!phoneSaving())wakeLock.release();applyWorkPolicy(false);changed();}
+            android.widget.Toast.makeText(this,recordingError,android.widget.Toast.LENGTH_LONG).show();updateNotification();changed();return false;}stopPhoneRecording();if(wakeLock.isHeld()&&!phoneSaving())wakeLock.release();applyWorkPolicy(false);changed();return true;}
+    /**
+     * Feeds the forgotten-ride policy from the current authenticated transport, never from cached
+     * readings. Runs on every BLE change (so a loss is seen as it happens) and every service tick,
+     * screen on or off. Charges have their own recovery policy and never pass through here.
+     */
+    private void observeRideAutoStop(long mono){
+        if(destroyed||simulating()||!isRecording()){rideAutoStop=null;return;}
+        String id=rides.activeId();
+        if(rideAutoStop==null||!rideAutoStop.owns(id)){
+            RideStore.Summary ride=rides.activeSummary();ScooterProfiles.Profile active=profiles.active(),bound=ble.profile();
+            String serial=ride!=null&&active!=null&&active.id.equals(ride.scooterId)?active.serial:"";
+            if((serial==null||serial.isEmpty())&&ride!=null&&bound!=null&&bound.id.equals(ride.scooterId))serial=ble.currentTransportSerial();
+            if(ride==null||serial==null||serial.isEmpty()||ride.scooterId.isEmpty()){rideAutoStop=null;return;}
+            rideAutoStop=new RideAutoStopPolicy(id,ride.scooterId,serial);rideAutoStopDisconnects=ble.intentionalDisconnectSequence();
+        }
+        if(!settings.getBoolean(RIDE_AUTO_STOP,true)||recordingError!=null||!rideAutoStop.profile.equals(activeProfileId())
+                ||ble.intentionalDisconnectSequence()!=rideAutoStopDisconnects){
+            rideAutoStop.reset();rideAutoStopDisconnects=ble.intentionalDisconnectSequence();return;
+        }
+        if(ble.connected()){ScooterProfiles.Profile bound=ble.profile();
+            rideAutoStop.connected(mono,bound==null?"":bound.id,ble.currentTransportSerial(),ble.connectionGeneration(),ble.lastFrameMs(),ble.motionSampleMs(),ble.speedRaw(),ble.drivingStatus());}
+        else rideAutoStop.disconnected(mono,ble.recoverableConnectionLoss()&&ble.permissions()&&ble.bluetoothEnabled());
+    }
+    /** Called from the tick only. The policy instance and ride id must both still be current. */
+    private void autoStopRide(RideAutoStopPolicy policy){
+        if(destroyed||policy==null||policy!=rideAutoStop||!isRecording()||!policy.owns(rides.activeId())||ble.connected())return;
+        String id=policy.rideId;
+        if(stopRide(RideStore.STOP_AUTO_PARKED)){
+            if(visible)android.widget.Toast.makeText(this,"Ride saved automatically",android.widget.Toast.LENGTH_SHORT).show();
+            showAutoStopNotice(id);
+        }
+    }
+    /** Separate from the foreground notice, which Android removes once nothing is recording. */
+    private void showAutoStopNotice(String id){
+        try{
+            notification();// Ensures the channel exists even if the foreground notice never posted.
+            PendingIntent open=PendingIntent.getActivity(this,2,new Intent(this,MainActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
+            RideStore.Summary ride=null;try{ride=rides.get(id);}catch(IOException ignored){}
+            String text=ride==null||ride.label.isEmpty()?"Bluetooth lost while parked":ride.label+" · Bluetooth lost while parked";
+            getSystemService(NotificationManager.class).notify(AUTO_STOP_NOTICE,new Notification.Builder(this,"scooter").setSmallIcon(R.drawable.ic_lock)
+                    .setContentTitle("Ride saved automatically").setContentText(text).setContentIntent(open).setAutoCancel(true)
+                    .setCategory(Notification.CATEGORY_STATUS).setVisibility(Notification.VISIBILITY_PRIVATE).build());
+        }catch(RuntimeException unavailable){}
+    }
+    private void cancelAutoStopNotice(){try{getSystemService(NotificationManager.class).cancel(AUTO_STOP_NOTICE);}catch(RuntimeException ignored){}}
     private void startPhoneRecording(){
         if (simulating()) return;
         if(phoneRides==null||!isRecording()||phoneRecorder!=null)return;
@@ -691,6 +741,9 @@ public final class ScooterService extends Service {
                                     .show();
                         }
                     } else if (wakeLock.isHeld() && !phoneSaving() && !isChargeRecording()) wakeLock.release();
+                    observeRideAutoStop(mono);
+                    RideAutoStopPolicy autoStop = rideAutoStop;
+                    if (autoStop != null && autoStop.due(mono)) autoStopRide(autoStop);
                     if (mono - lastNotification > 5000) {
                         lastNotification = mono;
                         updateNotification();
@@ -702,7 +755,7 @@ public final class ScooterService extends Service {
             };
 
     private void addTrend(ArrayDeque<Ui.Point> values,String key,long now){for(Telemetry.Metric m:ble.telemetry.metrics())if(m.key.equals(key)&&m.numericValue!=null&&m.updatedMs>=0&&now>=m.updatedMs&&now-m.updatedMs<2500){if(values.isEmpty()||values.peekLast().millis<m.updatedMs)values.add(new Ui.Point(m.updatedMs,m.numericValue));break;}while(!values.isEmpty()&&now-values.peek().millis>120000)values.remove();while(values.size()>240)values.remove();}
-    private void changed(){if(destroyed)return;if(!canRetainStockReference())stockChargeReferenceGate.reset();updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
+    private void changed(){if(destroyed)return;if(!canRetainStockReference())stockChargeReferenceGate.reset();updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeRideAutoStop(SystemClock.elapsedRealtime());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
     public boolean followsRidingMode() {
         return settings.getBoolean("range_follow_mode_" + activeProfileId(), true);
     }

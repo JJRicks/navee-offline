@@ -23,6 +23,11 @@ for source in "$TEST_DIR"/shizuku-stubs/android/content/*.java \
     sources+=("$source")
 done
 sources+=("$APP_DIR/src/local/navee/offlinelock/ShizukuCaptureClient.java" "$TEST_DIR/ShizukuCaptureClientTest.java")
+# Ride auto-end policy and its journal/learned-range effects.
+for name in RideAutoStopPolicy; do
+    sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
+done
+sources+=("$TEST_DIR/RideAutoStopStoreTest.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
 for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"
@@ -33,3 +38,5 @@ java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceT
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeTaperMatcherTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceGateTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ShizukuCaptureClientTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopPolicyTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopStoreTest

@@ -186,7 +186,9 @@ hidden or stopping a hidden recording creates no new grace period. Active
 ride/charge capture retains foreground-service protection and an immediate
 ongoing Stop notification with a renewed bounded CPU wake lock. Charge capture
 retries temporary disconnects for up to five minutes with marked gaps and
-same-scooter verification; rides preserve Bluetooth gaps and can reconnect. Android may
+same-scooter verification; rides preserve Bluetooth gaps and can reconnect. A ride
+ends automatically 10 s after Bluetooth is lost following fresh stationary
+reports (preference, default on); moving or uncertain losses keep recording. Android may
 allow dismissing ongoing notifications while unlocked. Force stop and device
 battery restrictions remain limits. No lock state changes automatically.
 

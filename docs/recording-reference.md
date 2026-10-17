@@ -113,7 +113,9 @@ wall/monotonic timestamps, frame ID, sensor key, numeric/text value, unit, sourc
 command, sensor time/age, current-direction interpretation and recording events.
 `BEGIN` / `SENSOR` / `COMMIT` preserve sample boundaries; only committed frames
 are accepted during replay. `GAP` / `HEARTBEAT` / `RECOVER` describe missing
-exposure and process recovery without inventing samples. Analysis JSON contains
+exposure and process recovery without inventing samples. A `STOP` row's details
+column is empty when the rider stopped, or `AUTO_PARKED_DISCONNECT` when Volt
+ended the ride automatically; older readers ignore it. Analysis JSON contains
 unit-explicit quantities, coverage and session metadata. `null` means
 insufficient evidence, not zero.
 
@@ -147,7 +149,13 @@ again.
 
 Ride and charge recording are independent of this idle option. Their service
 and ongoing Stop notification remain while hidden, with a renewed CPU wake lock.
-Ride recording can reconnect, recording Bluetooth loss as gaps. An explicitly
+Ride recording can reconnect, recording Bluetooth loss as gaps. A forgotten ride
+ends itself: when fresh scooter reports showed it stopped for a few seconds and
+Bluetooth then stays lost for 10 seconds, Volt saves the ride through the normal
+Stop path and posts "Ride saved automatically". Losses while moving, without
+fresh speed, after a process restart or after an explicit Disconnect keep
+recording as before. App preferences > End parked rides turns this off. Exact
+rules: [ride auto-end](validation/ride-auto-stop.md). An explicitly
 started charge capture retries a temporary loss for up to five minutes, resuming
 the same journal only after the same scooter authenticates and provides fresh
 charging readings. Missing intervals stay marked as gaps and are excluded from
