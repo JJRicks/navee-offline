@@ -21,7 +21,8 @@ import java.util.function.Consumer;
 public final class TelemetryHistory {
     public static final long LIMIT_BYTES = 50L * 1024 * 1024;
     // Leave room for a rollback journal as large as the main database.
-    private static final long DB_BYTES = 24L * 1024 * 1024, DAY = 86400000L;
+    static final long DB_BYTES = 24L * 1024 * 1024;
+    private static final long DAY = 86400000L;
     private static final String NAME = "telemetry-history.db";
     private static final Map<String, Telemetry.Metric> CATALOG = new LinkedHashMap<>();
 
@@ -602,6 +603,12 @@ public final class TelemetryHistory {
 
     private void maintain(SQLiteDatabase db, long now, boolean force) {
         if (!force && now - lastMaintenance < 60000 && bytes() < 22L * 1024 * 1024) return;
+        applyRetention(db, now);
+        lastMaintenance = now;
+    }
+
+    /** The retention rules, also applied to a restore's merged copy before it replaces history. */
+    static void applyRetention(SQLiteDatabase db, long now) {
         for (String[] rule :
                 new String[][] {
                     {"detail", "wall", Long.toString(now - 7 * DAY)},
@@ -625,10 +632,9 @@ public final class TelemetryHistory {
         }
         prunePressure(db);
         db.execSQL("PRAGMA incremental_vacuum(256)");
-        lastMaintenance = now;
     }
 
-    private void prunePressure(SQLiteDatabase db) {
+    private static void prunePressure(SQLiteDatabase db) {
         for (int i = 0; i < 32 && usedBytes(db) > 20L * 1024 * 1024; i++) {
             boolean removed = false;
             for (String table : new String[] {"detail", "minute", "daily"}) {
