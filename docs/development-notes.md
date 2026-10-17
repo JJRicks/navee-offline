@@ -49,6 +49,7 @@ Preserve the app's confirmed-state lock behavior, permission/lifecycle guards, f
 - **New keys:** a control with no UT5 MAX counterpart (group S's `ambient_light_mode`, `logo_light`, `daytime_light`) lives in `ScooterCommands.oemOnly()`, never in `catalog()`, so UT5 MAX screens, saved layouts and the golden tests do not see it; the UT5 MAX layer resolves it as excluded, and a profile without identity evidence does not show it.
 - `tests/OemControlsTest.java` holds the member/non-member tables, firmware and region edges, truncated 0x70 fixtures and frozen frame hex for each mapped family.
 - `android-tests/CompatibilityGatingValidation.java` checks the UI gates with the developer simulator models (UT5 MAX, mapped 24431, unknown 39991) on a disposable emulator.
+- `android-tests/CompatControlsValidation.java` (`run-compat-gating.py --mode controls`) drives synthetic advertised IDs and a memory-only simulated serial region (`BleController.setSimulationRegion`; never applied to the UT5 MAX simulator) through the mapped families: rows and captions, choice and confirm sheets, region and firmware refusals, the Lights page and Quick access tiles. It sends nothing over Bluetooth.
 
 ## Reports and local data
 

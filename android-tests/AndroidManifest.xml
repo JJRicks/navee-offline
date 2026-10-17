@@ -28,5 +28,6 @@
   <instrumentation android:name="local.navee.offlinelock.tests.LearnedRangeValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated learned range validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.RideBackupValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator ride archive and restore UI validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.CompatibilityGatingValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated simulated model compatibility gating validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.CompatControlsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated simulated OEM control families validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.Ut5SimulationScreens" android:targetPackage="local.navee.offlinelock" android:label="Isolated UT5 MAX simulator screen capture" />
 </manifest>

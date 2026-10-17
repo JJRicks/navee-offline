@@ -18,7 +18,7 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--app', type=Path, required=True)
 parser.add_argument('--runner', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
-parser.add_argument('--mode', default='gating', choices=('gating', 'ut5-screens', 'import-name'))
+parser.add_argument('--mode', default='gating', choices=('gating', 'ut5-screens', 'import-name', 'controls'))
 parser.add_argument('--case', action='append', help='widthxheight:theme:system-font-scale[:app-text-scale]')
 args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
@@ -40,7 +40,7 @@ run('install', '--no-incremental', str(args.app.resolve()))
 run('install', '--no-incremental', str(args.runner.resolve()))
 run('shell', 'cmd', 'bluetooth_manager', 'disable')
 runner = {'gating': 'CompatibilityGatingValidation', 'ut5-screens': 'Ut5SimulationScreens',
-          'import-name': 'CompatibilityGatingValidation'}[args.mode]
+          'import-name': 'CompatibilityGatingValidation', 'controls': 'CompatControlsValidation'}[args.mode]
 results = []
 # A fixed status-bar clock keeps screenshots from two builds comparable pixel by pixel.
 run('shell', 'settings', 'put', 'global', 'sysui_demo_allowed', '1', check=False)
