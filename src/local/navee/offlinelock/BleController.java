@@ -94,6 +94,19 @@ public final class BleController {
     public long commandResultTime(String key){Long time=resultTimes.get(key);return time==null?0:time;}
     /** Connected to a model whose control catalog is not verified: the Scooter page is read-only. */
     public boolean readOnlyModel(){return !simulating()&&ready()&&profile!=null&&profile.pid()!=2538;}public ScooterCommands.PinState pinState(){return pinState;}
+    /**
+     * Read-only model evidence for this connection: the profile's saved identity plus the 0x73
+     * firmware read in this session (telemetry is cleared on every connect). GATT is verified before
+     * authentication, so the transport is standard. Nothing gates on this yet.
+     */
+    public DeviceDescriptor descriptor(){
+        if(simulating())return DeviceDescriptor.simulated("",0);
+        ScooterProfiles.Profile p=profile();String[] keys={"meter_version","controller_version","battery_version","screen_version","uwb_version"},values=new String[5];long seen=-1;
+        for(Telemetry.Metric m:telemetry.metrics())for(int i=0;i<keys.length;i++)if(m.sourceCmd==0x73&&m.key.equals(keys[i])){values[i]=m.value;seen=Math.max(seen,m.updatedMs);}
+        DeviceDescriptor.Firmware fw=DeviceDescriptor.Firmware.fromTelemetry(values[0],values[1],values[2],values[3],values[4],seen);
+        if(p==null)return DeviceDescriptor.of("","",0,fw,false,DeviceDescriptor.Transport.STANDARD,0);
+        return p.descriptor(fw,connected()&&fw.any(),DeviceDescriptor.Transport.STANDARD);
+    }
     public Integer featureValue(String key){if(simulating())return simulation==null?null:simulation.featureValue(key);try{return ScooterCommands.find(key).readback(statusFrame);}catch(Exception e){return null;}}
     public int[] featureChoices(String key){if(simulating())return simulation==null?new int[0]:simulation.featureChoices(key);try{return ScooterCommands.choiceValues(key,statusFrame);}catch(Exception e){return new int[0];}}
     public boolean permissions(){return Build.VERSION.SDK_INT>=31?context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED&&context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED:context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}

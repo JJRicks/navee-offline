@@ -57,7 +57,7 @@ public class OwnerCaptureProcessFixture {
 }''')
         source_dir = SOURCE.parents[1] / 'src/local/navee/offlinelock'
         sources = [str(source_dir / (name + '.java')) for name in
-                   ('OwnerCaptureProcess', 'OwnerCaptureEngine', 'OwnerIdentityParser', 'Protocol', 'ScooterCommands')]
+                   ('OwnerCaptureProcess', 'OwnerCaptureEngine', 'OwnerIdentityParser', 'Protocol', 'ScooterCommands', 'WireCommands')]
         subprocess.run([javac, '--release', '8', '-d', str(classes), *sources, str(fixture)], check=True,
                        stdout=subprocess.PIPE)
         cls.classes = classes
