@@ -1327,6 +1327,8 @@ public final class MainActivity extends Activity implements ScreenHost {
                     "charge_limit","low_power","timed_charging","charge_start","auto_sensor","headlight","display_units","range_algorithm","turn_sound","lock_expiry"};
             for(String key:priority)ordered.add(ScooterCommands.find(key));
             for(ScooterCommands.Feature f:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(f.key))ordered.add(f);
+            // Light controls only other models have; hidden unless the connected model maps them.
+            ordered.addAll(ScooterCommands.oemOnly());
             for(ScooterCommands.Feature f:ordered){
                 // Lock, PIN and proximity stay out of this list. Lab (experimental) controls get a row that shows only
                 // where another model maps them normally; maximum_speed's row replaces the top speed card the same way.
@@ -1358,7 +1360,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         private String groupOf(ScooterCommands.Feature f){
             if(f.key.startsWith("line_"))return "Line lights";if(f.key.startsWith("star_"))return "Star lights";
-            if(f.key.equals("headlight")||f.key.equals("auto_sensor"))return "Lights";
+            if(f.key.equals("headlight")||f.key.equals("auto_sensor")||ScooterCommands.oemOnly(f.key))return "Lights";
             return f.group.equals("Ride")?"Ride":f.group.equals("Battery")?"Battery":f.group.equals("Security")?"Security":"Dashboard & sound";
         }
         /** The main page holds everything except the line and star zones; the Lights page holds only lighting. */
@@ -1545,10 +1547,13 @@ public final class MainActivity extends Activity implements ScreenHost {
                 null, () -> { if (self[0] != null) self[0].dismiss(); });
         body.setTag("quick-settings-sheet");
         LinearLayout settings = design.groupCard(); body.addView(settings);
-        for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
+        ArrayList<ScooterCommands.Feature> features = new ArrayList<>(ScooterCommands.catalog());
+        // Another model's own light controls join the Lights sheet only where it maps them.
+        for (ScooterCommands.Feature f : ScooterCommands.oemOnly()) if (scooterService.ble.controlOffered(f.key)) features.add(f);
+        for (ScooterCommands.Feature f : features) {
             if (f.experimental && !ordinaryOemRow(f.key) || f.sensitive || f.key.equals("lock") || f.key.equals("proximity_key")) continue;
             boolean match = section.equals("Settings")
-                    || section.equals("Lights") && (f.key.equals("headlight") || f.key.equals("auto_sensor")
+                    || section.equals("Lights") && (f.key.equals("headlight") || f.key.equals("auto_sensor") || ScooterCommands.oemOnly(f.key)
                             || f.key.startsWith("line_") || f.key.startsWith("star_"))
                     || section.equals("Line lights") && f.key.startsWith("line_")
                     || section.equals("Star lights") && f.key.startsWith("star_")
@@ -1697,6 +1702,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action,spinner;
         final String haystack;final boolean inline;SegmentedSelector patternSelector;
         final LinkedHashMap<Integer,View> options=new LinkedHashMap<>();
+        /** Colour swatches; another model with more colours adds its swatches on their own full-width line. */
+        private LinearLayout swatchRow;private boolean wideSwatches;
         /** Moving while this setting needs the scooter parked: the row greys out and a tap says why. */
         private boolean parkedBlocked;
         ControlRow(ScooterCommands.Feature feature){
@@ -1729,7 +1736,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                     LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,-2);pp.topMargin=design.dp(6);pp.bottomMargin=design.dp(8);card.addView(patternSelector,pp);
                 }else{
                     // Colours are swatches on the right of the row.
-                    LinearLayout swatches=row();swatches.setGravity(Gravity.CENTER_VERTICAL);
+                    LinearLayout swatches=row();swatches.setGravity(Gravity.CENTER_VERTICAL);swatchRow=swatches;
                     for(int i=0;i<feature.optionValues.length;i++){
                         final int choice=feature.optionValues[i];String label=feature.options[i];
                         Swatch swatch=new Swatch(label.equals("Red")?design.accent:label.equals("Ice blue")?design.blue:design.muted);
@@ -1770,6 +1777,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             }else if(inline)row.setSub(actual==null?"Not reported":note);
             else row.setSub(joinNote(rowDetail(feature),note));
             if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(usable);patternSelector.setAlpha(usable?1f:.5f);}
+            if(swatchRow!=null)extraSwatches(decision);
             for(Map.Entry<Integer,View> option:options.entrySet()){
                 boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();
                 ((Swatch)view).set(on);
@@ -1795,6 +1803,26 @@ public final class MainActivity extends Activity implements ScreenHost {
                     &&d.reason!=CapabilityResolver.Reason.NOT_CONNECTED&&d.reason!=CapabilityResolver.Reason.STATUS_STALE)return d.reasonText();
             return d.layer!=ModelRegistry.Layer.UT5_MAX&&d.evidence==CapabilityResolver.Evidence.OEM_MAPPED?"Untested here":null;
         }
+        /** UT5 MAX swatches never change; colours beyond them (another model's table) show only while that model offers them. */
+        private void extraSwatches(CapabilityResolver.Decision decision){
+            int[] offered=decision==null||decision.variant==null||decision.variant.decode==FeatureVariant.Decode.UT5_FEATURE?new int[0]:decision.values();
+            java.util.HashSet<Integer> base=new java.util.HashSet<>();for(int v:feature.optionValues)base.add(v);
+            for(int v:offered)if(!options.containsKey(v)){
+                if(!wideSwatches){
+                    // Six colours do not fit beside the label: the swatches take their own line, sharing its width.
+                    wideSwatches=true;row.line.removeView(swatchRow);
+                    for(int i=0;i<swatchRow.getChildCount();i++)swatchRow.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0,design.dp(48),1));
+                    LinearLayout.LayoutParams wide=new LinearLayout.LayoutParams(-1,-2);wide.bottomMargin=design.dp(6);card.addView(swatchRow,wide);
+                }
+                final int choice=v;String label=decision.label(v);
+                Swatch swatch=new Swatch(swatchColor(label));swatch.rainbow=label.equals("Rainbow");
+                swatch.setContentDescription(shortLabel(feature)+" "+label);swatch.setOnClickListener(x->chooseInline(feature,choice));
+                options.put(choice,swatch);swatchRow.addView(swatch,new LinearLayout.LayoutParams(0,design.dp(48),1));
+            }
+            for(Map.Entry<Integer,View> option:options.entrySet())if(!base.contains(option.getKey())){
+                boolean shown=false;for(int v:offered)shown|=v==option.getKey();option.getValue().setVisibility(shown?View.VISIBLE:View.GONE);
+            }
+        }
         private String joinNote(String text,String note){return note==null?text:text==null||text.isEmpty()?note:text+" · "+note;}
         private void restorePatternSelection(boolean animate){
             Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);
@@ -1807,16 +1835,31 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(scooterService==null)return;Integer actual=scooterService.ble.featureValue(feature.key);if(actual!=null&&actual==target)return;
         confirmChange(feature,target,()->{if(!scooterService.ble.set(feature.key,target))toast(scooterService.ble.message());redraw();});
     }
+    /** Swatch colour for a lamp colour label (UT5 MAX: ice blue and red). */
+    private int swatchColor(String label){
+        switch(label){
+            case "Red": return design.accent;
+            case "Ice blue": return design.blue;
+            case "Blue": return android.graphics.Color.parseColor("#3D6BE0");
+            case "Green": return design.ok;
+            case "Purple": return android.graphics.Color.parseColor("#8E5BD0");
+            default: return design.muted;
+        }
+    }
     /** Lamp colour swatch; the selected colour gains a ring. */
     private final class Swatch extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private final int color;private boolean on;
+        /** A multicolour lamp mode: drawn as a colour wheel. */
+        boolean rainbow;
         Swatch(int color){super(MainActivity.this);this.color=color;setClickable(true);setFocusable(true);
             setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(design.accent,40)),null,null));}
         void set(boolean selected){if(on!=selected){on=selected;invalidate();}setSelected(selected);}
         @Override public CharSequence getAccessibilityClassName(){return android.widget.RadioButton.class.getName();}
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setCheckable(true);info.setChecked(on);}
         @Override protected void onDraw(Canvas canvas){
-            float cx=getWidth()/2f,cy=getHeight()/2f;paint.setStyle(Paint.Style.FILL);paint.setColor(color);canvas.drawCircle(cx,cy,design.dp(10),paint);
+            float cx=getWidth()/2f,cy=getHeight()/2f;paint.setStyle(Paint.Style.FILL);paint.setColor(color);
+            if(rainbow)paint.setShader(new android.graphics.SweepGradient(cx,cy,new int[]{0xFFE5484D,0xFFF5B83D,0xFF3DBE6B,0xFF3D6BE0,0xFF8E5BD0,0xFFE5484D},null));
+            canvas.drawCircle(cx,cy,design.dp(10),paint);paint.setShader(null);
             if(on){paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(2));paint.setColor(design.text);canvas.drawCircle(cx,cy,design.dp(14),paint);}
         }
     }

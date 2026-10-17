@@ -18,13 +18,15 @@ import java.util.Set;
  * Version 3 adds the OEM More-screen toggles and choices (traction control, assists, charging,
  * lock time, overspeed control, prompt tone, dual motor, acceleration, PIN and proximity).
  * Version 4 adds the speed family (maximum speed tables, custom speed cap ranges, kick-start
- * speed, group M's on/off energy recovery) with their riding-region rules. Every
+ * speed, group M's on/off energy recovery) with their riding-region rules. Version 5 adds
+ * lighting: line/star zones for 2547/2585 (six colours on 2585) and group S's ambient, logo and
+ * daytime lights. Ambient lights for other groups stay unmapped. Every
  * other OEM-group key is "not mapped" until its rows are added. OEM-mapped rows are not tested by
  * Volt on those models. BleController and the UI gate every control on these decisions.
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=4;
+    public static final int VERSION=5;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -170,6 +172,31 @@ public final class ModelRegistry {
     /** Group M's energy recovery is on/off (offset 5 == 1), not levels. */
     static final FeatureVariant OEM_ENERGY_BINARY=oem("energy_recovery.binary","energy_recovery",0x53,new int[]{0,1},OFF_ON,5,true);
 
+    // OEM-group variants (C5 batch 3): lighting. Region rules here hide convenience controls, so they are notes only.
+    private static final String[] ZONE_PATTERNS={"Always on","Follow headlights","Breathing"};
+    private static final String[] TWO_COLOURS={"Ice blue","Red"};
+    private static final String[] SIX_COLOURS={"Ice blue","Red","Blue","Green","Purple","Rainbow"};
+    /** Line (0x6d target 4: offsets 10 and 16) and star (target 5: offsets 17 and 18) zones for 2547 and 2585. */
+    static final FeatureVariant LINE_LIGHT=zone("line_light",4,0,new int[]{0,1},OFF_ON,10,128,7);
+    static final FeatureVariant LINE_PATTERN=zone("line_pattern",4,1,new int[]{0,1,2},ZONE_PATTERNS,10,127,0);
+    static final FeatureVariant LINE_COLOR_TWO=zone("line_color",4,2,new int[]{0,1},TWO_COLOURS,16,15,0);
+    static final FeatureVariant LINE_COLOR_SIX=zone("line_color",4,2,new int[]{0,1,2,3,4,5},SIX_COLOURS,16,15,0);
+    static final FeatureVariant LINE_BOOST_TWO=zone("line_boost_color",4,3,new int[]{0,1},TWO_COLOURS,16,240,4);
+    static final FeatureVariant LINE_BOOST_SIX=zone("line_boost_color",4,3,new int[]{0,1,2,3,4,5},SIX_COLOURS,16,240,4);
+    static final FeatureVariant STAR_LIGHT=zone("star_light",5,0,new int[]{0,1},OFF_ON,17,128,7);
+    static final FeatureVariant STAR_PATTERN=zone("star_pattern",5,1,new int[]{0,1,2},ZONE_PATTERNS,17,127,0);
+    static final FeatureVariant STAR_COLOR_TWO=zone("star_color",5,2,new int[]{0,1},TWO_COLOURS,18,15,0);
+    static final FeatureVariant STAR_COLOR_SIX=zone("star_color",5,2,new int[]{0,1,2,3,4,5},SIX_COLOURS,18,15,0);
+    static final FeatureVariant STAR_BOOST_TWO=zone("star_boost_color",5,3,new int[]{0,1},TWO_COLOURS,18,240,4);
+    static final FeatureVariant STAR_BOOST_SIX=zone("star_boost_color",5,3,new int[]{0,1,2,3,4,5},SIX_COLOURS,18,240,4);
+    /** Group S light controls: 0x6d [type 1 ambient | 2 logo | 3 daytime, 0 off | 1 on | 2 follow headlight], raw at offsets 10/23/24. */
+    private static final String[] LIGHT_MODES={"Off","On","Follow headlight"};
+    static final FeatureVariant S_AMBIENT=oemAt("ambient_light_mode.oem","ambient_light_mode",0x6d,new int[]{1},new int[]{0,1,2},LIGHT_MODES,10,255,0,false);
+    static final FeatureVariant S_LOGO=oemAt("logo_light.oem","logo_light",0x6d,new int[]{2},new int[]{0,1,2},LIGHT_MODES,23,255,0,false);
+    static final FeatureVariant S_DAYTIME=oemAt("daytime_light.oem","daytime_light",0x6d,new int[]{3},new int[]{0,1,2},LIGHT_MODES,24,255,0,false);
+    /** OEM 2.1.9's line/star lights outside the UT5 MAX: 2547 (two colours) and 2585 (six colours). */
+    static final String[] ZONE_LIGHTS={"2547","2585"};
+
     /** Maximum speed: OEM 2.1.9 shows the row only in its USA bucket, for these prefixes plus groups S, Q, H, K, L, B, C, D, O and G. */
     static final String[] MAX_SPEED_ROW={"2509"};
     /** OEM 2.1.9 choice tables (km/h) by prefix; anything else in the row gets 25/32/40/45. */
@@ -202,6 +229,9 @@ public final class ModelRegistry {
     /** Eco/Turbo: OEM 2.1.9 offers it for these prefixes plus groups D and O (not group Q). */
     static final String[] ACCELERATION={"2345","2714","2509"};
 
+    private static FeatureVariant zone(String key,int target,int sub,int[] values,String[] labels,int offset,int mask,int shift){
+        return oemAt(key+(values.length==6?".oem_six":".oem"),key,0x6d,new int[]{target,sub},values,labels,offset,mask,shift,false);
+    }
     private static FeatureVariant maxSpeed(String id,int... kmh){
         return oemAt("maximum_speed."+id,"maximum_speed",0x6e,new int[]{1},kmh,kmhLabels(kmh,false),25,255,0,true);
     }
@@ -281,13 +311,14 @@ public final class ModelRegistry {
     static FeatureVariant variant(String feature,DeviceDescriptor d,Resolution r,StatusFields s){return rule(feature,d,r,s).variant;}
 
     static Rule rule(String feature,DeviceDescriptor d,Resolution r,StatusFields s){
-        if(!"clock_sync".equals(feature))ScooterCommands.find(feature); // unknown keys are a programming error
+        if(!"clock_sync".equals(feature))ScooterCommands.find(feature); // unknown keys are a programming error (OEM-only keys are known)
         if(r==null)r=resolve(d);
         switch(r.layer){
             case UNSUPPORTED_PRODUCT: return refused(CapabilityResolver.Support.INCOMPATIBLE,CapabilityResolver.Reason.PRODUCT_UNSUPPORTED);
             case UNSUPPORTED_TRANSPORT: return refused(CapabilityResolver.Support.INCOMPATIBLE,CapabilityResolver.Reason.TRANSPORT_UNSUPPORTED);
             case UT5_MAX: {
                 FeatureVariant v=Ut5.VARIANTS.get(feature);
+                if(v==null)return excluded(); // another model's light control; the UT5 MAX has none
                 CapabilityResolver.Evidence evidence=v.lab?CapabilityResolver.Evidence.VOLT_LAB
                     :VERIFIED.contains(feature)?CapabilityResolver.Evidence.VOLT_VERIFIED:CapabilityResolver.Evidence.OEM_MAPPED;
                 return new Rule(CapabilityResolver.Support.KNOWN_ENCODING,CapabilityResolver.Reason.NONE,evidence,ut5Note(feature,d),preconditions(v),v);
@@ -416,9 +447,32 @@ public final class ModelRegistry {
                     return gated(new Rule(rule.support,rule.reason,rule.evidence,"OEM 2.1.9 hides this without a serial region or in DE",rule.preconditions,rule.variant),CapabilityResolver.Reason.REGION_RULE,null);
                 return rule;
             }
-            default: return null;
+            // C5 batch 3: lighting (convenience: region visibility deferred, noted).
+            case "ambient_light_mode": case "logo_light": case "daytime_light": {
+                if(!any(d,S))return null;
+                FeatureVariant v=feature.equals("logo_light")?S_LOGO:feature.equals("daytime_light")?S_DAYTIME:S_AMBIENT;
+                return oemMapped(v,lightNote(d),false);
+            }
+            default:
+                if(feature.startsWith("line_")||feature.startsWith("star_"))return zoneLight(feature,d);
+                return null;
         }
     }
+    /** Line and star zones for 2547/2585; any other model's ambient lighting is not mapped. */
+    private static Rule zoneLight(String feature,DeviceDescriptor d){
+        if(!any(d,ZONE_LIGHTS))return null;
+        boolean six=any(d,"2585");FeatureVariant v;
+        switch(feature){
+            case "line_light": v=LINE_LIGHT;break; case "line_pattern": v=LINE_PATTERN;break;
+            case "line_color": v=six?LINE_COLOR_SIX:LINE_COLOR_TWO;break; case "line_boost_color": v=six?LINE_BOOST_SIX:LINE_BOOST_TWO;break;
+            case "star_light": v=STAR_LIGHT;break; case "star_pattern": v=STAR_PATTERN;break;
+            case "star_color": v=six?STAR_COLOR_SIX:STAR_COLOR_TWO;break; case "star_boost_color": v=six?STAR_BOOST_SIX:STAR_BOOST_TWO;break;
+            default: return null;
+        }
+        return oemMapped(v,lightNote(d),false);
+    }
+    /** OEM 2.1.9 hides these light screens without a serial region or in DE/AT; Volt notes it (permissive). */
+    private static String lightNote(DeviceDescriptor d){String a=d.oemArea();return a==null||"DE".equals(a)||"AT".equals(a)?"OEM 2.1.9 hides this in this region":"";}
     /** OEM 2.1.9's maximum-speed choices for this model ID, or null when the fifth digit decides and is unknown. */
     static FeatureVariant maxSpeedTable(DeviceDescriptor d){
         if(any(d,C)||any(d,B)||any(d,E)||any(d,MAX_25_32))return SPEED_25_32;

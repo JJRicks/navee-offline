@@ -25,6 +25,8 @@ public final class ScooterSimulation {
             if (!feature.sensitive && feature.type != ScooterCommands.Type.TIME)
                 features.put(feature.key, feature.optionValues.length == 0
                         ? feature.min : feature.optionValues[0]);
+        for (ScooterCommands.Feature feature : ScooterCommands.oemOnly())
+            features.put(feature.key, feature.optionValues[0]);
         choose("energy_recovery", 30);
         choose("acceleration", 3);
         choose("headlight", 1);

@@ -148,7 +148,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                 boolean known = feature.key.equals("range_algorithm") || (feature.experimental ? ordinary : topSpeedRow ? oemTable : ble.controlOffered(feature.key));
                 if (!feature.experimental && !topSpeedRow) require(known == (feature.key.equals("range_algorithm") || decision.support == CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated models always have identity evidence");
                 require((card.getVisibility() == View.VISIBLE) == (known && onPage), label + ": row " + feature.key + " visibility does not follow its decision");
-                if (ut5) require(known != (feature.experimental || topSpeedRow), "UT5 MAX row set changed: " + feature.key);
+                if (ut5) require(known != (feature.experimental || topSpeedRow || ScooterCommands.oemOnly(feature.key)), "UT5 MAX row set changed: " + feature.key);
                 // "Untested here": every OEM-mapped control on another model, never on the UT5 MAX.
                 String sub = String.valueOf(((TextView)field(field(row, "row"), "sub")).getText());
                 if (ut5 || feature.key.equals("range_algorithm")) require(!sub.contains("Untested here"), label + ": unexpected Untested caption on " + feature.key);

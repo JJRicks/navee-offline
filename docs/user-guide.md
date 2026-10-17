@@ -223,6 +223,7 @@ Volt is verified on the US UT5 MAX only. Other standard NAVEE scooters connect w
 - **Asks first:** turning off traction control, Low Battery Mode or dual motor drive asks you to confirm on these models, as the official app does.
 - **Charging start** on these models is set on the hour, up to 48 hours ahead.
 - **Speed settings** follow the official app for the model: maximum speed offers that model's own choices and appears only for US-region scooters; the custom speed cap and kick-start speed ranges depend on model and region. Volt never tries other speeds. A kick-start speed below 3 km/h shows a caution first.
+- **Lights** on these models follow the official app too: line and star lights (with more colours on some models), or ambient, logo and daytime running lights with Off, On or Follow headlight.
 - **Estimates:** UT5 MAX charge curves, rated capacity, drive-mode names and range following are not applied to other models. Charge estimates use live readings only.
 - Golf carts, e-bikes and other non-scooter products get no scooter commands.
 

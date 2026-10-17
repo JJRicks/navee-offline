@@ -46,6 +46,7 @@ Preserve the app's confirmed-state lock behavior, permission/lifecycle guards, f
 - **UI:** another model's variant supplies values and labels (`MainActivity.featureLabel`); a control that is Lab on the UT5 MAX becomes an ordinary Scooter row when its variant is not Lab (`decision.variant.lab`), and its Lab entry says so.
 - **Allowlist:** `ScooterCommands.validPayload` admits the union of the mapped domains (0x6e selector 1: 25/30/32/35/40/45/50/55/60/65/70 km/h; 0x53: 1 for group M). Each model still offers only its own table, and the UT5 MAX catalogue still refuses the extra values; paired negative tests cover the values just outside.
 - **Speed family:** maximum speed is a fixed per-model table (`ModelRegistry.maxSpeedTable`), shown as a normal Scooter row instead of the UT5 MAX top speed card; Volt never sweeps or probes speeds.
+- **New keys:** a control with no UT5 MAX counterpart (group S's `ambient_light_mode`, `logo_light`, `daytime_light`) lives in `ScooterCommands.oemOnly()`, never in `catalog()`, so UT5 MAX screens, saved layouts and the golden tests do not see it; the UT5 MAX layer resolves it as excluded, and a profile without identity evidence does not show it.
 - `tests/OemControlsTest.java` holds the member/non-member tables, firmware and region edges, truncated 0x70 fixtures and frozen frame hex for each mapped family.
 - `android-tests/CompatibilityGatingValidation.java` checks the UI gates with the developer simulator models (UT5 MAX, mapped 24431, unknown 39991) on a disposable emulator.
 

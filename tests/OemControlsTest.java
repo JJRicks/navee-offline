@@ -14,6 +14,7 @@ public final class OemControlsTest {
     public static void main(String[] args) throws Exception {
         batch1Tables(); batch1Firmware(); batch1Region(); batch1Fields(); batch1Frames(); batch1Rules();
         batch2MaximumSpeed(); batch2SpeedLimit(); batch2StartSpeed(); batch2Energy(); batch2Frames();
+        batch3Zones(); batch3GroupS(); batch3Frames();
         System.out.println("OemControls tests passed: "+assertions+" assertions");
     }
 
@@ -441,6 +442,128 @@ public final class OemControlsTest {
             if(String.format("0x%02x",v.cmd).equals(f[0])&&v.allows(Integer.parseInt(f[1]))){check(Protocol.hex(v.encode(Integer.parseInt(f[1]))).equals(f[2]),"Fixture "+f[0]+" "+f[1]);covered++;}
         }
         check(covered>=frames.length,"Every frozen frame is produced by a variant");
+    }
+
+
+    private static final String[] ZONES={"line_light","line_pattern","line_color","line_boost_color","star_light","star_pattern","star_color","star_boost_color"};
+
+    /** Line and star zones: 2547 two colours, 2585 six; other models' ambient lights stay unmapped; region is a note only. */
+    private static void batch3Zones() {
+        byte[] d=data(); // line on + Follow headlights (0x81), line colours std 1 / boost 0, star on + Breathing (0x82), star std 0 / boost 1
+        for(String key:ZONES){
+            for(String pid:new String[]{"25471","25851"}){
+                CapabilityResolver.Decision x=decide(key,model(pid),d);
+                check(reason(key,model(pid),d).equals(A)&&!x.variant.parked&&!x.preconditions.contains(CapabilityResolver.Precondition.UNLOCKED),"Zone "+key+" on "+pid);
+                boolean colour=key.endsWith("_color");
+                check(Arrays.equals(x.values(),colour&&pid.equals("25851")?span(0,5):colour?ints(0,1):key.endsWith("_pattern")?ints(0,1,2):ints(0,1)),"Zone choices "+key+" "+pid);
+                check(x.oemNote.isEmpty()&&!decide(key,model(pid,"DE"),d).oemNote.isEmpty()&&decide(key,model(pid,"DE"),d).available()&&decide(key,model(pid,"AT"),d).available()
+                    &&!decide(key,model(pid,"AT"),d).oemNote.isEmpty()&&decide(key,model(pid,"ZZ"),d).oemNote.isEmpty(),"Region hiding deferred with a note "+key);
+                CapabilityResolver.Runtime moving=CapabilityResolverTest.parked();moving.stationary=false;
+                check(CapabilityResolver.decide(key,model(pid),status(d),moving).available(),"Lights need no parked state "+key);
+            }
+            for(String pid:new String[]{"24431","26191","24011","23451","27141","25041","25061","24169","22131"})
+                check(reason(key,model(pid),d).equals("MODEL_NOT_MAPPED"),"No zone lights mapped on "+pid+" "+key);
+            check(decide(key,ModelRegistryTest.serial("Q2538ZZ9US7777777"),d).variant.id.equals(key+".ut5"),"UT5 MAX keeps "+key+".ut5");
+        }
+        Object[][] current={{"line_light",1},{"line_pattern",1},{"line_color",1},{"line_boost_color",0},{"star_light",1},{"star_pattern",2},{"star_color",0},{"star_boost_color",1}};
+        for(Object[] c:current)for(String pid:new String[]{"25471","25851"})check(Integer.valueOf((Integer)c[1]).equals(decide((String)c[0],model(pid),d).current()),"Zone readback "+c[0]+" "+pid);
+        byte[] green=d.clone();green[16]=0x53; // standard 3 (green), boost 5 (rainbow)
+        check(decide("line_color",model("25851"),green).current()==3&&decide("line_color",model("25851"),green).label(3).equals("Green")
+            &&decide("line_boost_color",model("25851"),green).label(5).equals("Rainbow"),"Six colours on 2585");
+        check(decide("line_color",model("25471"),green).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("line_boost_color",model("25471"),green).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"2547 has two colours");
+        byte[] six=d.clone();six[18]=0x66;check(decide("star_color",model("25851"),six).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Colour 6 is outside every table");
+        byte[] pattern=d.clone();pattern[10]=(byte)0x83;check(decide("line_pattern",model("25851"),pattern).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("line_light",model("25851"),pattern).current()==1,"Pattern 3 is unknown; the on bit still reads");
+        int[][] cuts={{10,0},{16,2},{17,4},{18,6}};
+        for(int[] c:cuts){byte[] cut=Arrays.copyOf(d,c[0]);check(decide(ZONES[c[1]],model("25851"),cut).reason==CapabilityResolver.Reason.FIELD_ABSENT
+            &&decide(ZONES[c[1]+1],model("25851"),cut).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset "+c[0]);}
+        check(MutationGate.check(new MutationGate.Request(MutationGate.Kind.SET,"line_color",5,MutationGate.Origin.USER),model("25851"),status(d),CapabilityResolverTest.parked()).available()
+            &&MutationGate.check(new MutationGate.Request(MutationGate.Kind.SET,"line_color",5,MutationGate.Origin.USER),model("25471"),status(d),CapabilityResolverTest.parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED
+            &&!MutationGate.check(new MutationGate.Request(MutationGate.Kind.SET,"line_color",2,MutationGate.Origin.USER),ModelRegistryTest.serial("Q2538ZZ9US7777777"),status(d),CapabilityResolverTest.parked()).available(),"Colour domain per model");
+    }
+
+    /** Group S light controls: three keys with no UT5 MAX counterpart, outside the catalogue, raw 0/1/2 readback. */
+    private static void batch3GroupS() {
+        String[] keys={"ambient_light_mode","logo_light","daytime_light"};int[] offsets={10,23,24};
+        check(ScooterCommands.oemOnly().size()==3,"Three OEM-only keys");
+        for(ScooterCommands.Feature f:ScooterCommands.catalog())check(!ScooterCommands.oemOnly(f.key),"OEM-only keys stay out of the UT5 MAX catalogue: "+f.key);
+        for(int i=0;i<keys.length;i++){
+            String key=keys[i];ScooterCommands.Feature f=ScooterCommands.find(key);
+            check(ScooterCommands.oemOnly(key)&&!f.experimental&&f.payloadOffset==offsets[i]&&Arrays.equals(f.optionValues,ints(0,1,2)),"OEM-only feature "+key);
+            byte[] d=data();d[10]=2;d[23]=1;d[24]=0;
+            for(String pid:new String[]{"24169","24431","25291"}){
+                CapabilityResolver.Decision x=decide(key,model(pid),d);
+                check(reason(key,model(pid),d).equals(A)&&Arrays.equals(x.values(),ints(0,1,2))&&x.variant.offset==offsets[i]&&x.label(2).equals("Follow headlight"),"S light "+key+" on "+pid);
+                check(x.current()==(i==0?2:i==1?1:0),"Raw readback "+key);
+                check(decide(key,model(pid,"DE"),d).available()&&!decide(key,model(pid,"DE"),d).oemNote.isEmpty()&&x.oemNote.isEmpty(),"Region note only "+key);
+            }
+            byte[] three=data();three[offsets[i]]=3;check(decide(key,model("24431"),three).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"3 is unknown "+key);
+            check(decide(key,model("24431"),Arrays.copyOf(data(),offsets[i])).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset "+offsets[i]);
+            for(String pid:new String[]{"25471","25851","23451","27141","24011","25041","26191"})check(reason(key,model(pid),d).equals("MODEL_NOT_MAPPED"),"Not mapped on "+pid+" "+key);
+            CapabilityResolver.Decision ut5=decide(key,ModelRegistryTest.serial("Q2538ZZ9US7777777"),d);
+            check(ut5.support==CapabilityResolver.Support.INCOMPATIBLE&&ut5.reason==CapabilityResolver.Reason.MODEL_EXCLUDED&&ut5.variant==null,"Not on the UT5 MAX "+key);
+            check(decide(key,ModelRegistryTest.serial("Q2443ZZ9US7777777"),d).reason==CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED,"Serial-only S stays unidentified "+key);
+        }
+        check(CapabilityResolver.all(ModelRegistryTest.serial("Q2538ZZ9US7777777"),status(data()),CapabilityResolverTest.parked()).size()==ScooterCommands.catalog().size()+1,"UT5 MAX decision list unchanged");
+    }
+
+    /** Frozen bytes for every lighting value (two-colour variants are the first two six-colour values). */
+    private static void batch3Frames() throws Exception {
+        String[][] frames={
+            {"LINE_LIGHT","0","55aa006d0304000073fefd"},
+            {"LINE_LIGHT","1","55aa006d0304000174fefd"},
+            {"LINE_PATTERN","0","55aa006d0304010074fefd"},
+            {"LINE_PATTERN","1","55aa006d0304010175fefd"},
+            {"LINE_PATTERN","2","55aa006d0304010276fefd"},
+            {"LINE_COLOR_SIX","0","55aa006d0304020075fefd"},
+            {"LINE_COLOR_SIX","1","55aa006d0304020176fefd"},
+            {"LINE_COLOR_SIX","2","55aa006d0304020277fefd"},
+            {"LINE_COLOR_SIX","3","55aa006d0304020378fefd"},
+            {"LINE_COLOR_SIX","4","55aa006d0304020479fefd"},
+            {"LINE_COLOR_SIX","5","55aa006d030402057afefd"},
+            {"LINE_BOOST_SIX","0","55aa006d0304030076fefd"},
+            {"LINE_BOOST_SIX","1","55aa006d0304030177fefd"},
+            {"LINE_BOOST_SIX","2","55aa006d0304030278fefd"},
+            {"LINE_BOOST_SIX","3","55aa006d0304030379fefd"},
+            {"LINE_BOOST_SIX","4","55aa006d030403047afefd"},
+            {"LINE_BOOST_SIX","5","55aa006d030403057bfefd"},
+            {"STAR_LIGHT","0","55aa006d0305000074fefd"},
+            {"STAR_LIGHT","1","55aa006d0305000175fefd"},
+            {"STAR_PATTERN","0","55aa006d0305010075fefd"},
+            {"STAR_PATTERN","1","55aa006d0305010176fefd"},
+            {"STAR_PATTERN","2","55aa006d0305010277fefd"},
+            {"STAR_COLOR_SIX","0","55aa006d0305020076fefd"},
+            {"STAR_COLOR_SIX","1","55aa006d0305020177fefd"},
+            {"STAR_COLOR_SIX","2","55aa006d0305020278fefd"},
+            {"STAR_COLOR_SIX","3","55aa006d0305020379fefd"},
+            {"STAR_COLOR_SIX","4","55aa006d030502047afefd"},
+            {"STAR_COLOR_SIX","5","55aa006d030502057bfefd"},
+            {"STAR_BOOST_SIX","0","55aa006d0305030077fefd"},
+            {"STAR_BOOST_SIX","1","55aa006d0305030178fefd"},
+            {"STAR_BOOST_SIX","2","55aa006d0305030279fefd"},
+            {"STAR_BOOST_SIX","3","55aa006d030503037afefd"},
+            {"STAR_BOOST_SIX","4","55aa006d030503047bfefd"},
+            {"STAR_BOOST_SIX","5","55aa006d030503057cfefd"},
+            {"S_AMBIENT","0","55aa006d0201006ffefd"},
+            {"S_AMBIENT","1","55aa006d02010170fefd"},
+            {"S_AMBIENT","2","55aa006d02010271fefd"},
+            {"S_LOGO","0","55aa006d02020070fefd"},
+            {"S_LOGO","1","55aa006d02020171fefd"},
+            {"S_LOGO","2","55aa006d02020272fefd"},
+            {"S_DAYTIME","0","55aa006d02030071fefd"},
+            {"S_DAYTIME","1","55aa006d02030172fefd"},
+            {"S_DAYTIME","2","55aa006d02030273fefd"},
+        };
+        for(String[] f:frames){
+            FeatureVariant v=(FeatureVariant)ModelRegistry.class.getDeclaredField(f[0]).get(null);int value=Integer.parseInt(f[1]);
+            check(Protocol.hex(v.encode(value)).equals(f[2]),"Frame "+v.id+"="+value+" "+Protocol.hex(v.encode(value)));
+            if(ScooterCommands.find(v.feature).allows(value))check(Arrays.equals(v.encode(value),ScooterCommands.set(v.feature,value)),"Same wire as the catalogue encoder "+v.id+"="+value);
+            String two=f[0].replace("_SIX","_TWO");
+            if(!two.equals(f[0])&&value<2)check(Arrays.equals(((FeatureVariant)ModelRegistry.class.getDeclaredField(two).get(null)).encode(value),v.encode(value)),"Two-colour bytes "+two);
+        }
+        for(String name:new String[]{"LINE_COLOR_TWO","STAR_BOOST_TWO","LINE_COLOR_SIX","S_AMBIENT","S_LOGO","S_DAYTIME","LINE_PATTERN"}){
+            FeatureVariant v=(FeatureVariant)ModelRegistry.class.getDeclaredField(name).get(null);
+            for(int value=-1;value<=256;value++)if(!v.allows(value)){boolean refused=false;try{v.encode(value);}catch(IllegalArgumentException expected){refused=true;}check(refused,"Never encoded "+v.id+"="+value);}
+        }
     }
 
     static void check(boolean condition,String message){assertions++;if(!condition)throw new AssertionError(message);}

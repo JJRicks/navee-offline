@@ -157,6 +157,17 @@ Kick-start speed   OEM-mapped   Parked; 0-5 km/h in US/CN/RU, else 3-5; some
                                 below 3 km/h shows a caution
 Energy recovery    OEM-mapped   Unlocked, parked; on/off; turning it off shows
 (2504-2506)                     a caution
+Line and star      OEM-mapped   2547 (two colours) and 2585 (six colours);
+lights                          region hiding noted, not applied
+Ambient, logo and  OEM-mapped   2416, 2443, 2529: Off, On or follow headlight;
+daytime lights                  region hiding noted, not applied
+
+Still hidden because the evidence is incomplete: traction control outside
+the groups above, ambient lights on 2345/2714 (their readback is only partly
+mapped) and 2504-2506 (per-gear colours), lighting on models without an
+official light screen, group 2504-2506 lock settings, sound effects on 2506,
+the drive-mode speed cap, weather display and anything that needs the full
+model ID while only a serial is known.
 
 Every other control stays hidden until mapped. A serial number alone never
 selects an OEM group; Identify reads the advertised model ID. Region rules that

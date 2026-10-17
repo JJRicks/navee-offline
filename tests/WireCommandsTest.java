@@ -131,7 +131,8 @@ public final class WireCommandsTest {
         rejects(()->WireCommands.selector(0x6e,1,33));     // outside every OEM max-speed table
         rejects(()->WireCommands.selector(0x6e,1,71));
         rejects(()->WireCommands.enabledCap(0x6b,-1,33,true));
-        rejects(()->WireCommands.light(4,2,5));
+        rejects(()->WireCommands.light(4,2,6));          // outside every OEM colour table (0-5)
+        rejects(()->WireCommands.light(5,3,6));
         rejects(()->WireCommands.scalar(0x80,0));          // weather is excluded
         rejects(()->WireCommands.localTime(8,1700000000L,0));
         rejects(()->WireCommands.voice(true,101,1));

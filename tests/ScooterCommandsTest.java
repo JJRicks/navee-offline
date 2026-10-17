@@ -218,7 +218,10 @@ public final class ScooterCommandsTest {
         rejects(()->Protocol.frame(0x63,new byte[]{1,0,1,2,3,4}));
         rejects(()->Protocol.frame(0x6d,new byte[]{4,0,2}));
         rejects(()->Protocol.frame(0x6d,new byte[]{4,1,3}));
-        rejects(()->Protocol.frame(0x6d,new byte[]{5,3,5}));
+        rejects(()->Protocol.frame(0x6d,new byte[]{5,3,6}));
+        rejects(()->Protocol.frame(0x6d,new byte[]{4,2,6}));
+        Protocol.frame(0x6d,new byte[]{5,3,5});Protocol.frame(0x6d,new byte[]{4,2,5}); // 2585's six colours
+        for(String key:new String[]{"line_color","line_boost_color","star_color","star_boost_color"})for(int c=2;c<=5;c++){final int v=c;rejects(()->ScooterCommands.set(key,v));} // UT5 MAX: two colours
         rejects(()->Protocol.frame(0x81,new byte[]{0,1}));
     }
 

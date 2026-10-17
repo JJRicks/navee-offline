@@ -94,6 +94,8 @@ public final class ScooterCommands {
     }
 
     private static final LinkedHashMap<String, Feature> FEATURES = new LinkedHashMap<String, Feature>();
+    /** Controls with no UT5 MAX counterpart: never in catalog(), offered only where ModelRegistry maps them. */
+    private static final LinkedHashMap<String, Feature> OEM_ONLY = new LinkedHashMap<String, Feature>();
     private static final String[] NO_OPTIONS = new String[0];
     private static final int[] NO_VALUES = new int[0];
     private static final int[] READS = {0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x79, 0x7b};
@@ -153,6 +155,10 @@ public final class ScooterCommands {
         // PIN bytes must never enter diagnostics or exports: Telemetry drops 0x7a/0x63 and parsePin keeps only state.
         add("pin","Handlebar PIN","Security","",Type.PIN,"",0x63,0,0,1,
                 NO_OPTIONS,NO_VALUES,NO_VALUES,"",0,255,0,"password",true,true);
+        // OEM 2.1.9 light controls for other models: 0x6d [type, 0 off | 1 on | 2 follow headlight], raw readback.
+        oemOnlyLight("ambient_light_mode","Ambient light",1,10);
+        oemOnlyLight("logo_light","Logo light",2,23);
+        oemOnlyLight("daytime_light","Daytime running light",3,24);
     }
 
     private ScooterCommands() {}
@@ -178,8 +184,15 @@ public final class ScooterCommands {
         return Collections.unmodifiableList(new ArrayList<Feature>(FEATURES.values()));
     }
 
+    /** Controls other models may have and the UT5 MAX does not; saved layouts never reference them. */
+    public static List<Feature> oemOnly() {
+        return Collections.unmodifiableList(new ArrayList<Feature>(OEM_ONLY.values()));
+    }
+    public static boolean oemOnly(String key) { return OEM_ONLY.containsKey(key); }
+
     public static Feature find(String key) {
         Feature feature = FEATURES.get(key);
+        if (feature == null) feature = OEM_ONLY.get(key);
         require(feature != null, "Unknown scooter feature");
         return feature;
     }
@@ -361,7 +374,8 @@ public final class ScooterCommands {
                 if(d.length==2) return between(a,1,3) && between(b,0,2);
                 if(d.length!=3 || (a!=4 && a!=5)) return false;
                 int c=d[2]&255;
-                return (b==0 && binary(c)) || (b==1 && between(c,0,2)) || ((b==2||b==3) && between(c,0,1));
+                // Colours 0-5: the union of the OEM two-colour and six-colour line/star tables (each model offers its own).
+                return (b==0 && binary(c)) || (b==1 && between(c,0,2)) || ((b==2||b==3) && between(c,0,5));
             case 0x6e:
                 // Selector 1: the union of the OEM per-model maximum-speed tables; each model offers only its own.
                 return d.length==2 && ((a==1 && (b==25||b==30||b==32||b==35||b==40||b==45||b==50||b==55||b==60||b==65||b==70))
@@ -387,6 +401,11 @@ public final class ScooterCommands {
             new String[]{"Ice blue","Red"},new int[]{0,1},new int[]{target,3},target==4?"eco_light":"sport_light",colorOffset,240,4,"ambientV3",false,false);
     }
 
+    private static void oemOnlyLight(String key,String label,int type,int offset) {
+        require(!FEATURES.containsKey(key),"OEM-only key collides with the catalogue");
+        OEM_ONLY.put(key,new Feature(key,label,"Lights & sound","",Type.CHOICE,"",0x6d,0,2,1,new String[]{"Off","On","Follow headlight"},new int[]{0,1,2},
+            new int[]{type},"",offset,255,0,"lights",false,false));
+    }
     private static void toggle(String key,String label,String group,String description,int cmd,int offset,String readback,String capability,boolean parked) {
         add(key,label,group,description,Type.TOGGLE,"",cmd,0,1,1,new String[]{"Off","On"},new int[]{0,1},NO_VALUES,readback,offset,255,0,capability,false,parked);
     }

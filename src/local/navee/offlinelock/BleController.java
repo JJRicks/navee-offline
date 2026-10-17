@@ -112,7 +112,8 @@ public final class BleController {
      */
     public boolean controlOffered(String key){
         CapabilityResolver.Decision d=decision(key);
-        return d.support==CapabilityResolver.Support.KNOWN_ENCODING||!simulating()&&descriptor().pidSource()==DeviceDescriptor.PidSource.NONE;
+        // A profile without identity evidence shows UT5 MAX catalogue rows (unavailable); controls only other models have wait for a mapping.
+        return d.support==CapabilityResolver.Support.KNOWN_ENCODING||!simulating()&&descriptor().pidSource()==DeviceDescriptor.PidSource.NONE&&!ScooterCommands.oemOnly(key);
     }
     /** The decision the UI shows for a control; the same resolver admits every write. */
     public CapabilityResolver.Decision decision(String key){return CapabilityResolver.decide(key,descriptor(),status(),runtime());}
