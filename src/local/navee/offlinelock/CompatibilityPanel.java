@@ -136,7 +136,7 @@ final class CompatibilityPanel {
             for(int v:d.values()){
                 if(v==now)continue;
                 final int target=v;
-                TextView start=ui.secondaryButton("Try "+d.label(v),()->{ble.startTest(f,target);toastIfIdleTest(ble);refresh();});
+                TextView start=ui.secondaryButton(unbroken("Try "+d.label(v)),()->{ble.startTest(f,target);toastIfIdleTest(ble);refresh();});
                 start.setEnabled(d.available());start.setContentDescription("Test "+ScooterCommands.find(f).label+": try "+d.label(v));g.addView(start);
             }
         }
@@ -159,7 +159,7 @@ final class CompatibilityPanel {
                 card.addView(muted("Expected: "+expectation(t.feature,to)+" Afterwards Volt sets it back to "+from+" and checks it. Results go in the report only."));
                 if(d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED)card.addView(ui.toggleRow("Scooter is parked","No motion report yet on this connection.",ble.testParked(),true,ble::setTestParked));
                 else if(!d.available())card.addView(muted(d.reasonText()));
-                TextView go=ui.button("Change to "+to,()->{ble.approveTest();refresh();});go.setEnabled(d.available());go.setContentDescription("Approve test: change "+label+" to "+to+", then set it back");card.addView(go);
+                TextView go=ui.button(unbroken("Change to "+to),()->{ble.approveTest();refresh();});go.setEnabled(d.available());go.setContentDescription("Approve test: change "+label+" to "+to+", then set it back");card.addView(go);
                 card.addView(ui.secondaryButton("Cancel",()->{ble.cancelTest();refresh();}));
                 return;
             case TARGET_PENDING: case TARGET_AWAIT: status=muted("Changing to "+to+"…");status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);card.addView(status);return;
@@ -199,7 +199,7 @@ final class CompatibilityPanel {
             case ALREADY_RESTORED: card.addView(ui.button("Mark restored",()->{ble.markTestRestored(e.testId);refresh();}));break;
             case RESTORE_NEEDED: if(restore)addRestore(card,ble,e,d,"Restore to "+d.label(e.baseline));break;
             case CHANGED_OUTSIDE:
-                if(r.current!=null)card.addView(ui.secondaryButton("Keep "+d.label(r.current),()->{ble.keepTest(e.testId);refresh();}));
+                if(r.current!=null)card.addView(ui.secondaryButton(unbroken("Keep "+d.label(r.current)),()->{ble.keepTest(e.testId);refresh();}));
                 if(restore)addRestore(card,ble,e,d,"Set "+d.label(e.baseline));
                 break;
             default: break;
@@ -218,7 +218,7 @@ final class CompatibilityPanel {
         dismiss.setContentDescription("Dismiss the unfinished "+label+" test of a forgotten scooter");card.addView(dismiss);
     }
     private void addRestore(LinearLayout card,BleController ble,TestJournal.Entry e,CapabilityResolver.Decision d,String text){
-        TextView b=ui.button(text,()->{ble.restoreTest(e.testId);if(!ble.testing())host.toast(ble.message());refresh();});b.setEnabled(d.available());card.addView(b);
+        TextView b=ui.button(unbroken(text),()->{ble.restoreTest(e.testId);if(!ble.testing())host.toast(ble.message());refresh();});b.setEnabled(d.available());card.addView(b);
     }
     /** What the owner should see while the test value is set. */
     static String expectation(String feature,String value){
@@ -239,6 +239,8 @@ final class CompatibilityPanel {
             default: return "Did the range estimate on the dashboard change?";
         }
     }
+    /** Button labels: a word joiner keeps "km/h" on one line when large text wraps the label. */
+    static String unbroken(String text){return text.replace("km/h","km/\u2060h");}
     private static String join(List<String> parts){StringBuilder b=new StringBuilder();for(String p:parts)b.append(b.length()==0?"":" · ").append(p);return b.toString();}
 
     // ---- Running --------------------------------------------------------------------------
