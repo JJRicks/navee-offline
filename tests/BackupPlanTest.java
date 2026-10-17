@@ -20,6 +20,8 @@ public final class BackupPlanTest {
             BackupTestStore source = BackupTestStore.rich(new File(root, "source"));
             byte[] complete = source.export(BackupTestStore.all());
             resolution(root, complete);
+            scooterOnlyDestinations(root);
+            damagedDestination(root, complete);
             merges(root, source, complete);
             duplicates(root, source);
             sharedDestination(root, complete);
@@ -61,6 +63,76 @@ public final class BackupPlanTest {
             BackupTestStore target = new BackupTestStore(new File(root, "evidence-target-" + n));
             rejects(() -> target.stage(bytes), "a backup profile with " + change[1] + " is refused");
         }
+    }
+
+    /** Every selected incoming profile gets a choice, including one with no rides or settings. */
+    private static void scooterOnlyDestinations(File root) throws Exception {
+        BackupTestStore source = new BackupTestStore(new File(root, "profiles-only-source"));
+        source.put("profiles", "items", "[" + BackupTestStore.profileItem(A, "First", "ABCDEF012345", "A-ONLY") + "," + BackupTestStore.profileItem(B, "No recordings", "", "B-ONLY") + "]");
+        source.put("profiles", "active", A);
+        source.ride(A, 1760000000000L, false, "Only A has a ride");
+        Set<String> scooters = set(BackupRegistry.SCOOTERS);
+        byte[] bytes = source.export(scooters);
+        BackupTestStore skipped = new BackupTestStore(new File(root, "profiles-only-skip"));
+        BackupArchive.Prepared prepared = skipped.stage(bytes);
+        List<BackupArchive.Destination> needed = BackupArchive.destinations(skipped, prepared, scooters);
+        check(needed.size() == 2 && needed.get(0).source.equals(A) && needed.get(1).source.equals(B), "Scooters alone asks about both incoming profiles in their saved order");
+        check(needed.get(0).addable && A.equals(needed.get(0).suggested) && needed.get(1).addable, "new profiles may explicitly be added from backup");
+        rejects(() -> BackupArchive.plan(skipped, prepared, scooters, false, Collections.emptyMap()), "profile-only restoration cannot silently add unresolved scooters");
+        Map<String, String> choices = new LinkedHashMap<>(); choices.put(A, BackupArchive.SKIP); choices.put(B, BackupArchive.SKIP);
+        BackupArchive.Plan nothing = BackupArchive.plan(skipped, prepared, scooters, false, choices);
+        check(nothing.preferences.isEmpty() && nothing.lines.contains("2 scooters skipped · not restored"), "Don't restore is honored for a profiles-only backup");
+        BackupTransaction.apply(skipped, nothing);
+        check(BackupArchive.profiles(skipped.preferences()).isEmpty(), "skipped profiles were not added by the transaction");
+
+        BackupTestStore mapped = BackupArchiveTest.phone(new File(root, "profiles-only-map"));
+        Map<String, Map<String, Object>> before = mapped.preferences();
+        choices.put(A, C); choices.put(B, BackupArchive.SKIP);
+        BackupArchive.Plan existing = BackupArchive.plan(mapped, mapped.stage(bytes), scooters, false, choices);
+        BackupTransaction.apply(mapped, existing);
+        check(mapped.preferences().get("profiles").equals(before.get("profiles")), "choosing an existing scooter keeps its name, credentials and profile metadata");
+        check(existing.lines.contains("1 scooter skipped · not restored"), "the unmapped second profile stays skipped when the first maps to an existing scooter");
+
+        BackupTestStore mixed = new BackupTestStore(new File(root, "profiles-plus-rides"));
+        Set<String> categories = set(BackupRegistry.SCOOTERS, BackupRegistry.RIDES);
+        BackupArchive.Prepared both = mixed.stage(source.export(categories));
+        check(BackupArchive.destinations(mixed, both, categories).size() == 2, "a profile with no selected attached data still gets a destination in a mixed restore");
+        choices.put(A, A); choices.put(B, BackupArchive.SKIP);
+        BackupArchive.Plan selected = BackupArchive.plan(mixed, both, categories, false, choices);
+        BackupTransaction.apply(mixed, selected);
+        List<BackupProfiles.Profile> profiles = BackupArchive.profiles(mixed.preferences());
+        check(profiles.size() == 1 && profiles.get(0).id.equals(A) && A.equals(mixed.preferences().get("profiles").get("active")), "only the explicitly added profile becomes active");
+        check(new RideStore(new File(mixed.files(), "rides")).list().size() == 1, "the chosen profile's ride is restored normally");
+    }
+
+    /** A complete restore repairs malformed destination JSON, while partial merges still refuse
+     * it and transaction rollback keeps the exact unreadable value if a restore is interrupted. */
+    private static void damagedDestination(File root, byte[] complete) throws Exception {
+        BackupTestStore phone = BackupArchiveTest.phone(new File(root, "damaged-destination"));
+        phone.put("profiles", "items", "[{broken profile JSON");
+        Map<String, Map<String, Object>> before = phone.preferences();
+        Map<String, String> files = phone.fileHashes();
+        check(BackupArchive.hasData(phone), "unreadable live inventory is existing data, never a fresh-install default");
+        BackupArchive.Prepared prepared = phone.stage(complete);
+        rejects(() -> BackupArchive.destinations(phone, prepared, set(BackupRegistry.SCOOTERS)), "destination matching refuses malformed local identities");
+        rejects(() -> BackupArchive.plan(phone, prepared, set(BackupRegistry.PREFERENCES), false, Collections.emptyMap()), "partial restore refuses to merge while current profiles are unreadable");
+        check(phone.preferences().equals(before) && phone.fileHashes().equals(files), "refused partial plans changed nothing");
+        BackupArchive.Plan replace = BackupArchive.plan(phone, prepared, BackupTestStore.all(), true, Collections.emptyMap());
+        check(replace.replace && replace.lines.contains("Replaces everything on this phone"), "explicit complete replacement can be reviewed with malformed destination profiles");
+        phone.failStep = "live-sync";
+        rejects(() -> BackupTransaction.apply(phone, replace), "injected failure before commit reports failure");
+        check(phone.preferences().equals(before) && phone.fileHashes().equals(files), "failed complete restore rolls back the exact raw corrupt profiles and all other data");
+        BackupArchive.discard(phone, prepared);
+        BackupArchive.Plan retry = BackupArchive.plan(phone, phone.stage(complete), BackupTestStore.all(), true, Collections.emptyMap());
+        phone.crashPrefsAt = "profiles";
+        try { BackupTransaction.apply(phone, retry); throw new AssertionError("injected process death must occur"); }
+        catch (BackupTestStore.Crash expected) { }
+        BackupTestStore reopened = new BackupTestStore(phone.root);
+        check(BackupTransaction.recover(reopened) && reopened.preferences().equals(before) && reopened.fileHashes().equals(files), "process-death recovery restores the unreadable raw profile snapshot without parsing it");
+        reopened.restore(complete, BackupTestStore.all(), true, null);
+        check(BackupArchive.profiles(reopened.preferences()).size() == 2 && !reopened.preferences().get("profiles").get("items").equals(before.get("profiles").get("items")), "a successful complete restore repairs the damaged profile list");
+        check(!BackupTransaction.needsRecovery(reopened), "successful repair leaves no transaction behind");
+        check(!BackupArchive.hasData(new BackupTestStore(new File(root, "genuinely-empty"))), "a genuinely empty phone still permits the fresh-install default");
     }
 
     private static void resolution(File root, byte[] complete) throws Exception {

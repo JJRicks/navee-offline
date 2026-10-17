@@ -58,11 +58,9 @@ public final class AppDataBackup {
 
     /** {items, bytes} per category, for the Back up list. Lists files; parses nothing large. */
     public static synchronized Map<String,long[]> inventory(Context context)throws IOException {return BackupArchive.inventory(new AndroidStorage(context));}
-    /** True when this phone has scooters, rides, charges or history (a complete restore then defaults to Merge). */
-    public static boolean hasData(Context context)throws IOException {
-        Map<String,long[]> counts=inventory(context);
-        for(String category:new String[]{BackupRegistry.SCOOTERS,BackupRegistry.RIDES,BackupRegistry.CHARGES,BackupRegistry.HISTORY})if(counts.get(category)[0]>0)return true;
-        return false;
+    /** Unreadable inventory also counts as existing data: replacement must be chosen explicitly. */
+    public static synchronized boolean hasData(Context context) {
+        return BackupArchive.hasData(new AndroidStorage(context));
     }
     /** This phone's scooters as ID → name, in their saved order. */
     public static Map<String,String> localScooters(Context context)throws IOException {

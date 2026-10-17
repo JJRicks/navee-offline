@@ -123,6 +123,17 @@ final class BackupArchive {
         return result;
     }
 
+    /** Unreadable saved data still requires an explicit Replace everything choice. A complete
+     * backup must remain usable for repair without trusting the destination's profile JSON. */
+    static boolean hasData(Storage storage) {
+        try {
+            Map<String, long[]> counts = inventory(storage);
+            for (String category : new String[]{BackupRegistry.SCOOTERS, BackupRegistry.RIDES, BackupRegistry.CHARGES, BackupRegistry.HISTORY})
+                if (counts.get(category)[0] > 0) return true;
+            return false;
+        } catch (IOException unreadable) { return true; }
+    }
+
     /** Encrypt the selected categories; selecting all seven makes a complete backup. */
     static void write(Storage storage, OutputStream output, char[] password, Collection<String> selected) throws IOException {
         AppDataArchive.requirePassword(password); AppDataArchive.ensureNoTransaction(storage); AppDataArchive.checkDatabaseClosed(storage);
@@ -422,7 +433,7 @@ final class BackupArchive {
         Set<String> history = new LinkedHashSet<>();
         File database = new File(data, DATABASE);
         if (database.exists()) { storage.validateDatabase(database); history.addAll(storage.historyProfiles(database)); }
-        for (String source : referenced(prefs, rides, charges, history, new HashSet<>(Arrays.asList(CATEGORIES))))
+        for (String source : referenced(prefs, profiles, rides, charges, history, new HashSet<>(Arrays.asList(CATEGORIES))))
             if (!sources.containsKey(source)) sources.put(source, new Source(source, "Saved scooter", ""));
         LinkedHashMap<String, Integer> categories = new LinkedHashMap<>();
         for (String category : CATEGORIES) if (present.contains(category)) {
@@ -450,7 +461,7 @@ final class BackupArchive {
         Object active = live.get("profiles") == null ? null : live.get("profiles").get("active");
         List<Destination> result = new ArrayList<>();
         // In the backup's scooter order, so the screen is stable.
-        Set<String> referenced = referenced(prepared.preferences, prepared.rides, prepared.charges, prepared.history, new HashSet<>(selected));
+        Set<String> referenced = referenced(prepared.preferences, prepared.profiles, prepared.rides, prepared.charges, prepared.history, new HashSet<>(selected));
         List<String> ordered = new ArrayList<>(prepared.sources.keySet()); ordered.retainAll(referenced);
         for (String source : ordered) {
             if (BackupProfiles.find(local, source) != null) continue;
@@ -475,7 +486,6 @@ final class BackupArchive {
         if (categories.isEmpty() || categories.size() != new HashSet<>(selected).size() || !prepared.categories.keySet().containsAll(categories)) throw new IOException("Choose what to restore.");
         if (replace && (!prepared.complete || categories.size() != CATEGORIES.length)) throw new IOException("Replace everything needs a complete backup with every category.");
         Map<String, Map<String, Object>> live = copy(storage.preferences());
-        List<BackupProfiles.Profile> local = profiles(live);
         List<String> lines = new ArrayList<>(), additions = new ArrayList<>();
         Map<String, String> mapping = new LinkedHashMap<>(), historyMapping = new LinkedHashMap<>();
         Map<String, Map<String, Object>> result;
@@ -486,7 +496,10 @@ final class BackupArchive {
             lines.add("Replaces everything on this phone");
             for (Map.Entry<String, Integer> category : prepared.categories.entrySet()) lines.add(BackupRegistry.label(category.getKey()) + ": " + count(category.getKey(), category.getValue()));
         } else {
-            for (String source : referenced(prepared.preferences, prepared.rides, prepared.charges, prepared.history, categories)) mapping.put(source, source);
+            // Merges need trustworthy existing identities; complete replacement only snapshots
+            // their raw preference values for rollback and does not resolve against them.
+            List<BackupProfiles.Profile> local = profiles(live);
+            for (String source : referenced(prepared.preferences, prepared.profiles, prepared.rides, prepared.charges, prepared.history, categories)) mapping.put(source, source);
             List<Destination> needed = destinations(storage, prepared, categories);
             for (Destination d : needed) {
                 String target = chosen == null ? null : chosen.get(d.source);
@@ -535,8 +548,8 @@ final class BackupArchive {
             boolean matched = BackupProfiles.find(local, p.id) != null;
             for (BackupProfiles.Profile mine : local) matched |= mine.sameScooter(p);
             String target = mapping.get(p.id);
-            if (matched || (target != null && !target.equals(p.id) && !target.equals(SKIP))) here++;
-            else if (target != null && target.equals(SKIP)) skipped++;
+            if (target == null || target.equals(SKIP)) skipped++;
+            else if (matched || !target.equals(p.id)) here++;
             else added.add(p);
         }
         Map<String, Object> profiles = result.get("profiles");
@@ -664,8 +677,9 @@ final class BackupArchive {
         return result;
     }
     /** Every backup scooter referenced by the given categories, in a stable order. */
-    private static Set<String> referenced(Map<String, Map<String, Object>> prefs, List<Recording> rides, List<Recording> charges, Set<String> history, Set<String> categories) {
+    private static Set<String> referenced(Map<String, Map<String, Object>> prefs, List<BackupProfiles.Profile> profiles, List<Recording> rides, List<Recording> charges, Set<String> history, Set<String> categories) {
         Set<String> result = new LinkedHashSet<>();
+        if (categories.contains(BackupRegistry.SCOOTERS)) for (BackupProfiles.Profile profile : profiles) result.add(profile.id);
         for (String category : new String[]{BackupRegistry.DASHBOARDS, BackupRegistry.SCOOTER_PREFERENCES}) if (categories.contains(category)) result.addAll(perProfile(prefs, category));
         if (categories.contains(BackupRegistry.RIDES)) for (Recording r : rides) if (r.readable) result.add(r.profile);
         if (categories.contains(BackupRegistry.CHARGES)) for (Recording r : charges) if (r.readable) result.add(r.profile);

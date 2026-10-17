@@ -25,6 +25,10 @@ import local.navee.offlinelock.*;
  *                  files folder) and renders the bad-file, category, destination and merge review
  *                  screens to restore-*.png. Closes without applying. FLAG_SECURE blocks screencap,
  *                  so these in-process renders are the visual record of the screen.
+ * -e mode render-damaged  same setup, but corrupts local profile JSON after pausing the app;
+ *                  a valid complete backup still reaches explicit Replace review, partial
+ *                  merges refuse it, and a genuinely wrong password still reports bad file.
+ * -e mode render-scooters  checks Scooters-only destination choices and Don't restore.
  */
 public final class BackupScenarioValidation extends Instrumentation {
     static final char[] PASSWORD = "synthetic scenario password".toCharArray();
@@ -39,7 +43,7 @@ public final class BackupScenarioValidation extends Instrumentation {
             if ("source".equals(mode)) { fresh(); source(result); flush(); }
             else if ("target".equals(mode)) { fresh(); target(); flush(); }
             else if ("inspect".equals(mode)) inspect(result);
-            else if ("render".equals(mode)) { fresh(); target(); flush(); render(result); }
+            else if ("render".equals(mode) || "render-damaged".equals(mode) || "render-scooters".equals(mode)) { fresh(); target(); flush(); render(result); }
             else throw new IllegalArgumentException("Use mode source, target or inspect");
             result.putString("result", "PASS");
         } catch (Throwable failure) { result.putString("result", "FAIL"); result.putString("error", failure.toString()); }
@@ -130,6 +134,8 @@ public final class BackupScenarioValidation extends Instrumentation {
         android.app.Activity opened = waitForMonitorWithTimeout(backupMonitor, 20000); require(opened instanceof BackupActivity, "Restore screen did not open");
         BackupActivity backup = (BackupActivity) opened; current = backup;
         await(() -> view(backup, "restore-choose") != null, "Choose file missing");
+        boolean damaged = "render-damaged".equals(mode), scootersOnly = "render-scooters".equals(mode);
+        if (damaged) require(prefs("profiles").edit().putString("items", "[{broken profile JSON").commit(), "Seed malformed live profiles after maintenance begins");
         pick(backup, "restore-choose", bad); await(() -> view(backup, "restore-open") != null, "Password step missing");
         password(backup); await(() -> text(backup, "Wrong password or bad file.") , "Damaged file was not refused");
         require(view(backup, "restore-choose-again") != null, "No way to choose another file after a bad one");
@@ -138,16 +144,49 @@ public final class BackupScenarioValidation extends Instrumentation {
         pick(backup, "restore-choose-again", other); await(() -> text(backup, "Choose a Volt backup file."), "Unsupported file was not refused");
         require(view(backup, "restore-open") == null && fieldQuiet(backup, "password") == null && view(backup, "restore-choose") != null, "An unsupported file leaves the password step behind");
         other.delete();
-        pick(backup, "restore-choose", good); password(backup); await(() -> view(backup, "restore-next") != null, "Category list missing");
+        pick(backup, "restore-choose", good);
+        if (damaged) {
+            password(backup, "deliberately wrong password");
+            await(() -> text(backup, "Wrong password or bad file."), "A genuinely wrong password was not refused");
+        }
+        password(backup); await(() -> view(backup, "restore-next") != null, "Category list missing");
         android.widget.Switch replace = (android.widget.Switch) view(backup, "restore-replace-all");
         require(replace != null && !replace.isChecked(), "A phone with data defaults to Merge");
+        if (damaged) {
+            require(AppDataBackup.hasData(app), "Malformed live profiles still count as existing data");
+            click(backup, "restore-next");
+            await(() -> text(backup, "Saved scooters on this phone can't be read."), "Partial restore should refuse malformed destination identities");
+            require("[{broken profile JSON".equals(prefs("profiles").getString("items", "")), "Partial refusal changed local profiles");
+            runOnMainSync(() -> replace.setChecked(true)); waitForIdleSync();
+            click(backup, "restore-next"); await(() -> view(backup, "restore-apply") != null, "Damaged live profiles prevented complete replacement review");
+            require(text(backup, "Replaces everything on this phone") && !text(backup, "Wrong password or bad file."), "Valid backup review is not mislabeled as a password failure");
+            require("[{broken profile JSON".equals(prefs("profiles").getString("items", "")), "Review altered the unreadable source instead of preserving it for rollback");
+            shot(backup, "restore-damaged-review.png");
+            result.putString("renders", "restore-bad-file, restore-damaged-review");
+            bad.delete(); good.delete(); return;
+        }
         runOnMainSync(() -> { replace.setChecked(true); replace.setChecked(false); }); waitForIdleSync();
         for (String id : AppDataBackup.CATEGORIES) { android.widget.CheckBox box = (android.widget.CheckBox) view(backup, "backup-category-" + id); require(box == null || box.isEnabled() || !box.isChecked(), "Empty " + id + " stays ticked after Replace is turned off"); }
+        if (scootersOnly) runOnMainSync(() -> {
+            for (String id : AppDataBackup.CATEGORIES) {
+                android.widget.CheckBox box = (android.widget.CheckBox) view(backup, "backup-category-" + id);
+                if (box != null && box.isEnabled()) box.setChecked(id.equals("scooters"));
+            }
+        });
         shot(backup, "restore-categories.png");
         click(backup, "restore-next"); await(() -> view(backup, "restore-review") != null, "Destination step missing");
         List<android.widget.Spinner> spinners = new ArrayList<>(); spinners(backup.getWindow().getDecorView(), spinners);
         require(spinners.size() == 2, "Two backup scooters need a destination");
-        select(spinners.get(0), "Fold UT5"); select(spinners.get(1), "Add from backup");
+        select(spinners.get(0), "Fold UT5"); select(spinners.get(1), scootersOnly ? "Don't restore" : "Add from backup");
+        if (scootersOnly) {
+            require("Destination for Spare scooter: Don't restore".contentEquals(spinners.get(1).getContentDescription()), "Scooters-only restore exposes Don't restore");
+            shot(backup, "restore-scooters-destinations.png");
+            click(backup, "restore-review"); await(() -> view(backup, "restore-apply") != null, "Scooters-only review missing");
+            require(text(backup, "Scooters: adds 0 · 1 already here") && text(backup, "1 scooter skipped · not restored"), "Scooters-only review honors mapping and skipping");
+            shot(backup, "restore-scooters-review.png");
+            result.putString("renders", "restore-bad-file, restore-categories, restore-scooters-destinations, restore-scooters-review");
+            bad.delete(); good.delete(); return;
+        }
         require("Destination for Old UT5: Fold UT5".contentEquals(spinners.get(0).getContentDescription()) && "Destination for Spare scooter: Add from backup".contentEquals(spinners.get(1).getContentDescription()), "TalkBack hears each destination choice: " + spinners.get(0).getContentDescription());
         shot(backup, "restore-destinations.png");
         click(backup, "restore-review"); await(() -> view(backup, "restore-apply") != null, "Review missing");
@@ -163,10 +202,11 @@ public final class BackupScenarioValidation extends Instrumentation {
         ActivityMonitor picker = addMonitor(filter, new ActivityResult(android.app.Activity.RESULT_OK, new android.content.Intent().setData(android.net.Uri.fromFile(file))), true);
         click(backup, tag); await(() -> picker.getHits() > 0, "Picker not used"); removeMonitor(picker);
     }
-    private void password(BackupActivity backup) throws Exception {
+    private void password(BackupActivity backup) throws Exception { password(backup, new String(PASSWORD)); }
+    private void password(BackupActivity backup, String value) throws Exception {
         await(() -> view(backup, "restore-open") != null && !Boolean.TRUE.equals(fieldQuiet(backup, "busy")), "Password step missing");
         android.widget.EditText field = (android.widget.EditText) field(backup, "password");
-        runOnMainSync(() -> field.setText(new String(PASSWORD))); waitForIdleSync(); click(backup, "restore-open");
+        runOnMainSync(() -> field.setText(value)); waitForIdleSync(); click(backup, "restore-open");
         await(() -> !Boolean.TRUE.equals(fieldQuiet(backup, "busy")), "Checking did not finish");
     }
     private void select(android.widget.Spinner spinner, String item) {

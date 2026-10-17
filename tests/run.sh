@@ -58,10 +58,11 @@ java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopStoreTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.BackupRegistryTest "$APP_DIR/src/local/navee/offlinelock"
 # These suites run hundreds of synthetic restores; a RAM-backed temporary folder keeps their
 # fsyncs fast. AppDataArchiveTest and RideArchiveTest still exercise the normal folder.
-backup_tmp=()
-[[ -d /dev/shm && -w /dev/shm ]] && backup_tmp=(-Djava.io.tmpdir=/dev/shm)
+# Bash 3.2 treats an empty array as unset under nounset. Keep the command array nonempty.
+backup_java=(java)
+[[ -d /dev/shm && -w /dev/shm ]] && backup_java+=(-Djava.io.tmpdir=/dev/shm)
 for name in BackupArchiveTest BackupPlanTest BackupTransactionTest; do
-    (cd "$APP_DIR" && java "${backup_tmp[@]}" -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.$name")
+    (cd "$APP_DIR" && "${backup_java[@]}" -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.$name")
 done
 
 for name in "${COMPAT_TESTS[@]}" OemControls; do java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"; done
