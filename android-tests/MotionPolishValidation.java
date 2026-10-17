@@ -122,6 +122,8 @@ public final class MotionPolishValidation extends Instrumentation {
                 add(config, "battery", 0, 0, 1, 6); add(config, "battery", 1, 0, 1, 4); add(config, "battery", 0, 6, 2, 4);
             } else if (mode.equals("glow")) {
                 add(config, "lockbar", 0, 0, 2, 1); add(config, "battery", 0, 1, 2, 6);
+                // Enough content below the hero to scroll it wholly outside even a tall viewport.
+                add(config, "note", 0, 7, 2, 6);
             } else {
                 add(config, "lockbar", 0, 0, 2, 1); add(config, "lock", 0, 1, 2, 4); add(config, "battery", 0, 5, 1, 6);
             }
@@ -386,8 +388,10 @@ public final class MotionPolishValidation extends Instrumentation {
 
         // Frames ~0.5 s apart over ~4 s, with the Activity's own 1 s refresh still running.
         int[] regions = glowRegions();
-        // One discarded frame: right after the reveal and scroll the first composited frame can
-        // differ by a few levels at text/photo edges (seen once in frame 0 only), unrelated to the glow.
+        // Wait for the scroll thumb to fade before comparing the full-width photo region. The
+        // scrollbar can overlap its empty right margin; that is window chrome, not photo motion.
+        SystemClock.sleep(ViewConfiguration.getScrollDefaultDelay() + ViewConfiguration.getScrollBarFadeDuration() + 150L);
+        // Discard the first composited frame after the reveal/scroll before strict pixel checks.
         screencap(); SystemClock.sleep(300);
         ArrayList<int[][]> frames = new ArrayList<>();
         ArrayList<String> timeline = new ArrayList<>();
@@ -435,12 +439,14 @@ public final class MotionPolishValidation extends Instrumentation {
             check("Reduced motion: no glow animator, glow == 1 and 8 real frames over 4 s are identical");
         }
 
+        android.util.Log.i("VoltMotionFixture", "Glow frame checks passed");
         // Repeated refreshes and dashboard rebuilds keep a single loop.
         for (int i = 0; i < 6; i++) { main(() -> { screen().refresh(); invoke(screen(), "render"); screen().refresh(); }); SystemClock.sleep(80); }
         settle();
         if (motion) { await(() -> pulse() != null && pulse().isRunning(), "Glow did not survive rebuilds"); remember(seen); requireOneRunning(seen, "after 6 refresh+render rounds"); }
         else main(() -> require(pulse() == null, "Rebuild started a reduced-motion glow"));
 
+        android.util.Log.i("VoltMotionFixture", "Glow rebuild checks passed");
         // Scrolling clips a still-attached VISIBLE view without changing aggregated visibility.
         int visibleScroll = scroll().getScrollY();
         main(() -> {
@@ -468,6 +474,7 @@ public final class MotionPolishValidation extends Instrumentation {
         main(() -> scroll().scrollTo(0, visibleScroll)); settle();
         resumed(motion, seen, "scrolling back into the viewport");
 
+        android.util.Log.i("VoltMotionFixture", "Glow viewport checks passed");
         // Edit mode stops it; finishing editing resumes it.
         main(() -> invoke(screen(), "toggleEditing")); settleMotion();
         main(() -> require(pulse() == null && glow() == 1f && hero().getVisibility() == View.GONE, "Edit mode kept the glow running"));
