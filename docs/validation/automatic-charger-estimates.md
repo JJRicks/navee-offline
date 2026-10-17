@@ -5,37 +5,49 @@
 `ut5-dual-charger-v3` adds a provisional high-speed default and a runtime charger
 classifier. Neither requires the owner to make recordings. It changes predictions
 only and sends no scooter commands. PID 2538 selects these UT5 MAX defaults; other
-models retain the live-rate fallback, with compatible manually selected personal
-curves still available as before.
+models retain the live-rate fallback, with compatible personal curves still
+available (see below).
 
 The per-scooter estimate selector is Auto / Stock / High-speed. An absent preference
-means Auto; an existing explicit Stock or High-speed choice is preserved. Clearing
-an override resets runtime classification. Simulation never supplies automatic
-evidence. Its manually selected reference preview remains available.
+means Auto; an existing explicit Stock or High-speed choice is preserved. Changing
+the preference does not discard runtime classification, which describes the
+physical charger. Simulation never supplies automatic evidence and clears it. Its
+manually selected reference preview remains available.
+
+On a model the classifier cannot read, Auto uses the one family with qualified
+personal recordings for that scooter. In v1.3.1 each recording set the saved
+preference to its label; recordings no longer do, so this keeps those curves
+in use. With recordings for both families, or none, Auto keeps the live rate.
+The UT5 MAX always relies on live classification instead.
 
 ## Selection and continuity
 
 `ChargerDetection` consumes distinct paired voltage/current frames from a real,
 authenticated connection. Three frames spanning at least four seconds establish
-a candidate. Re-rendering one frame cannot advance confirmation. Frames may be up
-to 15 seconds old, matching display freshness and the supported 2–10 second battery
-polling interval. Charging recordings retain their separate five-second capture
-freshness rule.
+a candidate. Re-rendering one frame cannot advance confirmation. The service observes
+once per telemetry update, using `TelemetryHistory` display freshness (15 seconds for
+these readings, covering the supported 2–10 second battery polling interval).
+Charging recordings retain their separate five-second capture freshness rule.
 
 - Fast evidence: greater than 150 W and at least 2.8 A, within plausible bounds
   of 12 A, 650 W and 35–60 V.
 - Stock evidence: 65–135 W, 1.4–2.5 A, and no more than 85% battery. This is
   deliberately conservative; low power late in a fast charge is ambiguous.
-- A confident selection survives the normal falling-current taper. Contrary bulk
-  readings invalidate it immediately and require a new confirmation sequence.
-- Charging ending, invalid/stale inputs, backwards clocks, lost readiness,
-  profile changes and reconnects reset inference. Returning after background
-  polling stopped providing fresh electrical readings can therefore leave Auto
-  uncertain near full. An override is available; stale readings never become a
-  new prediction.
+- A confident selection is remembered per scooter profile for the current physical
+  charge: through the falling-current taper, across reconnects and transport
+  changes, and across isolated unpaired, zero-current, implausible or late frames.
+- It is dropped only by readings outside that family's own reference power
+  envelope (at its 20% grace tolerance) for three frames over four seconds, by
+  charging reported off, a battery-level drop of a point or more, a model or
+  profile change, or two minutes without a usable frame. Sustained readings of the
+  other family then select it; otherwise Auto is uncertain.
+- A charge first seen near full, or after more than two minutes without fresh
+  readings, can therefore leave Auto uncertain; Volt then uses the live rate. An
+  override is available; stale readings never become a new prediction.
 
 This is a charger-family inference, not a decoded hardware ID. The defaults also
-check their own SOC/power/voltage compatibility after selection. Unknown means
+check their own SOC/power/voltage compatibility after selection, with the same
+bounded grace for one or two out-of-envelope frames in either family. Unknown means
 live-rate fallback; null no longer silently selects the stock curve. No inference
 is persisted or fed back as a verified training label.
 
@@ -52,8 +64,13 @@ the observed finishing duration from the beginning. At and above 72%, first-arri
 SOC boundaries preserve the rapid 81–90% gauge progression. Paired power/voltage
 locate progress during the long 99% plateau. Fractional SOC and cutoffs interpolate
 the same boundaries; a lower target excludes the later part of the curve.
-The bulk/taper boundary is continuous. Below 16% the bulk estimate is modeled,
-not measured. No ride-derived capacity correction is applied.
+The bulk/taper boundary is continuous in both time and admission. The voltage
+window is the session's range plus 0.35 V, so a fixed pack or sensor offset of
+about 0.3 V still admits every calibration sample (replay MAE 0.408–0.410 min at
+±0.2 V and ±0.3 V, against 0.407 min unshifted). Below 72% it widens by 0.25 V per
+percent. Power keeps stock-charger readings out before 96%; from 96% to full the
+two families overlap and classification decides. Below 16% the bulk estimate is
+modeled, not measured. No ride-derived capacity correction is applied.
 
 The sanitized calibration fixture contains only relative elapsed minutes, SOC,
 voltage, positive current magnitude and positive power magnitude. It excludes
@@ -72,8 +89,12 @@ Matching manually labeled personal curves take precedence separately for full
 charge and the configured limit. An unsupported personal target retains its
 matching bundled reference. Incompatible or unavailable evidence falls back to
 the fresh live-rate estimate. Recording confirmation still asks for a physical
-Stock / High-speed label. That label temporarily selects active capture estimates
-without changing the owner's saved Auto/manual preference.
+Stock / High-speed label. It pre-selects only an explicit preference; under Auto
+nothing is pre-selected and Start waits for a choice. That label temporarily
+selects active capture estimates without changing the owner's saved Auto/manual
+preference. The settings row names the family in effect and why (recording
+label, detected, or from recordings); the developer card counts only that
+family's curves, or says none apply until the charger is known.
 
 Saved predictions carry estimator version `ut5-dual-charger-v3` and per-target
 sources, including the additive `FAST_REFERENCE` value. The journal remains v2
@@ -86,8 +107,8 @@ still explicitly confirmed by the owner.
 ## Validation
 
 The core suite covers detection at ordinary and slow polling rates, duplicate
-frames, stale/gapped readings, scope resets, contradictory bulk power, ambiguous
-late starts, model/charger isolation, per-target personal/default precedence,
+frames, retention across reconnects and unusable frames, charge boundaries,
+sustained contrary power, ambiguous late starts, fast-path grace, voltage offsets, model/charger isolation, per-target personal/default precedence,
 saved provenance round trips, fractional targets and full calibration replay.
 Android validation covers the three-option controls, persisted overrides, Auto
 reset, profile isolation, simulation, capture-label isolation and default source
