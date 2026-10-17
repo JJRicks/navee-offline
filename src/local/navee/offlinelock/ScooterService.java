@@ -627,7 +627,7 @@ public final class ScooterService extends Service {
             RideStore.Summary ride=null;try{ride=rides.get(id);}catch(IOException ignored){}
             String text=ride==null||ride.label.isEmpty()?"Bluetooth lost while parked":ride.label+" · Bluetooth lost while parked";
             getSystemService(NotificationManager.class).notify(AUTO_STOP_NOTICE,new Notification.Builder(this,"scooter").setSmallIcon(R.drawable.ic_lock)
-                    .setContentTitle("Ride saved automatically").setContentText(text).setContentIntent(open).setAutoCancel(true)
+                    .setContentTitle("Ride saved automatically").setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text)).setContentIntent(open).setAutoCancel(true)
                     .setCategory(Notification.CATEGORY_STATUS).setVisibility(Notification.VISIBILITY_PRIVATE).build());
         }catch(RuntimeException unavailable){}
     }

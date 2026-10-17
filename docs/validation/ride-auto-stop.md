@@ -91,13 +91,40 @@ real stop time, backup staging inspection, learned range on an automatically
 ended ride versus the same tail stopped by hand, long tails and earlier gaps,
 streaming parity, failed save keeps recording.
 
+## Emulator checks
+
+`android-tests/RideAutoStopValidation` (`run-ride-auto-stop.py`, disposable
+emulator only, Bluetooth off, synthetic journals) at 344×882 dp dark/100% and
+light/140%, 725×604 dp light/140% and dark/100%, 66 checks each:
+
+- Three journals ended with `AUTO_PARKED_DISCONNECT` and one with the same tail
+  stopped by hand. Ride details show **Saved automatically** (fully visible,
+  not ellipsized, spoken description) only on the automatic ones, in the
+  narrow dialog and in the wide layout beside History.
+- A real `.voltrides` export, delete, stage, plan and apply keeps every
+  journal byte-identical and the stop reason; a reimport is idempotent.
+- Learned range in the service: 3 rides used, the hand-stopped tail rejected,
+  12 km over 24 battery points (50 km), so the tail adds nothing.
+- Full app backup type check accepts a boolean `ride_auto_stop` and rejects a
+  string or integer.
+- **End parked rides** is on by default, readable beside its switch, clear of
+  the navigation bar; a tap turns it off and `app_settings.xml` stores it, and
+  it survives leaving and reopening the section.
+- The service's own notice method posts **Ride saved automatically** with the
+  ride name in full (expanded text), auto-cancel and an open action (called through reflection from the
+  test APK, so the app has no test hook); the runner captures it in the shade.
+
+The existing ride, learned-range, charge capture/estimate, ride backup and
+`PhoneRideValidation` (denied/granted, including its 11 s screen-off
+recording) runners pass on the same build.
+
 ## Still to validate
 
-Emulator, synthetic recordings only, never induced scooter movement:
+The emulator has no scooter, so these remain covered only by
+`RideAutoStopPolicyTest` and code review:
 
-- Screen off: a simulated parked loss ends the ride after about 10 s, phone
-  journals finish, the foreground notice goes away and **Ride saved
-  automatically** appears; a following ride starts normally.
+- A parked loss on a live transport ending the ride after about 10 s with the
+  screen off, phone journals finishing and a following ride starting.
 - Process interruption while disconnected: the recovered ride keeps recording
   and is not ended automatically.
 - Reconnect inside the grace keeps the same ride.
