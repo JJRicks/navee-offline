@@ -292,12 +292,19 @@ public final class CompatibilityGatingValidation extends Instrumentation {
 
     /** C1: an owner file without a name imports as the default "Imported scooter". */
     private void importName() throws Exception {
+        // An existing user importing a second scooter; first-run setup uses the same import code.
+        main(() -> OnboardingScreen.markDone(getTargetContext()));
         launch();
         for (String text : new String[]{"{\"owner_identity\":\"0123456789AB\",\"role\":0,\"scooter_serial\":\"X2538SYNTHETIC000\"}",
                 "{\"owner_identity\":\"0123456789AC\",\"role\":0,\"name\":\"  \",\"scooter_serial\":\"X2443SYNTHETIC000\"}"}) {
+            // With Bluetooth off, the previous import's connect step asks the system to enable it; dismiss that.
+            if (!Boolean.TRUE.equals(field(activity, "resumed"))) getUiAutomation().executeShellCommand("input keyevent 4").close();
+            await(() -> Boolean.TRUE.equals(field(activity, "resumed")), "App did not return to the foreground");
             int before = activity.service().profiles.all().size();
             main(() -> { invoke(activity, "stageOwnerImport", new Class<?>[]{String.class}, text); invoke(activity, "maybeApplyOwnerImport"); }); settle();
-            await(() -> activity.service().profiles.all().size() == before + 1, "Owner import did not create a profile");
+            await(() -> activity.service().profiles.all().size() == before + 1, "Owner import did not create a profile: resumed=" + field(activity, "resumed")
+                    + " pending=" + new File(getTargetContext().getFilesDir(), "pending-owner-import.json").isFile() + " applying=" + field(activity, "applyingOwnerImport")
+                    + " recording=" + activity.service().isRecording() + " message=" + activity.service().ble.message());
             main(() -> {
                 ScooterProfiles.Profile profile = activity.service().profiles.active();
                 require(profile.name.equals("Imported scooter") && profile.nameDefault, "Imported profile name " + profile.name + " default=" + profile.nameDefault);
@@ -311,6 +318,8 @@ public final class CompatibilityGatingValidation extends Instrumentation {
             checks.add("Owner file " + (text.contains("\"name\"") ? "with a blank name" : "without a name") + " imports as Imported scooter with nameDefault; model name rule gives "
                     + (text.contains("X2538") ? "UT5 MAX" : "NAVEE scooter"));
         }
+        if (!Boolean.TRUE.equals(field(activity, "resumed"))) getUiAutomation().executeShellCommand("input keyevent 4").close();
+        await(() -> Boolean.TRUE.equals(field(activity, "resumed")), "App did not return to the foreground");
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Scooters")); settle();
         main(() -> require(texts(root()).contains("Imported scooter"), "More does not show Imported scooter")); 
