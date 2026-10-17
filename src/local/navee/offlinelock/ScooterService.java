@@ -714,7 +714,8 @@ public final class ScooterService extends Service {
         changed();
     }
     private void followRangeMode() {
-        if (destroyed || ble == null || selectingRange) return;
+        // A running compatibility check holds every automatic write (MutationGate refuses them too).
+        if (destroyed || ble == null || selectingRange || ble.discovering()) return;
         ScooterProfiles.Profile profile = profiles.active();
         Telemetry.Metric mode = null;
         for (Telemetry.Metric metric : ble.telemetry.metrics()) if (metric.key.equals("driving_mode")) { mode = metric; break; }
