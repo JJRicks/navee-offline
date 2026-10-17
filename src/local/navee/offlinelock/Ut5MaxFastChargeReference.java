@@ -17,7 +17,7 @@ package local.navee.offlinelock;
  * the long 99% plateau, where SOC alone cannot produce a useful countdown.
  */
 public final class Ut5MaxFastChargeReference {
-    public static final int PRODUCT_ID = 2538;
+    public static final int PRODUCT_ID = Ut5MaxStockChargeReference.PRODUCT_ID;
     private static final int FIRST_TAPER_SOC = 72;
     private static final double TOLERANCE = .15, GRACE_TOLERANCE = .20;
     // One session's voltages, widened for a fixed pack/sensor offset of up to about 0.3 V.

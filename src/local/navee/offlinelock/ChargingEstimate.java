@@ -170,7 +170,7 @@ public final class ChargingEstimate {
         Result prior=selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED
                 ?withFastReference(baseline,soc,ratedAh,productId,gate,scope,frameMs,nowMs)
                 :withStockReference(baseline,soc,ratedAh,productId,selectedCharger,gate,scope,frameMs,nowMs);
-        if (personal==null || selectedCharger==null || personal.charger!=selectedCharger) return prior;
+        if (personal==null || personal.charger!=selectedCharger) return prior;
         Result learned=withObservedCurve(baseline,soc,personal);
         if (learned==null || !learned.learnedToFull&&!learned.learnedToLimit) return prior;
         boolean referenceFull=!learned.learnedToFull&&prior.referenceToFull;
@@ -192,7 +192,7 @@ public final class ChargingEstimate {
     private static Result withFastReference(Result baseline,Value soc,Value ratedAh,int productId,
             ChargeReferenceGate gate,String scope,long frameMs,long nowMs) {
         if(baseline==null||!baseline.charging||baseline.inputWatts==null||baseline.inputAmps==null
-                ||baseline.remainingMinutesToFull==null||productId!=Ut5MaxStockChargeReference.PRODUCT_ID
+                ||baseline.remainingMinutesToFull==null||productId!=Ut5MaxFastChargeReference.PRODUCT_ID
                 ||!valid(soc)||!valid(ratedAh)){if(gate!=null)gate.reset();return baseline;}
         ChargeSessionStore.Charger fast=ChargeSessionStore.Charger.HIGH_SPEED;
         String context=scope==null||scope.isEmpty()?null:scope+":"+productId+":"+fast;
@@ -215,7 +215,7 @@ public final class ChargingEstimate {
             ChargeSessionStore.Charger selectedCharger, ChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
         if (baseline==null || !baseline.charging || baseline.inputWatts==null || baseline.inputAmps==null
                 || baseline.remainingMinutesToFull==null || productId!=Ut5MaxStockChargeReference.PRODUCT_ID
-                || selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED || !valid(soc) || !valid(ratedAh)) {
+                || !valid(soc) || !valid(ratedAh)) {
             if(gate!=null)gate.reset(); return baseline;
         }
         String context=scope==null||scope.isEmpty()?null:scope+":"+productId+":"+selectedCharger;

@@ -307,7 +307,7 @@ public final class ScooterService extends Service {
             }
             return total;
         }
-        ChargeSessionStore.Curve curve=chargeSnapshot==null||charger==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
+        ChargeSessionStore.Curve curve=chargeSnapshot==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
         return curve==null?0:curve.qualifiedSessions;
     }
     public String chargeLearningSummary(){
