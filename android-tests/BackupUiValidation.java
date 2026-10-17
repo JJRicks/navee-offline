@@ -99,7 +99,8 @@ public final class BackupUiValidation extends Instrumentation {
             require(DataMaintenance.active(),"Back up did not enter maintenance");
             require(root(backup).findViewWithTag("backup-select-all")!=null,"Select all missing");
             for(String category:local.navee.offlinelock.AppDataBackup.CATEGORIES){View box=root(backup).findViewWithTag("backup-category-"+category);
-                require(box instanceof android.widget.CheckBox&&box.getMinimumHeight()>=dp(backup,48)&&box.getContentDescription()!=null,"Category row "+category+" is a 48 dp checkbox with a spoken label");}
+                if(box!=null)await(()->box.isLaidOut(),"Category row "+category+" was not laid out");
+                require(box instanceof android.widget.CheckBox&&((android.widget.CheckBox)box).getMinHeight()>=dp(backup,48)&&box.getHeight()>=dp(backup,48)&&box.getContentDescription()!=null,"Category row "+category+" is a 48 dp checkbox with a spoken label");}
             require(!((android.widget.CheckBox)root(backup).findViewWithTag("backup-category-rides")).isEnabled(),"An empty category is disabled");
             require(textContaining(root(backup),"Permissions and Bluetooth pairing aren't included.")!=null,"Exclusions are stated");
             render(root(backup),"backup-categories.png");
@@ -136,7 +137,7 @@ public final class BackupUiValidation extends Instrumentation {
             onMain(()->backup.startActivity(new Intent(getTargetContext(),MainActivity.class)));
             Activity repeated=waitForMonitorWithTimeout(mainMonitor,6000);removeMonitor(mainMonitor);
             require(repeated!=null,"Repeated launch was not exercised");
-            await(()->repeated.isFinishing()&&backup.hasWindowFocus(),"A repeated launch did not return to the backup session");
+            try{await(()->repeated.isFinishing()&&backup.hasWindowFocus(),"");}catch(AssertionError e){throw new AssertionError("A repeated launch did not return to the backup session: finishing="+repeated.isFinishing()+" focus="+backup.hasWindowFocus()+" backupFinishing="+backup.isFinishing()+" newBackup="+(backupMonitor.getLastActivity()!=null&&backupMonitor.getLastActivity()!=backup)+" hits="+backupMonitor.getHits()+" top="+top());}
             require(!Boolean.TRUE.equals(field(backup,"terminal")),"A repeated launch ended the backup session");
             removeMonitor(backupMonitor);
             backupMonitor=addMonitor(BackupActivity.class.getName(),null,false);
@@ -151,8 +152,8 @@ public final class BackupUiValidation extends Instrumentation {
             require(!resumed.isFinishing(),"Close killed an active backup operation");
             releaseWork.countDown();
             await(()->!Boolean.TRUE.equals(field(resumed,"busy")),"Interrupted session never became closable");
-            require(Boolean.TRUE.equals(field(resumed,"terminal")),"Interrupted session resumed mutable forms");
-            require(((android.widget.TextView)field(resumed,"closeAction")).isEnabled(),"Close Volt stayed disabled after work finished");
+            // done() runs on the main thread; wait for it to finish rather than racing its field writes.
+            await(()->Boolean.TRUE.equals(field(resumed,"terminal"))&&((android.widget.TextView)field(resumed,"closeAction")).isEnabled(),"Close Volt stayed disabled after work finished");
             removeMonitor(backupMonitor);
             checks.add("Password is not saved or screenshot-visible; recreation waits for active work, blocks a second operation and only permits closing/reopening afterward");
             result.putString("result","PASS");
@@ -190,6 +191,7 @@ public final class BackupUiValidation extends Instrumentation {
     private void setField(Object object,String name,Object value){try{Field f=object.getClass().getDeclaredField(name);f.setAccessible(true);f.set(object,value);}catch(Exception e){throw new RuntimeException(e);}}
     private Object invoke(Object object,String name,Class<?>[] types,Object...args){try{Method m=object.getClass().getDeclaredMethod(name,types);m.setAccessible(true);return m.invoke(object,args);}catch(Exception e){throw new RuntimeException(e);}}
     private void onMain(Runnable action){AtomicReference<Throwable> error=new AtomicReference<>();runOnMainSync(()->{try{action.run();}catch(Throwable e){error.set(e);}});if(error.get()!=null)throw new RuntimeException(error.get());waitForIdleSync();}
+    private String top(){try{android.app.ActivityManager am=(android.app.ActivityManager)getTargetContext().getSystemService(Context.ACTIVITY_SERVICE);return String.valueOf(am.getAppTasks().get(0).getTaskInfo().topActivity);}catch(Exception e){return e.toString();}}
     private void await(BooleanSupplier ready,String message){long limit=SystemClock.elapsedRealtime()+10000;while(SystemClock.elapsedRealtime()<limit){if(ready.getAsBoolean())return;SystemClock.sleep(30);}throw new AssertionError(message);}
     private void require(boolean value,String message){assertions++;if(!value)throw new AssertionError(message);}
 }

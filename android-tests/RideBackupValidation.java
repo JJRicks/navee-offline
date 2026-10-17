@@ -141,7 +141,8 @@ public final class RideBackupValidation extends Instrumentation {
         await(()->!Boolean.TRUE.equals(fieldQuiet(transfer,"busy")),"Save failure did not become retryable");
         require(Arrays.equals(archiveBytes,broken.toByteArray()),"Destination writes succeeded before injected close failure");
         require(ready.isFile()&&field(transfer,"exported")==ready,"Failed destination close retains the only prepared archive");
-        require(!Boolean.TRUE.equals(field(transfer,"terminal"))&&((View)field(transfer,"action")).isEnabled()&&((View)field(transfer,"action")).getVisibility()==View.VISIBLE,"Close failure leaves retry visible and enabled");
+        // retry() runs on the main thread after busy clears; wait for it rather than racing it.
+        await(()->!Boolean.TRUE.equals(fieldQuiet(transfer,"terminal"))&&((View)fieldQuiet(transfer,"action")).isEnabled()&&((View)fieldQuiet(transfer,"action")).getVisibility()==View.VISIBLE,"Close failure leaves retry visible and enabled");
         require(!((TextView)field(transfer,"status")).getText().toString().equals("Backup saved."),"Close failure is not reported as saved");
         ByteArrayOutputStream good=new ByteArrayOutputStream();onMain(()->callUnchecked(transfer,"setBusy",new Class<?>[]{String.class},"Retrying synthetic backup"));
         call(transfer.getClass(),transfer,"saveExport",new Class<?>[]{File.class,OutputStream.class},ready,good);

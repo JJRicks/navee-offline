@@ -17,6 +17,9 @@ import java.util.Map;
  */
 public final class BackupInventoryValidation extends Instrumentation {
     private int assertions;
+    /** Written only by AppDataMaintenanceValidation to prove writers are frozen; not app storage. */
+    private static final java.util.Set<String> TEST_MARKERS = new java.util.HashSet<>(java.util.Arrays.asList(
+            "app_settings/maintenance_test_marker", "root files/maintenance-write-sentinel"));
     private final ArrayList<String> problems = new ArrayList<>();
     @Override public void onCreate(Bundle args) { start(); }
     @Override public void onStart() {
@@ -50,6 +53,7 @@ public final class BackupInventoryValidation extends Instrumentation {
                     catch (java.lang.reflect.InvocationTargetException unclassified) { problems.add("root " + folder[0] + "/" + child.getName()); }
                 }
             }
+            problems.removeAll(TEST_MARKERS);
             require(keys > 0, "Run after populating the app; no preferences were found");
             require(problems.isEmpty(), "Unclassified storage, assign it in BackupRegistry: " + problems);
             result.putString("result", "PASS"); result.putInt("keys", keys);

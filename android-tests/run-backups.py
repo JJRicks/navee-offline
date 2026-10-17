@@ -69,10 +69,17 @@ try:
         clear()
         if theme == 'light': run('shell', 'cmd', 'uimode', 'night', 'no')
         else: run('shell', 'cmd', 'uimode', 'night', 'yes')
+        # A system "isn't responding" dialog keeps window focus from every app and fails focus checks.
+        if 'Not Responding' in run('shell', 'dumpsys', 'window', 'displays', check=False).split('mCurrentFocus', 1)[-1].split('\n', 1)[0]:
+            raise SystemExit('A system "isn\'t responding" dialog has focus on ' + args.serial + '; dismiss it and run again')
         name = 'ui-' + case.replace(':', '-')
         instrument(name, 'BackupUiValidation')
         run('pull', external + 'backup-categories.png', str(args.out / (name + '.png')), check=False)
-    clear(); instrument('maintenance', 'AppDataMaintenanceValidation')
+    clear()
+    # The maintenance journey binds the real service; Bluetooth itself stays disabled.
+    for permission in ('BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT', 'POST_NOTIFICATIONS'):
+        run('shell', 'pm', 'grant', PACKAGE, 'android.permission.' + permission)
+    instrument('maintenance', 'AppDataMaintenanceValidation')
     # Read-only: run last, after the journeys above left real app data in place.
     instrument('inventory', 'BackupInventoryValidation')
 finally:

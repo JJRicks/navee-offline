@@ -63,6 +63,8 @@ public final class AppDataBackupValidation extends Instrumentation {
 
             FixtureContext rollback=context("rollback");populate(rollback);
             rollback.getSharedPreferences("app_settings",0).edit().putString("retained","previous local state").commit();
+            // Unchanged namespaces are not rewritten; make profiles differ so its injected failure follows a real app_settings commit.
+            rollback.getSharedPreferences("profiles",0).edit().putBoolean("legacy_migrated",false).commit();
             Map<String,Map<String,?>> original=snapshot(rollback);AppDataBackup.PreparedRestore replace=AppDataBackup.stage(rollback,new ByteArrayInputStream(backup),PASSWORD);
             rollback.failCommit=true;
             expectFailure(()->AppDataBackup.apply(rollback,replace),"Injected post-write preference failure must abort restore");
