@@ -40,6 +40,9 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(text(screen.view(), "Energy direction") == null, "Redundant current-direction selection removed");
             View root = root(); check(find(root, RideChartView.class) != null, "Unified chart exists");
             check(find(root, RouteMapView.class) != null, "Map at top of same overview");
+            main(() -> { RouteMapView map = (RouteMapView)find(root, RouteMapView.class); byDescription(root, "Route color: Speed").performClick(); check("speed".equals(field(map, "metric")), "Speed overlay selects route speed");
+                Object scale = field(map, "speedScale"); check("scooter".equals(field(scale, "source")) && (double)field(scale, "topKmh") == 25, "Speed overlay uses fresh scooter speed on a stable ride scale");
+                check(byDescription(root, "Route color: Speed").isSelected(), "Speed choice shows selected"); }); settle(); screenshot("speed-route");
             main(() -> { text(root, "Elev.").performClick(); check("elevation".equals(field(find(root, RouteMapView.class), "metric")), "Elevation overlay selects recorded heights"); text(root, "Grade").performClick(); verifyMapContrast((RouteMapView)find(root,RouteMapView.class)); }); settle(); screenshot("grade-route");
             main(() -> { text(root,"Power").performClick();SegmentedSelector selector=(SegmentedSelector)text(root,"Elev.").getParent().getParent();View track=(View)field(selector,"track");check(track.getWidth()<=selector.getWidth(),"Short route overlay labels fit without hidden choices");verifyZoomButtons(root); }); screenshot("overview");
             verifyExpandedMap(root);
@@ -428,7 +431,9 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(!prompt.isShowing() && !settings.getBoolean("map_basemap_explained", false), "Removing the inline control cancels its pending approval");
             parent.addView(control, index, params);
         }); settle();
+        main(() -> { byDescription(sourceRoot, "Route color: Speed").performClick(); inline.zoomBy(1); inline.zoomBy(-1); }); settle();
         check(tileCalls.get() == 0, "Default-off and canceled consent cause no tile requests");
+        main(() -> text(sourceRoot, "Power").performClick());
         main(() -> { inlineToggle.performClick(); basemapPrompt(inlineToggle).getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
         check(inlineToggle.isChecked() && (boolean)field(inline, "streets"), "Approving the inline switch enables the current map");
         check(tileCalls.get() > 0, "Approved visible map uses the synthetic tile connection only");

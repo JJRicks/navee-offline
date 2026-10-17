@@ -44,6 +44,8 @@ public final class RouteMapView extends View {
     private final Map<String, Long> failed = new HashMap<String, Long>();
     private final Consumer<PhoneRideStore.Point> selection;
     private final int powerLow, powerHigh;
+    /** Computed once per ride so inline, expanded, panned and zoomed views share colours. */
+    private final RouteSpeedScale speedScale;
     private double elevationLow = Double.POSITIVE_INFINITY, elevationHigh = Double.NEGATIVE_INFINITY;
     private int selected = -1, activePointer = -1;
     private double zoom = 15;
@@ -70,8 +72,9 @@ public final class RouteMapView extends View {
         this.selection = selection;
         this.points = track.points;
         for (PhoneRideStore.Point point : points) if (point.relativeAltitudeM != null) { elevationLow = Math.min(elevationLow, point.relativeAltitudeM); elevationHigh = Math.max(elevationHigh, point.relativeAltitudeM); }
-        powerLow = Color.rgb(35, 73, 155);
-        powerHigh = Color.rgb(255, 210, 70);
+        powerLow = RouteSpeedScale.LOW;
+        powerHigh = RouteSpeedScale.HIGH;
+        speedScale = RouteSpeedScale.of(points);
         provider = new MapTiles(ui.context, tileUrl);
         maximumTileZoom = MapSource.maximumTileZoom(tileUrl);
         setMinimumHeight(ui.dp(290));
@@ -251,9 +254,9 @@ public final class RouteMapView extends View {
             for (int i = 1; i < points.size(); i++) {
                 PhoneRideStore.Point a = points.get(i - 1), b = points.get(i);
                 if (b.gapBefore || b.segment != a.segment) continue;
-                paint.setColor(pass == 0 ? routeCasingColor() : color(b));
+                paint.setColor(pass == 0 ? routeCasingColor() : color(i));
                 paint.setStrokeWidth(ui.dp(pass == 0 ? 7 : 4));
-                boolean missing = "grade".equals(metric) ? b.gradePercent == null : "accel".equals(metric) ? b.gpsAccelerationMps2 == null : "elevation".equals(metric) ? b.relativeAltitudeM == null : b.powerW == null;
+                boolean missing = "speed".equals(metric) ? speedScale.kmh(i) == null : "grade".equals(metric) ? b.gradePercent == null : "accel".equals(metric) ? b.gpsAccelerationMps2 == null : "elevation".equals(metric) ? b.relativeAltitudeM == null : b.powerW == null;
                 paint.setPathEffect(pass == 1 && missing ? new android.graphics.DashPathEffect(new float[]{ui.dp(4), ui.dp(5)}, 0) : null);
                 canvas.drawLine(screenX(a), screenY(a), screenX(b), screenY(b), paint);
             }
@@ -271,7 +274,7 @@ public final class RouteMapView extends View {
                 paint.setStrokeWidth(ui.dp(3));
                 paint.setColor(ui.accent);
                 canvas.drawCircle(screenX(chosen), screenY(chosen), ui.dp(6), paint);
-                drawTooltip(canvas, chosen);
+                drawTooltip(canvas, chosen, selected);
             }
         } else {
             paint.setStyle(Paint.Style.FILL);
@@ -319,8 +322,11 @@ public final class RouteMapView extends View {
     }
 
     private boolean imperial() {
-        return !"km"
-                .equals(ui.context.getSharedPreferences("app_settings", 0).getString("units", "mi"));
+        return !"km".equals(units());
+    }
+
+    private String units() {
+        return ui.context.getSharedPreferences("app_settings", 0).getString("units", "mi");
     }
 
     private void marker(Canvas canvas, PhoneRideStore.Point p, String label, boolean start) {
@@ -339,11 +345,22 @@ public final class RouteMapView extends View {
     }
 
     /** A dark tooltip beside the tapped point: the selected colour metric first, then context. */
-    private void drawTooltip(Canvas canvas, PhoneRideStore.Point p) {
+    private void drawTooltip(Canvas canvas, PhoneRideStore.Point p, int index) {
         String primary, power = power(p.powerW), grade = grade(p.gradePercent),
                 speed = speed(p.speedMps), accel = accel(p.gpsAccelerationMps2);
         List<String> rest = new ArrayList<String>();
-        if ("grade".equals(metric)) {
+        if ("speed".equals(metric)) {
+            // Name the source the route colour uses; the other sensor stays as labelled context.
+            boolean scooter = RouteSpeedScale.SCOOTER.equals(speedScale.source);
+            Double chosen = speedScale.kmh(index);
+            String name = scooter ? "scooter" : "GPS";
+            primary = speedScale.source == null ? "Speed not measured" : chosen == null ? (scooter ? "Scooter" : "GPS") + " speed not measured"
+                    : RouteSpeedScale.label(chosen, units()) + " · " + name;
+            if (power != null) rest.add(power);
+            if (scooter && speed != null) rest.add("GPS " + speed);
+            else if (!scooter && p.scooterSpeedKmh != null) rest.add("Scooter " + RouteSpeedScale.label(p.scooterSpeedKmh, units()));
+            speed = null;
+        } else if ("grade".equals(metric)) {
             primary = grade == null ? "Grade not measured" : grade;
             if (power != null) rest.add(power);
         } else if ("elevation".equals(metric)) {
@@ -430,7 +447,7 @@ public final class RouteMapView extends View {
     private String speed(Double mps) {
         if (mps == null) return null;
         double kmh = mps * 3.6, mph = kmh / RideStore.KM_PER_MILE;
-        String units = ui.context.getSharedPreferences("app_settings", 0).getString("units", "mi");
+        String units = units();
         return units.equals("km")
                 ? String.format(Locale.US, "%.0f km/h", kmh)
                 : units.equals("dual")
@@ -439,7 +456,9 @@ public final class RouteMapView extends View {
     }
 
     /** Blue → yellow sequential and blue → neutral → orange diverging scales avoid red/green ambiguity. */
-    private int color(PhoneRideStore.Point p) {
+    private int color(int index) {
+        if ("speed".equals(metric)) return speedScale.color(index);
+        PhoneRideStore.Point p = points.get(index);
         Double value = "grade".equals(metric) ? p.gradePercent : "accel".equals(metric) ? p.gpsAccelerationMps2
                 : "elevation".equals(metric) ? p.relativeAltitudeM : p.powerW;
         if (value == null) return Color.rgb(128, 128, 128);
