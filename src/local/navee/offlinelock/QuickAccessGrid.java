@@ -68,6 +68,7 @@ final class QuickAccessGrid extends ViewGroup {
             if (unmapped) { value = null; featureLive = false; }
             String state = feature == null || feature.sensitive && !unmapped ? ""
                     : unmapped ? "—" : pending ? "Updating…" : value == null ? "—"
+                    : decision != null && decision.oemLabel(value) != null ? decision.oemLabel(value)
                     : DisplayUnits.featureValue(feature, value, units);
             if (feature != null && feature.key.equals("range_algorithm")) {
                 featureLive = service != null && service.profiles.active() != null;
@@ -80,7 +81,10 @@ final class QuickAccessGrid extends ViewGroup {
                         - TimeZone.getDefault().getOffset(System.currentTimeMillis());
                 state += " • " + DisplayTime.clock(host.activity(), preferences, wall);
             }
-            boolean selected = cell.entry.directToggle() && value != null && value == 1 && featureLive;
+            // Another model's mapping can make a UT5 MAX Lab control an ordinary toggle.
+            boolean toggle = cell.entry.directToggle(decision);
+            if (tiles && toggle != cell.toggle) { cell.toggle(toggle); fittedWidth = -1; }
+            boolean selected = toggle && value != null && value == 1 && featureLive;
             if (tiles) {
                 // A page or menu shortcut has no value; its name takes the value line instead.
                 String shownValue = state.isEmpty() ? tileLabel(cell.entry) : state;
@@ -94,7 +98,7 @@ final class QuickAccessGrid extends ViewGroup {
                 boolean muted = feature != null && !featureLive;
                 cell.label.setTextColor(highlight ? Ui.withAlpha(ui.onAccent, 220) : ui.muted);
                 cell.value.setTextColor(highlight ? ui.onAccent : muted ? ui.muted : ui.text);
-                if (cell.entry.directToggle()) {
+                if (toggle) {
                     boolean available = !editing && featureLive && value != null && ble.featureValue(feature.key) != null
                             && decision != null && decision.available();
                     ((TileAction) cell.icon).appearance(selected && available ? ui.accent : ui.muted, available, highlight);
@@ -115,7 +119,7 @@ final class QuickAccessGrid extends ViewGroup {
             String description = (tiles ? tileLabel(cell.entry) : cell.entry.label) + (state.isEmpty() ? "" : ", " + state)
                     + (unmapped ? ", not on this model" : feature != null && !featureLive ? ", last seen" : "")
                     + (showSchedule && !schedule.live ? ", scheduled time last seen" : "")
-                    + (cell.entry.directToggle() ? ", toggle" : ", open");
+                    + (toggle ? ", toggle" : ", open");
             cell.setContentDescription(description);
             if (android.os.Build.VERSION.SDK_INT >= 30) cell.setStateDescription(state);
         }
@@ -123,14 +127,18 @@ final class QuickAccessGrid extends ViewGroup {
 
     /** Decorative cue within the tile's single touch target and accessibility action. */
     private final class TileAction extends View {
-        final String glyph;
+        String glyph;
         final android.graphics.Paint ring = new android.graphics.Paint(android.graphics.Paint.ANTI_ALIAS_FLAG);
         int color;
         boolean highlighted;
         TileAction(boolean toggle) {
-            super(host.activity()); glyph = toggle ? "power" : "chevron"; color = ui.muted;
-            setTag("setting-action:" + glyph);
+            super(host.activity()); color = ui.muted; kind(toggle);
             setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        void kind(boolean toggle) {
+            glyph = toggle ? "power" : "chevron";
+            setTag("setting-action:" + glyph);
+            invalidate();
         }
         void appearance(int next, boolean available, boolean onHighlight) {
             setEnabled(available); setAlpha(available ? 1f : .45f);
@@ -160,9 +168,9 @@ final class QuickAccessGrid extends ViewGroup {
         final QuickAccessActions.Entry entry;
         final View icon;
         final TextView label, value;
-        boolean highlighted;
+        boolean highlighted, toggle;
         Cell(QuickAccessActions.Entry entry) {
-            super(host.activity()); this.entry = entry;
+            super(host.activity()); this.entry = entry; toggle = entry.directToggle();
             if (tiles) {
                 setTag("setting-tile:" + entry.id);
                 setOrientation(HORIZONTAL); setGravity(Gravity.CENTER_VERTICAL);
@@ -179,8 +187,8 @@ final class QuickAccessGrid extends ViewGroup {
                 value.setLineSpacing(0, 1);
                 words.addView(value, new LinearLayout.LayoutParams(-1, -2));
                 addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-                icon = new TileAction(entry.directToggle());
-                int side = ui.dp(entry.directToggle() ? 28 : 16);
+                icon = new TileAction(toggle);
+                int side = ui.dp(toggle ? 28 : 16);
                 LinearLayout.LayoutParams indicator = new LinearLayout.LayoutParams(side, side);
                 indicator.setMarginStart(ui.dp(6));
                 addView(icon, indicator);
@@ -205,6 +213,13 @@ final class QuickAccessGrid extends ViewGroup {
             // The grouped button announces both its label and the current state once.
             for (View child : new View[]{icon, label, value})
                 child.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
+        }
+        /** Setting tiles only: the cue and its size follow the connected model's decision. */
+        void toggle(boolean next) {
+            toggle = next; ((TileAction) icon).kind(next);
+            int side = ui.dp(next ? 28 : 16);
+            icon.getLayoutParams().width = side; icon.getLayoutParams().height = side;
+            icon.requestLayout();
         }
         void updateBackground() {
             if (tiles) {
@@ -246,7 +261,7 @@ final class QuickAccessGrid extends ViewGroup {
             float size = 18 * ui.textScale, floor = 12 * ui.textScale;
             // A long scheduled time gets the space before its decorative cue does.
             value.setTextSize(floor);
-            if (entry.directToggle() && icon.getVisibility() == VISIBLE
+            if (toggle && icon.getVisibility() == VISIBLE
                     && value.getPaint().measureText(value.getText().toString()) > text) {
                 icon.setVisibility(GONE);
                 text += icon.getLayoutParams().width + ui.dp(6);

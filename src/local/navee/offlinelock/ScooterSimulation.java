@@ -25,6 +25,8 @@ public final class ScooterSimulation {
             if (!feature.sensitive && feature.type != ScooterCommands.Type.TIME)
                 features.put(feature.key, feature.optionValues.length == 0
                         ? feature.min : feature.optionValues[0]);
+        for (ScooterCommands.Feature feature : ScooterCommands.oemOnly())
+            features.put(feature.key, feature.optionValues[0]);
         choose("energy_recovery", 30);
         choose("acceleration", 3);
         choose("headlight", 1);
@@ -105,6 +107,18 @@ public final class ScooterSimulation {
     public void set(String key, int value) {
         ScooterCommands.Feature feature = ScooterCommands.find(key);
         if (feature.sensitive || feature.type == ScooterCommands.Type.TIME || !feature.allows(value))
+            throw new IllegalArgumentException("Unavailable simulation setting");
+        features.put(key, value);
+    }
+
+    /**
+     * The same, validated against the decided model variant (another simulated model's domain);
+     * a UT5 MAX variant keeps the catalogue check.
+     */
+    public void set(String key, int value, FeatureVariant variant) {
+        if (variant == null || variant.decode == FeatureVariant.Decode.UT5_FEATURE) { set(key, value); return; }
+        ScooterCommands.Feature feature = ScooterCommands.find(key);
+        if (feature.sensitive || feature.type == ScooterCommands.Type.TIME || !variant.feature.equals(key) || !variant.allows(value))
             throw new IllegalArgumentException("Unavailable simulation setting");
         features.put(key, value);
     }

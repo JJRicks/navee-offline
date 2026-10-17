@@ -1225,7 +1225,31 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String speed(Double kmh){return kmh==null?"—":DisplayUnits.speed(kmh,preferences.getString("units","mi"));}
     private String featureLabel(ScooterCommands.Feature feature,int value){
         if(feature.key.equals("start_speed")&&value==0)return "Standing start";
+        // Another model's variant has its own labels; speeds keep the rider's units.
+        String oem=scooterService==null?null:scooterService.ble.decision(feature.key).oemLabel(value);
+        if(oem!=null)return oem;
         return DisplayUnits.featureValue(feature,value,preferences.getString("units","mi"));
+    }
+    /** The decided variant when it is another model's (not the UT5 MAX catalogue), else null. */
+    private FeatureVariant oemVariant(String key){
+        if(scooterService==null)return null;CapabilityResolver.Decision d=scooterService.ble.decision(key);
+        return d.variant!=null&&d.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?d.variant:null;
+    }
+    /** A control that is Lab on the UT5 MAX but mapped normally (not Lab) for the connected model. */
+    private boolean ordinaryOemRow(String key){
+        FeatureVariant variant=oemVariant(key);
+        return variant!=null&&!variant.lab&&scooterService.ble.decision(key).support==CapabilityResolver.Support.KNOWN_ENCODING;
+    }
+    /**
+     * Sends at once, or first asks where the official app asks on that model (an OEM-mapped control off the
+     * UT5 MAX). The UT5 MAX keeps today's direct controls.
+     */
+    private void confirmChange(ScooterCommands.Feature feature,int value,Runnable send){
+        String caution=scooterService==null?null:ModelRegistry.caution(scooterService.ble.decision(feature.key),value);
+        if(caution==null){send.run();return;}
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(shortLabel(feature)).setMessage(caution)
+                .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->{if(scooterService!=null)send.run();}).create();
+        dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
     private static final String AUTO_RANGE="Auto (riding mode)";
     private TextView metricLine(LinearLayout parent,String label){LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);TextView labelView=design.caption(label);line.addView(labelView,new LinearLayout.LayoutParams(0,-2,1));TextView value=design.text("—",16,true);value.setGravity(Gravity.RIGHT);line.addView(value);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=design.dp(8);p.bottomMargin=design.dp(8);parent.addView(line,p);return value;}
@@ -1333,9 +1357,12 @@ public final class MainActivity extends Activity implements ScreenHost {
                     "charge_limit","low_power","timed_charging","charge_start","auto_sensor","headlight","display_units","range_algorithm","turn_sound","lock_expiry"};
             for(String key:priority)ordered.add(ScooterCommands.find(key));
             for(ScooterCommands.Feature f:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(f.key))ordered.add(f);
+            // Light controls only other models have; hidden unless the connected model maps them.
+            ordered.addAll(ScooterCommands.oemOnly());
             for(ScooterCommands.Feature f:ordered){
-                // The top speed card replaces maximum_speed; experimental, lock, PIN and proximity stay out of this list.
-                if(f.experimental||f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key")||f.key.equals("maximum_speed"))continue;
+                // Lock, PIN and proximity stay out of this list. Lab (experimental) controls get a row that shows only
+                // where another model maps them normally; maximum_speed's row replaces the top speed card the same way.
+                if(f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key"))continue;
                 ControlRow control=new ControlRow(f);rows.add(control);addRow(groupOf(f),control.card);
             }
             // Lights page: a read-only first row says the front headlight is switched on the scooter itself.
@@ -1363,7 +1390,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         private String groupOf(ScooterCommands.Feature f){
             if(f.key.startsWith("line_"))return "Line lights";if(f.key.startsWith("star_"))return "Star lights";
-            if(f.key.equals("headlight")||f.key.equals("auto_sensor"))return "Lights";
+            if(f.key.equals("headlight")||f.key.equals("auto_sensor")||ScooterCommands.oemOnly(f.key))return "Lights";
             return f.group.equals("Ride")?"Ride":f.group.equals("Battery")?"Battery":f.group.equals("Security")?"Security":"Dashboard & sound";
         }
         /** The main page holds everything except the line and star zones; the Lights page holds only lighting. */
@@ -1389,14 +1416,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         private void applyFilter(){
             String needle=normalize(query);boolean searching=!needle.isEmpty();int count=0;
             java.util.HashSet<String> visible=new java.util.HashSet<>();
-            for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=offered(row.feature.key)&&(searching?row.haystack.contains(needle):onPage(group));row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
+            for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=rowOffered(row.feature.key)&&(searching?row.haystack.contains(needle):onPage(group));row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
             boolean zones=false;for(ControlRow row:rows)zones|=(row.feature.key.startsWith("line_")||row.feature.key.startsWith("star_"))&&offered(row.feature.key);
             for(Map.Entry<View,String[]> e:extras.entrySet()){
                 String[] metadata=e.getValue();
                 boolean match=e.getKey()==zonesRow&&(lights||!zones)||e.getKey()==clockLine.card&&!offered("clock_sync")||e.getKey()==headlightRow&&!lights&&!searching?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
                 e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}
             }
-            boolean speed=offered("maximum_speed")&&(searching?TOP_SPEED_WORDS.contains(needle):!lights);
+            boolean speed=topSpeedCard()&&(searching?TOP_SPEED_WORDS.contains(needle):!lights);
             topSpeed.card.setVisibility(speed?View.VISIBLE:View.GONE);if(speed)count++;
             for(Map.Entry<String,LinearLayout> e:sections.entrySet()){
                 e.getValue().setVisibility(visible.contains(e.getKey())?View.VISIBLE:View.GONE);
@@ -1414,8 +1441,12 @@ public final class MainActivity extends Activity implements ScreenHost {
          */
         private boolean offered(String key){
             BleController ble=scooterService==null?null:scooterService.ble;
+            if(!key.equals("clock_sync")&&ScooterCommands.find(key).experimental)return ordinaryOemRow(key);
             return ble==null||key.equals("range_algorithm")||ble.controlOffered(key);
         }
+        /** The UT5 MAX top speed card (four fixed choices); another model's maximum speed table is an ordinary row. */
+        private boolean topSpeedCard(){return offered("maximum_speed")&&oemVariant("maximum_speed")==null;}
+        private boolean rowOffered(String key){return key.equals("maximum_speed")?offered(key)&&oemVariant(key)!=null:offered(key);}
         private void clearSearch(){
             if(search.getText().length()>0)search.setText("");search.clearFocus();
             android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
@@ -1457,7 +1488,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             // One pill at a time keeps the banner readable on narrow screens: Identify first, then Check.
             checkAction.setVisibility(ble!=null&&!ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // Rows follow the model's decisions; re-filter when the set of mapped controls changes.
-            StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(offered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(offered("maximum_speed")?'1':'0');
+            StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(rowOffered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(topSpeedCard()?'1':'0');
             if(!offered.toString().equals(offeredKeys)){offeredKeys=offered.toString();applyFilter();}
             boolean clockPending=ble!=null&&"clock_sync".equals(ble.pending());
             CapabilityResolver.Decision clockDecision=ble==null?null:ble.decision("clock_sync");
@@ -1506,6 +1537,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         CapabilityResolver.Decision decision = scooterService.ble.decision(feature.key);
         if (decision.support != CapabilityResolver.Support.KNOWN_ENCODING) { toast(decision.reasonText()); return; }
         if (decision.variant != null && decision.variant.lab) { showQuickMore("Lab", feature); return; }
+        // Another model's region, firmware or full-ID rule refuses it: say why, as its Scooter row does (never on the UT5 MAX).
+        if (decision.reason == CapabilityResolver.Reason.REGION_RULE || decision.reason == CapabilityResolver.Reason.FIRMWARE_UNKNOWN
+                || decision.reason == CapabilityResolver.Reason.FIRMWARE_OLD || decision.reason == CapabilityResolver.Reason.FULL_PID_NEEDED) {
+            toast(decision.reasonText()); return;
+        }
         if (feature.sensitive || feature.key.equals("proximity_key")) {
             showQuickMore("Security", null); return;
         }
@@ -1519,12 +1555,15 @@ public final class MainActivity extends Activity implements ScreenHost {
         if (!fresh || (feature.type != ScooterCommands.Type.TIME && actual == null)) {
             toast("No fresh value yet"); return;
         }
-        if (entry.directToggle()) {
-            if (!ble.set(feature.key, actual == 1 ? 0 : 1)) toast(ble.message());
-            // The stable window survives a synchronous readback/redraw. Answer the
-            // accepted tap once, using its requested direction, before rebuilding Home.
-            else Haptics.toggle(getWindow().getDecorView(), actual != 1);
-            redraw();
+        if (entry.directToggle(decision)) {
+            int target = actual == 1 ? 0 : 1;
+            confirmChange(feature, target, () -> {
+                if (!ble.set(feature.key, target)) toast(ble.message());
+                // The stable window survives a synchronous readback/redraw. Answer the
+                // accepted tap once, using its requested direction, before rebuilding Home.
+                else Haptics.toggle(getWindow().getDecorView(), target == 1);
+                redraw();
+            });
         } else {
             closeQuickMenu();
             if (controlDialog != null) { controlDialog.dismiss(); controlDialog = null; }
@@ -1549,10 +1588,13 @@ public final class MainActivity extends Activity implements ScreenHost {
                 null, () -> { if (self[0] != null) self[0].dismiss(); });
         body.setTag("quick-settings-sheet");
         LinearLayout settings = design.groupCard(); body.addView(settings);
-        for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
-            if (f.experimental || f.sensitive || f.key.equals("lock") || f.key.equals("proximity_key")) continue;
+        ArrayList<ScooterCommands.Feature> features = new ArrayList<>(ScooterCommands.catalog());
+        // Another model's own light controls join the Lights sheet only where it maps them.
+        for (ScooterCommands.Feature f : ScooterCommands.oemOnly()) if (scooterService.ble.controlOffered(f.key)) features.add(f);
+        for (ScooterCommands.Feature f : features) {
+            if (f.experimental && !ordinaryOemRow(f.key) || f.sensitive || f.key.equals("lock") || f.key.equals("proximity_key")) continue;
             boolean match = section.equals("Settings")
-                    || section.equals("Lights") && (f.key.equals("headlight") || f.key.equals("auto_sensor")
+                    || section.equals("Lights") && (f.key.equals("headlight") || f.key.equals("auto_sensor") || ScooterCommands.oemOnly(f.key)
                             || f.key.startsWith("line_") || f.key.startsWith("star_"))
                     || section.equals("Line lights") && f.key.startsWith("line_")
                     || section.equals("Star lights") && f.key.startsWith("star_")
@@ -1702,6 +1744,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action,spinner;
         final String haystack;final boolean inline;SegmentedSelector patternSelector;
         final LinkedHashMap<Integer,View> options=new LinkedHashMap<>();
+        /** Colour swatches; another model with more colours adds its swatches on their own full-width line. */
+        private LinearLayout swatchRow;private boolean wideSwatches;
         /** Moving while this setting needs the scooter parked: the row greys out and a tap says why. */
         private boolean parkedBlocked;
         ControlRow(ScooterCommands.Feature feature){
@@ -1717,7 +1761,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 value.setVisibility(View.GONE);
                 toggle=new Haptics.FeedbackSwitch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);
                 toggle.setContentDescription(shortLabel(feature));
-                toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});
+                toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);confirmChange(feature,target,()->{scooterService.ble.set(feature.key,target);redraw();});}});
                 LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.leftMargin=design.dp(10);row.line.addView(toggle,tp);
                 row.line.setFocusable(true);row.line.setBackground(rowRipple());row.line.setOnClickListener(v->{if(parkedBlocked)toast("Stop to change");else if(toggle.isEnabled())toggle.performClick();});
             }else if(inline){
@@ -1734,7 +1778,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                     LinearLayout.LayoutParams pp=new LinearLayout.LayoutParams(-1,-2);pp.topMargin=design.dp(6);pp.bottomMargin=design.dp(8);card.addView(patternSelector,pp);
                 }else{
                     // Colours are swatches on the right of the row.
-                    LinearLayout swatches=row();swatches.setGravity(Gravity.CENTER_VERTICAL);
+                    LinearLayout swatches=row();swatches.setGravity(Gravity.CENTER_VERTICAL);swatchRow=swatches;
                     for(int i=0;i<feature.optionValues.length;i++){
                         final int choice=feature.optionValues[i];String label=feature.options[i];
                         Swatch swatch=new Swatch(label.equals("Red")?design.accent:label.equals("Ice blue")?design.blue:design.muted);
@@ -1771,10 +1815,13 @@ public final class MainActivity extends Activity implements ScreenHost {
             row.line.setAlpha(parkedBlocked?.45f:1f);
             if(toggle==null&&!inline){
                 // A long value moves under the label so the row never wraps beside the chevron.
-                boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(joinNote(wide?shown:rowDetail(feature),note));
+                // Another model's caption joins a long time value under the label too, so neither is squeezed (never on the UT5 MAX).
+                boolean captioned=note!=null&&decision!=null&&decision.layer!=ModelRegistry.Layer.UT5_MAX;
+                boolean wide=(feature.type!=ScooterCommands.Type.TIME||captioned)&&shown.length()>10;value.setText(wide?"":shown);row.setSub(joinNote(wide?shown:rowDetail(feature),note));
             }else if(inline)row.setSub(actual==null?"Not reported":note);
             else row.setSub(joinNote(rowDetail(feature),note));
             if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(usable);patternSelector.setAlpha(usable?1f:.5f);}
+            if(swatchRow!=null)extraSwatches(decision);
             for(Map.Entry<Integer,View> option:options.entrySet()){
                 boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();
                 ((Swatch)view).set(on);
@@ -1800,6 +1847,26 @@ public final class MainActivity extends Activity implements ScreenHost {
                     &&d.reason!=CapabilityResolver.Reason.NOT_CONNECTED&&d.reason!=CapabilityResolver.Reason.STATUS_STALE)return d.reasonText();
             return d.layer!=ModelRegistry.Layer.UT5_MAX&&d.evidence==CapabilityResolver.Evidence.OEM_MAPPED?"Untested here":null;
         }
+        /** UT5 MAX swatches never change; colours beyond them (another model's table) show only while that model offers them. */
+        private void extraSwatches(CapabilityResolver.Decision decision){
+            int[] offered=decision==null||decision.variant==null||decision.variant.decode==FeatureVariant.Decode.UT5_FEATURE?new int[0]:decision.values();
+            java.util.HashSet<Integer> base=new java.util.HashSet<>();for(int v:feature.optionValues)base.add(v);
+            for(int v:offered)if(!options.containsKey(v)){
+                if(!wideSwatches){
+                    // Six colours do not fit beside the label: the swatches take their own line, sharing its width.
+                    wideSwatches=true;row.line.removeView(swatchRow);
+                    for(int i=0;i<swatchRow.getChildCount();i++)swatchRow.getChildAt(i).setLayoutParams(new LinearLayout.LayoutParams(0,design.dp(48),1));
+                    LinearLayout.LayoutParams wide=new LinearLayout.LayoutParams(-1,-2);wide.bottomMargin=design.dp(6);card.addView(swatchRow,wide);
+                }
+                final int choice=v;String label=decision.label(v);
+                Swatch swatch=new Swatch(swatchColor(label));swatch.rainbow=label.equals("Rainbow");
+                swatch.setContentDescription(shortLabel(feature)+" "+label);swatch.setOnClickListener(x->chooseInline(feature,choice));
+                options.put(choice,swatch);swatchRow.addView(swatch,new LinearLayout.LayoutParams(0,design.dp(48),1));
+            }
+            for(Map.Entry<Integer,View> option:options.entrySet())if(!base.contains(option.getKey())){
+                boolean shown=false;for(int v:offered)shown|=v==option.getKey();option.getValue().setVisibility(shown?View.VISIBLE:View.GONE);
+            }
+        }
         private String joinNote(String text,String note){return note==null?text:text==null||text.isEmpty()?note:text+" · "+note;}
         private void restorePatternSelection(boolean animate){
             Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);
@@ -1810,18 +1877,33 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void chooseInline(ScooterCommands.Feature feature,int target){
         if(scooterService==null)return;Integer actual=scooterService.ble.featureValue(feature.key);if(actual!=null&&actual==target)return;
-        if(!scooterService.ble.set(feature.key,target))toast(scooterService.ble.message());redraw();
+        confirmChange(feature,target,()->{if(!scooterService.ble.set(feature.key,target))toast(scooterService.ble.message());redraw();});
+    }
+    /** Swatch colour for a lamp colour label (UT5 MAX: ice blue and red). */
+    private int swatchColor(String label){
+        switch(label){
+            case "Red": return design.accent;
+            case "Ice blue": return design.blue;
+            case "Blue": return android.graphics.Color.parseColor("#3D6BE0");
+            case "Green": return design.ok;
+            case "Purple": return android.graphics.Color.parseColor("#8E5BD0");
+            default: return design.muted;
+        }
     }
     /** Lamp colour swatch; the selected colour gains a ring. */
     private final class Swatch extends View {
         private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);private final int color;private boolean on;
+        /** A multicolour lamp mode: drawn as a colour wheel. */
+        boolean rainbow;
         Swatch(int color){super(MainActivity.this);this.color=color;setClickable(true);setFocusable(true);
             setBackground(new android.graphics.drawable.RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(design.accent,40)),null,null));}
         void set(boolean selected){if(on!=selected){on=selected;invalidate();}setSelected(selected);}
         @Override public CharSequence getAccessibilityClassName(){return android.widget.RadioButton.class.getName();}
         @Override public void onInitializeAccessibilityNodeInfo(AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(info);info.setCheckable(true);info.setChecked(on);}
         @Override protected void onDraw(Canvas canvas){
-            float cx=getWidth()/2f,cy=getHeight()/2f;paint.setStyle(Paint.Style.FILL);paint.setColor(color);canvas.drawCircle(cx,cy,design.dp(10),paint);
+            float cx=getWidth()/2f,cy=getHeight()/2f;paint.setStyle(Paint.Style.FILL);paint.setColor(color);
+            if(rainbow)paint.setShader(new android.graphics.SweepGradient(cx,cy,new int[]{0xFFE5484D,0xFFF5B83D,0xFF3DBE6B,0xFF3D6BE0,0xFF8E5BD0,0xFFE5484D},null));
+            canvas.drawCircle(cx,cy,design.dp(10),paint);paint.setShader(null);
             if(on){paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(design.dp(2));paint.setColor(design.text);canvas.drawCircle(cx,cy,design.dp(14),paint);}
         }
     }
@@ -2155,7 +2237,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void editFeature(ScooterCommands.Feature feature){
         if(feature.key.equals("range_algorithm")){showRangeSource();return;}
         if(feature.type==ScooterCommands.Type.TIME){showChargingTime();return;}
-        if(feature.type!=ScooterCommands.Type.SLIDER){showChoice(feature);return;}
+        // A slider on the UT5 MAX can be an explicit OEM value list on another model.
+        FeatureVariant variant=oemVariant(feature.key);
+        if(feature.type!=ScooterCommands.Type.SLIDER||variant!=null&&variant.values.length>0){showChoice(feature);return;}
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
         Integer current=scooterService.ble.featureValue(feature.key);if(current==null)return;
         final AlertDialog[] sheet=new AlertDialog[1];Runnable close=()->{if(sheet[0]!=null)sheet[0].dismiss();};
@@ -2183,7 +2267,8 @@ public final class MainActivity extends Activity implements ScreenHost {
                 slider.setProgress(Math.max(0,(latest-feature.min)/feature.step));amount.setText(featureLabel(feature,latest));
                 check[0].show();return;
             }
-            if(scooterService.ble.set(feature.key,selected[0])){if(sheet[0]!=null)sheet[0].dismiss();}else error.setText(scooterService.ble.message());redraw();});
+            int value=selected[0];
+            confirmChange(feature,value,()->{if(scooterService.ble.set(feature.key,value)){if(sheet[0]!=null)sheet[0].dismiss();}else error.setText(scooterService.ble.message());redraw();});});
         check[0]=new ApplyCheck(apply,"Apply");
         LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=design.dp(5);actions.addView(cancel,left);
         LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,-2,1);right.leftMargin=design.dp(5);actions.addView(apply,right);
@@ -2259,6 +2344,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             String[] labels=new String[choices.length];boolean compact=choices.length>=2&&choices.length<=5&&!feature.key.equals("range_algorithm");
             for(int i=0;i<choices.length;i++){labels[i]=featureLabel(feature,choices[i]);compact&=labels[i].length()<=18;}
             selector=compact?new SegmentedSelector(design,shortLabel(feature),labels,this::choose):null;
+            // Another model's longer tables (five speeds, five sounds) wrap onto rows instead of scrolling past the edge.
+            if(selector!=null&&oemVariant(feature.key)!=null)selector.setWrapChoices(true);
             if(selector!=null){selector.setTag("scooter-selector-"+feature.key);content.addView(selector,new LinearLayout.LayoutParams(-1,-2));}
             else{
             LinearLayout list=design.groupCard();
@@ -2299,9 +2386,12 @@ public final class MainActivity extends Activity implements ScreenHost {
                 scooterService.followRidingMode(false);
             }
             Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==choices[index]){dialog.dismiss();return;}
-            failure=null;
-            if(ble.set(feature.key,choices[index])){target=choices[index];sent=true;}else failure=ble.message();
-            refresh();redraw();
+            int choice=choices[index];
+            confirmChange(feature,choice,()->{
+                if(sent)return;failure=null;
+                if(ble.set(feature.key,choice)){target=choice;sent=true;}else failure=ble.message();
+                refresh();redraw();
+            });
         }
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;boolean ready=ble!=null&&ble.ready();String pending=ble==null?null:ble.pending();
@@ -2332,7 +2422,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void showChargingTime(){
         if(scooterService==null||!scooterService.ble.ready())return;Double stored=scooterService.ble.telemetry.number("scheduled_charge_time_raw");Calendar initial=Calendar.getInstance();if(stored!=null&&stored>0)initial.setTimeInMillis((long)(stored*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));
-        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle("Next charge start");controlDialog=picker;picker.show();
+        // Other models use the official app's whole-hour starts (within 48 hours); the UT5 MAX keeps any minute.
+        boolean wholeHours=scooterService.ble.decision("charge_start").layer!=ModelRegistry.Layer.UT5_MAX;if(wholeHours)initial.set(Calendar.MINUTE,0);
+        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,picked)->{int minute=wholeHours?0:picked;Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle(wholeHours?"Next charge start (on the hour)":"Next charge start");controlDialog=picker;picker.show();
         styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);styleDialogButton(picker.getButton(AlertDialog.BUTTON_NEGATIVE),design.muted);
     }
     /** The gutter follows the actual fold bounds within this content pane. */

@@ -36,9 +36,11 @@ public final class MutationGateTest {
             // Every 2538 keeps today's behaviour regardless of region (owner decision).
             {serial("Q2538ZZ9DE7777777"),A,A,A,A,A,A,A,A,A,A,A,A,A,A},
             {both("Q2538ZZ9US7777777","24431"),A,A,A,A,A,A,A,A,A,A,A,A,A,A},
-            {both("Q2443ZZ9US7777777","24431"),A,A,A,A,A,NM,NM,A,NM,NM,NM,NM,NM,EX},
-            {both("Q2585ZZ9DE7777777","25851"),A,A,A,RR,A,NM,NM,A,NM,NM,NM,NM,NM,EX},
-            {both("Q2504ZZ9US7777777","25041"),A,A,A,EX,NM,NM,NM,A,NM,NM,NM,NM,NM,EX},
+            // C5: charging (S, Q, H) and the Bluetooth lock screen (PIN, bond, proximity) are OEM-mapped; group M reaches neither.
+            {both("Q2443ZZ9US7777777","24431"),A,A,A,A,A,A,A,A,A,A,A,A,A,EX},
+            {both("Q2585ZZ9DE7777777","25851"),A,A,A,RR,A,A,A,A,A,A,A,A,A,EX},
+            // Group M's energy recovery is on/off: the fixture's level 60 reads as unknown there.
+            {both("Q2504ZZ9US7777777","25041"),A,A,A,EX,"VALUE_UNKNOWN",EX,EX,A,NM,NM,NM,NM,NM,EX},
             {advertised("39991"),A,A,NM,NM,NM,NM,NM,NM,NM,NM,NM,NM,NM,EX},
             {serial("Q2443ZZ9US7777777"),A,A,NI,NI,NI,NI,NI,NI,NI,NI,NI,NI,NI,EX},
             {both("Q2547ZZ9US7777777","25381"),A,A,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,EX},
@@ -130,7 +132,7 @@ public final class MutationGateTest {
         check(MutationGate.check(set("lock",1),DeviceDescriptor.simulated("39991",0),StatusFields.NONE,rt).available()
             &&MutationGate.check(set("cruise_control",1),DeviceDescriptor.simulated("39991",0),StatusFields.NONE,rt).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"Unknown simulator model: lock only");
         check(MutationGate.check(set("display_units",1),DeviceDescriptor.simulated("24431",0),StatusFields.NONE,rt).available()
-            &&MutationGate.check(set("charge_limit",90),DeviceDescriptor.simulated("24431",0),StatusFields.NONE,rt).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"Mapped simulator model");
+            &&MutationGate.check(set("drive_speed_limit",10),DeviceDescriptor.simulated("24431",0),StatusFields.NONE,rt).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"Mapped simulator model");
         for(java.lang.reflect.Method m:MutationGate.class.getDeclaredMethods())check(m.getReturnType()!=byte[].class,"The gate builds no frames: "+m.getName());
     }
 
