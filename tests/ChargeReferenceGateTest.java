@@ -1,7 +1,7 @@
 package local.navee.offlinelock;
 
 /** Runtime continuity never outlives fresh measurements or a short bounded power mismatch. */
-public final class StockChargeReferenceGateTest {
+public final class ChargeReferenceGateTest {
     private static int checks;
     private static final String SCOPE = "scooter-one:stock:connection-one";
 
@@ -23,20 +23,20 @@ public final class StockChargeReferenceGateTest {
                 live(soc, frame), live(15.3, frame), live(target, frame));
     }
 
-    private static ChargingEstimate.Result estimate(StockChargeReferenceGate gate, double soc,
+    private static ChargingEstimate.Result estimate(ChargeReferenceGate gate, double soc,
             double watts, Double target, long frame, long now) {
         return ChargingEstimate.forScooter(baseline(soc, watts, target, frame), live(soc, frame),
                 live(15.3, frame), 2538, ChargeSessionStore.Charger.STOCK, null, gate, SCOPE, frame, now);
     }
 
-    private static StockChargeReferenceGate entered() {
-        StockChargeReferenceGate gate = new StockChargeReferenceGate();
+    private static ChargeReferenceGate entered() {
+        ChargeReferenceGate gate = new ChargeReferenceGate();
         check(gate.accepts(SCOPE, 95, 95, 1000, 1000), "Compatible fresh power enters the reference");
         return gate;
     }
 
     private static void edgeJitter(double soc, double matchingWatts, double nearbyWatts) {
-        StockChargeReferenceGate gate = new StockChargeReferenceGate();
+        ChargeReferenceGate gate = new ChargeReferenceGate();
         check(!gate.accepts(SCOPE, soc, nearbyWatts, 1000, 1000), "Soft-band power alone cannot enter");
         check(gate.accepts(SCOPE, soc, matchingWatts, 2000, 2000), "Strict match enters");
         check(gate.accepts(SCOPE, soc, nearbyWatts, 3000, 3000), "A nearby power dip keeps the reference");
@@ -54,7 +54,7 @@ public final class StockChargeReferenceGateTest {
         edgeJitter(95, 95, 94.5);
         edgeJitter(98, 93, 92.5);
 
-        StockChargeReferenceGate gate = entered();
+        ChargeReferenceGate gate = entered();
         check(gate.accepts(SCOPE, 95, 94.5, 2000, 2000), "Time limit starts at the first power miss");
         check(gate.accepts(SCOPE, 95, 94.5, 2000, 16999), "One repeatedly displayed miss may survive just under fifteen seconds");
         check(!gate.accepts(SCOPE, 95, 94.5, 2000, 17000), "Fifteen-second limit expires even without a new frame");
@@ -96,7 +96,7 @@ public final class StockChargeReferenceGateTest {
     }
 
     private static void verifyComposition() throws Exception {
-        StockChargeReferenceGate taperGate = new StockChargeReferenceGate();
+        ChargeReferenceGate taperGate = new ChargeReferenceGate();
         for (int i = 0; i < 4; i++) {
             double watts = i == 0 ? 32 : 31, volts = 54.387;
             long frame = (i + 1) * 1000;
@@ -108,8 +108,25 @@ public final class StockChargeReferenceGateTest {
             if (i < 3) check(result.remainingMinutesToFull < 1, "An accepted taper grace cannot jump to a sixteen-minute live-rate ETA");
             else near(base.remainingMinutesToFull, result.remainingMinutesToFull, 0, "Expired taper grace uses the fresh baseline");
         }
+        // The high-speed reference gets the same bounded grace, in its own family's context.
+        ChargeReferenceGate fastGate = new ChargeReferenceGate();
+        ChargingEstimate.Result fastFirst = null;
+        for (int i = 0; i < 4; i++) {
+            double watts = 516.76 * (i == 0 ? 1 : .83), volts = 53.45;
+            long frame = (i + 1) * 1000;
+            ChargingEstimate.Result base = ChargingEstimate.calculate(live(1d, frame), live(volts, frame),
+                    live(-watts / volts, frame), live(72d, frame), live(15.3, frame), live(100d, frame));
+            ChargingEstimate.Result result = ChargingEstimate.forScooter(base, live(72d, frame), live(15.3, frame),
+                    2538, ChargeSessionStore.Charger.HIGH_SPEED, null, fastGate, SCOPE, frame, frame);
+            if (i == 0) fastFirst = result;
+            check(result.referenceToFull == (i < 3) && (i == 3 || result.referenceCharger == ChargeSessionStore.Charger.HIGH_SPEED),
+                    "One or two soft high-speed frames keep the fast reference, then it expires: " + i);
+            if (i < 3) near(fastFirst.remainingMinutesToFull, result.remainingMinutesToFull, .00001, "Fast grace avoids a live-rate cliff");
+        }
+        check(!fastGate.accepts(SCOPE + ":2538:STOCK", ChargeSessionStore.Charger.STOCK, 95, 94.5, 5000, 5000),
+                "Fast admission never lends grace to the stock family");
         for (double[] edge : new double[][]{{95, 95, 94.5}, {98, 93, 92.5}}) {
-            StockChargeReferenceGate gate = new StockChargeReferenceGate();
+            ChargeReferenceGate gate = new ChargeReferenceGate();
             ChargingEstimate.Result first = estimate(gate, edge[0], edge[1], 100d, 1000, 1000);
             ChargingEstimate.Result dip = estimate(gate, edge[0], edge[2], 100d, 2000, 2000);
             ChargingEstimate.Result recovered = estimate(gate, edge[0], edge[1], 100d, 3000, 3000);
@@ -121,7 +138,7 @@ public final class StockChargeReferenceGateTest {
             check(!dip.learnedToFull && !dip.learnedToLimit && dip.learnedSessions == 0,
                     "Runtime gate never labels bundled evidence as a personal charge");
         }
-        StockChargeReferenceGate gate = new StockChargeReferenceGate();
+        ChargeReferenceGate gate = new ChargeReferenceGate();
         estimate(gate, 95, 95, 100d, 1000, 1000);
         estimate(gate, 95, 94.5, 100d, 2000, 2000);
         estimate(gate, 95, 94.5, 100d, 3000, 3000);
@@ -131,7 +148,7 @@ public final class StockChargeReferenceGateTest {
                 "Fallback is freshly calculated rather than retaining an earlier ETA");
 
         for (int invalid : new int[]{0, 1, 2, 3, 4, 5, 6, 7}) {
-            gate = new StockChargeReferenceGate();
+            gate = new ChargeReferenceGate();
             estimate(gate, 95, 95, 100d, 1000, 1000);
             ChargingEstimate.Value soc = live(95d, 2000), rated = live(15.3, 2000);
             ChargingEstimate.Result base = baseline(95, 94.5, 100d, 2000);
@@ -152,12 +169,12 @@ public final class StockChargeReferenceGateTest {
                     "Unavailable inputs and explicit exclusions clear prior eligibility: " + invalid);
         }
 
-        gate = new StockChargeReferenceGate();
+        gate = new ChargeReferenceGate();
         estimate(gate, 95, 95, 100d, 1000, 1000);
         ChargingEstimate.Result unknownCutoff = estimate(gate, 95, 94.5, null, 2000, 2000);
         check(unknownCutoff.referenceToFull && !unknownCutoff.referenceToLimit && unknownCutoff.remainingMinutesToLimit == null,
                 "Continuity never invents an unknown cutoff");
-        gate = new StockChargeReferenceGate();
+        gate = new ChargeReferenceGate();
         estimate(gate, 95, 95, 98d, 1000, 1000);
         ChargingEstimate.Result lowerCutoff = estimate(gate, 95, 94.5, 98d, 2000, 2000);
         near((41.03345 + 47.36630 - 28.39457 - 33.75782) / 2, lowerCutoff.remainingMinutesToLimit, .00001,
@@ -171,7 +188,7 @@ public final class StockChargeReferenceGateTest {
         ChargeSessionStore.Curve personal = ChargeSessionStoreTest.curve(store, "one", ChargeSessionStore.Charger.STOCK);
         ChargingEstimate.Result mixed = ChargingEstimate.forScooter(baseline(50, 104, 80d, 1000), live(50d, 1000),
                 live(15.3, 1000), 2538, ChargeSessionStore.Charger.STOCK, personal,
-                new StockChargeReferenceGate(), SCOPE, 1000, 1000);
+                new ChargeReferenceGate(), SCOPE, 1000, 1000);
         check(mixed.learnedToLimit && mixed.referenceToFull && !mixed.learnedToFull && !mixed.referenceToLimit,
                 "A runtime gate preserves independent personal-cutoff and bundled-full sources");
         near(30, mixed.remainingMinutesToLimit, 0, "Qualified personal cutoff still refines its supported target");
@@ -180,6 +197,6 @@ public final class StockChargeReferenceGateTest {
     public static void main(String[] args) throws Exception {
         verifyGate();
         verifyComposition();
-        System.out.println("StockChargeReferenceGate: " + checks + " checks passed");
+        System.out.println("ChargeReferenceGate: " + checks + " checks passed");
     }
 }

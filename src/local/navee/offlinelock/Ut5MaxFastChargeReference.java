@@ -19,7 +19,7 @@ package local.navee.offlinelock;
 public final class Ut5MaxFastChargeReference {
     public static final int PRODUCT_ID = 2538;
     private static final int FIRST_TAPER_SOC = 72;
-    private static final double TOLERANCE = .15;
+    private static final double TOLERANCE = .15, GRACE_TOLERANCE = .20;
     // Minutes from first arrival at each displayed SOC (72 through 100) to displayed 100%.
     private static final double[] REMAINING = {
         38.35527, 37.51730, 36.51087, 35.33795, 34.16495, 32.82483, 31.48192,
@@ -72,9 +72,14 @@ public final class Ut5MaxFastChargeReference {
 
     /** Null means unsupported/incompatible evidence; preserve the caller's live estimate. */
     public static Double estimate(double soc, double target, double ratedAh, double amps, double watts) {
+        return estimate(soc, target, ratedAh, amps, watts, false);
+    }
+
+    /** Wider bounds are only for an already admitted, fresh runtime estimate's brief grace. */
+    static Double estimate(double soc, double target, double ratedAh, double amps, double watts, boolean edgeGrace) {
         if (!finiteRange(soc, 0, 100) || !finiteRange(target, 0, 100) || target <= soc
-                || !Double.isFinite(ratedAh) || ratedAh <= 0
-                || !Double.isFinite(amps) || amps < .1 || !powerCompatible(soc, watts, TOLERANCE)) return null;
+                || !Double.isFinite(ratedAh) || ratedAh <= 0 || !Double.isFinite(amps) || amps < .1
+                || !powerCompatible(soc, watts, edgeGrace ? GRACE_TOLERANCE : TOLERANCE)) return null;
         double volts = watts / amps;
         if (!finiteRange(volts, 40, 56)) return null;
         if (soc < FIRST_TAPER_SOC) {

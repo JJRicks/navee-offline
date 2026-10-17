@@ -266,7 +266,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
     /** The real service must discard temporary power tolerance at lifecycle boundaries. */
     private void verifyReferenceLifecycle(){
         main(()->{
-            StockChargeReferenceGate gate=(StockChargeReferenceGate)field(service,"stockChargeReferenceGate");
+            ChargeReferenceGate gate=(ChargeReferenceGate)field(service,"chargeReferenceGate");
             require(gate.accepts("fixture",95,95,100,100),"Reference gate fixture did not enter");
             invoke(service,"changed",new Class<?>[]{});
             require(!gate.accepts("fixture",95,94.5,101,101),"Disconnected service retained reference grace without a widget refresh");

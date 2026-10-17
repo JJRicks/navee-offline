@@ -165,13 +165,11 @@ public final class ChargingEstimate {
     /** The caller supplies a manual or confidently detected family; null remains unknown. */
     public static Result forScooter(Result baseline, Value soc, Value ratedAh, int productId,
             ChargeSessionStore.Charger selectedCharger, ChargeSessionStore.Curve personal,
-            StockChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
+            ChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
         if(selectedCharger==null){if(gate!=null)gate.reset();return baseline;}
-        Result prior;
-        if(selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED){
-            if(gate!=null)gate.reset();
-            prior=withFastReference(baseline,soc,ratedAh,productId);
-        }else prior=withStockReference(baseline,soc,ratedAh,productId,selectedCharger,gate,scope,frameMs,nowMs);
+        Result prior=selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED
+                ?withFastReference(baseline,soc,ratedAh,productId,gate,scope,frameMs,nowMs)
+                :withStockReference(baseline,soc,ratedAh,productId,selectedCharger,gate,scope,frameMs,nowMs);
         if (personal==null || selectedCharger==null || personal.charger!=selectedCharger) return prior;
         Result learned=withObservedCurve(baseline,soc,personal);
         if (learned==null || !learned.learnedToFull&&!learned.learnedToLimit) return prior;
@@ -191,13 +189,17 @@ public final class ChargingEstimate {
                 referenceLimit,referenceFull,prior.referenceCharger);
     }
 
-    private static Result withFastReference(Result baseline,Value soc,Value ratedAh,int productId) {
+    private static Result withFastReference(Result baseline,Value soc,Value ratedAh,int productId,
+            ChargeReferenceGate gate,String scope,long frameMs,long nowMs) {
         if(baseline==null||!baseline.charging||baseline.inputWatts==null||baseline.inputAmps==null
                 ||baseline.remainingMinutesToFull==null||productId!=Ut5MaxStockChargeReference.PRODUCT_ID
-                ||!valid(soc)||!valid(ratedAh))return baseline;
-        Double full=Ut5MaxFastChargeReference.estimate(soc.number,100,ratedAh.number,baseline.inputAmps,baseline.inputWatts);
+                ||!valid(soc)||!valid(ratedAh)){if(gate!=null)gate.reset();return baseline;}
+        ChargeSessionStore.Charger fast=ChargeSessionStore.Charger.HIGH_SPEED;
+        String context=scope==null||scope.isEmpty()?null:scope+":"+productId+":"+fast;
+        if(gate!=null&&!gate.accepts(context,fast,soc.number,baseline.inputWatts,frameMs,nowMs))return baseline;
+        Double full=Ut5MaxFastChargeReference.estimate(soc.number,100,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
         Double limit=baseline.targetPercent==null?null:Ut5MaxFastChargeReference.estimate(
-                soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts);
+                soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
         if(full==null&&limit==null)return baseline;
         String status="Experimental UT5 MAX high-speed reference from one observed charge. ";
         if(soc.number<72)status+="Bulk time uses rated Ah and live current, followed by the observed taper. ";
@@ -210,7 +212,7 @@ public final class ChargingEstimate {
     }
 
     private static Result withStockReference(Result baseline, Value soc, Value ratedAh, int productId,
-            ChargeSessionStore.Charger selectedCharger, StockChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
+            ChargeSessionStore.Charger selectedCharger, ChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
         if (baseline==null || !baseline.charging || baseline.inputWatts==null || baseline.inputAmps==null
                 || baseline.remainingMinutesToFull==null || productId!=Ut5MaxStockChargeReference.PRODUCT_ID
                 || selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED || !valid(soc) || !valid(ratedAh)) {
