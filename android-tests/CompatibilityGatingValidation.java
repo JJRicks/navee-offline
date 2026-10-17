@@ -8,16 +8,19 @@ import android.content.Context;
 import android.content.Intent;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.graphics.Rect;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
+import android.widget.TextView;
 import java.io.File;
 import java.io.FileOutputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -25,7 +28,11 @@ import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.CapabilityResolver;
+import local.navee.offlinelock.DashboardConfig;
 import local.navee.offlinelock.MainActivity;
+import local.navee.offlinelock.ModelRegistry;
+import local.navee.offlinelock.MoreScreen;
+import local.navee.offlinelock.OnboardingScreen;
 import local.navee.offlinelock.ScooterCommands;
 import local.navee.offlinelock.ScooterProfiles;
 import local.navee.offlinelock.ScooterService;
@@ -50,8 +57,9 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         try {
             admit(); admitted = true;
             require(settings().edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
-                    .putBoolean("developer_options", true).putString("theme", "dark").putString("units", "mi")
+                    .putBoolean("developer_options", true).putString("theme", arguments.getString("theme", "dark")).putString("units", "mi")
                     .putFloat("text_scale", Float.parseFloat(arguments.getString("text_scale", "1"))).commit(), "Fixture settings failed");
+            if ("import-name".equals(arguments.getString("mode", "gating"))) { importName(); result.putString("result", "PASS"); return; }
             seed(); launch();
             Map<String, String> layouts = layoutSnapshot();
             main(() -> require(activity.service().setSimulation(true), "Simulation did not start")); settle();
@@ -59,13 +67,15 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                 main(() -> activity.service().ble.setSimulationModel(model[0])); settle();
                 verifyScooterPage(model[0], model[1]);
                 verifyHome(model[0], model[1]);
+                verifyMore(model[0], model[1]);
             }
             checks.add("Scooter rows show only controls with a known encoding for the simulated model; the UT5 MAX keeps every row");
-            checks.add("Limited-model banner, clock row and lock switch follow the resolver; unlock stays available on every standard model");
-            checks.add("Unmapped Quick access tiles show a muted dash and stay in the saved layout");
+            checks.add("Limited-model banner, clock row and lock switch follow the resolver; lock and unlock work on every standard model");
+            checks.add("Unmapped Quick access tiles show a muted dash, say \"not on this model\" and stay in the saved layout");
             main(() -> activity.service().ble.setSimulationModel("")); settle();
             require(layouts.equals(layoutSnapshot()), "Saved dashboard layouts changed while switching simulated models");
             main(() -> require(activity.service().setSimulation(false), "Simulation did not stop")); settle();
+            verifyIdentifyWhileRecording();
             result.putString("result", "PASS");
         } catch (Throwable error) {
             result.putString("result", "FAIL"); result.putString("error", error.toString());
@@ -73,7 +83,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         } finally {
             result.putInt("assertions", assertions); result.putStringArrayList("checks", checks);
             result.putStringArrayList("screenshots", screenshots); result.putBoolean("physical_device_tested", false);
-            if (admitted && activity != null) try { main(() -> { activity.service().setSimulation(false); activity.finish(); ScooterService.setUiVisible(false); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); }); } catch (Throwable ignored) { }
+            if (admitted && activity != null) try { main(() -> { if (activity.service() != null) activity.service().setSimulation(false); activity.finish(); ScooterService.setUiVisible(false); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); }); } catch (Throwable ignored) { }
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
         }
     }
@@ -96,6 +106,15 @@ public final class CompatibilityGatingValidation extends Instrumentation {
             ScooterProfiles profiles = new ScooterProfiles(getTargetContext());
             ScooterProfiles.Profile profile = profiles.create("Synthetic compatibility fixture", "000000000000", 0);
             profile.serial = "X2538-SYNTHETIC"; profile.lastConnected = System.currentTimeMillis() - 60000; profiles.update(profile);
+            // Quick access and Setting tiles with scooter controls (mapped and unmapped on the other models).
+            DashboardConfig config = new DashboardConfig(settings(), profile.id);
+            DashboardConfig.Widget quick = new DashboardConfig.Widget("quick");
+            quick.quickActions.clear(); quick.quickActions.addAll(Arrays.asList("feature:headlight", "feature:cruise_control",
+                    "feature:energy_recovery", "feature:traction_control", "feature:maximum_speed", "feature:dual_drive", "lights", "controls"));
+            DashboardConfig.Widget tiles = new DashboardConfig.Widget("shortcuts");
+            tiles.quickActions.clear(); tiles.quickActions.addAll(Arrays.asList("feature:auto_sensor", "feature:turn_sound", "feature:charge_limit", "feature:range_algorithm"));
+            config.widgets.add(quick); config.widgets.add(tiles); config.save();
+            OnboardingScreen.markDone(getTargetContext());
         });
     }
     private void launch() {
@@ -104,7 +123,10 @@ public final class CompatibilityGatingValidation extends Instrumentation {
     }
 
     private void verifyScooterPage(String pid, String label) throws Exception {
+        main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "home")); settle();
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "controls")); settle();
+        main(() -> { activity.service().ble.tickSimulation(); activity.redraw(); }); settle();
+        int[] untested = {0};
         main(() -> {
             BleController ble = activity.service().ble;
             Object screen = field(activity, "screen");
@@ -116,34 +138,49 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                 String group = (String)invoke(screen, "groupOf", new Class<?>[]{ScooterCommands.Feature.class}, feature);
                 boolean onPage = !group.equals("Line lights") && !group.equals("Star lights");
                 boolean known = feature.key.equals("range_algorithm") || ble.controlOffered(feature.key);
-                require(known == (feature.key.equals("range_algorithm") || ble.decision(feature.key).support == CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated models always have identity evidence");
+                CapabilityResolver.Decision decision = ble.decision(feature.key);
+                require(known == (feature.key.equals("range_algorithm") || decision.support == CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated models always have identity evidence");
                 require((card.getVisibility() == View.VISIBLE) == (known && onPage), label + ": row " + feature.key + " visibility does not follow its decision");
                 if (ut5) require(known, "UT5 MAX lost row " + feature.key);
+                // "Untested here": every OEM-mapped control on another model, never on the UT5 MAX.
+                String sub = String.valueOf(((TextView)field(field(row, "row"), "sub")).getText());
+                if (ut5 || feature.key.equals("range_algorithm")) require(!sub.contains("Untested here"), label + ": unexpected Untested caption on " + feature.key);
+                else if (card.getVisibility() == View.VISIBLE) {
+                    boolean caption = sub.contains("Untested here"), refused = !decision.available() && !decision.blockedByRide();
+                    require(decision.evidence == CapabilityResolver.Evidence.OEM_MAPPED, label + ": shown row " + feature.key + " is not OEM-mapped");
+                    require(caption != refused && (!refused || sub.contains(decision.reasonText())), label + ": row " + feature.key + " caption \"" + sub + "\" for " + decision);
+                    if (caption) untested[0]++;
+                }
             }
             View banner = (View)field(screen, "readOnlyBanner");
             require((banner.getVisibility() == View.VISIBLE) == !ut5, label + ": limited-model banner");
+            if (!ut5) require(texts(banner).contains(BleController.LIMITED_MODEL), label + ": banner copy");
             require(((View)field(screen, "identifyAction")).getVisibility() != View.VISIBLE, label + ": no Identify for a simulated advertised model");
             View clockCard = (View)field(field(screen, "clockLine"), "card");
             boolean clockKnown = ble.controlOffered("clock_sync");
             require((clockCard.getVisibility() == View.VISIBLE) == clockKnown, label + ": clock row visibility");
+            require(clockKnown == !pid.equals("39991"), label + ": clock row is offered for the UT5 MAX and the mapped group only");
             CapabilityResolver.Decision clock = ble.decision("clock_sync");
             require(((View)field(screen, "clockButton")).isEnabled() == (clock.available() || clock.blockedByRide()), label + ": clock row enabled state");
             View topSpeed = (View)field(field(screen, "topSpeed"), "card");
             require((topSpeed.getVisibility() == View.VISIBLE) == ble.controlOffered("maximum_speed"), label + ": top speed card");
+            // Identify sends nothing in simulation and says so.
+            ble.identifyModel();
+            require(ble.message().contains("unavailable in simulation") && ble.state() == BleController.State.READY, label + ": Identify in simulation: " + ble.message());
         });
+        if (pid.equals("24431")) require(untested[0] > 0, label + ": no Untested here caption on the mapped model");
         screenshot(label + "-scooter");
-        checks.add(label + ": Scooter page follows decisions");
+        main(() -> { View scroll = (View)field(activity, "scroll"); if (scroll instanceof ViewGroup) scroll.scrollTo(0, ((ViewGroup)scroll).getChildAt(0).getHeight()); }); settle();
+        screenshot(label + "-scooter-end");
+        main(() -> { View scroll = (View)field(activity, "scroll"); if (scroll != null) scroll.scrollTo(0, 0); }); settle();
+        checks.add(label + ": Scooter page follows decisions (" + untested[0] + " Untested here captions)");
     }
 
     private void verifyHome(String pid, String label) throws Exception {
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "home")); settle();
+        int[] counts = {0, 0};
         main(() -> {
             BleController ble = activity.service().ble;
-            Object lock = field(activity, "lockControl");
-            if (lock instanceof View) {
-                require(ble.decision("lock", 1).available() && ble.decision("lock", 0).available(), label + ": lock and unlock are offered on a standard model");
-                require(((View)lock).isEnabled(), label + ": lock switch enabled");
-            }
             for (View grid : tagged(root(), "quick-access-grid", "setting-tiles"))
                 for (int i = 0; i < ((ViewGroup)grid).getChildCount(); i++) {
                     View cell = ((ViewGroup)grid).getChildAt(i);
@@ -153,10 +190,142 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                     boolean unmapped = !ble.controlOffered(feature.key);
                     CharSequence description = cell.getContentDescription();
                     require(unmapped == (description != null && description.toString().contains("not on this model")), label + ": tile " + feature.key + " muted state");
+                    if (unmapped) require(texts(cell).contains("—") && !cell.isSelected() && !Boolean.TRUE.equals(field(cell, "highlighted")), label + ": unmapped tile " + feature.key + " is not muted: " + texts(cell));
                     if (pid.isEmpty()) require(!unmapped, "UT5 MAX tile became unmapped: " + feature.key);
+                    counts[unmapped ? 1 : 0]++;
                 }
         });
-        screenshot(label + "-home");
+        require(counts[0] + counts[1] >= 8, label + ": Quick access and Setting tiles fixtures missing");
+        if (pid.equals("39991")) require(counts[0] == 0, label + ": the unknown model shows a mapped control tile");
+        if (pid.equals("24431")) require(counts[0] > 0 && counts[1] > 0, label + ": the mapped model needs mapped and unmapped tiles");
+        reveal("quick-access-grid"); screenshot(label + "-quick");
+        reveal("setting-tiles"); screenshot(label + "-tiles");
+        main(() -> { View scroll = (View)field(activity, "scroll"); if (scroll != null) scroll.scrollTo(0, 0); }); settle();
+        // The lock switch both ways, on every standard model (unlock is the recovery exception).
+        for (int target : new int[]{1, 0}) {
+            main(() -> {
+                BleController ble = activity.service().ble;
+                Object lock = field(activity, "lockControl");
+                require(lock instanceof View, label + ": lock switch missing");
+                require(ble.decision("lock", 1).available() && ble.decision("lock", 0).available(), label + ": lock and unlock are offered on a standard model");
+                require(((View)lock).isEnabled(), label + ": lock switch enabled");
+                require(ble.featureValue("lock") == 1 - target, label + ": lock starts at " + ble.featureValue("lock"));
+                ((View)lock).performClick();
+            });
+            await(() -> { Integer value = activity.service().ble.featureValue("lock"); return value != null && value == target; }, label + ": lock switch did not change to " + target);
+            main(() -> { activity.redraw(); View lock = (View)field(activity, "lockControl"); lock.requestRectangleOnScreen(new Rect(0, 0, lock.getWidth(), lock.getHeight()), true); }); settle();
+            screenshot(label + "-home-" + (target == 1 ? "locked" : "unlocked"));
+        }
+        checks.add(label + ": " + counts[0] + " mapped and " + counts[1] + " muted control tiles; lock switch locked and unlocked");
+    }
+
+    private void verifyMore(String pid, String label) throws Exception {
+        main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Security")); settle();
+        main(() -> {
+            BleController ble = activity.service().ble;
+            MoreScreen more = more();
+            CapabilityResolver.Decision pin = ble.decision("pin");
+            boolean owner = (Boolean)invoke(more, "ownerReady");
+            require(owner == pid.isEmpty(), label + ": PIN owner rows ready=" + owner + " for " + pin);
+            require(owner == (pin.available() || pin.blockedByRide() || pin.reason == CapabilityResolver.Reason.BUSY), label + ": PIN rows follow the pin decision");
+            String notice = String.valueOf(((TextView)field(more, "securityNotice")).getText());
+            CapabilityResolver.Decision near = ble.decision("proximity_key");
+            String expected = owner ? "Test while parked." : near.support != CapabilityResolver.Support.KNOWN_ENCODING ? near.reasonText() : pin.reasonText();
+            require(notice.equals(expected), label + ": security notice \"" + notice + "\" expected \"" + expected + "\"");
+            if (!owner) require(!((View)field(field(more, "proximityRow"), "toggle")).isEnabled(), label + ": proximity toggle stays off on an unmapped model");
+        });
+        screenshot(label + "-more-security");
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Lab")); settle();
+        main(() -> {
+            BleController ble = activity.service().ble;
+            int rows = 0;
+            for (Object row : (List<?>)field(more(), "labRows")) {
+                ScooterCommands.Feature feature = (ScooterCommands.Feature)field(row, "feature");
+                CapabilityResolver.Decision decision = ble.decision(feature.key);
+                boolean enabled = ((View)field(row, "action")).isEnabled();
+                if (!(decision.available() || decision.blockedByRide())) {
+                    require(!enabled, label + ": Lab Inspect enabled for " + feature.key);
+                    String reason = (String)invoke(more(), "labReason", new Class<?>[]{ScooterCommands.Feature.class}, feature);
+                    require(reason != null && (reason.equals(decision.reasonText()) || ble.featureValue(feature.key) == null || !feature.allows(ble.featureValue(feature.key))), label + ": Lab reason " + reason);
+                }
+                if (pid.isEmpty()) require(enabled == (ble.featureValue(feature.key) != null && feature.allows(ble.featureValue(feature.key))), "UT5 MAX Lab row changed: " + feature.key);
+                rows++;
+            }
+            require(rows > 0, label + ": no Lab rows");
+        });
+        screenshot(label + "-more-lab");
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Scooters")); settle();
+        main(() -> {
+            // The model line describes the saved profile; the simulated model never reaches it.
+            ScooterProfiles.Profile profile = activity.service().profiles.active();
+            TextView model = (TextView)field(more(), "scootersModel");
+            require(model.getText().toString().equals(ModelRegistry.modelLine(profile.savedDescriptor())) && model.getText().toString().equals("UT5 MAX"), label + ": model line " + model.getText());
+            require(profile.advertisedPid.isEmpty(), label + ": simulation wrote an advertised model ID to the profile");
+        });
+        screenshot(label + "-more-scooters");
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
+        checks.add(label + ": More PIN, proximity, Lab and model line follow decisions");
+    }
+
+    /** Identify disconnects; a recording must refuse it before any Bluetooth work. */
+    private void verifyIdentifyWhileRecording() throws Exception {
+        String[] id = {null};
+        main(() -> {
+            ScooterService service = activity.service();
+            try { id[0] = service.rides.start(service.profiles.active().id, "Synthetic Identify refusal", System.currentTimeMillis(), SystemClock.elapsedRealtime()); }
+            catch (Exception error) { throw new IllegalStateException(error); }
+            invoke(service, "applyWorkPolicy", new Class<?>[]{boolean.class}, false);
+            require(service.isRecording() && Boolean.TRUE.equals(field(service.ble, "recording")), "Fixture recording did not start");
+            service.ble.identifyModel();
+            require(service.ble.message().equals("Stop recording first"), "Identify while recording: " + service.ble.message());
+            require(!Boolean.TRUE.equals(field(service.ble, "scanning")) && !Boolean.TRUE.equals(field(service.ble, "identifying")), "Identify started a scan while recording");
+            activity.redraw();
+        }); settle();
+        main(() -> { invoke(activity, "select", new Class<?>[]{String.class}, "controls"); }); settle();
+        main(() -> require(((View)field(field(activity, "screen"), "readOnlyBanner")).getVisibility() != View.VISIBLE, "Limited banner shown without a connection")); 
+        screenshot("recording-scooter");
+        main(() -> activity.service().stopRide()); settle();
+        main(() -> require(!activity.service().isRecording(), "Fixture recording did not stop"));
+        checks.add("Identify is refused while recording (\"Stop recording first\") and in simulation; no scan starts");
+    }
+
+    /** C1: an owner file without a name imports as the default "Imported scooter". */
+    private void importName() throws Exception {
+        launch();
+        for (String text : new String[]{"{\"owner_identity\":\"0123456789AB\",\"role\":0,\"scooter_serial\":\"X2538SYNTHETIC000\"}",
+                "{\"owner_identity\":\"0123456789AC\",\"role\":0,\"name\":\"  \",\"scooter_serial\":\"X2443SYNTHETIC000\"}"}) {
+            int before = activity.service().profiles.all().size();
+            main(() -> { invoke(activity, "stageOwnerImport", new Class<?>[]{String.class}, text); invoke(activity, "maybeApplyOwnerImport"); }); settle();
+            await(() -> activity.service().profiles.all().size() == before + 1, "Owner import did not create a profile");
+            main(() -> {
+                ScooterProfiles.Profile profile = activity.service().profiles.active();
+                require(profile.name.equals("Imported scooter") && profile.nameDefault, "Imported profile name " + profile.name + " default=" + profile.nameDefault);
+                ScooterProfiles reloaded = new ScooterProfiles(getTargetContext());
+                ScooterProfiles.Profile saved = null; for (ScooterProfiles.Profile p : reloaded.all()) if (p.id.equals(profile.id)) saved = p;
+                require(saved != null && saved.nameDefault && saved.name.equals("Imported scooter"), "name_default did not persist");
+                // The connect-time rule (BleController.remember): the model name, else "NAVEE scooter".
+                String model = ModelRegistry.modelName(saved.savedDescriptor());
+                require(model.equals(saved.serial.startsWith("X2538") ? "UT5 MAX" : ""), "Model name for " + saved.serial + ": " + model);
+            });
+            checks.add("Owner file " + (text.contains("\"name\"") ? "with a blank name" : "without a name") + " imports as Imported scooter with nameDefault; model name rule gives "
+                    + (text.contains("X2538") ? "UT5 MAX" : "NAVEE scooter"));
+        }
+        main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Scooters")); settle();
+        main(() -> require(texts(root()).contains("Imported scooter"), "More does not show Imported scooter")); 
+        screenshot("import-scooters");
+    }
+
+    private String texts(View view) {
+        StringBuilder out = new StringBuilder();
+        if (view instanceof TextView && view.isShown()) out.append(((TextView)view).getText()).append('\n');
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) out.append(texts(((ViewGroup)view).getChildAt(i)));
+        return out.toString();
+    }
+    private MoreScreen more() { Object screen = field(activity, "screen"); require(screen instanceof MoreScreen, "More screen is not active"); return (MoreScreen)screen; }
+    private void reveal(String tag) {
+        main(() -> { View view = root().findViewWithTag(tag); require(view != null, "Missing " + tag); view.requestRectangleOnScreen(new Rect(0, 0, view.getWidth(), view.getHeight()), true); }); settle();
     }
 
     private List<View> tagged(View view, String... tags) {
