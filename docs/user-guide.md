@@ -219,7 +219,9 @@ Volt is verified on the US UT5 MAX only. Other standard NAVEE scooters connect w
 - **Lock:** locking needs fresh status, the scooter stopped and a recent motion report; unlocking needs only a fresh connection, so you can always unlock offline. The switch moves only after the scooter confirms.
 - **Limited controls:** the Scooter page shows a short banner and hides controls Volt has not mapped for your model. Saved Quick access tiles stay in your layout and show “—”.
 - **Identify:** when the model is unknown, tap **Identify** in the banner. Volt reconnects through a short scan to read the model ID the scooter advertises. It sends no scooter command and is unavailable while recording.
-- **Identified models** also get dashboard units, range estimate, clock sync, lights, turn sound, cruise and energy recovery where the official app offers them for that model and region. These show **Untested here**: they are mapped from the official app, not tested by Volt.
+- **Identified models** also get dashboard units, range estimate, clock sync, lights, turn sound, cruise and energy recovery where the official app offers them for that model and region, plus its ride, battery and security settings (traction control, assists, charging, lock duration, PIN and proximity unlock, and others). These show **Untested here**: they are mapped from the official app, not tested by Volt. Controls vary by model; some need the scooter's firmware version, read when it connects.
+- **Asks first:** turning off traction control, Low Battery Mode or dual motor drive asks you to confirm on these models, as the official app does.
+- **Charging start** on these models is set on the hour, up to 48 hours ahead.
 - **Estimates:** UT5 MAX charge curves, rated capacity, drive-mode names and range following are not applied to other models. Charge estimates use live readings only.
 - Golf carts, e-bikes and other non-scooter products get no scooter commands.
 

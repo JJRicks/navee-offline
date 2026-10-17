@@ -28,6 +28,7 @@ import java.util.TreeMap;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BleController;
 import local.navee.offlinelock.CapabilityResolver;
+import local.navee.offlinelock.FeatureVariant;
 import local.navee.offlinelock.DashboardConfig;
 import local.navee.offlinelock.MainActivity;
 import local.navee.offlinelock.ModelRegistry;
@@ -137,11 +138,14 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                 View card = (View)field(row, "card");
                 String group = (String)invoke(screen, "groupOf", new Class<?>[]{ScooterCommands.Feature.class}, feature);
                 boolean onPage = !group.equals("Line lights") && !group.equals("Star lights");
-                boolean known = feature.key.equals("range_algorithm") || ble.controlOffered(feature.key);
                 CapabilityResolver.Decision decision = ble.decision(feature.key);
-                require(known == (feature.key.equals("range_algorithm") || decision.support == CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated models always have identity evidence");
+                // A Lab control on the UT5 MAX has a row only where another model maps it normally (not Lab).
+                boolean ordinary = decision.support == CapabilityResolver.Support.KNOWN_ENCODING && decision.variant != null && !decision.variant.lab
+                        && decision.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
+                boolean known = feature.key.equals("range_algorithm") || (feature.experimental ? ordinary : ble.controlOffered(feature.key));
+                if (!feature.experimental) require(known == (feature.key.equals("range_algorithm") || decision.support == CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated models always have identity evidence");
                 require((card.getVisibility() == View.VISIBLE) == (known && onPage), label + ": row " + feature.key + " visibility does not follow its decision");
-                if (ut5) require(known, "UT5 MAX lost row " + feature.key);
+                if (ut5) require(known != feature.experimental, "UT5 MAX row set changed: " + feature.key);
                 // "Untested here": every OEM-mapped control on another model, never on the UT5 MAX.
                 String sub = String.valueOf(((TextView)field(field(row, "row"), "sub")).getText());
                 if (ut5 || feature.key.equals("range_algorithm")) require(!sub.contains("Untested here"), label + ": unexpected Untested caption on " + feature.key);
@@ -227,7 +231,8 @@ public final class CompatibilityGatingValidation extends Instrumentation {
             MoreScreen more = more();
             CapabilityResolver.Decision pin = ble.decision("pin");
             boolean owner = (Boolean)invoke(more, "ownerReady");
-            require(owner == pid.isEmpty(), label + ": PIN owner rows ready=" + owner + " for " + pin);
+            // The UT5 MAX and the mapped S-group model (Bluetooth lock screen) have the PIN; the unknown model does not.
+            require(owner == !pid.equals("39991"), label + ": PIN owner rows ready=" + owner + " for " + pin);
             require(owner == (pin.available() || pin.blockedByRide() || pin.reason == CapabilityResolver.Reason.BUSY), label + ": PIN rows follow the pin decision");
             String notice = String.valueOf(((TextView)field(more, "securityNotice")).getText());
             CapabilityResolver.Decision near = ble.decision("proximity_key");
@@ -244,7 +249,11 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                 ScooterCommands.Feature feature = (ScooterCommands.Feature)field(row, "feature");
                 CapabilityResolver.Decision decision = ble.decision(feature.key);
                 boolean enabled = ((View)field(row, "action")).isEnabled();
-                if (!(decision.available() || decision.blockedByRide())) {
+                boolean ordinary = decision.support == CapabilityResolver.Support.KNOWN_ENCODING && decision.variant != null && !decision.variant.lab
+                        && decision.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
+                if (ordinary) {
+                    require(!enabled && "In Scooter settings for this model".equals(invoke(more(), "labReason", new Class<?>[]{ScooterCommands.Feature.class}, feature)), label + ": OEM-mapped " + feature.key + " stays out of the Lab");
+                } else if (!(decision.available() || decision.blockedByRide())) {
                     require(!enabled, label + ": Lab Inspect enabled for " + feature.key);
                     String reason = (String)invoke(more(), "labReason", new Class<?>[]{ScooterCommands.Feature.class}, feature);
                     require(reason != null && (reason.equals(decision.reasonText()) || ble.featureValue(feature.key) == null || !feature.allows(ble.featureValue(feature.key))), label + ": Lab reason " + reason);

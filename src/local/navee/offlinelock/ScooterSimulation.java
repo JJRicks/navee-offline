@@ -109,6 +109,18 @@ public final class ScooterSimulation {
         features.put(key, value);
     }
 
+    /**
+     * The same, validated against the decided model variant (another simulated model's domain);
+     * a UT5 MAX variant keeps the catalogue check.
+     */
+    public void set(String key, int value, FeatureVariant variant) {
+        if (variant == null || variant.decode == FeatureVariant.Decode.UT5_FEATURE) { set(key, value); return; }
+        ScooterCommands.Feature feature = ScooterCommands.find(key);
+        if (feature.sensitive || feature.type == ScooterCommands.Type.TIME || !variant.feature.equals(key) || !variant.allows(value))
+            throw new IllegalArgumentException("Unavailable simulation setting");
+        features.put(key, value);
+    }
+
     public void setChargeStart(long seconds, int offset) {
         long local = seconds + (long) offset;
         if (seconds < 0 || local < 0 || local > 0xffffffffL || Math.abs((long) offset) > 86400)

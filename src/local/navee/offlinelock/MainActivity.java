@@ -1205,7 +1205,31 @@ public final class MainActivity extends Activity implements ScreenHost {
     private String speed(Double kmh){return kmh==null?"—":DisplayUnits.speed(kmh,preferences.getString("units","mi"));}
     private String featureLabel(ScooterCommands.Feature feature,int value){
         if(feature.key.equals("start_speed")&&value==0)return "Standing start";
+        // Another model's variant has its own labels; speeds keep the rider's units.
+        FeatureVariant variant=oemVariant(feature.key);
+        if(variant!=null&&!"km/h".equals(feature.unit))return variant.label(value);
         return DisplayUnits.featureValue(feature,value,preferences.getString("units","mi"));
+    }
+    /** The decided variant when it is another model's (not the UT5 MAX catalogue), else null. */
+    private FeatureVariant oemVariant(String key){
+        if(scooterService==null)return null;CapabilityResolver.Decision d=scooterService.ble.decision(key);
+        return d.variant!=null&&d.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?d.variant:null;
+    }
+    /** A control that is Lab on the UT5 MAX but mapped normally (not Lab) for the connected model. */
+    private boolean ordinaryOemRow(String key){
+        FeatureVariant variant=oemVariant(key);
+        return variant!=null&&!variant.lab&&scooterService.ble.decision(key).support==CapabilityResolver.Support.KNOWN_ENCODING;
+    }
+    /**
+     * Sends at once, or first asks where the official app asks on that model (an OEM-mapped control off the
+     * UT5 MAX). The UT5 MAX keeps today's direct controls.
+     */
+    private void confirmChange(ScooterCommands.Feature feature,int value,Runnable send){
+        String caution=scooterService==null?null:ModelRegistry.caution(scooterService.ble.decision(feature.key),value);
+        if(caution==null){send.run();return;}
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(shortLabel(feature)).setMessage(caution)
+                .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->{if(scooterService!=null)send.run();}).create();
+        dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
     private static final String AUTO_RANGE="Auto (riding mode)";
     private TextView metricLine(LinearLayout parent,String label){LinearLayout line=row();line.setGravity(Gravity.CENTER_VERTICAL);TextView labelView=design.caption(label);line.addView(labelView,new LinearLayout.LayoutParams(0,-2,1));TextView value=design.text("—",16,true);value.setGravity(Gravity.RIGHT);line.addView(value);LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-1,-2);p.topMargin=design.dp(8);p.bottomMargin=design.dp(8);parent.addView(line,p);return value;}
@@ -1304,8 +1328,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             for(String key:priority)ordered.add(ScooterCommands.find(key));
             for(ScooterCommands.Feature f:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(f.key))ordered.add(f);
             for(ScooterCommands.Feature f:ordered){
-                // The top speed card replaces maximum_speed; experimental, lock, PIN and proximity stay out of this list.
-                if(f.experimental||f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key")||f.key.equals("maximum_speed"))continue;
+                // The top speed card replaces maximum_speed; lock, PIN and proximity stay out of this list. Lab
+                // (experimental) controls get a row that shows only where another model maps them normally.
+                if(f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key")||f.key.equals("maximum_speed"))continue;
                 ControlRow control=new ControlRow(f);rows.add(control);addRow(groupOf(f),control.card);
             }
             // Lights page: a read-only first row says the front headlight is switched on the scooter itself.
@@ -1384,6 +1409,7 @@ public final class MainActivity extends Activity implements ScreenHost {
          */
         private boolean offered(String key){
             BleController ble=scooterService==null?null:scooterService.ble;
+            if(!key.equals("clock_sync")&&ScooterCommands.find(key).experimental)return ordinaryOemRow(key);
             return ble==null||key.equals("range_algorithm")||ble.controlOffered(key);
         }
         private void clearSearch(){
@@ -1484,11 +1510,14 @@ public final class MainActivity extends Activity implements ScreenHost {
             toast("No fresh value yet"); return;
         }
         if (entry.directToggle()) {
-            if (!ble.set(feature.key, actual == 1 ? 0 : 1)) toast(ble.message());
-            // The stable window survives a synchronous readback/redraw. Answer the
-            // accepted tap once, using its requested direction, before rebuilding Home.
-            else Haptics.toggle(getWindow().getDecorView(), actual != 1);
-            redraw();
+            int target = actual == 1 ? 0 : 1;
+            confirmChange(feature, target, () -> {
+                if (!ble.set(feature.key, target)) toast(ble.message());
+                // The stable window survives a synchronous readback/redraw. Answer the
+                // accepted tap once, using its requested direction, before rebuilding Home.
+                else Haptics.toggle(getWindow().getDecorView(), target == 1);
+                redraw();
+            });
         } else {
             closeQuickMenu();
             if (controlDialog != null) { controlDialog.dismiss(); controlDialog = null; }
@@ -1514,7 +1543,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         body.setTag("quick-settings-sheet");
         LinearLayout settings = design.groupCard(); body.addView(settings);
         for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
-            if (f.experimental || f.sensitive || f.key.equals("lock") || f.key.equals("proximity_key")) continue;
+            if (f.experimental && !ordinaryOemRow(f.key) || f.sensitive || f.key.equals("lock") || f.key.equals("proximity_key")) continue;
             boolean match = section.equals("Settings")
                     || section.equals("Lights") && (f.key.equals("headlight") || f.key.equals("auto_sensor")
                             || f.key.startsWith("line_") || f.key.startsWith("star_"))
@@ -1680,7 +1709,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 value.setVisibility(View.GONE);
                 toggle=new Haptics.FeedbackSwitch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);
                 toggle.setContentDescription(shortLabel(feature));
-                toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);scooterService.ble.set(feature.key,target);redraw();}});
+                toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);confirmChange(feature,target,()->{scooterService.ble.set(feature.key,target);redraw();});}});
                 LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.leftMargin=design.dp(10);row.line.addView(toggle,tp);
                 row.line.setFocusable(true);row.line.setBackground(rowRipple());row.line.setOnClickListener(v->{if(parkedBlocked)toast("Stop to change");else if(toggle.isEnabled())toggle.performClick();});
             }else if(inline){
@@ -1773,7 +1802,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void chooseInline(ScooterCommands.Feature feature,int target){
         if(scooterService==null)return;Integer actual=scooterService.ble.featureValue(feature.key);if(actual!=null&&actual==target)return;
-        if(!scooterService.ble.set(feature.key,target))toast(scooterService.ble.message());redraw();
+        confirmChange(feature,target,()->{if(!scooterService.ble.set(feature.key,target))toast(scooterService.ble.message());redraw();});
     }
     /** Lamp colour swatch; the selected colour gains a ring. */
     private final class Swatch extends View {
@@ -2118,7 +2147,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void editFeature(ScooterCommands.Feature feature){
         if(feature.key.equals("range_algorithm")){showRangeSource();return;}
         if(feature.type==ScooterCommands.Type.TIME){showChargingTime();return;}
-        if(feature.type!=ScooterCommands.Type.SLIDER){showChoice(feature);return;}
+        // A slider on the UT5 MAX can be an explicit OEM value list on another model.
+        FeatureVariant variant=oemVariant(feature.key);
+        if(feature.type!=ScooterCommands.Type.SLIDER||variant!=null&&variant.values.length>0){showChoice(feature);return;}
         if(scooterService==null||!scooterService.ble.ready()||scooterService.ble.pending()!=null)return;
         Integer current=scooterService.ble.featureValue(feature.key);if(current==null)return;
         final AlertDialog[] sheet=new AlertDialog[1];Runnable close=()->{if(sheet[0]!=null)sheet[0].dismiss();};
@@ -2146,7 +2177,8 @@ public final class MainActivity extends Activity implements ScreenHost {
                 slider.setProgress(Math.max(0,(latest-feature.min)/feature.step));amount.setText(featureLabel(feature,latest));
                 check[0].show();return;
             }
-            if(scooterService.ble.set(feature.key,selected[0])){if(sheet[0]!=null)sheet[0].dismiss();}else error.setText(scooterService.ble.message());redraw();});
+            int value=selected[0];
+            confirmChange(feature,value,()->{if(scooterService.ble.set(feature.key,value)){if(sheet[0]!=null)sheet[0].dismiss();}else error.setText(scooterService.ble.message());redraw();});});
         check[0]=new ApplyCheck(apply,"Apply");
         LinearLayout.LayoutParams left=new LinearLayout.LayoutParams(0,-2,1);left.rightMargin=design.dp(5);actions.addView(cancel,left);
         LinearLayout.LayoutParams right=new LinearLayout.LayoutParams(0,-2,1);right.leftMargin=design.dp(5);actions.addView(apply,right);
@@ -2262,9 +2294,12 @@ public final class MainActivity extends Activity implements ScreenHost {
                 scooterService.followRidingMode(false);
             }
             Integer actual=ble.featureValue(feature.key);if(actual!=null&&actual==choices[index]){dialog.dismiss();return;}
-            failure=null;
-            if(ble.set(feature.key,choices[index])){target=choices[index];sent=true;}else failure=ble.message();
-            refresh();redraw();
+            int choice=choices[index];
+            confirmChange(feature,choice,()->{
+                if(sent)return;failure=null;
+                if(ble.set(feature.key,choice)){target=choice;sent=true;}else failure=ble.message();
+                refresh();redraw();
+            });
         }
         void refresh(){
             BleController ble=scooterService==null?null:scooterService.ble;boolean ready=ble!=null&&ble.ready();String pending=ble==null?null:ble.pending();
@@ -2295,7 +2330,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     private void showChargingTime(){
         if(scooterService==null||!scooterService.ble.ready())return;Double stored=scooterService.ble.telemetry.number("scheduled_charge_time_raw");Calendar initial=Calendar.getInstance();if(stored!=null&&stored>0)initial.setTimeInMillis((long)(stored*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));
-        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle("Next charge start");controlDialog=picker;picker.show();
+        // Other models use the official app's whole-hour starts (within 48 hours); the UT5 MAX keeps any minute.
+        boolean wholeHours=scooterService.ble.decision("charge_start").layer!=ModelRegistry.Layer.UT5_MAX;if(wholeHours)initial.set(Calendar.MINUTE,0);
+        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,picked)->{int minute=wholeHours?0:picked;Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle(wholeHours?"Next charge start (on the hour)":"Next charge start");controlDialog=picker;picker.show();
         styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);styleDialogButton(picker.getButton(AlertDialog.BUTTON_NEGATIVE),design.muted);
     }
     /** The gutter follows the actual fold bounds within this content pane. */

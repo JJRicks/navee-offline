@@ -192,14 +192,17 @@ public final class CapabilityResolverTest {
         for(CapabilityResolver.Reason r:CapabilityResolver.Reason.values())check(r==CapabilityResolver.Reason.NONE||!CapabilityResolver.text(r).isEmpty(),"Every reason has copy "+r);
     }
 
-    /** The OEM home-screen family (registry version 2) for identified OEM groups, row by row. */
+    /** The OEM home-screen family (added in registry version 2) for identified OEM groups, row by row. */
     private static void oemHomeScreen() {
         byte[] data=full();data[2]=0;data[35]=0;StatusFields s=status(data,SEEN);
         DeviceDescriptor sGroup=ModelRegistryTest.both("Q2443ZZ9US7777777","24431"),q=ModelRegistryTest.both("Q2585ZZ9DE7777777","25851"),m=ModelRegistryTest.both("Q2504ZZ9US7777777","25041");
         String[] home={"lock","display_units","range_algorithm","clock_sync","headlight","auto_sensor","turn_sound","cruise_control","energy_recovery"};
         for(CapabilityResolver.Decision decision:CapabilityResolver.all(sGroup,s,parked())){
             boolean mapped=Arrays.asList(home).contains(decision.feature);
-            check(mapped?decision.support==CapabilityResolver.Support.KNOWN_ENCODING:decision.support==CapabilityResolver.Support.UNKNOWN_MAPPING&&decision.reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM group S "+decision);
+            // Rows beyond the home screen (C5) are checked in OemControlsTest; here they are mapped, excluded or explicitly unmapped.
+            check(mapped?decision.support==CapabilityResolver.Support.KNOWN_ENCODING:decision.support==CapabilityResolver.Support.KNOWN_ENCODING
+                ||decision.support==CapabilityResolver.Support.UNKNOWN_MAPPING&&decision.reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED
+                ||decision.support==CapabilityResolver.Support.INCOMPATIBLE&&decision.reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"OEM group S "+decision);
             if(mapped&&!decision.feature.equals("lock"))check(decision.evidence==CapabilityResolver.Evidence.OEM_MAPPED&&decision.variant.decode==FeatureVariant.Decode.EXACT||decision.feature.equals("clock_sync"),"OEM-mapped evidence, exact readback "+decision.feature);
             if(mapped)check(decision.available(),"Mapped and available on S/US "+decision);
         }

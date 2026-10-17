@@ -14,13 +14,15 @@ import java.util.Set;
  * controller implements. OEM group rules test only an advertised PID (see DeviceDescriptor).
  *
  * Version 2 maps the UT5 MAX layer, the shared lock, and for identified OEM groups the OEM home
- * screen family (units, range estimate, clock, lights, turn sound, cruise, energy recovery). Every
+ * screen family (units, range estimate, clock, lights, turn sound, cruise, energy recovery).
+ * Version 3 adds the OEM More-screen toggles and choices (traction control, assists, charging,
+ * lock time, overspeed control, prompt tone, dual motor, acceleration, PIN and proximity). Every
  * other OEM-group key is "not mapped" until its rows are added. OEM-mapped rows are not tested by
  * Volt on those models. BleController and the UI gate every control on these decisions.
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=2;
+    public static final int VERSION=3;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -119,9 +121,55 @@ public final class ModelRegistry {
     /** OEM 2.1.9 hides turn-signal sound for 2573/2634 (and group R) even when it would otherwise show it. */
     static final String[] NO_TURN_SOUND={"2573","2634"};
 
+    // OEM-group variants (C5 batch 1): More-screen toggles and choices, same wire as the UT5 MAX. Exact readback unless masked.
+    static final FeatureVariant OEM_TCS=oem("traction_control.oem","traction_control",0x5f,new int[]{0,1},OFF_ON,11,true);
+    static final FeatureVariant OEM_LOW_POWER=oemAt("low_power.oem","low_power",0x6f,new int[]{5},new int[]{0,1},OFF_ON,32,255,0,true);
+    static final FeatureVariant OEM_LONG_RANGE=oemAt("long_range_mode.oem","long_range_mode",0x6f,new int[]{7},new int[]{0,1},OFF_ON,38,255,0,true);
+    /** Raw 0 is the OEM's "not set" value (it shows 80%): Volt shows it but treats it as unknown. */
+    static final FeatureVariant OEM_CHARGE_LIMIT=oemAt("charge_limit.oem","charge_limit",0x6f,new int[]{4},new int[]{80,85,90,95,100},
+        new String[]{"80%","85%","90%","95%","100%"},31,255,0,true).withSentinel(0,"Default (80%)");
+    static final FeatureVariant OEM_TIMED_CHARGING=oemAt("timed_charging.oem","timed_charging",0x6f,new int[]{1},new int[]{0,1},OFF_ON,33,255,0,true);
+    /** 0x6f sel 3, BE32 local seconds at offsets 27-30; whole hours within 48 h (chargeStartAllowed). */
+    static final FeatureVariant OEM_CHARGE_START=new FeatureVariant("charge_start.oem_hours","charge_start",0x6f,new int[]{3},new int[0],new String[0],"",0,Integer.MAX_VALUE,1,
+        27,255,0,FeatureVariant.Decode.BE32,true,false,false,false,false);
+    /** 1/2/3 at offset 34; the 6/12/24-hour meaning is the OEM screen's, confirmed by Volt only on the UT5 MAX. */
+    static final FeatureVariant OEM_LOCK_TIME=oemAt("lock_expiry.oem","lock_expiry",0x6f,new int[]{2},new int[]{1,2,3},new String[]{"6 hours","12 hours","24 hours"},34,255,0,true);
+    static final FeatureVariant OEM_WALK_ASSIST=oemAt("hill_start_assist.oem","hill_start_assist",0x81,new int[]{1},new int[]{0,1},OFF_ON,37,1,0,true);
+    static final FeatureVariant OEM_POWER_ASSIST=oemAt("parking_assist.oem","parking_assist",0x81,new int[]{2},new int[]{0,1},OFF_ON,37,2,1,true);
+    static final FeatureVariant OEM_DESCENT=oemAt("hill_descent_control.oem","hill_descent_control",0x81,new int[]{3},new int[]{0,1},OFF_ON,37,4,2,true);
+    static final FeatureVariant OEM_OVERSPEED=oem("overspeed_control.oem","overspeed_control",0x82,new int[]{0,1},OFF_ON,39,true);
+    static final FeatureVariant OEM_PROMPT_TONE=oem("prompt_tone.oem","prompt_tone",0x6c,new int[]{0,1,2,3,4},new String[]{"Sound 1","Sound 2","Sound 3","Sound 4","Sound 5"},21,true);
+    static final FeatureVariant OEM_DUAL_DRIVE=oemAt("dual_drive.oem","dual_drive",0x6e,new int[]{2},new int[]{0,1},new String[]{"Single motor","Dual motor"},26,255,0,true);
+    /** 3 Eco, 5 Turbo at offset 1; any other mode code reads as unknown. */
+    static final FeatureVariant OEM_ACCELERATION=oem("acceleration.oem","acceleration",0x58,new int[]{3,5},new String[]{"Eco","Turbo"},1,true);
+    /** Volt's strict PIN and proximity flows (owner, bond first, PIN always); readback 0x7a and offset 13 bit 0. */
+    static final FeatureVariant OEM_PIN=new FeatureVariant("pin.oem","pin",0x63,new int[0],new int[0],new String[0],"",0,0,1,0,255,0,FeatureVariant.Decode.EXACT,true,true,false,false,false);
+    static final FeatureVariant OEM_PROXIMITY=new FeatureVariant("proximity_key.oem","proximity_key",0x61,new int[0],new int[]{0,1},OFF_ON,"",0,1,1,13,1,0,FeatureVariant.Decode.MASKED,true,true,false,false,true);
+
+    /** OEM 2.1.9 never shows traction control for these (nor for the legacy group or group M). */
+    static final String[] NO_TCS={"2573","2634","2314","2417","2422"};
+    /** Long range: OEM 2.1.9 offers it for 2745 and group H, in RU/US or (with the scooter's flag at offset 35) these regions. */
+    static final String[] LONG_RANGE_FLAGGED_AREAS={"EU","AT","IT","SE","ME"};
+    /** Charge limit and timed charging: OEM 2.1.9 hides them for these prefixes when the full model ID ends in 2. */
+    static final String[] CHARGE_FIFTH_DIGIT={"2543","2799","2657","2707"};
+    /** OEM 2.1.9 opens lock time directly for these; they have no Bluetooth lock screen (PIN, proximity). */
+    static final String[] LOCK_TIME_DIRECT={"2573","2634","2623"};
+    /** OEM 2.1.9 hides the lock-time row on its lock screen for these prefixes (and groups L, S and 2506). */
+    static final String[] NO_LOCK_TIME={"2436","2437","2438","2509"};
+    /** Overspeed active control: OEM 2.1.9 offers it for these prefixes plus groups H, C, B, K, L, R and G. */
+    static final String[] OVERSPEED={"2611","2753","2417","2634","2573","2612","2643","2754","2509","2545","2438"};
+    static final String[] PROMPT_TONE={"2547","2585"};
+    static final String[] DUAL_DRIVE={"2443","2585"};
+    /** Eco/Turbo: OEM 2.1.9 offers it for these prefixes plus groups D and O (not group Q). */
+    static final String[] ACCELERATION={"2345","2714","2509"};
+
     private static FeatureVariant oem(String id,String feature,int cmd,int[] values,String[] labels,int offset,boolean parked){
+        return oemAt(id,feature,cmd,new int[0],values,labels,offset,255,0,parked);
+    }
+    private static FeatureVariant oemAt(String id,String feature,int cmd,int[] selector,int[] values,String[] labels,int offset,int mask,int shift,boolean parked){
         int min=values[0],max=values[0];for(int v:values){min=Math.min(min,v);max=Math.max(max,v);}
-        return new FeatureVariant(id,feature,cmd,new int[0],values,labels,"",min,max,1,offset,255,0,FeatureVariant.Decode.EXACT,parked,false,false,false,true);
+        FeatureVariant.Decode decode=mask==255&&shift==0?FeatureVariant.Decode.EXACT:FeatureVariant.Decode.MASKED;
+        return new FeatureVariant(id,feature,cmd,selector,values,labels,"",min,max,1,offset,mask,shift,decode,parked,false,false,false,true);
     }
 
     /** Built on first use so ScooterCommands and this class never wait on each other's static initialiser. */
@@ -233,9 +281,86 @@ public final class ModelRegistry {
                 boolean high=!(any(d,ENERGY_NO_HIGH_NL)&&(d.region==null||"NL".equals(d.oemArea())));
                 return oemMapped(off&&high?OEM_ENERGY:high?OEM_ENERGY_NO_OFF:off?OEM_ENERGY_NO_HIGH:OEM_ENERGY_NO_OFF_NO_HIGH,"",true);
             }
+            // C5 batch 1: More-screen toggles and choices.
+            case "traction_control":
+                if(any(d,Q)||any(d,O)||any(d,G))return oemMapped(OEM_TCS,"",false);
+                // OEM 2.1.9 also lists it for most other models, but that visibility trace is partial: not mapped.
+                return m||noMoreScreen(d)||any(d,NO_TCS)?excluded():null;
+            case "low_power": return any(d,O)||any(d,S)||any(d,Q)||any(d,H)||any(d,G)?oemMapped(OEM_LOW_POWER,"",false):excluded();
+            case "long_range_mode": {
+                if(!any(d,"2745")&&!any(d,H))return excluded();
+                String area=d.oemArea();Integer flag=s==null?null:s.u8(35);
+                boolean offered="RU".equals(area)||"US".equals(area)||area!=null&&contains(LONG_RANGE_FLAGGED_AREAS,area)&&flag!=null&&flag==1;
+                Rule rule=oemMapped(OEM_LONG_RANGE,offered?"":"OEM 2.1.9 offers this here only in some regions, some only when the scooter flags it",false);
+                return offered?rule:gated(rule,CapabilityResolver.Reason.REGION_RULE,null);
+            }
+            case "charge_limit": return chargeFamily(d,OEM_CHARGE_LIMIT);
+            case "timed_charging": return chargeFamily(d,OEM_TIMED_CHARGING);
+            case "charge_start": return chargeFamily(d,OEM_CHARGE_START);
+            case "lock_expiry": {
+                if(any(d,LOCK_TIME_DIRECT))return oemMapped(OEM_LOCK_TIME,"",false);
+                if(m)return null; // group M reaches its lock settings another way: not mapped
+                if(!bluetoothLockScreen(d)||any(d,NO_LOCK_TIME)||any(d,L)||any(d,S))return excluded();
+                Rule rule=oemMapped(OEM_LOCK_TIME,"",false);
+                // OEM 2.1.9 blocks lock time up to meter firmware 2.0.1.1 (K, C) or 2.0.5.3 (B).
+                if(any(d,K)||any(d,C))return firmware(rule,meterAtMost(d,"2.0.1.1"));
+                if(any(d,B))return firmware(rule,meterAtMost(d,"2.0.5.3"));
+                return rule;
+            }
+            case "hill_start_assist": return assist(d,OEM_WALK_ASSIST);
+            case "parking_assist": return assist(d,OEM_POWER_ASSIST);
+            case "hill_descent_control": return assist(d,OEM_DESCENT);
+            case "overspeed_control":
+                return any(d,OVERSPEED)||any(d,H)||any(d,C)||any(d,B)||any(d,K)||any(d,L)||any(d,R)||any(d,G)?oemMapped(OEM_OVERSPEED,"",false):excluded();
+            case "prompt_tone": return any(d,PROMPT_TONE)?oemMapped(OEM_PROMPT_TONE,"",false):excluded();
+            case "dual_drive": return any(d,DUAL_DRIVE)?oemMapped(OEM_DUAL_DRIVE,"",false):excluded();
+            case "acceleration": {
+                if(!any(d,ACCELERATION)&&!any(d,D)&&!any(d,O))return excluded();
+                Rule rule=oemMapped(OEM_ACCELERATION,"",false);
+                // OEM 2.1.9 blocks Eco/Turbo for 2509 below meter firmware 2.0.3.5.
+                return any(d,"2509")?firmware(rule,meterBelow(d,"2.0.3.5")):rule;
+            }
+            case "pin": case "proximity_key": {
+                if(m)return null; // group M reaches its lock settings another way: not mapped
+                if(!bluetoothLockScreen(d))return excluded();
+                Rule rule=oemMapped(feature.equals("pin")?OEM_PIN:OEM_PROXIMITY,"",false);
+                // OEM 2.1.9 blocks its Bluetooth lock screen for K and C up to meter firmware 2.0.0.4.
+                return any(d,K)||any(d,C)?firmware(rule,meterAtMost(d,"2.0.0.4")):rule;
+            }
             default: return null;
         }
     }
+    /** OEM 2.1.9 offers no More screen for the legacy group (nor an empty model ID). */
+    private static boolean noMoreScreen(DeviceDescriptor d){return d.rulePid().isEmpty()||any(d,LEGACY_T);}
+    /**
+     * OEM 2.1.9's Bluetooth lock screen (PIN, proximity, lock time): every model with a More screen except
+     * 2314/2417/2422 and the three that open lock time directly. Group M is handled by the caller.
+     */
+    static boolean bluetoothLockScreen(DeviceDescriptor d){return !noMoreScreen(d)&&!any(d,M)&&!any(d,NOT_I_EXTRA)&&!any(d,LOCK_TIME_DIRECT);}
+    /** Charge limit, timed charging and charge start: groups S, Q and H, minus four prefixes whose full ID ends in 2. */
+    private static Rule chargeFamily(DeviceDescriptor d,FeatureVariant v){
+        if(!any(d,S)&&!any(d,Q)&&!any(d,H))return excluded();
+        Rule rule=oemMapped(v,"",false);
+        if(any(d,CHARGE_FIFTH_DIGIT)){
+            Tri two=endsWith(d,'2');
+            if(two==Tri.UNKNOWN)return gated(rule,CapabilityResolver.Reason.FULL_PID_NEEDED,CapabilityResolver.Precondition.FULL_PID);
+            if(two==Tri.YES)return excluded();
+        }
+        return rule;
+    }
+    /** Walk, power and descent assist: group Q and group O. */
+    private static Rule assist(DeviceDescriptor d,FeatureVariant v){return any(d,Q)||any(d,O)?oemMapped(v,"",false):excluded();}
+    /** A firmware gate: YES = blocked (old firmware), UNKNOWN = not read in this session. Both fail closed. */
+    private static Rule firmware(Rule rule,Tri blocked){
+        if(blocked==Tri.NO)return gated(rule,CapabilityResolver.Reason.NONE,CapabilityResolver.Precondition.FIRMWARE_READ);
+        return gated(rule,blocked==Tri.YES?CapabilityResolver.Reason.FIRMWARE_OLD:CapabilityResolver.Reason.FIRMWARE_UNKNOWN,CapabilityResolver.Precondition.FIRMWARE_READ);
+    }
+    /** The same mapping refused for a model condition (region, firmware, full model ID), with that condition recorded. */
+    private static Rule gated(Rule rule,CapabilityResolver.Reason reason,CapabilityResolver.Precondition needs){
+        EnumSet<CapabilityResolver.Precondition> p=EnumSet.copyOf(rule.preconditions);if(needs!=null)p.add(needs);
+        return new Rule(rule.support,reason,rule.evidence,rule.oemNote,p,rule.variant);
+    }
+    private static boolean contains(String[] values,String value){for(String v:values)if(v.equals(value))return true;return false;}
     /** OEM 2.1.9's turn-signal sound group: a known PID outside the legacy, M and extra exclusions. */
     static boolean turnSoundGroup(DeviceDescriptor d){return d!=null&&!d.rulePid().isEmpty()&&!any(d,LEGACY_T)&&!any(d,NOT_I_EXTRA)&&!any(d,M);}
     /** Tail light: OEM 2.1.9 hides it with no region or in DE (turn-sound group, 2417, 2422), otherwise with no region or in the ITA bucket. */
@@ -275,6 +400,31 @@ public final class ModelRegistry {
             default:
                 if((feature.startsWith("line_")||feature.startsWith("star_"))&&("DE".equals(area)||"AT".equals(area)))return "OEM 2.1.9 hides this in this region";
                 return "";
+        }
+    }
+
+    /**
+     * Charge start time domain. The UT5 MAX keeps any minute (today's behaviour); other layers use the
+     * OEM picker's domain: a whole local hour after now and at most 48 hours ahead.
+     */
+    public static boolean chargeStartAllowed(Layer layer,long unixSeconds,int tzOffsetSeconds,long nowUnixSeconds){
+        if(layer==Layer.UT5_MAX)return true;
+        long local=unixSeconds+tzOffsetSeconds;
+        return local>0&&local%3600==0&&unixSeconds>nowUnixSeconds&&unixSeconds-nowUnixSeconds<=48L*3600;
+    }
+
+    /**
+     * Confirmation text before sending this value, or null. Only for OEM-mapped variants off the UT5 MAX
+     * layer, where the official app asks first; the UT5 MAX keeps today's direct controls.
+     */
+    private static final String ASKS="The official app asks before this change. Volt has not tested it on this model.";
+    public static String caution(CapabilityResolver.Decision d,int value){
+        if(d==null||d.layer==Layer.UT5_MAX||d.variant==null||d.evidence!=CapabilityResolver.Evidence.OEM_MAPPED)return null;
+        switch(d.feature){
+            case "traction_control": return value==0?"Turn off traction control? "+ASKS:null;
+            case "low_power": return value==0?"Turn off Low Battery Mode? "+ASKS:null;
+            case "dual_drive": return value==0?"Switch to single motor? "+ASKS:null;
+            default: return null;
         }
     }
 
