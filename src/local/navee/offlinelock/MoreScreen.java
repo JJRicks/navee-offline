@@ -822,7 +822,7 @@ public final class MoreScreen implements AppScreen {
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Choose scooter")
                 .setSingleChoiceItems(names, selected, (d, which) -> {
                     if (!canEditProfiles()) return;
-                    service().profiles.select(all.get(which).id); d.dismiss();
+                    service().profiles.select(all.get(which).id); service().ble.profileSelected(); d.dismiss();
                     host.toast(all.get(which).name + " selected"); host.redraw();
                 }).setNegativeButton("Close", null).create(); show(dialog);
     }
