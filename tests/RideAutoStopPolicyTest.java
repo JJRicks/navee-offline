@@ -23,6 +23,7 @@ public final class RideAutoStopPolicyTest {
         repeatedDropsDoNotAccumulate();
         movingAndUncertainLossesStayRecoverable();
         staleAndMissingSpeedNeverArm();
+        staleRunCannotBeRevivedByOneZero();
         clockEdges();
         identityProfileAndExplicitStops();
         failureAndLateCallbacks();
@@ -147,6 +148,27 @@ public final class RideAutoStopPolicyTest {
         p = policy(); last = rideThenPark(p, T, 4); lost = last + 1000;
         p.disconnected(lost, true);
         check(p.due(lost + RideAutoStopPolicy.DISCONNECT_GRACE_MS + 3_600_000L), "A long sleep is still one continuous disconnection");
+    }
+
+    private static void staleRunCannotBeRevivedByOneZero() {
+        for (boolean callbacks : new boolean[]{false, true}) {
+            RideAutoStopPolicy p = policy();
+            push(p, T, 150, 1); push(p, T + 1000, 0, 0);
+            if (callbacks) for (int sec = 2; sec <= 61; sec++)
+                p.connected(T + sec * 1000, PROFILE, SERIAL, 1, T + sec * 1000, T + 1000, 0, 0);
+            push(p, T + 62000, 0, 0);
+            p.disconnected(T + 63000, true);
+            check(!p.armed() && !p.due(T + 73000), "One zero cannot bridge missing motion, callbacks=" + callbacks);
+            // Fresh sustained evidence after the gap may qualify independently.
+            for (int sec = 80; sec <= 84; sec++)
+                p.connected(T + sec * 1000, PROFILE, SERIAL, 2, T + sec * 1000, T + sec * 1000, 0, 0);
+            p.disconnected(T + 85000, true);
+            check(p.armed(), "Fresh sustained stop after uncertainty can qualify");
+        }
+        RideAutoStopPolicy p = policy(); long last = rideThenPark(p, T, 4);
+        p.disconnected(last + 1000, true);
+        p.disconnected(last + 2000, false);
+        check(!p.armed() && !p.due(last + 20000), "A later nonrecoverable loss cancels the pending grace");
     }
 
     private static void identityProfileAndExplicitStops() {

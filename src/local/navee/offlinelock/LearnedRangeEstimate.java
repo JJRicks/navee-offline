@@ -112,7 +112,7 @@ public final class LearnedRangeEstimate {
             RideStore.Point end = parkedTail ? complete : last;
             long elapsed = parkedTail ? complete.elapsedMs : s.elapsedMs, gaps = parkedTail ? s.gapCount - 1 : s.gapCount;
             long counted = parkedTail ? completeCount : count, validSoc = parkedTail ? completeValidSoc : validSocSamples;
-            double speedCoverage = !parkedTail ? s.speedCoverage : elapsed <= 0 ? 0 : Math.min(1, s.speedCoverageMs / (double) elapsed);
+            double speedCoverage = !parkedTail ? s.speedCoverage : elapsed <= 0 ? 0 : Math.min(1, complete.speedCoverageMs / (double) elapsed);
             if (s.recovered || gaps > 0 || s.clockDiscontinuities > 0
                     || s.endWallMs < s.startWallMs || Math.abs((s.endWallMs - s.startWallMs) - s.elapsedMs) > 5000) return "Recording has gaps or clock changes";
             if (s.odometerReset || !positive(s.distanceKm)) return "Odometer distance unavailable";

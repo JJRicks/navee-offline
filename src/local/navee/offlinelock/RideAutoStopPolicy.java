@@ -61,8 +61,15 @@ public final class RideAutoStopPolicy {
         }
         if (!bound || transport != connection) { bound = true; connection = transport; lastMotion = lastFrame = 0; clearRun(); }
         if (frameMono > 0 && frameMono <= now && frameMono >= lastFrame) lastFrame = frameMono;
-        if (motionMono <= 0 || motionMono == lastMotion) return;
+        if (motionMono <= 0) { clearRun(); return; }
+        // Preserve a parked run during complete radio silence until the loss watchdog fires.
+        // Other fresh frames with old motion establish uncertainty and invalidate that run.
+        if (motionMono == lastMotion) {
+            if (lastFrame - motionMono > MOTION_FRESH_MS || speedRaw < 0 || driving < 0) clearRun();
+            return;
+        }
         if (motionMono < lastMotion || motionMono > now) { lastMotion = motionMono; clearRun(); return; }
+        if (lastMotion > 0 && motionMono - lastMotion > MOTION_FRESH_MS) clearRun();
         lastMotion = motionMono;
         if (now - motionMono > MOTION_FRESH_MS || speedRaw < 0 || driving < 0) { clearRun(); return; }
         if (speedRaw > 0 || driving != 0) { moved = true; clearRun(); return; }
@@ -74,6 +81,7 @@ public final class RideAutoStopPolicy {
     /** The authenticated connection is gone. Only the first observation of a loss can arm. */
     public void disconnected(long now, boolean recoverable) {
         if (!clock(now)) return;
+        if (!recoverable) { reset(); return; }
         if (!bound) return; // Already handled this loss, or never had this ride's scooter.
         bound = false;
         boolean parked = recoverable && runCount >= STATIONARY_SAMPLES && runLast - runStart >= STATIONARY_SPAN_MS

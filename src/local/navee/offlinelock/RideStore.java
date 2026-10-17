@@ -72,12 +72,15 @@ public final class RideStore {
     public static final class Point {
         public final long wallMs, monotonicMs, elapsedMs;
         public final int segment;
+        /** Journal-derived cumulative coverage at this point, excluding later partial readings. */
+        final long speedCoverageMs;
         public final Double voltageV, powerW, speedKmh, batteryPercent, odometerKm, chargingState;
         private Point(long wallMs, long monotonicMs, long elapsedMs, int segment, Double voltageV, Double powerW,
-                Double speedKmh, Double batteryPercent, Double odometerKm, Double chargingState) {
+                Double speedKmh, Double batteryPercent, Double odometerKm, Double chargingState, long speedCoverageMs) {
             this.wallMs = wallMs; this.monotonicMs = monotonicMs; this.elapsedMs = elapsedMs; this.segment = segment;
             this.voltageV = voltageV; this.powerW = powerW; this.speedKmh = speedKmh;
             this.batteryPercent = batteryPercent; this.odometerKm = odometerKm; this.chargingState = chargingState;
+            this.speedCoverageMs = speedCoverageMs;
         }
         public Map<String, Object> fields() {
             LinkedHashMap<String, Object> result = new LinkedHashMap<String, Object>();
@@ -609,7 +612,7 @@ public final class RideStore {
             }
             if (dt > MAX_INTEGRATION_INTERVAL_MS && samples > 0) gaps++;
             previousPower = power; previousSpeed = speed; samples++;
-            Point point = new Point(wall, mono, elapsed, (int)Math.min(Integer.MAX_VALUE, gaps), voltage, power, speed, soc, odo, number(m, "charging_state", mono));
+            Point point = new Point(wall, mono, elapsed, (int)Math.min(Integer.MAX_VALUE, gaps), voltage, power, speed, soc, odo, number(m, "charging_state", mono), speedMs);
             lastPoint = point;
             if (rangeInspector != null) rangeInspector.accept(point);
             if (keepAllPoints) points.add(point);

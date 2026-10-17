@@ -14,6 +14,7 @@ public final class RideAutoStopStoreTest {
         try {
             stopReasonIsBackwardCompatible();
             learnedRangeUsesMotionNotTail();
+            speedOnlyTailCannotRepairMissingMovement();
             failedSaveKeepsRecording();
             System.out.println("RideAutoStopStoreTest: " + checks + " assertions passed");
         } finally { for (File file : directories) remove(file); }
@@ -76,6 +77,36 @@ public final class RideAutoStopStoreTest {
         try { store.stop(NOW + 5000, 6000, RideStore.STOP_AUTO_PARKED); } catch (IOException expected) { failed = true; }
         check(failed && id.equals(store.activeId()), "A failed automatic save leaves the ride recording for Retry save");
         journal.delete();
+    }
+
+    private static void speedOnlyTailCannotRepairMissingMovement() throws Exception {
+        for (boolean tail : new boolean[]{false, true}) {
+            RideStore store = new RideStore(directory());
+            String id = store.start("A", "Partial telemetry", NOW, 0);
+            RideStore.Summary completePrefix = null;
+            for (int sec = 0; sec <= (tail ? 130 : 120); sec++) {
+                long mono = sec * 1000L, batteryUpdated = sec > 120 ? 120000L : mono;
+                Map<String, RideStore.Sample> readings = values(sec < 100 ? 24 : 0,
+                        80 - 8 * Math.min(sec / 100.0, 1), 100 + 24 * Math.min(sec, 100) / 3600.0, batteryUpdated);
+                if (sec >= 30 && sec <= 39) readings.remove("speed_kmh");
+                else readings.put("speed_kmh", new RideStore.Sample(sec < 100 ? 24 : 0, mono));
+                readings.put("charging_state", new RideStore.Sample(0, mono));
+                store.sample(NOW + mono, mono, readings);
+                if (sec == (tail ? 123 : 120)) completePrefix = store.activeSummary();
+            }
+            if (tail) {
+                store.markGap(NOW + 131000, 131000, "Bluetooth disconnected");
+                store.heartbeat(NOW + 140000, 140000);
+            }
+            store.stop(NOW + (tail ? 140000 : 120000), tail ? 140000 : 120000, tail ? RideStore.STOP_AUTO_PARKED : "");
+            RideStore.Summary summary = store.get(id);
+            check(completePrefix.speedCoverage < .95, "Fixture has less than 95% movement coverage");
+            if (tail) check(summary.speedCoverageMs / (double) completePrefix.elapsedMs > .95,
+                    "Whole-journal numerator would incorrectly admit this fixture");
+            LearnedRangeEstimate.Evidence evidence = LearnedRangeEstimate.inspect(summary, store.fullTrend(id));
+            check("Movement coverage below 95%".equals(evidence.rejection), "Partial telemetry remains rejected, tail=" + tail);
+            check(store.learnedRange("A", NOW + 3600000).rides == 0, "Streaming reader also rejects the same partial ride");
+        }
     }
 
     private static final class Ride {
