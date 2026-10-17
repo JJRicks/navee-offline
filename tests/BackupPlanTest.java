@@ -24,7 +24,9 @@ public final class BackupPlanTest {
             duplicates(root, source);
             sharedDestination(root, complete);
             freshInstall(root, source);
-            System.out.println("BackupPlanTest: " + checks + " checks passed (profile resolution, merge rules, UUID and clock duplicates, shared destinations, fresh install)");
+            chargeLimit(root);
+            noScooterLayout(root, source);
+            System.out.println("BackupPlanTest: " + checks + " checks passed (profile resolution, merge rules, UUID and clock duplicates, shared destinations, fresh install, charge limit, no-scooter layout)");
         } finally { AppDataArchive.deleteTree(root); }
     }
 
@@ -44,7 +46,7 @@ public final class BackupPlanTest {
         rejects(() -> BackupArchive.plan(phone, prepared, set(BackupRegistry.RIDES), false, chosen), "an unknown destination is refused");
         chosen.put(B, BackupArchive.SKIP);
         BackupArchive.Plan skipped = BackupArchive.plan(phone, prepared, set(BackupRegistry.RIDES), false, chosen);
-        check(skipped.lines.equals(Arrays.asList("Rides: 2 new · 0 already here · 0 kept here", "1 ride skipped · scooter not restored")), "skipped data is listed, never silently dropped: " + skipped.lines);
+        check(skipped.lines.equals(Arrays.asList("“Fold UT5” → Phone UT5", "Rides: 2 new · 0 already here · 0 kept here", "1 ride skipped · scooter not restored")), "skipped data is listed, never silently dropped: " + skipped.lines);
         BackupTestStore same = new BackupTestStore(new File(root, "same-ids")); Files.copy(new File(root, "source/shared_prefs.bin").toPath(), same.prefsFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
         BackupArchive.Prepared mine = same.stage(complete);
         check(BackupArchive.destinations(same, mine, BackupTestStore.all()).isEmpty(), "scooters already here by ID need no choice");
@@ -118,7 +120,7 @@ public final class BackupPlanTest {
         Files.copy(original.toPath(), new File(twice.files(), "rides/" + UUID.randomUUID() + ".csv").toPath()); Files.copy(original.toPath(), new File(twice.files(), "rides/" + UUID.randomUUID() + ".csv").toPath());
         BackupTestStore target = BackupArchiveTest.phone(new File(root, "twice-target"));
         BackupArchive.Plan once = target.plan(target.stage(twice.export(set(BackupRegistry.RIDES))), set(BackupRegistry.RIDES), false, C);
-        check(once.lines.get(0).equals("Rides: 1 new · 0 already here · 1 kept here"), "one recording twice in a backup is added once: " + once.lines);
+        check(once.lines.equals(Arrays.asList("“Saved scooter” → Phone UT5", "Rides: 1 new · 0 already here · 1 kept here")), "one recording twice in a backup is added once: " + once.lines);
     }
 
     private static void sharedDestination(File root, byte[] complete) throws Exception {
@@ -151,5 +153,42 @@ public final class BackupPlanTest {
         check(onlyPrefs.sources.isEmpty() && prefs.lines.get(0).equals("App preferences: replaces 11 settings") && prefs.lines.contains("Online map: on"), "an App-preferences-only file carries no scooter table and says the online map will be on: " + prefs.lines);
         BackupTransaction.apply(fresh, prefs);
         check(Boolean.TRUE.equals(fresh.preferences().get("app_settings").get("map_basemap_enabled")) && Boolean.TRUE.equals(fresh.preferences().get("app_settings").get("map_basemap_explained")), "the online map choice is restored as recorded");
+    }
+
+    private static void chargeLimit(File root) throws Exception {
+        BackupTestStore phone = BackupArchiveTest.phone(new File(root, "charge-limit"));
+        Set<String> local = new HashSet<>(); List<String> newest = new ArrayList<>();
+        for (String name : new File(phone.files(), "charge-recordings").list()) local.add(name.substring(0, 36));
+        for (int i = 0; i < 14; i++) local.add(phone.charge(C, 1761000000000L + i * 1000000L, false));
+        BackupTestStore source = new BackupTestStore(new File(root, "charge-limit-source"));
+        for (int i = 0; i < 15; i++) { String id = source.charge(A, 1760000000000L + i * 1000000L, false); if (i >= 10) newest.add("charge-recordings/" + id + ".csv"); }
+        BackupArchive.Plan plan = phone.plan(phone.stage(source.export(set(BackupRegistry.CHARGES))), set(BackupRegistry.CHARGES), false, C);
+        check(plan.lines.contains("Charges: 5 new · 0 already here · 0 kept here") && plan.lines.contains("10 charges skipped · 20-charge limit"), "a merge never passes the charge limit and says what it skipped: " + plan.lines);
+        check(new HashSet<>(plan.additions).equals(new HashSet<>(newest)), "the newest backup charges fill the free places: " + plan.additions);
+        BackupTransaction.apply(phone, plan);
+        File folder = new File(phone.files(), "charge-recordings"); new ChargeSessionStore(folder);
+        Set<String> after = new HashSet<>(); for (String name : folder.list()) after.add(name.substring(0, 36));
+        check(local.size() == 15 && after.size() == ChargeSessionStore.MAX_SESSIONS && after.containsAll(local), "the next start prunes nothing, so this phone's charges all stay");
+        BackupArchive.Plan full = phone.plan(phone.stage(source.export(set(BackupRegistry.CHARGES))), set(BackupRegistry.CHARGES), false, C);
+        check(full.additions.isEmpty() && full.lines.contains("Charges: 0 new · 5 already here · 0 kept here") && full.lines.contains("10 charges skipped · 20-charge limit"), "a full store adds nothing: " + full.lines);
+    }
+
+    private static void noScooterLayout(File root, BackupTestStore source) throws Exception {
+        BackupTestStore skipped = new BackupTestStore(new File(root, "no-scooter-source"));
+        Files.copy(source.prefsFile().toPath(), skipped.prefsFile().toPath(), StandardCopyOption.REPLACE_EXISTING);
+        skipped.put("app_settings", "dashboard_v1_unconfigured", "[{\"id\":\"example\"}]"); skipped.put("app_settings", "dashboard_slot_v1_unconfigured_2", "seeded");
+        check(BackupArchive.inventory(skipped).get(BackupRegistry.DASHBOARDS)[0] == 2, "Home's no-scooter layout is not counted as a scooter");
+        byte[] complete = skipped.export(BackupTestStore.all());
+        BackupTestStore phone = BackupArchiveTest.phone(new File(root, "no-scooter-merge"));
+        BackupArchive.Prepared prepared = phone.stage(complete);
+        check(prepared.categories.get(BackupRegistry.DASHBOARDS) == 2, "the restore list counts real scooters only");
+        List<BackupArchive.Destination> needed = BackupArchive.destinations(phone, prepared, set(BackupRegistry.DASHBOARDS));
+        check(needed.size() == 2 && !needed.get(0).source.equals(BackupArchive.NO_SCOOTER) && !needed.get(1).source.equals(BackupArchive.NO_SCOOTER), "no phantom scooter needs a destination");
+        BackupArchive.Plan plan = phone.plan(prepared, set(BackupRegistry.DASHBOARDS), false, BackupArchive.SKIP);
+        check(!plan.lines.toString().contains("Saved scooter") && !phone.preferences().get("app_settings").containsKey("dashboard_v1_unconfigured"), "a merge never maps the no-scooter layout: " + plan.lines);
+        BackupArchive.discard(phone, prepared);
+        BackupTestStore cleared = new BackupTestStore(new File(root, "no-scooter-replace"));
+        cleared.restore(complete, BackupTestStore.all(), true, null);
+        check("seeded".equals(cleared.preferences().get("app_settings").get("dashboard_slot_v1_unconfigured_2")), "Replace everything keeps the no-scooter layout exactly");
     }
 }

@@ -185,7 +185,7 @@ public final class BackupArchiveTest {
         List<BackupArchive.Destination> needed = BackupArchive.destinations(phone, selective, Collections.singleton(BackupRegistry.RIDES));
         check(needed.size() == 1 && needed.get(0).source.equals(FIXTURE_PROFILE) && needed.get(0).suggested == null && !needed.get(0).addable && needed.get(0).name.equals("Synthetic UT5"), "an unknown scooter needs a choice");
         BackupArchive.Plan ridesOnly = BackupArchive.plan(phone, selective, Collections.singleton(BackupRegistry.RIDES), false, Collections.singletonMap(FIXTURE_PROFILE, C));
-        check(ridesOnly.lines.get(0).equals("Rides: 1 new · 0 already here · 0 kept here") && ridesOnly.preferences.isEmpty() && !ridesOnly.history, "selective v1 restore previews only rides");
+        check(ridesOnly.lines.equals(Arrays.asList("“Synthetic UT5” → Phone UT5", "Rides: 1 new · 0 already here · 0 kept here")) && ridesOnly.preferences.isEmpty() && !ridesOnly.history, "selective v1 restore previews only rides");
         Map<String, Map<String, Object>> phonePrefs = phone.preferences();
         BackupTransaction.apply(phone, ridesOnly);
         check(phone.preferences().equals(phonePrefs) && new RideStore(new File(phone.files(), "rides")).list().size() == 2, "selective v1 restore adds the ride only");
@@ -193,7 +193,7 @@ public final class BackupArchiveTest {
         BackupArchive.Prepared voltrides = phone.stage(rides, null);
         check(voltrides.kind.equals("rides") && !voltrides.encrypted() && voltrides.categories.keySet().equals(Collections.singleton(BackupRegistry.RIDES)) && voltrides.sources.get(FIXTURE_PROFILE).name.equals("Synthetic UT5"), ".voltrides imports as Rides only");
         BackupArchive.Plan again = BackupArchive.plan(phone, voltrides, Collections.singleton(BackupRegistry.RIDES), false, Collections.singletonMap(FIXTURE_PROFILE, C));
-        check(again.additions.isEmpty() && again.lines.get(0).equals("Rides: 0 new · 1 already here · 0 kept here"), "a mapped ride is recognised across formats, so learned range never trains on a duplicate");
+        check(again.additions.isEmpty() && again.lines.equals(Arrays.asList("“Synthetic UT5” → Phone UT5", "Rides: 0 new · 1 already here · 0 kept here")), "a mapped ride is recognised across formats, so learned range never trains on a duplicate");
         BackupTransaction.apply(phone, again);
         BackupTestStore fresh = new BackupTestStore(new File(root, "legacy-rides"));
         BackupArchive.Prepared alone = fresh.stage(rides, null);

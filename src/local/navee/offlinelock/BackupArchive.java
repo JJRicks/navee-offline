@@ -17,7 +17,7 @@ import javax.crypto.SecretKey;
  * live data: BackupTransaction applies an approved Plan. The caller pauses every app writer first.
  */
 final class BackupArchive {
-    static final String FORMAT = "volt-app-data", LAYOUT_SOURCE = "layout-file", SKIP = "";
+    static final String FORMAT = "volt-app-data", LAYOUT_SOURCE = "layout-file", SKIP = "", NO_SCOOTER = "unconfigured";
     static final int VERSION = 2, MAX_MANIFEST = 1024 * 1024, MAX_LAYOUT = 1024 * 1024;
     static final long HISTORY_BYTES = 64L * 1024 * 1024;
     /** File kinds recognised by content, never by name. */
@@ -487,7 +487,8 @@ final class BackupArchive {
             for (Map.Entry<String, Integer> category : prepared.categories.entrySet()) lines.add(BackupRegistry.label(category.getKey()) + ": " + count(category.getKey(), category.getValue()));
         } else {
             for (String source : referenced(prepared.preferences, prepared.rides, prepared.charges, prepared.history, categories)) mapping.put(source, source);
-            for (Destination d : destinations(storage, prepared, categories)) {
+            List<Destination> needed = destinations(storage, prepared, categories);
+            for (Destination d : needed) {
                 String target = chosen == null ? null : chosen.get(d.source);
                 if (target == null) throw new IOException("Choose where each scooter's data goes.");
                 if (!target.equals(SKIP) && BackupProfiles.find(local, target) == null && !(d.addable && target.equals(d.source))) throw new IOException("Choose where each scooter's data goes.");
@@ -499,6 +500,8 @@ final class BackupArchive {
             Map<String, String> names = new HashMap<>();
             for (BackupProfiles.Profile p : local) names.put(p.id, p.name);
             for (Source s : prepared.sources.values()) names.putIfAbsent(s.id, s.name);
+            // Where each chosen scooter's data lands, as the earlier ride restore confirmed; a layout's Dashboards line names it.
+            for (Destination d : needed) { String target = mapping.get(d.source); if (!target.equals(SKIP) && !target.equals(d.source) && !d.source.equals(LAYOUT_SOURCE)) lines.add("“" + d.name + "” → " + names.get(target)); }
             if (categories.contains(BackupRegistry.SCOOTERS)) scooters(prepared, live, local, mapping, result, lines);
             if (categories.contains(BackupRegistry.DASHBOARDS)) perScooter(BackupRegistry.DASHBOARDS, prepared, mapping, uses, names, result, lines);
             if (categories.contains(BackupRegistry.PREFERENCES)) {
@@ -556,11 +559,7 @@ final class BackupArchive {
     /** Dashboards or scooter preferences: each mapped scooter's entries are replaced as a set. */
     private static void perScooter(String category, Prepared prepared, Map<String, String> mapping, Map<String, Integer> uses, Map<String, String> names,
             Map<String, Map<String, Object>> result, List<String> lines) {
-        Set<String> sources = new LinkedHashSet<>(), replaced = new LinkedHashSet<>(), shared = new LinkedHashSet<>(); int skipped = 0;
-        for (String name : BackupRegistry.NAMESPACES) for (String key : prepared.preferences.get(name).keySet()) {
-            BackupRegistry.Rule rule = BackupRegistry.rule(name, key);
-            if (rule != null && category.equals(rule.category) && rule.perProfile && rule.profile(key) != null) sources.add(rule.profile(key));
-        }
+        Set<String> sources = perProfile(prepared.preferences, category), replaced = new LinkedHashSet<>(), shared = new LinkedHashSet<>(); int skipped = 0;
         for (String source : sources) {
             String target = mapping.get(source);
             if (target == null || target.equals(SKIP)) { skipped++; continue; }
@@ -589,8 +588,10 @@ final class BackupArchive {
         Map<String, String> clocks = new HashMap<>();
         File[] existing = liveFolder.listFiles();
         if (liveFolder.exists() && existing == null) throw new IOException("Saved recordings cannot be read.");
+        int kept = 0;
         if (existing != null) for (File file : existing) {
             String key = null;
+            if (charges && file.getName().matches("[a-f0-9-]{36}\\.(csv|active)")) kept++;
             if (charges && file.getName().matches(UUID_PATTERN + "\\.(csv|active)")) {
                 try { ChargeSessionStore.Journal j = ChargeSessionStore.inspectJournal(file); key = j.profile + "|" + j.startedWall + "|" + j.startedMono; } catch (IOException unreadable) { key = null; }
             } else if (!charges && file.getName().matches(UUID_PATTERN + "\\.csv")) {
@@ -598,7 +599,8 @@ final class BackupArchive {
             }
             if (key != null) clocks.put(key, file.getName().substring(0, 36).toLowerCase(Locale.ROOT));
         }
-        int added = 0, identical = 0, conflicts = 0, notRestored = 0, unreadable = 0;
+        int identical = 0, conflicts = 0, notRestored = 0, unreadable = 0;
+        List<Recording> candidates = new ArrayList<>();
         for (Recording recording : staged) {
             if (!recording.readable) { unreadable++; continue; }
             String target = mapping.get(recording.profile);
@@ -618,10 +620,20 @@ final class BackupArchive {
             String clock = target + "|" + recording.wall + "|" + recording.mono;
             if (clocks.containsKey(clock)) { conflicts++; continue; }
             clocks.put(clock, recording.id.toLowerCase(Locale.ROOT));
-            added++; additions.addAll(recording.group);
+            candidates.add(recording);
         }
+        // The charge store prunes above MAX_SESSIONS on its next start: add only the newest that fit, so nothing here is lost.
+        int full = 0, room = Math.max(0, ChargeSessionStore.MAX_SESSIONS - kept);
+        if (charges && candidates.size() > room) {
+            List<Recording> newest = new ArrayList<>(candidates);
+            newest.sort((a, b) -> a.wall != b.wall ? Long.compare(b.wall, a.wall) : a.id.compareTo(b.id));
+            Set<Recording> fit = new HashSet<>(newest.subList(0, room));
+            full = candidates.size() - fit.size(); candidates.retainAll(fit);
+        }
+        for (Recording recording : candidates) additions.addAll(recording.group);
         String noun = charges ? "charge" : "ride";
-        lines.add((charges ? "Charges: " : "Rides: ") + added + " new · " + identical + " already here · " + conflicts + " kept here");
+        lines.add((charges ? "Charges: " : "Rides: ") + candidates.size() + " new · " + identical + " already here · " + conflicts + " kept here");
+        if (full > 0) lines.add(plural(full, noun) + " skipped · " + ChargeSessionStore.MAX_SESSIONS + "-charge limit");
         if (notRestored > 0) lines.add(plural(notRestored, noun) + " skipped · scooter not restored");
         if (unreadable > 0) lines.add(plural(unreadable, noun) + " skipped · unreadable");
         if (orphans != null && !orphans.isEmpty()) lines.add(plural(orphans.size(), "phone file") + " skipped · no ride");
@@ -689,12 +701,15 @@ final class BackupArchive {
         }
         return result;
     }
+    /** Scooter IDs with entries of a per-scooter category. Home's no-scooter layout is not a
+     * scooter: it is never counted, mapped or merged, and travels only with Replace everything. */
     private static Set<String> perProfile(Map<String, Map<String, Object>> prefs, String category) {
         Set<String> result = new LinkedHashSet<>();
         for (String name : BackupRegistry.NAMESPACES) if (prefs.get(name) != null) for (String key : prefs.get(name).keySet()) {
             BackupRegistry.Rule rule = BackupRegistry.rule(name, key);
             if (rule != null && category.equals(rule.category) && rule.perProfile && rule.profile(key) != null) result.add(rule.profile(key));
         }
+        result.remove(NO_SCOOTER);
         return result;
     }
     private static byte[] encode(Map<String, Map<String, Object>> values) throws IOException {

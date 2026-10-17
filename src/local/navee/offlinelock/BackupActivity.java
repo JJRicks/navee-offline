@@ -333,26 +333,30 @@ public final class BackupActivity extends Activity {
             review(categories,false,chosen);
         });
     }
-    private void review(Set<String> categories,boolean replace,Map<String,String> chosen){
+    private void review(Set<String> categories,boolean replace,Map<String,String> chosen){review(categories,replace,chosen,null);}
+    /** A non-null note means saved data changed after the last review: the new one replaces it, or the choices start over. */
+    private void review(Set<String> categories,boolean replace,Map<String,String> chosen,String note){
         AppDataBackup.PreparedRestore current=staged;setBusy("Comparing with this phone…");
-        submit(()->{try{AppDataBackup.Review checked=AppDataBackup.review(this,current,categories,replace,chosen);show(()->showReview(checked));}
-            catch(Exception failure){show(()->retry(message(failure)));}});
+        submit(()->{try{AppDataBackup.Review checked=AppDataBackup.review(this,current,categories,replace,chosen);show(()->showReview(checked,()->review(categories,replace,chosen,CHANGED),note));}
+            catch(Exception failure){show(()->{if(note!=null)restoreCategories();retry(message(failure));});}});
     }
-    private void showReview(AppDataBackup.Review review){
+    private void showReview(AppDataBackup.Review review,Runnable again,String note){
         busy=false;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         reset("Review");
         LinearLayout list=list();list.setTag("restore-preview");list.setPadding(ui.dp(14),ui.dp(6),ui.dp(14),ui.dp(6));
         for(String line:review.lines)paragraph(list,line).setTextColor(ui.text);
         paragraph("Volt closes when the restore is done.");
-        footer(review.replace?"Replace everything":"Restore","restore-apply",()->applyRestore(review));
+        footer(review.replace?"Replace everything":"Restore","restore-apply",()->applyRestore(review,again));
+        if(note!=null)status.setText(note);
     }
-    private void applyRestore(AppDataBackup.Review review){
+    private void applyRestore(AppDataBackup.Review review,Runnable again){
         if(staged==null||busy)return;AppDataBackup.PreparedRestore approved=staged;setBusy("Restoring your data…");
         submit(()->{try{AppDataBackup.apply(this,review);show(()->{staged=null;done("Restored. Reopen Volt.");});}
             catch(Exception failure){
                 String text=failure.getMessage();
-                // Refused before any change: the reviewed file is still staged and can be retried.
-                if(NO_SPACE.equals(text)||CHANGED.equals(text)){show(()->retry(text));return;}
+                // Refused before any change: the reviewed file is still staged. A changed phone gets a fresh review, never the stale approval.
+                if(CHANGED.equals(text)){show(again);return;}
+                if(NO_SPACE.equals(text)){show(()->retry(text));return;}
                 discardQuietly(approved);
                 show(()->{staged=null;done("Restore failed. Reopen Volt. Don't clear storage.");});
             }});
