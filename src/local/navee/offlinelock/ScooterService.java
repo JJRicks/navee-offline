@@ -496,7 +496,7 @@ public final class ScooterService extends Service {
             return;
         }
         ScooterProfiles.Profile profile=profiles.active();
-        chargerDetection.observe(profile.id+":"+ble.currentTransportSerial(),profile.pid(),true,
+        chargerDetection.observe(profile.id+":"+ble.currentTransportSerial(),ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),true,
                 frame.soc.value,frame.voltage.value,Math.abs(frame.current.value),frame.current.mono,now);
     }
 

@@ -31,6 +31,10 @@ def run(*values, check=True, timeout=240):
     return result.stdout
 if run('shell', 'getprop', 'ro.kernel.qemu').strip() != '1' or run('shell', 'getprop', 'sys.boot_completed').strip() != '1':
     raise SystemExit('A booted disposable emulator is required')
+original_font = run('shell', 'settings', 'get', 'system', 'font_scale').strip()
+original_demo = run('shell', 'settings', 'get', 'global', 'sysui_demo_allowed').strip()
+original_size = re.search(r'Override size:\s*(\d+x\d+)', run('shell', 'wm', 'size'))
+original_density = re.search(r'Override density:\s*(\d+)', run('shell', 'wm', 'density'))
 args.out.mkdir(parents=True, exist_ok=True)
 (args.out / 'inputs.json').write_text(json.dumps({str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest()
                                                for p in (args.app, args.runner)}, indent=2) + '\n')
@@ -73,8 +77,11 @@ try:
         if not passed: print(output, flush=True)
 finally:
     run('shell', 'am', 'broadcast', '-a', 'com.android.systemui.demo', '-e', 'command', 'exit', check=False)
-    run('shell', 'wm', 'size', 'reset', check=False); run('shell', 'wm', 'density', 'reset', check=False)
-    run('shell', 'settings', 'put', 'system', 'font_scale', '1.0', check=False)
+    run('shell', 'wm', 'size', original_size.group(1) if original_size else 'reset', check=False)
+    run('shell', 'wm', 'density', original_density.group(1) if original_density else 'reset', check=False)
+    for namespace, key, value in [('system', 'font_scale', original_font), ('global', 'sysui_demo_allowed', original_demo)]:
+        if value == 'null': run('shell', 'settings', 'delete', namespace, key, check=False)
+        else: run('shell', 'settings', 'put', namespace, key, value, check=False)
     (args.out / 'results.json').write_text(json.dumps(results, indent=2) + '\n')
 if not all(result['passed'] for result in results):
     raise SystemExit(1)

@@ -1856,7 +1856,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     invoke(item, "refreshCharging", new Class<?>[]{Map.class}, values);
                     measureCard(card, activity.ui().dp(600), height);
                     TextView caption = (TextView)field(item, "chargingEtaLabel");
-                    String expected = target == 80 ? "To 80% limit" : "Time to full";
+                    String expected = target == 80 ? "To 80% limit" : "Time to full (est.)";
                     require(expected.contentEquals(caption.getText()) && expected.contentEquals(caption.getContentDescription()),
                             "Measure restored an obsolete charging-target label");
                     measureCard(card, width, height);
