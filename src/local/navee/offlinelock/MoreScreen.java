@@ -899,7 +899,6 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(display, "vibrate", "Haptic feedback", null, Haptics.PREFERENCE, true);
         Row map = row(display, "map", "Map settings", null, this::mapSettings);
         valueRefreshers.add(() -> map.value(basemapSummary()));
-        row(display, "grid", "Dashboard backups", null, this::dashboardBackups);
         label("Connection & recording");
         LinearLayout connection = group();
         Row rate = row(connection, "clock", "Telemetry refresh", null, this::telemetryRate);
@@ -945,13 +944,6 @@ public final class MoreScreen implements AppScreen {
     private void mapSettings() {
         AlertDialog dialog = MapPreferences.show(host);
         if (dialog != null) dialog.setOnDismissListener(d -> { if (!closed) refresh(); });
-    }
-    private void dashboardBackups() {
-        LinearLayout box = dialogBox("Dashboard backups", "Layouts and notes · no keys or rides");
-        button(box, "Export dashboards", host::exportDashboardLayouts, true);
-        button(box, "Import dashboards", host::importDashboardLayouts, false);
-        ScrollView scroller = new ScrollView(host.activity()); scroller.addView(box);
-        show(new AlertDialog.Builder(host.activity()).setView(scroller).setNegativeButton("Close", null).create());
     }
     private void openAndroidSettings(String action){
         android.content.Intent intent=new android.content.Intent(action);
@@ -1599,6 +1591,8 @@ public final class MoreScreen implements AppScreen {
         label("Your data");
         LinearLayout data = ui.card(); cardDestination.addView(data);
         note(data, "All data stays on this phone. Owner backups include your scooter key.");
+        LinearLayout backups = group();
+        row(backups, "download", "Back up & restore", "Encrypted · choose what to include", () -> host.dataBackup(null, null)).view.setTag("data-backup");
         LinearLayout maps = group();
         Row online = row(maps, "map", "Online map", null, this::mapSettings);
         valueRefreshers.add(() -> online.value(basemapSummary()));
@@ -1694,10 +1688,8 @@ public final class MoreScreen implements AppScreen {
                     .setMessage("Removes charges and learned curves. Rides stay.")
                     .setNegativeButton("Cancel",null).setPositiveButton("Clear recordings",(d,which)->s.clearChargeRecordings(this::refreshDeveloper)).create();show(dialog);
         });clearChargeRow.view.setTag("charge-clear-action");
-        label("Backups & test layouts");
+        label("Test layouts");
         LinearLayout backups = group();
-        row(backups, "download", "Export all app data", "Encrypted backup · includes private setup keys", () -> host.fullBackup(false)).view.setTag("developer-full-export");
-        row(backups, "restore", "Restore all app data", "Replaces all data", () -> host.fullBackup(true)).view.setTag("developer-full-restore");
         row(backups, "grid", "Load All widgets into slot 3", null, () -> {
             ScooterProfiles.Profile profile = active();
             if (profile == null) { host.toast("Choose a scooter first."); return; }

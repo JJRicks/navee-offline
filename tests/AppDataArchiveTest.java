@@ -155,6 +155,14 @@ public final class AppDataArchiveTest {
             check(true,"learned-range source accepted");
             badTypes.get("app_settings").clear();badTypes.get("app_settings").put("text_scale",Float.NaN);
             rejects(()->AppDataArchive.validatePreferenceTypes(badTypes),"nonfinite text scale rejected");
+            Map<String,Map<String,Object>> subset=new LinkedHashMap<>();subset.put("profiles",new LinkedHashMap<>(source.preferences().get("profiles")));subset.put("app_settings",new LinkedHashMap<>(source.preferences().get("app_settings")));
+            byte[] partial=AppDataArchive.encodePreferences(subset,subset.keySet());Map<String,Map<String,Object>> decodedSubset=AppDataArchive.decodePreferences(partial,true);
+            check(decodedSubset.equals(subset)&&new ArrayList<>(decodedSubset.keySet()).equals(Arrays.asList("app_settings","profiles")),"namespace subsets roundtrip in the fixed order");
+            rejects(()->AppDataArchive.decodePreferences(partial),"a subset is not a complete preference inventory");
+            check(AppDataArchive.decodePreferences(AppDataArchive.encodePreferences(source.preferences()),true).equals(source.preferences()),"a complete inventory is also a valid subset");
+            rejects(()->AppDataArchive.encodePreferences(subset,Arrays.asList("app_settings","pending_documents")),"undeclared namespaces cannot be encoded");
+            byte[] reordered=AppDataArchive.encodePreferences(subset,subset.keySet());int at=indexOf(reordered,"app_settings".getBytes("UTF-8"));reordered[at]='q';
+            rejects(()->AppDataArchive.decodePreferences(reordered,true),"unknown namespace names are refused");
             basemapPreferences(root);
             Store malformedRecovery=new Store(new File(root,"malformed-recovery"));AppDataArchive.deleteTree(malformedRecovery.work());file(malformedRecovery.work(),new byte[]{1});
             rejects(()->AppDataArchive.recover(malformedRecovery),"unreadable/nondirectory recovery storage fails closed");
@@ -183,6 +191,7 @@ public final class AppDataArchiveTest {
             check(restored.preferences().equals(empty()),"invalid basemap preference cannot mutate live settings");
         }
     }
+    private static int indexOf(byte[] data,byte[] part){outer:for(int i=0;i<=data.length-part.length;i++){for(int j=0;j<part.length;j++)if(data[i+j]!=part[j])continue outer;return i;}return -1;}
     private static void compare(Store a,Store b)throws Exception {
         check(a.preferences().equals(b.preferences()),"every preference type and namespace roundtrips");
         for(String path:new String[]{"rides/"+ID+".csv","phone-rides/"+ID+"-phone.csv","phone-rides/"+ID+"-motion.csv","charge-recordings/"+ID+".csv"})check(Arrays.equals(Files.readAllBytes(new File(a.files(),path).toPath()),Files.readAllBytes(new File(b.files(),path).toPath())),"recording bytes preserved: "+path);

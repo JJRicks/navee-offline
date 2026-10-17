@@ -32,8 +32,9 @@ schedule. No bounty program is offered.
   are not additionally encrypted inside the app; protection depends on the
   phone's operating system, lock, and storage security. A rooted or compromised
   device is outside that protection.
-- The plain JSON owner backup contains the credential. The full `.voltbackup`
-  export is password-encrypted and includes credentials and ride history.
+- The plain JSON owner backup contains the credential. Every `.voltbackup`
+  is password-encrypted; with Scooters or Rides selected it includes
+  credentials or ride history.
   Keep either private. See [Privacy](PRIVACY.md) for export differences.
 - USB debugging and Shizuku grant broad debugging access. The setup helpers
   restrict their own operations, require consent, and verify cleanup before

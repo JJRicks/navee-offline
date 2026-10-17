@@ -512,6 +512,29 @@ public final class ChargeSessionStore {
             return result.finishing!=null || binsQualified?result:null;
         }
     }
+    /** Header facts of a saved journal, read without recovery or any write to its folder. */
+    static final class Journal {
+        final String profile;final long startedWall,startedMono;final boolean finished;
+        Journal(String profile,long wall,long mono,boolean finished){this.profile=profile;startedWall=wall;startedMono=mono;this.finished=finished;}
+    }
+    static Journal inspectJournal(File file)throws IOException{
+        if(!file.isFile()||java.nio.file.Files.isSymbolicLink(file.toPath()))throw new IOException("Unexpected charge file.");
+        Session session=read(file);if(session==null)throw new IOException("The backup contains an unreadable charge.");
+        return new Journal(session.profile,session.startedWall,session.startedMono,session.stop!=null);
+    }
+    /** Private restore staging only: the header names the destination scooter, samples are unchanged. */
+    static void reassignJournal(File source,String profile)throws IOException{
+        if(profile==null||!profile.matches("[A-Za-z0-9_-]{1,128}"))throw new IOException("Choose a destination scooter.");
+        inspectJournal(source);byte[] bytes=java.nio.file.Files.readAllBytes(source.toPath());int end=0;
+        while(end<bytes.length&&end<=512&&bytes[end]!='\n')end++;
+        if(end>=bytes.length||end>512)throw new IOException("The backup contains an unreadable charge.");
+        String[] header=new String(bytes,0,end,StandardCharsets.UTF_8).split(",",-1);
+        if(header.length!=5)throw new IOException("The backup contains an unreadable charge.");
+        header[1]=profile;File temporary=new File(source.getPath()+".mapping");
+        try(FileOutputStream out=new FileOutputStream(temporary)){out.write(String.join(",",header).getBytes(StandardCharsets.UTF_8));out.write(bytes,end,bytes.length-end);out.getFD().sync();}
+        try{temporary.setLastModified(source.lastModified());if(!profile.equals(inspectJournal(temporary).profile)||!temporary.renameTo(source))throw new IOException("Could not associate the restored charge.");}
+        catch(IOException failure){temporary.delete();throw failure;}
+    }
     private static Session read(File file)throws IOException{
         if(file.length()>MAX_FILE_BYTES+1024)return null;
         Session session=new Session();int lines=0;

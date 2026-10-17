@@ -32,6 +32,9 @@ for name in RideAutoStopPolicy; do
     sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
 done
 sources+=("$TEST_DIR/RideAutoStopStoreTest.java")
+# Unified backup: category registry, archive, plan and transaction (pure Java, temporary files only).
+for name in BackupRegistry BackupJson BackupProfiles BackupArchive BackupTransaction; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java"); done
+for name in BackupRegistryTest BackupTestStore BackupArchiveTest BackupPlanTest BackupTransactionTest; do sources+=("$TEST_DIR/$name.java"); done
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
 for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"
@@ -46,3 +49,13 @@ java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RouteSpeedScaleTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.LockSliderTrailTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopPolicyTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopStoreTest
+
+# Unified backup suites.
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.BackupRegistryTest "$APP_DIR/src/local/navee/offlinelock"
+# These suites run hundreds of synthetic restores; a RAM-backed temporary folder keeps their
+# fsyncs fast. AppDataArchiveTest and RideArchiveTest still exercise the normal folder.
+backup_tmp=()
+[[ -d /dev/shm && -w /dev/shm ]] && backup_tmp=(-Djava.io.tmpdir=/dev/shm)
+for name in BackupArchiveTest BackupPlanTest BackupTransactionTest; do
+    (cd "$APP_DIR" && java "${backup_tmp[@]}" -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.$name")
+done

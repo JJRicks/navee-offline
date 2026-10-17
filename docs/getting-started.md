@@ -62,9 +62,8 @@ Install newer APKs from [project Releases](https://github.com/JJRicks/navee-offl
 
 Before clearing Android app storage, uninstalling, or switching to a differently signed build, save what you need:
 
-- **Dashboard backup:** **More → App preferences → Dashboard backups** exports layouts and widget options without owner keys or telemetry. Custom titles and notes are included.
-- **Full backup:** Developer options provide password-encrypted `.voltbackup` files containing profiles, private owner setup, preferences, history and recordings. Save outside Volt, keep the file private, and retain its password; it cannot be recovered.
+- **Back up & restore:** **More → About & permissions → Back up & restore** saves a password-encrypted `.voltbackup` with the categories you choose, up to everything: scooters and private owner setup, dashboards, preferences, rides, charges and history. Save outside Volt, keep the file private, and retain its password; it cannot be recovered.
 
-Restore does not grant Android permissions, Bluetooth pairing or Shizuku authorization; grant them again as needed. Read [Back up and restore](user-guide.md#back-up-and-restore) before using a full backup, especially before clearing storage.
+Restore does not grant Android permissions, Bluetooth pairing or Shizuku authorization; grant them again as needed. Read [Back up and restore](user-guide.md#back-up-and-restore) before clearing storage.
 
 For everyday controls, recording and dashboard customization, continue to the [user guide](user-guide.md). To report a problem, see [Contributing](../CONTRIBUTING.md); use [Security](../SECURITY.md) for exposed credentials or vulnerabilities.
