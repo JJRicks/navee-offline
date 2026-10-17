@@ -310,4 +310,6 @@ Disposable emulators only (`ranchu`/`goldfish`/`sdk_gphone`), Bluetooth off, nev
    - `BackupInventoryValidation` last, read-only, against the storage the journeys left.
 2. `python3 android-tests/run-ride-backups.py …` (default cases 344×882 dark/1 and 725×604 light/1.4): `.voltrides` import through Back up & restore with Rides preselected, destination choice, review and apply, no duplicate after a second import, failed provider close and retry, interrupted move recovery, then the cold `check-reopened-range` process relearning range from three restored rides.
 
-Inspect the mapping, preview and category renders. Physical-phone restore has not been exercised.
+3. `python3 android-tests/run-backup-scenario.py … --render` seeds a synthetic source phone (two scooters, 3 rides, 15 charges), writes complete, single-category, truncated and corrupted `.voltbackup` files, seeds a target phone (another scooter, 12 charges) and renders the restore screens at both default cases: a refused damaged file with **Choose another file**, the category list (Merge by default), the two-scooter destination step and the merge review with the 20-charge limit line. FLAG_SECURE keeps these screens out of screenshots, so the renders are drawn in-process. Without `--render` it leaves the files in `Download/volt-scenario/` for driving the system picker by hand, and `--inspect` reports scooters, rides, charges and settings afterwards.
+
+Inspect the mapping, preview, category and restore renders. Physical-phone restore has not been exercised.
