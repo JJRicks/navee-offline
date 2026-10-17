@@ -1,7 +1,7 @@
 {
   "name": "Volt",
   "short_name": "Volt",
-  "description": "The offline command center for your NAVEE scooter.",
+  "description": "The offline command center for your NAVEE UT5 MAX.",
   "start_url": "/",
   "display": "browser",
   "background_color": "#0a0a0b",
