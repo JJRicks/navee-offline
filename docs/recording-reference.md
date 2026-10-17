@@ -107,8 +107,8 @@ scooter speed matched to each fix (same GPS epoch, reading at most 3 s old) when
 that covers at least half of the drawn fixes or as many as GPS speed does;
 otherwise GPS speed. It never mixes sources within a ride. Points without the
 chosen source are no data (dashed gray), not zero. The scale is km/h internally:
-0 to the 95th percentile (capped at the upper quartile plus three interquartile
-ranges), rounded up to 5 km/h with a 10 km/h minimum; higher values use the top
+0 to the 95th percentile of moving (non-zero) points (capped at the upper
+quartile plus three interquartile ranges when the quartiles differ), rounded up to 5 km/h with a 10 km/h minimum; higher values use the top
 color. Units change labels only. Segments are not joined across gaps.
 
 ## Ride exports and journal format

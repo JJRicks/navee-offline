@@ -80,6 +80,15 @@ public final class RouteSpeedScaleTest {
         RouteSpeedScale steady = RouteSpeedScale.of(constant(30, 20.0), nulls(30));
         check(steady.topKmh == 25 && steady.fraction(20) == .8, "Constant speed sits below the clipped end");
         check(RouteSpeedScale.of(constant(30, 3.0), nulls(30)).topKmh == RouteSpeedScale.MIN_TOP_KMH, "Slow constant speed keeps the minimum span");
+        // Long stops neither collapse the scale nor clip all riding to the top colour.
+        Double[] parked = new Double[100];
+        for (int i = 0; i < 100; i++) parked[i] = i < 80 ? 0.0 : 15.0 + (i - 80) / 2.0;
+        RouteSpeedScale stopped = RouteSpeedScale.of(parked, nulls(100));
+        check(stopped.topKmh == 25, "Mostly-parked ride scales to its moving speed: " + stopped.topKmh);
+        check(red(stopped.color(80)) < red(stopped.color(99)) && stopped.color(90) != RouteSpeedScale.HIGH, "Moving speeds keep a spread after long stops");
+        Double[] governed = constant(40, 25.0); for (int i = 36; i < 40; i++) governed[i] = 33.0;
+        RouteSpeedScale limit = RouteSpeedScale.of(governed, nulls(40));
+        check(limit.topKmh == 35 && limit.color(39) != RouteSpeedScale.HIGH, "Held speed limit keeps faster stretches below the top: " + limit.topKmh);
         Double[] negative = {-1.0, 5.0};
         check(RouteSpeedScale.of(negative, nulls(2)).kmh(0) == 0.0, "Negative speed reads as stopped");
 

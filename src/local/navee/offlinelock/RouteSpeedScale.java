@@ -13,8 +13,9 @@ import java.util.Locale;
  * otherwise GPS speed. The choice applies to the whole ride, so the route never silently switches
  * between sensors. A point without the chosen source is no data, never zero.
  *
- * <p>Scale: 0 to the 95th percentile, capped at the upper quartile plus three interquartile
- * ranges so a lone spike cannot stretch the scale, then rounded up to a 5 km/h step with at least
+ * <p>Scale: 0 to the 95th percentile of moving (non-zero) points, capped at the upper quartile
+ * plus three interquartile ranges when they spread so a lone spike cannot stretch the scale and
+ * long stops cannot collapse it, then rounded up to a 5 km/h step with at least
  * 10 km/h of span. Values beyond the top clip to the top colour. The scale depends only on the
  * ride, so panning, zooming and expanding keep the same colours.
  */
@@ -98,13 +99,16 @@ final class RouteSpeedScale {
     }
 
     private static double top(Double[] values) {
-        double[] sorted = new double[count(values)];
+        int moving = 0;
+        for (Double v : values) if (v != null && v > 0) moving++;
+        if (moving == 0) return MIN_TOP_KMH;
+        double[] sorted = new double[moving];
         int k = 0;
-        for (Double v : values) if (v != null) sorted[k++] = v;
-        if (sorted.length == 0) return MIN_TOP_KMH;
+        for (Double v : values) if (v != null && v > 0) sorted[k++] = v;
         Arrays.sort(sorted);
-        double q1 = percentile(sorted, .25), q3 = percentile(sorted, .75);
-        double robust = Math.min(percentile(sorted, .95), q3 + 3 * (q3 - q1));
+        double q1 = percentile(sorted, .25), q3 = percentile(sorted, .75), p95 = percentile(sorted, .95);
+        // Identical quartiles (a held governor limit) would cap at q3 and clip every faster point.
+        double robust = q3 > q1 ? Math.min(p95, q3 + 3 * (q3 - q1)) : p95;
         double top = Math.ceil(robust / STEP_KMH) * STEP_KMH;
         // A constant speed sits just below the top instead of on the clipped end.
         if (top <= robust) top += STEP_KMH;
