@@ -574,7 +574,7 @@ public final class GuidedTestValidation extends Instrumentation {
         });
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "controls")); settle();
         awaitText("Unfinished test · Dashboard units"); screenshot("interrupt-2-relaunch-banner");
-        main(() -> { View review = root().findViewWithTag("scooter-review-test"); require(review != null && review.isShown(), "no Review pill"); review.performClick(); }); settle();
+        main(() -> { View review = root().findViewWithTag("scooter-review-test"); require(review != null && review.isShown(), "no Review pill"); require("Review unfinished test".contentEquals(review.getContentDescription()), "Review pill label " + review.getContentDescription()); review.performClick(); }); settle();
         awaitText("Unfinished test · Dashboard units");
         main(() -> require(texts(root()).contains("Connect to this scooter to review.") && texts(root()).contains("Setting confirmed · Interrupted/no response"), "offline review " + texts(root()).replace('\n', '|')));
         revealText("Unfinished test · Dashboard units"); screenshot("interrupt-3-relaunch-review-offline");
