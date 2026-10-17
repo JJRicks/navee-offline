@@ -17,7 +17,7 @@ public final class StockChargeReferenceTest {
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(live(1d),live(volts),live(-watts/volts),live(99d),live(15.3),live(100d));
         return ChargingEstimate.forScooter(baseline,live(99d),live(15.3),2538,ChargeSessionStore.Charger.STOCK,null);
     }
-    private static ChargingEstimate.Result runtimeTaper(double watts,StockChargeReferenceGate gate,long frame){
+    private static ChargingEstimate.Result runtimeTaper(double watts,ChargeReferenceGate gate,long frame){
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(live(1d),live(54.387),live(-watts/54.387),live(99d),live(15.3),live(100d));
         return ChargingEstimate.forScooter(baseline,live(99d),live(15.3),2538,ChargeSessionStore.Charger.STOCK,null,gate,"test",frame,frame);
     }
@@ -37,7 +37,7 @@ public final class StockChargeReferenceTest {
         check(taper(53.8,104).remainingMinutesToFull>taper(54.12,104).remainingMinutesToFull+5,
                 "The same power at an earlier voltage cannot be mistaken for a later taper stage");
         check(!taper(52,104).referenceToFull&&!taper(56,104).referenceToFull,"Distant voltages cannot extrapolate a finishing trajectory");
-        StockChargeReferenceGate taperGate=new StockChargeReferenceGate();
+        ChargeReferenceGate taperGate=new ChargeReferenceGate();
         check(runtimeTaper(32,taperGate,1000).referenceToFull,"Compatible late-taper power admits the runtime reference");
         check(runtimeTaper(31,taperGate,2000).referenceToFull&&runtimeTaper(31,taperGate,3000).referenceToFull,
                 "Two brief late-taper power misses retain the existing 20% grace through the matcher");

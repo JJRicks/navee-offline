@@ -55,7 +55,7 @@ public final class ScooterService extends Service {
     }
     private ChargeSessionStore chargeStore;
     private ChargeSessionStore.Snapshot chargeSnapshot;
-    private final StockChargeReferenceGate stockChargeReferenceGate = new StockChargeReferenceGate();
+    private final ChargeReferenceGate chargeReferenceGate = new ChargeReferenceGate();
     private final ChargerDetection chargerDetection = new ChargerDetection();
     private boolean chargeModelLoading, chargeUpdating, chargeExporting;
     private long chargeEndingMono;
@@ -77,8 +77,8 @@ public final class ScooterService extends Service {
     private final SharedPreferences.OnSharedPreferenceChangeListener settingsChanged =
             (prefs, key) -> {
                 if (key != null && key.startsWith("charge_charger_")) {
-                    if (Looper.myLooper() == Looper.getMainLooper()) resetChargeEstimateContext();
-                    else handler.post(this::resetChargeEstimateContext);
+                    if (Looper.myLooper() == Looper.getMainLooper()) chargeReferenceGate.reset();
+                    else handler.post(chargeReferenceGate::reset);
                     return;
                 }
                 if (key == null) return;
@@ -244,15 +244,34 @@ public final class ScooterService extends Service {
     public ChargeSessionStore.Charger chargeCharger(){
         try{return ChargeSessionStore.Charger.valueOf(settings.getString(chargerKey(),""));}catch(IllegalArgumentException invalid){return null;}
     }
+    /** Why a charger family drives estimates, in precedence order. */
+    public enum ChargerBasis{RECORDING,MANUAL,DETECTED,UNKNOWN}
     /** A recording's manually confirmed label is temporary and never changes the preference. */
+    public ChargerBasis chargerBasis(){
+        if(isChargeRecording()&&activeProfileId().equals(chargeStore.profile()))return ChargerBasis.RECORDING;
+        if(chargeCharger()!=null)return ChargerBasis.MANUAL;
+        return detectedCharger()!=null?ChargerBasis.DETECTED:ChargerBasis.UNKNOWN;
+    }
     public ChargeSessionStore.Charger effectiveChargeCharger(){
-        if(isChargeRecording()&&activeProfileId().equals(chargeStore.profile()))return chargeStore.charger();
-        ChargeSessionStore.Charger manual=chargeCharger();
-        return manual!=null?manual:chargerDetection.selected();
+        switch(chargerBasis()){
+            case RECORDING:return chargeStore.charger();
+            case MANUAL:return chargeCharger();
+            case DETECTED:return detectedCharger();
+            default:return null;
+        }
+    }
+    /** Automatic inference for the active scooter's current charge, already checked for age. */
+    private ChargeSessionStore.Charger detectedCharger(){
+        ScooterProfiles.Profile profile=profiles==null?null:profiles.active();
+        return destroyed||simulating()||profile==null?null:chargerDetection.selected(profile.id,SystemClock.elapsedRealtime());
+    }
+    private int qualifiedSessions(ChargeSessionStore.Charger charger){
+        ChargeSessionStore.Curve curve=chargeSnapshot==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
+        return curve==null?0:curve.qualifiedSessions;
     }
     public boolean setChargeCharger(ChargeSessionStore.Charger charger){
         if(destroyed||isChargeRecording()||activeProfileId().isEmpty())return false;
-        resetChargeEstimateContext();
+        chargeReferenceGate.reset();
         SharedPreferences.Editor edit=settings.edit();
         if(charger==null)edit.remove(chargerKey());else edit.putString(chargerKey(),charger.name());
         edit.apply();changed();return true;
@@ -283,7 +302,7 @@ public final class ScooterService extends Service {
             chargeStore.start(activeProfileId(),charger,wall,mono);chargeEndingMono=0;
             chargeRecovery=new ChargeRecoveryPolicy(activeProfileId(),ble.currentTransportSerial(),mono,ble.intentionalDisconnectSequence());
             ble.recordDiagnostic(ConnectionEventLog.Reason.CHARGE_STARTED,-1);
-            stockChargeReferenceGate.reset();
+            chargeReferenceGate.reset();
             chargeStore.sample(chargeFrame(mono,wall),chargeRecordingEstimate());chargeStatus="Charge recording started";
             cancelBackgroundDeadline();applyWorkPolicy(false);updateNotification();changed();return isChargeRecording();
         }catch(IOException|IllegalStateException failure){chargeStatus="Could not start charge recording";finishChargeCapture(ChargeSessionStore.Stop.ERROR);changed();return false;}
@@ -295,26 +314,17 @@ public final class ScooterService extends Service {
             return "Reconnecting · "+Math.max(1,(chargeRecovery.remainingMs(SystemClock.elapsedRealtime())+999)/1000)+"s";
         return (chargeStore.charger()==ChargeSessionStore.Charger.STOCK?"Stock charger":"High-speed charger")+" · "+chargeStore.sampleCount()+" local samples";
     }
-    /** Qualified charge sessions behind the selected charger's learned curve (the count in chargeLearningSummary); -1 while loading. */
+    /** Qualified sessions behind the curve estimates actually use; 0 while the charger is unknown, -1 while loading. */
     public int qualifiedChargeCurves(){
         if(chargeModelLoading)return -1;
         ChargeSessionStore.Charger charger=effectiveChargeCharger();
-        if(charger==null){
-            int total=0;
-            if(chargeSnapshot!=null)for(ChargeSessionStore.Charger family:ChargeSessionStore.Charger.values()){
-                ChargeSessionStore.Curve curve=chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),family));
-                if(curve!=null)total+=curve.qualifiedSessions;
-            }
-            return total;
-        }
-        ChargeSessionStore.Curve curve=chargeSnapshot==null||charger==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
-        return curve==null?0:curve.qualifiedSessions;
+        return charger==null?0:qualifiedSessions(charger);
     }
     public String chargeLearningSummary(){
         if(chargeModelLoading)return "Loading saved charge recordings";
         ChargeSessionStore.Charger charger=effectiveChargeCharger();
         int qualified=qualifiedChargeCurves();
-        return qualified+" qualified "+(charger==null?"":charger==ChargeSessionStore.Charger.HIGH_SPEED?"high-speed ":"stock ")+"charge"+(qualified==1?"":"s")
+        return (charger==null?"Not applied until the charger is known":qualified+" qualified "+(charger==ChargeSessionStore.Charger.HIGH_SPEED?"high-speed":"stock")+" charge"+(qualified==1?"":"s"))
                 +" · "+(chargeSnapshot==null?0:chargeSnapshot.sessions)+" recordings stored";
     }
     public boolean clearChargeRecordings(Runnable completion){
@@ -460,7 +470,6 @@ public final class ScooterService extends Service {
     }
     /** Fresh paired data first; recognized models get defaults without requiring capture setup. */
     public ChargingEstimate.Result chargingEstimate(Map<String,TelemetryHistory.Reading> readings){
-        updateChargerDetection();
         ChargingEstimate.Value soc=chargingValue(readings,"battery_percent"),rated=chargingValue(readings,"rated_capacity_ah");
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(chargingValue(readings,"charging_state"),chargingValue(readings,"voltage_v"),
                 chargingValue(readings,"current_a"),soc,rated,chargingValue(readings,"charge_limit_percent"));
@@ -468,36 +477,40 @@ public final class ScooterService extends Service {
         ChargeSessionStore.Curve curve=simulating()||chargeSnapshot==null||charger==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
         ScooterProfiles.Profile profile=profiles.active();
         if(!canRetainStockReference()){
-            resetChargeEstimateContext();
+            chargeReferenceGate.reset();
             return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile==null?null:profile.savedDescriptor()),charger,curve);
         }
         // UT5 MAX reference curves only for the UT5 MAX layer; other models get live measured estimates.
-        return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),charger,curve,stockChargeReferenceGate,
+        return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),charger,curve,chargeReferenceGate,
                 profile.id+":"+ble.currentTransportSerial(),chargingValue(readings,"current_a").observedMs,SystemClock.elapsedRealtime());
     }
 
     private void resetChargeEstimateContext(){
-        stockChargeReferenceGate.reset();
+        chargeReferenceGate.reset();
         chargerDetection.reset();
     }
 
-    /** Observe real electrical frames even when no widget is open. Never use cached display data. */
+    /**
+     * Observe real electrical frames once per update, even when no widget is open. A disconnect
+     * or unusable frame leaves the remembered family to expire by age; renders only read it.
+     * A lost link is noted so a near-full reconnect cannot keep a possibly swapped charger.
+     */
     private void updateChargerDetection(){
-        if(!canRetainStockReference()){
-            resetChargeEstimateContext();
-            return;
-        }
+        ScooterProfiles.Profile profile=profiles==null?null:profiles.active();
+        if(destroyed||simulating()||profile==null){chargerDetection.reset();return;}
+        if(ble!=null&&ble.currentTransportSerial().isEmpty())chargerDetection.disconnected();
+        if(ble==null||!ble.ready()||ble.profile()==null||!profile.id.equals(ble.profile().id))return;
         long now=SystemClock.elapsedRealtime();
         ChargeSessionStore.Frame frame=chargeFrame(now,System.currentTimeMillis());
-        // Display/estimation freshness is 15s because the user may choose a 10s battery poll.
-        // Capture retains its stricter 5s frame gate; detection must not restart between polls.
-        if(frame.voltage.source!=frame.current.source){
-            chargerDetection.reset();
-            return;
-        }
-        ScooterProfiles.Profile profile=profiles.active();
-        chargerDetection.observe(profile.id+":"+ble.currentTransportSerial(),ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),true,
-                frame.soc.value,frame.voltage.value,Math.abs(frame.current.value),frame.current.mono,now);
+        if(!liveCharge(frame.state,"charging_state",now))return;
+        boolean paired=liveCharge(frame.soc,"battery_percent",now)&&liveCharge(frame.voltage,"voltage_v",now)
+                &&liveCharge(frame.current,"current_a",now)&&frame.voltage.mono==frame.current.mono;
+        chargerDetection.observe(profile.id,ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),frame.state.value==1d,paired?frame.soc.value:null,
+                paired?frame.voltage.value:null,paired?frame.current.value:null,paired?frame.current.mono:0,now);
+    }
+    private static boolean liveCharge(ChargeSessionStore.Value value,String key,long now){
+        return value!=null&&value.value!=null&&Double.isFinite(value.value)&&value.mono>0&&now>=value.mono
+                &&now-value.mono<=TelemetryHistory.freshnessMs(key);
     }
 
     /** Losing readiness or charging freshness invalidates grace even when no widget is open. */
@@ -803,7 +816,7 @@ public final class ScooterService extends Service {
             };
 
     private void addTrend(ArrayDeque<Ui.Point> values,String key,long now){for(Telemetry.Metric m:ble.telemetry.metrics())if(m.key.equals(key)&&m.numericValue!=null&&m.updatedMs>=0&&now>=m.updatedMs&&now-m.updatedMs<2500){if(values.isEmpty()||values.peekLast().millis<m.updatedMs)values.add(new Ui.Point(m.updatedMs,m.numericValue));break;}while(!values.isEmpty()&&now-values.peek().millis>120000)values.remove();while(values.size()>240)values.remove();}
-    private void changed(){if(destroyed)return;updateChargerDetection();updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeRideAutoStop(SystemClock.elapsedRealtime());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
+    private void changed(){if(destroyed)return;updateChargerDetection();if(!canRetainStockReference())chargeReferenceGate.reset();updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeRideAutoStop(SystemClock.elapsedRealtime());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
     public boolean followsRidingMode() {
         return settings.getBoolean("range_follow_mode_" + activeProfileId(), true);
     }

@@ -12,7 +12,7 @@ sources=()
 for name in ChargerDetection Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
 done
-sources+=("$TEST_DIR/DualChargerEstimateTest.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxFastChargeReference.java" "$TEST_DIR/Ut5MaxFastChargeReferenceTest.java" "$APP_DIR/src/local/navee/offlinelock/ChargeTaperMatcher.java" "$TEST_DIR/StockChargeHoldoutTrace.java" "$TEST_DIR/ChargeTaperMatcherTest.java" "$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockChargeReference.java" "$APP_DIR/src/local/navee/offlinelock/StockChargeReferenceGate.java" "$TEST_DIR/CompletedChargeEstimateTest.java" "$TEST_DIR/StockChargeReferenceTest.java" "$TEST_DIR/StockChargeReferenceGateTest.java")
+sources+=("$TEST_DIR/DualChargerEstimateTest.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxFastChargeReference.java" "$TEST_DIR/Ut5MaxFastChargeReferenceTest.java" "$APP_DIR/src/local/navee/offlinelock/ChargeTaperMatcher.java" "$TEST_DIR/StockChargeHoldoutTrace.java" "$TEST_DIR/ChargeTaperMatcherTest.java" "$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockChargeReference.java" "$APP_DIR/src/local/navee/offlinelock/ChargeReferenceGate.java" "$TEST_DIR/CompletedChargeEstimateTest.java" "$TEST_DIR/StockChargeReferenceTest.java" "$TEST_DIR/ChargeReferenceGateTest.java")
 # Compile the actual Android coordinator against test-only binding and preferences APIs.
 # These stubs are confined to this test output and never enter the Android build.
 for source in "$TEST_DIR"/shizuku-stubs/android/content/*.java \
@@ -47,7 +47,7 @@ done
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.CompletedChargeEstimateTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeTaperMatcherTest
-java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceGateTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeReferenceGateTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ShizukuCaptureClientTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RouteSpeedScaleTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.LockSliderTrailTest
