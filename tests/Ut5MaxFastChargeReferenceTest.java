@@ -80,6 +80,17 @@ public final class Ut5MaxFastChargeReferenceTest {
         check(!Ut5MaxFastChargeReference.powerCompatible(80, 260, Double.NaN), "Invalid tolerance");
         check(!Ut5MaxFastChargeReference.powerCompatible(80, 260, -1), "Negative tolerance");
 
+        // Acceptance is continuous where bulk meets the measured taper.
+        for (double volts = 52.5; volts <= 54.5; volts += .01)
+            check((estimate(71.9999, 100, 525 / volts, 525) != null) == (estimate(72, 100, 525 / volts, 525) != null),
+                    "No acceptance step at the bulk/taper boundary: " + volts);
+        // Stock charger power never fits the high-speed curve before the shared 96-100% overlap,
+        // where the charger detector, not this shape check, decides the family.
+        for (int soc = 0; soc < 96; soc++)
+            for (double watts = 95; watts <= 121.5; watts += 6.5)
+                for (double volts = 46; volts <= 54.4; volts += .4)
+                    check(estimate(soc, 100, watts / volts, watts) == null,
+                            "Stock power is not admitted at " + soc + "% / " + watts + " W / " + volts + " V");
         double previous = -1;
         for (int tenth = 601; tenth <= 1000; tenth++) {
             Double minutes = estimate(60, tenth / 10d, 10.09, 522);
@@ -134,6 +145,22 @@ public final class Ut5MaxFastChargeReferenceTest {
         double max = errors.get(errors.size() - 1);
         check(mae < .7 && p95 < 1.9 && max < 3.5,
                 "Same-session calibration regression bounds: MAE=" + mae + ", p95=" + p95 + ", max=" + max);
+        // A fixed pack or sensor offset must not silently drop the reference in the taper.
+        for (double shift : new double[]{-.3, -.2, .2, .3}) {
+            int shiftedRejected = 0;
+            double shiftedError = 0;
+            for (double[] row : calibration) {
+                if (row[1] >= 100) continue;
+                double volts = row[2] + shift;
+                Double minutes = estimate(row[1], 100, row[3], row[3] * volts);
+                if (minutes == null) shiftedRejected++;
+                else shiftedError += Math.abs(minutes - (finish - row[0]));
+            }
+            check(shiftedRejected == 0, "Offset " + shift + " V keeps every calibration sample: " + shiftedRejected);
+            double shiftedMae = shiftedError / errors.size();
+            check(shiftedMae < .8, "Offset " + shift + " V keeps calibration accuracy: " + shiftedMae);
+            System.out.printf(Locale.US, "Fast reference with %+.1f V offset: MAE %.3f min%n", shift, shiftedMae);
+        }
         System.out.printf(Locale.US,
                 "Fast reference CALIBRATION REPLAY (not independent validation): %d samples, MAE %.3f min, p95 %.3f min, max %.3f min%n",
                 errors.size(), mae, p95, max);
