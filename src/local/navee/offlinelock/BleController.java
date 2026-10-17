@@ -78,7 +78,7 @@ public final class BleController {
     public boolean simulationCharging(){return simulation!=null&&simulation.charging();}
     /** Developer simulator model: "" (UT5 MAX) or a synthetic advertised ID. Memory only; never reaches a profile. */
     public String simulationModel(){return simulationModel;}
-    public void setSimulationModel(String pid){String next=pid==null?"":pid;if(!next.equals(simulationModel)){if(discovering)stopDiscovery();clearDiscovery();}simulationModel=next;if(simulation!=null){simulation.setModel(simulationModel);tickSimulation();}changed();}
+    public void setSimulationModel(String pid){String next=pid==null?"":pid;if(simulation!=null&&!next.equals(simulationModel)){if(discovering)stopDiscovery();clearDiscovery();}simulationModel=next;if(simulation!=null){simulation.setModel(simulationModel);tickSimulation();}changed();}
     public void setSimulationCharging(boolean charging){if(simulation==null)return;simulation.setCharging(charging);tickSimulation();changed();}
     private void connectSimulation(){if(simulation==null)return;state=State.READY;updateSimulation();notice("Simulated connection");}
     /** Simulation changes need no caption or toast: the persistent banner already says the data is simulated. */
