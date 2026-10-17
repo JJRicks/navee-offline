@@ -13,7 +13,7 @@ storage:
 
 | Data | Purpose |
 | --- | --- |
-| Owner identity, role, scooter address/serial, profile name | Reconnect to your scooter locally |
+| Owner identity, role, scooter address/serial, profile name, and the model ID the scooter advertised (with when it was seen) | Reconnect to your scooter locally and choose which controls its model supports. Backups that include Scooters carry them |
 | Preferences, widget layouts, saved slots, notes, favorites | Restore your chosen interface |
 | Last-seen parameters and connection/command results | Show stale values and explain connection state |
 | Connected history | Draw local historical charts and estimates |
