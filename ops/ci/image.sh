@@ -4,6 +4,7 @@
 set -euo pipefail
 [[ $(id -u) == 0 ]] || { echo 'Run as root on the image builder.' >&2; exit 1; }
 [[ ! -e /var/lib/volt-ci-job-started ]] || { echo 'Refusing to image a used worker.' >&2; exit 1; }
+[[ $(uname -m) == aarch64 ]] || { echo "This image targets ARM64." >&2; exit 1; }
 export DEBIAN_FRONTEND=noninteractive
 apt-get update
 apt-get install -y --no-install-recommends ca-certificates curl git openssh-client \
@@ -14,8 +15,8 @@ install -d -o volt-runner -g volt-runner -m 0755 /opt/volt-runner /opt/hostedtoo
 version=2.337.0
 archive=/tmp/actions-runner.tar.gz
 curl --fail --silent --show-error --location \
-  "https://github.com/actions/runner/releases/download/v${version}/actions-runner-linux-x64-${version}.tar.gz" -o "$archive"
-echo '70920811a4f8ad4328818682bca5c6469c1c942fab52448868071d0063816613  /tmp/actions-runner.tar.gz' | sha256sum -c -
+  "https://github.com/actions/runner/releases/download/v${version}/actions-runner-linux-arm64-${version}.tar.gz" -o "$archive"
+echo '9b1dc70626422526e3c94767cf024896beb15da5342a3f4819bf2feac13e0393  /tmp/actions-runner.tar.gz' | sha256sum -c -
 tar -xzf "$archive" -C /opt/volt-runner
 chown -R volt-runner:volt-runner /opt/volt-runner
 rm -f "$archive"
@@ -64,7 +65,7 @@ User=volt-runner
 Group=volt-runner
 WorkingDirectory=/opt/volt-runner
 Environment=RUNNER_TOOL_CACHE=/opt/hostedtoolcache
-Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-amd64
+Environment=JAVA_HOME=/usr/lib/jvm/java-17-openjdk-arm64
 ExecStart=/opt/volt-ci/run-job
 ExecStopPost=+/usr/bin/systemctl --no-block poweroff
 RuntimeMaxSec=20min
