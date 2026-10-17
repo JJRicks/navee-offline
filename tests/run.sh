@@ -24,7 +24,7 @@ for source in "$TEST_DIR"/shizuku-stubs/android/content/*.java \
 done
 sources+=("$APP_DIR/src/local/navee/offlinelock/ShizukuCaptureClient.java" "$TEST_DIR/ShizukuCaptureClientTest.java")
 # Model compatibility suites (separate block to limit merge conflicts with sibling branches).
-COMPAT_TESTS=(DeviceDescriptor AdvertisedIdentity StatusFields WireCommands ModelRegistry CapabilityResolver MutationGate ReadPolicy DiscoveryCoordinator)
+COMPAT_TESTS=(DeviceDescriptor AdvertisedIdentity StatusFields WireCommands ModelRegistry CapabilityResolver MutationGate ReadPolicy DiscoveryCoordinator CompatibilityReport)
 for name in "${COMPAT_TESTS[@]}"; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java"); done
 sources+=("$APP_DIR/src/local/navee/offlinelock/FeatureVariant.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
