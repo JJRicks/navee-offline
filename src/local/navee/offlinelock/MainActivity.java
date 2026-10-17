@@ -1415,11 +1415,15 @@ public final class MainActivity extends Activity implements ScreenHost {
             ScooterProfiles.Profile profile=scooterService==null?null:scooterService.profiles.active();nameValue.setText(profile==null?"Not set":profile.name);
             boolean chargerEditable=profile!=null&&!scooterService.isChargeRecording();
             chargerLine.line.setEnabled(chargerEditable);chargerLine.name.setTextColor(chargerEditable?design.text:design.muted);
-            ChargeSessionStore.Charger charger=scooterService==null?null:scooterService.chargeCharger();
+            // Name the family estimates actually use, and why when it is not the saved choice.
+            ScooterService.ChargerBasis basis=scooterService==null?ScooterService.ChargerBasis.UNKNOWN:scooterService.chargerBasis();
             ChargeSessionStore.Charger effective=scooterService==null?null:scooterService.effectiveChargeCharger();
-            chargerLine.value.setText(charger==null?(effective==null?"Automatic":"Auto · "+(effective==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":"Stock"))
-                    :charger==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":"Stock");
-            chargerLine.setSub(scooterService!=null&&scooterService.isChargeRecording()?"Stop charge recording to change":null);
+            String family=effective==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":"Stock";
+            chargerLine.value.setText(effective==null?"Automatic":basis==ScooterService.ChargerBasis.DETECTED||basis==ScooterService.ChargerBasis.RECORDINGS?"Auto · "+family:family);
+            chargerLine.setSub(basis==ScooterService.ChargerBasis.RECORDING?"Recording label · stop recording to change"
+                    :basis==ScooterService.ChargerBasis.DETECTED?"Detected from charging power"
+                    :basis==ScooterService.ChargerBasis.RECORDINGS?"From your charge recordings"
+                    :scooterService!=null&&scooterService.isChargeRecording()?"Stop charge recording to change":null);
             if(choiceSheet!=null)choiceSheet.refresh();
         }
     }

@@ -59,6 +59,9 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(service.setSimulation(false),"Could not exit preview");
                 invoke(field(activity,"screen"),"refreshDeveloper",new Class<?>[]{});
                 require(service.chargeCharger()==null,"Developer refresh replaced Automatic with Stock");
+                View curves=root().findViewWithTag("charge-learning-status");
+                require(curves!=null&&String.valueOf(curves.getContentDescription()).contains("not applied until the charger is known")
+                        &&findText(curves,"Not applied until the charger is known")!=null,"Undecided Automatic claimed saved curves apply");
             });settle();screenshot("developer");
             // Create only a low-level journal, exactly as the existing phone-recorder fixture does.
             // This tests service policy/Stop plumbing while the physical-start guard above remains enforced.
@@ -318,6 +321,8 @@ public final class ChargeCaptureValidation extends Instrumentation {
                     "Active capture did not use its own confirmed label separately from the saved override");
             invoke(field(activity,"screen"),"refresh",new Class<?>[]{});
             require(!root().findViewWithTag("estimate-charger-setting").isEnabled(),"Normal charger preference remained enabled during capture");
+            require("High-speed".contentEquals(((TextView)root().findViewWithTag("estimate-charger-value")).getText())
+                    &&findText(root(),"Recording label · stop recording to change")!=null,"Charger row hid the recording label driving estimates");
             invoke(activity,"showChargerEstimateChoice",new Class<?>[]{});
             android.app.AlertDialog dialog=(android.app.AlertDialog)field(activity,"controlDialog");
             require(dialog==null||!dialog.isShowing(),"Charger sheet bypassed active-capture guard");
