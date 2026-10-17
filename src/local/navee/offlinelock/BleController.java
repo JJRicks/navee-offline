@@ -190,7 +190,7 @@ public final class BleController {
         if(!permissions()){notice(NEARBY_NEEDED);return;}if(!bluetoothEnabled()){notice(BLUETOOTH_OFF);return;}
         if(mutation!=null){notice("Busy. Try shortly.");return;}
         if(gatt!=null||state==State.WAITING)close(State.DISCONNECTED);
-        stopScan();discoveries.clear();advertised.clear();identifying=false;scanner=adapter.getBluetoothLeScanner();if(scanner==null){notice("Bluetooth is still starting. Try again.");return;}
+        stopScan();discoveries.clear();advertised.clear();identifying=false;scanner=adapter.getBluetoothLeScanner();if(scanner==null){notice("Bluetooth is still starting. Try again.");if(!only.isEmpty())identifyFailed();return;}
         final int session=generation;final long token=++scanSequence;
         scanCallback=new ScanCallback(){@Override public void onScanResult(int t,ScanResult r){handler.post(()->{
             if(!scanning||session!=generation||token!=scanSequence||!workAllowed()||r.getScanRecord()==null)return;String mac=r.getDevice().getAddress(),name=r.getScanRecord().getDeviceName();List<ParcelUuid> services=r.getScanRecord().getServiceUuids();
@@ -198,15 +198,17 @@ public final class BleController {
             ScooterProfiles.Profile active=profiles.active();boolean known=active!=null&&mac.equals(active.mac);if(!known&&(services==null||!services.contains(new ParcelUuid(SERVICE)))&&(name==null||!name.toLowerCase(Locale.ROOT).contains("navee")))return;
             // Raw AD walk only (see AdvertisedIdentity): the model ID, never the MAC bytes after it.
             AdvertisedIdentity.Result id=AdvertisedIdentity.parse(r.getScanRecord().getBytes());if(id!=null)advertised.put(mac,id);else advertised.remove(mac);
-            if(!only.isEmpty()){stopScan();connectDiscovered(r);return;}
+            if(!only.isEmpty()){if(id!=null){stopScan();connectDiscovered(r);}return;} // Identify waits for a packet with the model ID; the timeout reconnects
             if(!discoveries.containsKey(mac)){discoveries.put(mac,r);changed();}
-        });}@Override public void onScanFailed(int code){handler.post(()->{if(!scanning||session!=generation||token!=scanSequence)return;stopScan();state=State.DISCONNECTED;notice("Scan failed","Scan failed ("+code+")");});}};
+        });}@Override public void onScanFailed(int code){handler.post(()->{if(!scanning||session!=generation||token!=scanSequence)return;stopScan();state=State.DISCONNECTED;notice("Scan failed","Scan failed ("+code+")");if(!only.isEmpty())identifyFailed();});}};
         scanning=true;state=State.SCANNING;message="Searching…";changed();
-        try{scanner.startScan(null,new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),scanCallback);}catch(Exception e){stopScan();state=State.DISCONNECTED;notice("Scan failed","Scan failed (could not start)");return;}
+        try{scanner.startScan(null,new ScanSettings.Builder().setScanMode(ScanSettings.SCAN_MODE_LOW_LATENCY).build(),scanCallback);}catch(Exception e){stopScan();state=State.DISCONNECTED;notice("Scan failed","Scan failed (could not start)");if(!only.isEmpty())identifyFailed();return;}
         scanTimeout=()->{if(scanning&&session==generation&&token==scanSequence){stopScan();state=State.DISCONNECTED;
             if(!only.isEmpty()){identifying=false;connectLast();notice("Model ID not captured");return;}
             notice(discoveries.isEmpty()?NOTHING_FOUND:"Choose your scooter.");}};handler.postDelayed(scanTimeout,only.isEmpty()?14000:8000);
     }
+    /** Identify could not scan: it already closed the connection, so reconnect as the timeout does. */
+    private void identifyFailed(){identifying=false;handler.post(()->{if(wanted&&gatt==null&&!scanning&&workAllowed())connectLast();});}
     private void stopScan(){++scanSequence;if(scanTimeout!=null)handler.removeCallbacks(scanTimeout);scanTimeout=null;if(scanning&&scanner!=null&&scanCallback!=null)try{scanner.stopScan(scanCallback);}catch(Exception ignored){}scanning=false;scanCallback=null;}
     private void connect(ScooterProfiles.Profile p,String mac){
         if(simulating())return;
