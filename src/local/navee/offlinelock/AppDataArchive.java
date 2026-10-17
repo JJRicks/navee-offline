@@ -325,32 +325,7 @@ final class AppDataArchive {
 
     /** Reject known startup/read-path type mismatches before replacing live state. Unknown keys
      * remain portable, preserving preferences added by compatible versions. */
-    static void validatePreferenceTypes(Map<String,Map<String,Object>> all)throws IOException {
-        Map<String,Object> app=all.get("app_settings");
-        types(app,String.class,"theme units temperature_unit time_format more_section scooter_section stats_density stats_query stats_section stats_favourite_order ride_chart_key ride_selected last_ride_label phone_placement owner_import_applied stats_chart_query more_wide_section_scroll map_tile_url map_tile_attribution map_tile_attribution_url");
-        types(app,Boolean.class,"notification_prompted keep_screen_awake auto_connect background_connection phone_gps phone_motion history_enabled dashboard_editing developer_options map_basemap_enabled map_basemap_explained haptics_enabled range_learned_intro_seen");
-        types(app,Integer.class,"poll_interval_ms dashboard_columns stats_chart_window more_wide_menu_scroll more_away_boot stats_away_boot");
-        types(app,Long.class,"more_away_elapsed stats_away_elapsed");types(app,Float.class,"text_scale");
-        types(app,Set.class,"stats_favourites stats_chart_favourites ride_comparison ride_chart_series charge_chart_series");
-        for(String key:app.keySet()) {
-            if(key.startsWith("dashboard_v1_")||key.startsWith("dashboard_slot_v1_")||key.startsWith("charge_charger_")||key.startsWith("range_source_"))type(app,key,String.class);
-            if(key.startsWith("dashboard_empty_example_v1_")||key.startsWith("range_follow_mode_")||key.startsWith("stats_group_")||key.startsWith("stats_chart_group_"))type(app,key,Boolean.class);
-        }
-        if(app.containsKey("text_scale")) {float scale=(Float)app.get("text_scale");if(!Float.isFinite(scale)||scale<.5f||scale>3f)throw new IOException("The backup has an invalid display text scale.");}
-        types(all.get("profiles"),String.class,"items active");types(all.get("profiles"),Boolean.class,"legacy_migrated");
-        types(all.get("scooter"),String.class,"identity last_connected_mac mac serial");types(all.get("scooter"),Integer.class,"role");
-        for(String key:all.get("control_evidence").keySet())type(all.get("control_evidence"),key,String.class);
-        Map<String,Object> onboarding=all.get("onboarding");
-        types(onboarding,Boolean.class,"rerun onboarding_done import_failed nearby_asked connect_requested connect_tried");
-        types(onboarding,Integer.class,"step");types(onboarding,String.class,"path profile_id created_profile_id pending_name");
-        for(String key:onboarding.keySet())if(key.startsWith("tick_"))type(onboarding,key,Boolean.class);
-    }
-    private static void types(Map<String,Object> values,Class<?> expected,String keys)throws IOException {
-        for(String key:keys.split(" "))type(values,key,expected);
-    }
-    private static void type(Map<String,Object> values,String key,Class<?> expected)throws IOException {
-        if(values.containsKey(key)&&!expected.isInstance(values.get(key)))throw new IOException("The backup has an incompatible app preference type.");
-    }
+    static void validatePreferenceTypes(Map<String,Map<String,Object>> all)throws IOException { BackupRegistry.validateTypes(all); }
 
     static byte[] encodePreferences(Map<String,Map<String,Object>> all)throws IOException {
         ByteArrayOutputStream buffer=new ByteArrayOutputStream();DataOutputStream out=new DataOutputStream(buffer);
