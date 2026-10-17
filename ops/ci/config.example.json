@@ -1,0 +1,22 @@
+{
+  "repository": "JJRicks/navee-offline",
+  "deployment_id": "00000000-0000-4000-8000-000000000000",
+  "snapshot_id": 1,
+  "firewall_id": 1,
+  "ssh_key_id": 1,
+  "server_type": "cax11",
+  "location": "fsn1",
+  "runner_arch": "ARM64",
+  "github_token_file": "/etc/volt-ci/github-token",
+  "hetzner_token_file": "/etc/volt-ci/hetzner-token",
+  "ssh_private_key_file": "/etc/volt-ci/worker-access",
+  "state_dir": "/var/lib/volt-ci",
+  "poll_seconds": 20,
+  "cooldown_seconds": 60,
+  "startup_timeout_seconds": 600,
+  "max_lifetime_seconds": 1800,
+  "max_attempts_per_job": 2,
+  "max_launches_per_hour": 12,
+  "max_launches_per_day": 60,
+  "allow_public_repository": false
+}
