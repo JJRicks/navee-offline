@@ -164,8 +164,11 @@ public final class ChargeCaptureValidation extends Instrumentation {
             require(selector!=null,"Charge confirmation has no charger choice");
             @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
             require(choices.size()==2,"Recording labels must stay explicitly Stock or High-speed");
-            require(findText(dialog.getWindow().getDecorView(),"Record with Stock charger?")!=null,"Unknown Automatic capture did not prefill Stock");
+            View start=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-start");
+            require(findText(dialog.getWindow().getDecorView(),"Which charger is attached?")!=null&&!choices.get(0).isSelected()&&!choices.get(1).isSelected()
+                    &&start!=null&&!start.isEnabled(),"Automatic capture pre-selected a training label");
             choices.get(1).performClick();
+            require(start.isEnabled(),"An explicit capture choice did not enable Start");
             require(service.chargeCharger()==previous,"Unconfirmed charger choice changed estimates");
             require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Confirmation did not reflect its local choice");
             findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
@@ -175,12 +178,14 @@ public final class ChargeCaptureValidation extends Instrumentation {
             require(service.setChargeCharger(ChargeSessionStore.Charger.HIGH_SPEED),"Manual capture prefill fixture failed");
             invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
             dialog=lastDialog(more);
-            require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Capture did not prefill effective charger");
+            require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Capture did not prefill the explicit preference");
             findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
             require(service.setChargeCharger(previous),"Could not restore capture preference fixture");
 
             invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
             dialog=lastDialog(more);
+            @SuppressWarnings("unchecked") List<TextView> consent=(List<TextView>)field(field(dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-selector"),"track"),"choices");
+            consent.get(0).performClick();
             ScooterProfiles.Profile second=service.profiles.create("Consent target fixture","222222222222",0);
             findText(dialog.getWindow().getDecorView(),"Start recording").performClick();
             require(service.chargeCharger()==null&&!service.isChargeRecording()&&files().length==0,"Stale charge consent affected a different scooter");
