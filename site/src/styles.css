@@ -260,11 +260,12 @@ h2 { margin: 0 0 20px; font-weight: 700; font-size: clamp(38px, 5.6vw, 72px); li
 
 /* Privacy */
 .privacy-inner {
-  position: relative; overflow: hidden; padding: clamp(48px, 7vw, 92px) clamp(20px, 4vw, 64px); border-radius: 40px; text-align: center;
+  position: relative; overflow: hidden; padding: clamp(48px, 7vw, 92px) clamp(20px, 4vw, 64px) 24px; border-radius: 40px; text-align: center;
   border: 1px solid rgba(234, 37, 43, .28);
   background: radial-gradient(700px 320px at 50% 0%, rgba(234, 37, 43, .2), transparent 70%), rgba(255, 255, 255, .015);
 }
 .privacy h2 sup { margin-left: .12em; font-size: .4em; vertical-align: super; }
+.privacy-note { margin: 32px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: left; }
 .shield { width: 100px; margin: 0 auto 22px; filter: drop-shadow(0 0 34px rgba(234, 37, 43, .65)); animation: pulse 3.2s ease-in-out infinite; }
 .shield-body { fill: rgba(234, 37, 43, .12); stroke: var(--red); stroke-width: 3; }
 .shield-bolt { fill: var(--ink); }
@@ -312,7 +313,6 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
 /* Footer */
 .footer { display: grid; gap: 14px; max-width: 1240px; margin: 0 auto; padding: 40px var(--gutter) 64px; border-top: 1px solid var(--edge); color: var(--muted); font-size: 14px; }
 .footer p { margin: 0; max-width: 60em; }
-.footer .privacy-note { font-size: 12px; line-height: 1.6; }
 .footer-brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 700; letter-spacing: .2em; }
 .footer-brand .brand-mark { width: 30px; height: 30px; }
 .footer-links { display: flex; flex-wrap: wrap; gap: 10px 22px; }
