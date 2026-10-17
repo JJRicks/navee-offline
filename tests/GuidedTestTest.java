@@ -420,6 +420,15 @@ public final class GuidedTestTest {
         TestJournal.Entry re=k.unresolved(PROFILE).get(0);FeatureVariant rv=variant("range_algorithm",ut5());
         GuidedTest.Review outside=GuidedTest.review(re,PROFILE,true,ut5(),with(6,0),now,rv,false);
         check(outside.state==GuidedTest.ReviewState.CHANGED_OUTSIDE&&outside.text.equals("Changed outside the test (now Theoretical).")&&outside.restorable,"Changed outside");
+        // The coupled range choice set changed while the test was interrupted: a conflict, never a plain restore.
+        check(re.related==data()[15],"Related value journalled");
+        byte[] moved=data();moved[6]=3;moved[15]=2;
+        GuidedTest.Review coupled=GuidedTest.review(re,PROFILE,true,ut5(),status(moved,SEEN),now,rv,false);
+        check(coupled.state==GuidedTest.ReviewState.CHANGED_OUTSIDE&&!coupled.restorable&&coupled.text.contains("related"),"Related change at resume: conflict");
+        try{GuidedTest.restoreFrom(k,re,rv,ut5(),status(moved,SEEN),now,WALL);check(false,"Related change refuses the restore");}catch(IllegalArgumentException expected){check(true,"Related change refuses the restore");}
+        check(k.find(re.testId).phase.equals("OUTSTANDING")&&k.find(re.testId).related==re.related,"Refused restore leaves the record as it was");
+        byte[] same=data();same[6]=3;
+        check(GuidedTest.review(re,PROFILE,true,ut5(),status(same,SEEN),now,rv,false).state==GuidedTest.ReviewState.RESTORE_NEEDED,"Unchanged related value: restore offered");
         k.resolve(re.testId,TestJournal.DECLINED,"kept",WALL+10000);
         check(k.unresolved(PROFILE).isEmpty()&&k.find(re.testId).restoration.equals("declined"),"Keep records declined, never confirmed");
         // The baseline is no longer offered (choice set changed): restore is refused.

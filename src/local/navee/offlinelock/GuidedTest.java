@@ -113,8 +113,10 @@ final class GuidedTest {
         if(e.resolved||v==null||!v.id.equals(e.variantId))throw new IllegalArgumentException("Test rules changed");
         Integer current=v.read(s);
         if(current==null||current==e.baseline||!v.allows(e.baseline)||!contains(v.choices(s),e.baseline))throw new IllegalArgumentException("Nothing to restore");
+        // The coupled field must be as journalled: a change made meanwhile is a conflict for the owner, never overwritten.
+        if(e.related>=0&&relatedValue(e.feature,v,s)!=e.related)throw new IllegalArgumentException("A related setting changed");
         GuidedTest t=new GuidedTest(journal,e.profileId,d,v,e.feature,e.target,nowMs,wallMs,null);
-        t.entry=e.copy();t.baseline=e.baseline;t.related=t.relatedValue(s);t.expected=current;t.approvedMs=nowMs-Math.max(0,wallMs-e.createdWall);
+        t.entry=e.copy();t.baseline=e.baseline;t.related=e.related>=0?e.related:t.relatedValue(s);t.expected=current;t.approvedMs=nowMs-Math.max(0,wallMs-e.createdWall);
         t.entry.related=t.related;
         t.phase=Phase.RESTORE_PENDING;t.commit(nowMs);
         return t;
@@ -267,6 +269,12 @@ final class GuidedTest {
         if(s==null||!s.fresh(nowMs,CapabilityResolver.STATUS_MAX_AGE_MS))return new Review(ReviewState.WAITING,"Waiting for a fresh reading.",null,false);
         Integer current=v.read(s);
         if(current==null)return new Review(ReviewState.WAITING,"The scooter isn't reporting this setting now.",null,false);
+        if(e.related>=0){
+            int related=relatedValue(e.feature,v,s);
+            if(related<0)return new Review(ReviewState.WAITING,"The scooter isn't reporting a related setting now.",null,false);
+            // Another actor changed the coupled field: not restorable here; the owner keeps or dismisses it.
+            if(related!=e.related)return new Review(ReviewState.CHANGED_OUTSIDE,"A related setting changed since the test. Volt won't set it back.",current,false);
+        }
         boolean restorable=v.allows(e.baseline)&&contains(v.choices(s),e.baseline);
         if(current==e.baseline)return new Review(ReviewState.ALREADY_RESTORED,"Already back to "+v.label(e.baseline)+".",current,false);
         if(current==e.target)return new Review(ReviewState.RESTORE_NEEDED,"Still on the test value, "+v.label(e.target)+".",current,restorable);
@@ -336,7 +344,8 @@ final class GuidedTest {
         journal.commit(entry);
     }
     /** The coupled value captured with the baseline: the range choice set (offset 15) or the other bits of a masked byte. */
-    private int relatedValue(StatusFields s){
+    private int relatedValue(StatusFields s){return relatedValue(feature,variant,s);}
+    private static int relatedValue(String feature,FeatureVariant variant,StatusFields s){
         if(variant==null)return -1;
         if(feature.equals("range_algorithm")){Integer set=s.u8(15);return set==null?-1:set;}
         if(variant.offset>=0&&(variant.mask&255)!=255){Integer raw=s.u8(variant.offset);return raw==null?-1:raw&~variant.mask&255;}
