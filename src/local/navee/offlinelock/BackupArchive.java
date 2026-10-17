@@ -578,7 +578,9 @@ final class BackupArchive {
             result.get("app_settings").put("dashboard_columns", prepared.preferences.get("app_settings").get("dashboard_columns"));
         List<String> labels = new ArrayList<>(); for (String target : replaced) labels.add(names.getOrDefault(target, "Saved scooter"));
         String label = BackupRegistry.label(category);
-        lines.add(label + ": " + (labels.isEmpty() ? "nothing to replace" : "replaces " + String.join(", ", labels)));
+        // Name what is replaced, so the line never reads as replacing the scooter itself.
+        String what = category.equals(BackupRegistry.DASHBOARDS) ? "layouts" : "settings";
+        lines.add(label + ": " + (labels.isEmpty() ? "nothing to replace" : "replaces " + what + " for " + String.join(", ", labels)));
         for (String target : shared) lines.add(label + " kept for " + names.getOrDefault(target, "Saved scooter") + " · two scooters chose it");
         if (skipped > 0) lines.add(label + " for " + plural(skipped, "scooter") + " skipped · not restored");
     }

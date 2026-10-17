@@ -292,7 +292,7 @@ public final class DashboardTransferValidation extends Instrumentation {
             java.util.List<AppDataBackup.Destination> needed = AppDataBackup.destinations(storage, staged, java.util.Collections.singleton("dashboards"));
             require(needed.size() == 1 && "other".equals(needed.get(0).suggested), "A layout defaults to the selected scooter");
             AppDataBackup.Review review = AppDataBackup.review(storage, staged, java.util.Collections.singleton("dashboards"), false, java.util.Collections.singletonMap(needed.get(0).source, "chosen"));
-            require(review.lines.contains("Dashboards: replaces Chosen"), "Review names the chosen scooter");
+            require(review.lines.contains("Dashboards: replaces layouts for Chosen"), "Review names the chosen scooter");
             AppDataBackup.apply(storage, review);
             sameJson(new JSONObject(portable), new JSONObject(new DashboardConfig(settings, "chosen").exportLayouts()));
             sameJson(new JSONObject(other), new JSONObject(new DashboardConfig(settings, "other").exportLayouts()));

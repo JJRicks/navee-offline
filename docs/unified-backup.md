@@ -176,7 +176,7 @@ Empty categories show "None" and are disabled. Counts are file counts and sizes 
 3. **Scooters** (only if needed): "Rides from "Old UT5" go to:" with a menu of [this phone's scooters…, Add from backup (if Scooters is selected), Don't restore].
 4. **Review**, one line per category, then the action:
    - "Rides: 12 new · 2 already here · 1 kept here"
-   - "Dashboards: replaces Fold UT5's dashboard and 3 slots"
+   - "Dashboards: replaces layouts for Fold UT5"
    - "Scooters: adds 1 · 1 already here"
    - "App preferences: replaces 24 settings"
    - "Readings history: adds to 2 scooters"

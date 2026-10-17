@@ -60,7 +60,7 @@ public final class BackupPlanTest {
         BackupArchive.Prepared prepared = phone.stage(complete);
         Map<String, String> chosen = new LinkedHashMap<>(); chosen.put(A, C); chosen.put(B, B);
         BackupArchive.Plan plan = BackupArchive.plan(phone, prepared, BackupTestStore.all(), false, chosen);
-        check(plan.lines.contains("Scooters: adds 1 · 1 already here") && plan.lines.contains("Dashboards: replaces Phone UT5, Spare") && plan.lines.contains("Rides: 3 new · 0 already here · 0 kept here")
+        check(plan.lines.contains("Scooters: adds 1 · 1 already here") && plan.lines.contains("Dashboards: replaces layouts for Phone UT5, Spare") && plan.lines.contains("Rides: 3 new · 0 already here · 0 kept here")
                 && plan.lines.contains("Charges: 2 new · 0 already here · 0 kept here") && plan.lines.contains("Readings history: adds to 2 scooters") && plan.lines.contains("Online map: on")
                 && plan.lines.contains("App preferences: replaces 11 settings"), "preview lines per category: " + plan.lines);
         Map<String, Map<String, Object>> before = phone.preferences();

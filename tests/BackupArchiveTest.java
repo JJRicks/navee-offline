@@ -207,7 +207,7 @@ public final class BackupArchiveTest {
         List<BackupArchive.Destination> target = BackupArchive.destinations(phone, layoutFile, Collections.singleton(BackupRegistry.DASHBOARDS));
         check(target.size() == 1 && target.get(0).source.equals(BackupArchive.LAYOUT_SOURCE) && C.equals(target.get(0).suggested) && target.get(0).name.equals("Layout file"), "a layout file defaults to the selected scooter");
         BackupArchive.Plan layoutPlan = phone.plan(layoutFile, Collections.singleton(BackupRegistry.DASHBOARDS), false, null);
-        check(layoutPlan.lines.get(0).equals("Dashboards: replaces Phone UT5"), "layout preview names the scooter");
+        check(layoutPlan.lines.get(0).equals("Dashboards: replaces layouts for Phone UT5"), "layout preview names the scooter");
         BackupTransaction.apply(phone, layoutPlan);
         app = phone.preferences().get("app_settings");
         check(((String) app.get("dashboard_v1_" + C)).contains("\"Synthetic\"") && ((String) app.get("dashboard_slot_v1_" + C + "_0")).contains("Shared slot") && !app.containsKey("dashboard_slot_v1_" + C + "_1")
