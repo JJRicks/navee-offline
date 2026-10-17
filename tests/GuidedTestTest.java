@@ -234,6 +234,7 @@ public final class GuidedTestTest {
         GuidedTest r=prepared(j,ut5(),"turn_sound",1,status(data(),SEEN));sendTarget(r,0x60);r.onStatus(with(12,1),NOW+400);r.ownerEffect(null,NOW+500);
         sendRestore(r,0x60);r.onStatus(with(12,1),NOW+1400);
         check(r.phase()==GuidedTest.Phase.OUTSTANDING&&r.outcomes().get(r.outcomes().size()-1)==GuidedTest.Outcome.READBACK_UNCHANGED&&r.restorationStatus().equals("outstanding"),"Restore unchanged: outstanding");
+        check(r.outcomeTexts().get(r.outcomeTexts().size()-1).equals("Readback unchanged, value 1"),"The unchanged value is shown");
     }
 
     private static void readbackDifferent() {
@@ -241,6 +242,7 @@ public final class GuidedTestTest {
         sendTarget(t,0x56);t.onStatus(with(6,0),NOW+400);
         check(t.phase()==GuidedTest.Phase.CONFLICT&&t.outcomes().equals(list(GuidedTest.Outcome.READBACK_DIFFERENT))&&t.note().contains("Theoretical"),"Readback different: conflict shows the value");
         check(t.writeNow()==null&&j.unresolved(PROFILE).get(0).phase.equals("CONFLICT"),"Conflict needs the owner");
+        check(j.unresolved(PROFILE).get(0).outcomes.equals(Arrays.asList("readback_different_0")),"The value read back is journalled");
         GuidedTest r=prepared(j,ut5(),"range_algorithm",3,status(data(),SEEN));sendTarget(r,0x56);r.onStatus(with(6,3),NOW+400);r.ownerEffect(true,NOW+500);
         sendRestore(r,0x56);r.onStatus(with(6,0),NOW+1400);
         check(r.phase()==GuidedTest.Phase.CONFLICT&&r.restorationStatus().equals("outstanding"),"Restore readback different: conflict");
@@ -398,6 +400,13 @@ public final class GuidedTestTest {
         GuidedTest.confirmAlreadyRestored(copy,e,WALL+5000);
         TestJournal.Entry resolved=copy.find(e.testId);
         check(resolved.resolved&&resolved.restoration.equals("confirmed")&&resolved.resolution.equals("already_restored")&&resolved.outcomes.get(resolved.outcomes.size()-1).equals("restoration_confirmed"),"Already restored: confirmed by readback");
+        // A long history of failed restores still leaves room for the final restoration.
+        TestJournal.Entry full=e.copy();while(full.outcomes.size()<TestJournal.MAX_OUTCOMES)TestJournal.append(full,"interrupted",1000L*full.outcomes.size());
+        TestJournal capped=new TestJournal(new Memory());capped.commit(full);
+        GuidedTest.recover(capped,WALL+6000);GuidedTest.confirmAlreadyRestored(capped,capped.find(e.testId),WALL+7000);
+        TestJournal.Entry kept=capped.find(e.testId);
+        check(kept.resolved&&kept.restoration.equals("confirmed")&&kept.outcomes.size()==TestJournal.MAX_OUTCOMES&&kept.elapsedMs.size()==TestJournal.MAX_OUTCOMES
+            &&kept.outcomes.get(0).equals(e.outcomes.get(0))&&kept.outcomes.get(kept.outcomes.size()-1).equals("restoration_confirmed"),"Bounded history keeps the first and latest steps\n"+kept.outcomes);
         // Restore needed: one explicit tap, journalled before the write.
         GuidedTest.Review need=GuidedTest.review(e,PROFILE,true,ut5(),with(7,0),now,v,false);
         check(need.state==GuidedTest.ReviewState.RESTORE_NEEDED&&need.restorable&&need.current==0,"Restore needed");
@@ -433,6 +442,8 @@ public final class GuidedTestTest {
             check(GuidedTest.Outcome.parse(all[i].token(42))==all[i],"Token round trip "+all[i]);
         }
         check(GuidedTest.Outcome.REJECTED.text(3).equals("Rejected, code 3")&&GuidedTest.Outcome.describe("rejected_3").equals("Rejected, code 3"),"Code substituted");
+        check(GuidedTest.Outcome.describe("readback_different_7").equals("Readback different, value 7")&&GuidedTest.Outcome.code("readback_unchanged_0")==0&&GuidedTest.Outcome.code("setting_confirmed")==-1,"Readback value substituted");
+        check(GuidedTest.Outcome.parse("readback_different")==null&&GuidedTest.Outcome.parse("readback_different_256")==null&&GuidedTest.Outcome.parse("setting_confirmed_1")==null,"Readback tokens carry a bounded value");
         check(GuidedTest.Outcome.parse("rejected_256")==null&&GuidedTest.Outcome.parse("rejected_")==null&&GuidedTest.Outcome.parse("REJECTED")==null&&GuidedTest.Outcome.parse("ok")==null,"Unknown tokens refused");
     }
 

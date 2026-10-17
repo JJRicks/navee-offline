@@ -26,6 +26,8 @@ final class CompatibilityReport {
      * Wire outcomes of a guided test step (the docs/03 vocabulary in snake case). "Effect observed"
      * is the owner's observation and is reported separately, never as packet evidence.
      */
+    /** Steps whose step_values entry is set: a rejection's code, or the 0x70 value a readback showed. */
+    static final Set<String> VALUED_OUTCOMES=Collections.unmodifiableSet(new HashSet<>(Arrays.asList("rejected","readback_unchanged","readback_different")));
     static final String[] TEST_OUTCOMES={"rejected","acknowledged_unconfirmed","readback_unchanged","readback_different","setting_confirmed","restoration_confirmed","interrupted"};
     /** What the owner saw on the scooter itself; never inferred from packets. */
     enum Observation { OBSERVED, NOT_OBSERVED, NOT_CHECKED }
@@ -39,7 +41,7 @@ final class CompatibilityReport {
         "cmd","class","outcome","status","length","attempts","first_ms","late","seen",
         "offset","name","present","value",
         "feature","support","available","reason","evidence",
-        "variant","baseline","target","packet_evidence","outcomes","elapsed_ms","rejected_code","owner_observation","effect","restoration")));
+        "variant","baseline","target","packet_evidence","outcomes","elapsed_ms","step_values","owner_observation","effect","restoration")));
     /** 0x70 offsets whose value may be reported; 0, 14, 40 and 41 are presence only; 27–30 (time of day) never appear. */
     static boolean valueOffset(int o){return o>=1&&o<=13||o>=15&&o<=26||o>=31&&o<=39||o==42;}
     static boolean presenceOffset(int o){return o==0||o==14||o==40||o==41;}
@@ -138,14 +140,14 @@ final class CompatibilityReport {
             if(entries!=null)for(TestJournal.Entry t:entries){
                 Map<String,Object> m=new LinkedHashMap<>();
                 m.put("feature",t.feature);m.put("variant",t.variantId);m.put("baseline",(long)t.baseline);m.put("target",(long)t.target);
-                Map<String,Object> packet=new LinkedHashMap<>();List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>();
+                Map<String,Object> packet=new LinkedHashMap<>();List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>(),values=new ArrayList<>();
                 for(int i=0;i<t.outcomes.size();i++){
                     GuidedTest.Outcome o=GuidedTest.Outcome.parse(t.outcomes.get(i));
                     if(o==null||o==GuidedTest.Outcome.EFFECT_OBSERVED)continue;
                     outcomes.add(o.reportToken());times.add(i<t.elapsedMs.size()?t.elapsedMs.get(i):null);
-                    if(o==GuidedTest.Outcome.REJECTED&&!packet.containsKey("rejected_code"))packet.put("rejected_code",(long)GuidedTest.Outcome.code(t.outcomes.get(i)));
+                    int code=GuidedTest.Outcome.code(t.outcomes.get(i));values.add(code>=0?(Object)(long)code:null);
                 }
-                packet.put("outcomes",outcomes);packet.put("elapsed_ms",times);m.put("packet_evidence",packet);
+                packet.put("outcomes",outcomes);packet.put("elapsed_ms",times);packet.put("step_values",values);m.put("packet_evidence",packet);
                 Map<String,Object> owner=new LinkedHashMap<>();owner.put("effect",t.effect);m.put("owner_observation",owner);
                 m.put("restoration",t.restoration);
                 out.add(m);
@@ -237,7 +239,7 @@ final class CompatibilityReport {
             for(Object o:tests){Map<String,Object> t=map(o);
                 s.append("  ").append(t.get("feature")).append(' ').append(t.get("baseline")).append(" → ").append(t.get("target")).append('\n');
                 Map<String,Object> p=map(t.get("packet_evidence"));List<Object> steps=p==null?null:list(p.get("outcomes"));
-                s.append("    Packet evidence: ");if(steps==null||steps.isEmpty())s.append("none");else for(int i=0;i<steps.size();i++)s.append(i==0?"":", ").append(testText(String.valueOf(steps.get(i)),p.get("rejected_code")));
+                s.append("    Packet evidence: ");if(steps==null||steps.isEmpty())s.append("none");else{List<Object> values=list(p.get("step_values"));for(int i=0;i<steps.size();i++)s.append(i==0?"":", ").append(testText(String.valueOf(steps.get(i)),values!=null&&i<values.size()?values.get(i):null));}
                 s.append('\n');
                 Map<String,Object> owner=map(t.get("owner_observation"));String effect=owner==null?"not_checked":str(owner.get("effect"),"not_checked");
                 s.append("    Owner observation: ").append(effect.equals("observed")?"Effect observed":effect.equals("not_observed")?"Effect not observed":"Not checked").append('\n');
@@ -248,13 +250,13 @@ final class CompatibilityReport {
         s.append("\nNo serial, MAC, owner key, PIN, names, routes or raw payloads are included.\n");
         return s.toString();
     }
-    /** docs/03 wording for a test step. */
+    /** docs/03 wording for a test step, with its code or the value read back. */
     static String testText(String token,Object code){
         switch(token){
             case "rejected": return "Rejected, code "+(code instanceof Long?code:"?");
             case "acknowledged_unconfirmed": return "Acknowledged, unconfirmed";
-            case "readback_unchanged": return "Readback unchanged";
-            case "readback_different": return "Readback different";
+            case "readback_unchanged": return "Readback unchanged"+(code instanceof Long?", value "+code:"");
+            case "readback_different": return "Readback different"+(code instanceof Long?", value "+code:"");
             case "setting_confirmed": return "Setting confirmed";
             case "restoration_confirmed": return "Restoration confirmed";
             case "interrupted": return "Interrupted/no response";
@@ -378,13 +380,13 @@ final class CompatibilityReport {
         putPattern(out,"variant",in.get("variant"),"[a-z0-9_.]{1,48}");
         putInt(out,"baseline",in.get("baseline"),0,255);putInt(out,"target",in.get("target"),0,255);
         Map<String,Object> packet=map(in.get("packet_evidence")),p=new LinkedHashMap<>();
-        List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>();
+        List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>(),values=new ArrayList<>();
         if(packet!=null){
-            List<Object> steps=bounded(packet.get("outcomes"),16),at=bounded(packet.get("elapsed_ms"),16);
-            for(int i=0;i<steps.size();i++){String v=oneOf(steps.get(i),TEST_OUTCOMES);if(v!=null){outcomes.add(v);times.add(i<at.size()?integer(at.get(i),0,24L*3600*1000):null);}}
-            if(outcomes.contains("rejected"))putInt(p,"rejected_code",packet.get("rejected_code"),0,255);
+            List<Object> steps=bounded(packet.get("outcomes"),16),at=bounded(packet.get("elapsed_ms"),16),codes=bounded(packet.get("step_values"),16);
+            for(int i=0;i<steps.size();i++){String v=oneOf(steps.get(i),TEST_OUTCOMES);if(v!=null){outcomes.add(v);times.add(i<at.size()?integer(at.get(i),0,24L*3600*1000):null);
+                values.add(VALUED_OUTCOMES.contains(v)&&i<codes.size()?integer(codes.get(i),0,255):null);}}
         }
-        p.put("outcomes",outcomes);p.put("elapsed_ms",times);out.put("packet_evidence",p);
+        p.put("outcomes",outcomes);p.put("elapsed_ms",times);p.put("step_values",values);out.put("packet_evidence",p);
         Map<String,Object> owner=map(in.get("owner_observation")),ob=new LinkedHashMap<>();
         String effect=owner==null?null:oneOf(owner.get("effect"),lowerAll(Observation.values()));
         ob.put("effect",effect==null?"not_checked":effect);out.put("owner_observation",ob);

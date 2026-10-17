@@ -163,10 +163,16 @@ public final class CompatibilityReportTest {
         CompatibilityReport every=new CompatibilityReport.Builder("1.3.1",new Random(9)).tests(Arrays.asList(entry("turn_sound","turn_sound.oem",0,1,all,times,"not_checked","outstanding"))).build();
         String everyJson=every.json(),everySummary=every.summary();
         check(everyJson.contains("[\"rejected\", \"acknowledged_unconfirmed\", \"readback_unchanged\", \"readback_different\", \"setting_confirmed\", \"restoration_confirmed\", \"interrupted\"]")
-            &&everyJson.contains("\"rejected_code\": 3")&&everyJson.contains("\"elapsed_ms\": [10, 20, 30, 40, 50, 70, 80]"),"Seven distinct step outcomes\n"+everyJson);
-        for(String text:new String[]{"Rejected, code 3","Acknowledged, unconfirmed","Readback unchanged","Readback different","Setting confirmed","Restoration confirmed","Interrupted/no response","Owner observation: Not checked","Restoration: Outstanding (not confirmed)"})
+            &&everyJson.contains("\"step_values\": [3, null, 3, 3, null, null, null]")&&everyJson.contains("\"elapsed_ms\": [10, 20, 30, 40, 50, 70, 80]"),"Seven distinct step outcomes\n"+everyJson);
+        for(String text:new String[]{"Rejected, code 3","Acknowledged, unconfirmed","Readback unchanged, value 3","Readback different, value 3","Setting confirmed","Restoration confirmed","Interrupted/no response","Owner observation: Not checked","Restoration: Outstanding (not confirmed)"})
             check(everySummary.contains(text),"Summary vocabulary "+text+"\n"+everySummary);
         check(everyJson.contains("\"effect\": \"not_checked\"")&&everyJson.contains("\"restoration\": \"outstanding\""),"No owner check and an open restoration are explicit");
+        // Each step keeps its own rejection code.
+        CompatibilityReport twice=new CompatibilityReport.Builder("1.3.1",new Random(9)).tests(Arrays.asList(entry("turn_sound","turn_sound.oem",0,1,
+            Arrays.asList("setting_confirmed","effect_observed","rejected_5","rejected_7"),Arrays.asList(10L,20L,30L,40L),"observed","outstanding"))).build();
+        check(twice.summary().contains("Packet evidence: Setting confirmed, Rejected, code 5, Rejected, code 7")&&twice.json().contains("\"step_values\": [null, 5, 7]"),"Per-step codes\n"+twice.summary());
+        String bad=CompatibilityReport.parse(twice.json().replace("[null, 5, 7]","[4, 999, 7]")).json();
+        check(bad.contains("\"step_values\": [null, null, 7]"),"Imported values are bounded and only on valued steps\n"+bad);
         String forged=everyJson.replace("\"restoration\": \"outstanding\"","\"restoration\": \"restored!\"").replace("\"interrupted\"]","\"interrupted\", \"effect_observed\", \"setting_confirmed_by_magic\"]");
         String cleaned=CompatibilityReport.parse(forged).json();
         check(cleaned.contains("\"restoration\": \"outstanding\"")&&!cleaned.contains("magic")&&!cleaned.contains("\"effect_observed\""),"An imported restoration is never upgraded and unknown steps drop\n"+cleaned);

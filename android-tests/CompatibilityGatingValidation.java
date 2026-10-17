@@ -447,7 +447,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         Set<String> allowed = new HashSet<>(Arrays.asList("format", "report_id", "app_version", "registry_version", "simulated", "device", "reads", "passive", "status_length", "fields", "decisions", "tests",
                 "pid", "pid_prefix", "pid_source", "pid_digits", "pid_conflict", "region", "region_source", "sku", "firmware", "meter", "controller", "bms", "screen", "uwb",
                 "transport", "auth", "layer", "role", "cmd", "class", "outcome", "status", "length", "attempts", "first_ms", "late", "seen", "offset", "name", "present", "value",
-                "feature", "support", "available", "reason", "evidence", "variant", "baseline", "target", "packet_evidence", "outcomes", "elapsed_ms", "rejected_code", "owner_observation", "effect", "restoration"));
+                "feature", "support", "available", "reason", "evidence", "variant", "baseline", "target", "packet_evidence", "outcomes", "elapsed_ms", "step_values", "owner_observation", "effect", "restoration"));
         requireKeys(report, allowed, label);
         require("volt-compat-report-v1".equals(report.getString("format")) && report.getString("report_id").matches("[0-9a-f]{16}")
                 && !report.getString("app_version").isEmpty() && report.getInt("registry_version") > 0 && report.getBoolean("simulated"), label + ": report header");

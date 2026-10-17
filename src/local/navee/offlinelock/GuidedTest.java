@@ -24,21 +24,28 @@ final class GuidedTest {
         RESTORATION_CONFIRMED("Restoration confirmed"), INTERRUPTED("Interrupted/no response");
         final String text;
         Outcome(String text){this.text=text;}
-        /** REJECTED substitutes its code for N. */
-        String text(int code){return this==REJECTED?"Rejected, code "+code:text;}
-        /** Journal token: the lower-case name, "rejected_N" for a rejection. */
-        String token(int code){return this==REJECTED?"rejected_"+code:name().toLowerCase(java.util.Locale.ROOT);}
+        /** A rejection carries its code; a readback carries the value the scooter actually showed. */
+        boolean carries(){return this==REJECTED||this==READBACK_UNCHANGED||this==READBACK_DIFFERENT;}
+        /** REJECTED substitutes its code for N; a readback shows the value read. */
+        String text(int code){return this==REJECTED?"Rejected, code "+code:carries()?text+", value "+code:text;}
+        /** Journal token: the lower-case name, with "_N" (0..255) appended when it carries a code or value. */
+        String token(int code){String name=name().toLowerCase(java.util.Locale.ROOT);return carries()?name+"_"+code:name;}
         static Outcome parse(String token){
             if(token==null)return null;
-            if(token.matches("rejected_(0|[1-9][0-9]{0,2})"))return Integer.parseInt(token.substring(9))<=255?REJECTED:null;
-            for(Outcome o:values())if(o!=REJECTED&&o.name().toLowerCase(java.util.Locale.ROOT).equals(token))return o;
+            int split=token.lastIndexOf('_');
+            for(Outcome o:values()){
+                String name=o.name().toLowerCase(java.util.Locale.ROOT);
+                if(!o.carries()){if(name.equals(token))return o;continue;}
+                if(split==name.length()&&token.startsWith(name)&&token.substring(split+1).matches("0|[1-9][0-9]{0,2}"))
+                    return Integer.parseInt(token.substring(split+1))<=255?o:null;
+            }
             return null;
         }
-        /** The rejection code of a "rejected_N" token, else -1. */
-        static int code(String token){return parse(token)==REJECTED?Integer.parseInt(token.substring(9)):-1;}
+        /** The code or value of a carrying token ("rejected_N", "readback_different_N"), else -1. */
+        static int code(String token){Outcome o=parse(token);return o!=null&&o.carries()?Integer.parseInt(token.substring(token.lastIndexOf('_')+1)):-1;}
         /** Display text for a journal token. */
         static String describe(String token){Outcome o=parse(token);return o==null?"":o.text(code(token));}
-        /** Report token (the docs/03 wording in snake case); the code travels separately. */
+        /** Report token (the docs/03 wording in snake case); the code or value travels separately. */
         String reportToken(){return this==ACK_UNCONFIRMED?"acknowledged_unconfirmed":name().toLowerCase(java.util.Locale.ROOT);}
     }
 
@@ -91,7 +98,7 @@ final class GuidedTest {
         int changed=0;
         for(TestJournal.Entry e:journal.unresolved()){
             Phase p=Phase.valueOf(e.phase);if(p==Phase.OUTSTANDING||p==Phase.CONFLICT)continue;
-            e.phase=Phase.OUTSTANDING.name();e.outcomes.add(Outcome.INTERRUPTED.token(0));e.elapsedMs.add(Math.max(0,Math.min(24L*3600*1000,wallMs-e.createdWall)));
+            e.phase=Phase.OUTSTANDING.name();TestJournal.append(e,Outcome.INTERRUPTED.token(0),Math.max(0,Math.min(24L*3600*1000,wallMs-e.createdWall)));
             e.updatedWall=Math.max(e.updatedWall,wallMs);
             try{journal.commit(e);changed++;}catch(IOException|IllegalArgumentException kept){/* the saved phase still reads as interrupted */}
         }
@@ -267,7 +274,7 @@ final class GuidedTest {
     }
     /** Already back to the baseline: restoration confirmed by a fresh readback, no write. */
     static void confirmAlreadyRestored(TestJournal journal,TestJournal.Entry e,long wallMs) throws IOException{
-        TestJournal.Entry next=e.copy();next.outcomes.add(Outcome.RESTORATION_CONFIRMED.token(0));next.elapsedMs.add(Math.max(0,Math.min(24L*3600*1000,wallMs-e.createdWall)));
+        TestJournal.Entry next=e.copy();TestJournal.append(next,Outcome.RESTORATION_CONFIRMED.token(0),Math.max(0,Math.min(24L*3600*1000,wallMs-e.createdWall)));
         next.phase=Phase.DONE.name();next.updatedWall=Math.max(next.createdWall,wallMs);journal.commit(next);
         journal.resolve(e.testId,TestJournal.CONFIRMED,"already_restored",wallMs);
     }
@@ -289,17 +296,17 @@ final class GuidedTest {
         if(relatedChanged(s)){conflict("A related setting changed during the test.",nowMs);return;}
         if(value==target){add(Outcome.SETTING_CONFIRMED,0,nowMs);phase=Phase.OBSERVE;save(nowMs);return;}
         if(value.equals(baseline)){
-            add(Outcome.READBACK_UNCHANGED,0,nowMs);add(Outcome.RESTORATION_CONFIRMED,0,nowMs);
+            add(Outcome.READBACK_UNCHANGED,value,nowMs);add(Outcome.RESTORATION_CONFIRMED,0,nowMs);
             note="The scooter accepted it but still shows "+variant.label(baseline)+".";finish(nowMs);return;
         }
-        add(Outcome.READBACK_DIFFERENT,0,nowMs);conflict("The scooter now shows "+variant.label(value)+".",nowMs);
+        add(Outcome.READBACK_DIFFERENT,value,nowMs);conflict("The scooter now shows "+variant.label(value)+".",nowMs);
     }
     private void confirmRestore(StatusFields s,Integer value,long nowMs){
         if(value==null){arm();return;}
         if(relatedChanged(s)){conflict("A related setting changed during the test.",nowMs);return;}
         if(value.equals(baseline)){add(Outcome.RESTORATION_CONFIRMED,0,nowMs);finish(nowMs);return;}
-        if(value==expected){add(Outcome.READBACK_UNCHANGED,0,nowMs);outstanding("It still shows "+variant.label(value)+".",nowMs);return;}
-        add(Outcome.READBACK_DIFFERENT,0,nowMs);conflict("The scooter now shows "+variant.label(value)+".",nowMs);
+        if(value==expected){add(Outcome.READBACK_UNCHANGED,value,nowMs);outstanding("It still shows "+variant.label(value)+".",nowMs);return;}
+        add(Outcome.READBACK_DIFFERENT,value,nowMs);conflict("The scooter now shows "+variant.label(value)+".",nowMs);
     }
     /** After a rejection or an unsent write: nothing should have changed; a fresh readback must show the baseline. */
     private void verify(StatusFields s,Integer value,long nowMs){
@@ -321,7 +328,7 @@ final class GuidedTest {
     }
     private void outstanding(String why,long nowMs){phase=Phase.OUTSTANDING;note=why;entry.restoration=TestJournal.OUTSTANDING;save(nowMs);}
     private void conflict(String why,long nowMs){phase=Phase.CONFLICT;note=why;entry.restoration=TestJournal.OUTSTANDING;save(nowMs);}
-    private void add(Outcome o,int code,long nowMs){entry.outcomes.add(o.token(code));entry.elapsedMs.add(Math.max(0,Math.min(24L*3600*1000,nowMs-approvedMs)));}
+    private void add(Outcome o,int code,long nowMs){TestJournal.append(entry,o.token(code),Math.max(0,Math.min(24L*3600*1000,nowMs-approvedMs)));}
     /** Commit failures after a write leave the earlier phase in the journal, which replays as OUTSTANDING. */
     private void save(long nowMs){try{commit(nowMs);}catch(IOException|IllegalArgumentException kept){}}
     private void commit(long nowMs) throws IOException{

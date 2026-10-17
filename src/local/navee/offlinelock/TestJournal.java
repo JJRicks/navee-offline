@@ -30,6 +30,8 @@ final class TestJournal {
     static final String HEADER="volt-compat-tests v1";
     static final int MAX_ENTRIES=20;
     static final long PRUNE_AFTER_MS=30L*24*60*60*1000;
+    /** Outcome steps kept per test; later steps replace the middle of the history, never make the entry invalid. */
+    static final int MAX_OUTCOMES=16;
     /** Restoration states, as in the compatibility report. */
     static final String CONFIRMED="confirmed",OUTSTANDING="outstanding",DECLINED="declined";
 
@@ -95,6 +97,14 @@ final class TestJournal {
         Entry e=find(testId);if(e==null)return;
         e=e.copy();e.resolved=true;e.restoration=how;e.resolution=note==null?"":note;e.updatedWall=Math.max(e.createdWall,wallMs);
         commit(e);
+    }
+    /**
+     * Adds one outcome step. At MAX_OUTCOMES the oldest step after the first half goes, so the
+     * test's first steps and its latest ones (a final restoration among them) always fit.
+     */
+    static void append(Entry e,String token,long elapsedMs){
+        while(e.outcomes.size()>=MAX_OUTCOMES){int drop=Math.min(MAX_OUTCOMES/2,e.outcomes.size()-1);e.outcomes.remove(drop);if(drop<e.elapsedMs.size())e.elapsedMs.remove(drop);}
+        e.outcomes.add(token);e.elapsedMs.add(elapsedMs);
     }
     synchronized Entry find(String testId){for(Entry e:entries)if(e.testId.equals(testId))return e.copy();return null;}
     /** Unresolved tests of one scooter profile, oldest first. */
@@ -179,7 +189,7 @@ final class TestJournal {
         if(!(e.effect.equals("observed")||e.effect.equals("not_observed")||e.effect.equals("not_checked")))return false;
         if(!(e.restoration.equals(CONFIRMED)||e.restoration.equals(OUTSTANDING)||e.restoration.equals(DECLINED)))return false;
         if(!e.resolution.matches("[a-z_]{0,32}"))return false;
-        if(e.outcomes==null||e.elapsedMs==null||e.outcomes.size()>16||e.outcomes.size()!=e.elapsedMs.size())return false;
+        if(e.outcomes==null||e.elapsedMs==null||e.outcomes.size()>MAX_OUTCOMES||e.outcomes.size()!=e.elapsedMs.size())return false;
         for(String o:e.outcomes)if(GuidedTest.Outcome.parse(o)==null)return false;
         for(Long t:e.elapsedMs)if(t==null||t<0||t>24L*3600*1000)return false;
         return e.createdWall>=0&&e.updatedWall>=e.createdWall;
