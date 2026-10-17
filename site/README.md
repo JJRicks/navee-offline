@@ -39,4 +39,6 @@ Keep the page short enough to skim: what Volt does, model compatibility, downloa
 - Source: keep the GitHub repository link at the owner's request, including while it is private. Don't call Volt open source or promise public source access until the repository is public. Setup links go to <https://pairscooter.jjricks.com/>. Revisit public-source wording when it goes public (`docs/public-release.md`).
 - Privacy: retain the owner's "Nothing leaves your phone" headline with a brief, legible asterisk note at the bottom-left inside the privacy box. Explain that map backgrounds are off by default and enabling them exposes the IP address and viewed map area to the provider. The Bluetooth core works offline, and neither exports nor backups are uploaded automatically.
 
+The map footnote uses `map-data-note` for its ID and class. Avoid the generic `privacy-note` ID: EasyList Cookie hides it as a cookie-banner selector, even on ordinary page text.
+
 The slide-to-lock demo is decorative (`aria-hidden`). Its knob, glyphs, labels and track tint run on one shared CSS cycle (`--lock-cycle`), started together by `main.js`. With reduced motion or without JavaScript it rests in the unlocked "Slide to lock" state.

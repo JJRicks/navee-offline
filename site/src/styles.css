@@ -265,7 +265,7 @@ h2 { margin: 0 0 20px; font-weight: 700; font-size: clamp(38px, 5.6vw, 72px); li
   background: radial-gradient(700px 320px at 50% 0%, rgba(234, 37, 43, .2), transparent 70%), rgba(255, 255, 255, .015);
 }
 .privacy h2 sup { margin-left: .12em; font-size: .4em; vertical-align: super; }
-.privacy-note { margin: 32px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: left; }
+.map-data-note { margin: 32px 0 0; color: var(--muted); font-size: 13px; line-height: 1.6; text-align: left; }
 .shield { width: 100px; margin: 0 auto 22px; filter: drop-shadow(0 0 34px rgba(234, 37, 43, .65)); animation: pulse 3.2s ease-in-out infinite; }
 .shield-body { fill: rgba(234, 37, 43, .12); stroke: var(--red); stroke-width: 3; }
 .shield-bolt { fill: var(--ink); }
