@@ -7,10 +7,10 @@
 | You need | Supported setup |
 | --- | --- |
 | Phone | Android 8.0 or newer, with Bluetooth LE |
-| Scooter | Already activated, owner-bound **US NAVEE UT5 MAX (model/PID 2538)** |
+| Scooter | Already activated, owner-bound NAVEE scooter. **US NAVEE UT5 MAX (model/PID 2538)**: full support. Other NAVEE scooters: lock and readings, with other controls only where evidence maps them |
 | NAVEE app | Signed into your account and able to connect to your scooter |
 
-Other scooter models, regions and firmware are not established as compatible. Firmware changes can affect both setup and available controls. Volt does not activate a new scooter, bypass ownership, transfer cloud ownership or recover a NAVEE account.
+Only the US UT5 MAX has been physically verified with Volt. On other models, controls mapped from the official app are not tested by Volt, and golf carts, e-bikes and other non-scooter products get no scooter commands. See [Other NAVEE models](user-guide.md#other-navee-models). Firmware changes can affect both setup and available controls. Volt does not activate a new scooter, bypass ownership, transfer cloud ownership or recover a NAVEE account.
 
 Volt is an independent community project, not affiliated with, endorsed by, sponsored by, or supported by NAVEE or its app vendor. Product names identify compatible hardware only.
 

@@ -104,6 +104,32 @@ Proximity unlock      OEM protocol and pairing flow implemented; pairing and
 Local clock sync      Scooter accepted the command. No clock readback exists,
                        so the app reports acceptance rather than verification.
 
+OTHER NAVEE MODELS: OEM-MAPPED, NOT TESTED BY VOLT
+
+Only the US UT5 MAX (PID 2538) is physically verified. Another standard
+scooter gets the lock under a shared contract (lock needs fresh status, a
+recent stopped motion report and no warning; unlock needs only a fresh
+authenticated status) plus readings. A scooter whose advertised model ID is in
+the official app's lists also gets the controls below. They come from the
+official NAVEE 2.1.9 app's mapping and are marked "Untested here".
+
+Control            Evidence     Conditions on non-UT5 models
+-----------------  -----------  -----------------------------------------------
+Electronic lock    Shared       Every standard model; never golf, e-bike, Exo
+Dashboard units    OEM-mapped   Identified models
+Range estimate     OEM-mapped   Choices from the scooter's reported set
+Clock sync         OEM-mapped   Manual button; no readback
+Tail light         OEM-mapped   Unlocked; not group 2504-2506
+Automatic lights   OEM-mapped   Unlocked; not 2332, 2417, 2422, 2504-2506
+Turn signal sound  OEM-mapped   Unlocked; models the official app offers it on
+Cruise control     OEM-mapped   Unlocked, parked; US/CN/RU region or the
+                                scooter's eligibility flag
+Energy recovery    OEM-mapped   Unlocked, parked; Off and High per model/region
+
+Every other control stays hidden until mapped. A serial number alone never
+selects an OEM group; Identify reads the advertised model ID. Region rules that
+hide only convenience controls are noted, not applied.
+
 PHONE-FREE AND RIDING CHECKS STILL NEEDED
 
 Test your existing handlebar PIN while safely parked. Proximity unlock needs

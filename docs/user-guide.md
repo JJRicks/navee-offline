@@ -212,6 +212,17 @@ replay a pending setting change. Retry Connect after checking power/range;
 Disconnect ends the local session. See the [connection reference](recording-reference.md)
 for background timeout and handlebar fallback behavior.
 
+## Other NAVEE models
+
+Volt is verified on the US UT5 MAX only. Other standard NAVEE scooters connect with the same owner setup and show live readings, battery data, ride recording and the lock.
+
+- **Lock:** locking needs fresh status, the scooter stopped and a recent motion report; unlocking needs only a fresh connection, so you can always unlock offline. The switch moves only after the scooter confirms.
+- **Limited controls:** the Scooter page shows a short banner and hides controls Volt has not mapped for your model. Saved Quick access tiles stay in your layout and show “—”.
+- **Identify:** when the model is unknown, tap **Identify** in the banner. Volt reconnects through a short scan to read the model ID the scooter advertises. It sends no scooter command and is unavailable while recording.
+- **Identified models** also get dashboard units, range estimate, clock sync, lights, turn sound, cruise and energy recovery where the official app offers them for that model and region. These show **Untested here**: they are mapped from the official app, not tested by Volt.
+- **Estimates:** UT5 MAX charge curves, rated capacity, drive-mode names and range following are not applied to other models. Charge estimates use live readings only.
+- Golf carts, e-bikes and other non-scooter products get no scooter commands.
+
 ## Phone recordings and maps
 
 **More → About & permissions → Location** opens Volt’s Android app settings. Choose **Permissions → Location** there to manage precise/approximate access.
