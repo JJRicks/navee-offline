@@ -42,7 +42,7 @@ public final class ChargeEstimateValidation extends Instrumentation {
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(()->activity.service()!=null,"Service missing");service=activity.service();
             await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Charge model load did not finish");
-            verifyServiceSnapshot();seedRecordings();verifyAsyncHistory();
+            verifyServiceSnapshot();seedRecordings();verifyAsyncHistory();verifyRecordedAutomatic();
             main(()->{invoke(activity,"select",new Class<?>[]{String.class},"more");invoke(field(activity,"screen"),"selectSection",new Class<?>[]{String.class},"Developer");});settle();
             main(()->{View row=root().findViewWithTag("charge-history-action");require(row!=null&&row.isEnabled(),"Charge history unavailable offline");row.performClick();});
             await(()->dialog()!=null&&dialog().getWindow().getDecorView().findViewWithTag("charge-history-session:"+completeId)!=null,"History did not load");
@@ -223,6 +223,22 @@ public final class ChargeEstimateValidation extends Instrumentation {
         store().start(profile,ChargeSessionStore.Charger.STOCK,wall+10800000,mono+10800000);
         require(store().sample(frame(wall+10800000,mono+10800000,99),new ChargeSessionStore.Estimate("tiny-fixture",Double.MIN_VALUE,null,100d,ChargeSessionStore.Source.CURRENT_RATE,null,0)),"Tiny sample rejected");
         store().stop(ChargeSessionStore.Stop.STOPPED);tinyId=recordingAt(mono+10800000);
+    }
+    /** Automatic on a model without detection uses its only learned family; UT5 MAX keeps live detection. */
+    private void verifyRecordedAutomatic(){
+        main(()->invoke(service,"refreshChargeCurves",new Class<?>[]{}));
+        await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Curve refresh did not finish");
+        main(()->{
+            ScooterProfiles.Profile active=service.profiles.active();String serial=active.serial;
+            try{
+                require(service.chargeCharger()==null,"Recording fixture wrote the charger preference");
+                require(service.effectiveChargeCharger()==null&&service.chargerBasis()==ScooterService.ChargerBasis.UNKNOWN&&service.qualifiedChargeCurves()==0,
+                        "UT5 MAX Automatic used past labels instead of live detection");
+                active.serial="X9999-SYNTHETIC";
+                require(service.effectiveChargeCharger()==ChargeSessionStore.Charger.STOCK&&service.chargerBasis()==ScooterService.ChargerBasis.RECORDINGS
+                        &&service.qualifiedChargeCurves()>0,"Undetectable model ignored its only learned charger family");
+            }finally{active.serial=serial;}
+        });
     }
     private String recordingAt(long startedMono)throws IOException{for(ChargeSessionStore.HistorySession session:store().recordings(profile))if(session.startedMono==startedMono)return session.id;throw new IllegalStateException("Fixture recording missing");}
     private ChargeSessionStore.Frame frame(long wall,long mono,double soc){return new ChargeSessionStore.Frame(wall,mono,new ChargeSessionStore.Value(1d,mono,0x72),new ChargeSessionStore.Value(soc,mono,0x72),new ChargeSessionStore.Value(52d,mono,0x72),new ChargeSessionStore.Value(-2d,mono,0x72),new ChargeSessionStore.Value(23d,mono,0x72));}

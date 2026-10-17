@@ -220,12 +220,22 @@ public final class ChargerDetectionTest {
         check(observe(d, 50, 50, -10, 5000) == null, "An unusable frame restarts acquisition evidence");
     }
 
+    /** Undetectable models still use learned curves when only one family has any. */
+    private static void recordings() {
+        check(ChargerDetection.fromRecordings(1234, 2, 0) == STOCK, "Only stock recordings resolve Auto to stock");
+        check(ChargerDetection.fromRecordings(-1, 0, 1) == FAST, "Only high-speed recordings resolve Auto to high-speed");
+        check(ChargerDetection.fromRecordings(1234, 1, 1) == null, "Both families remain ambiguous");
+        check(ChargerDetection.fromRecordings(1234, 0, 0) == null, "No recordings keep the live rate");
+        check(ChargerDetection.fromRecordings(2538, 2, 0) == null, "UT5 MAX relies on live detection, not past labels");
+    }
+
     public static void main(String[] args) {
         duplicatesAndEvidence();
         taperAndLateStart();
         switchesAndGaps();
         sameCharge();
         invalidity();
+        recordings();
         System.out.println("ChargerDetectionTest: " + checks + " checks passed");
     }
 }

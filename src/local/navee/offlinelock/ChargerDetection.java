@@ -89,6 +89,15 @@ public final class ChargerDetection {
         return selected;
     }
 
+    /**
+     * Automatic for a model this detector cannot read: the one family with qualified personal
+     * recordings, as a v1.3.1 recording used to set the preference. Both or neither stays unknown.
+     */
+    public static ChargeSessionStore.Charger fromRecordings(int productId, int stockSessions, int fastSessions) {
+        if (productId == Ut5MaxStockChargeReference.PRODUCT_ID || (stockSessions > 0) == (fastSessions > 0)) return null;
+        return stockSessions > 0 ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED;
+    }
+
     private static ChargeSessionStore.Charger evidence(double soc, double current, double watts) {
         // Recorded stock sessions reach about 121 W / 2.25 A. The extra margin prevents normal
         // stock variation selecting fast. A fast charger is still identifiable well into taper.
