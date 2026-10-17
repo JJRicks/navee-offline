@@ -186,6 +186,12 @@ public final class CompatibilityReportTest {
     private static void authVariants() {
         check(CompatibilityReport.authVariant(1,0).equals("challenge_free")&&CompatibilityReport.authVariant(17,0).equals("aes")
             &&CompatibilityReport.authVariant(18,0).equals("xor")&&CompatibilityReport.authVariant(34,1).equals("aes_extended"),"Auth variants");
+        // The simulator authenticates nothing; the summary says so instead of a bare "?".
+        DeviceDescriptor sim=DeviceDescriptor.simulated("24431",0);
+        String simulated=new CompatibilityReport.Builder("1.3.1",new Random(5)).device(sim,ModelRegistry.resolve(sim),null).build().summary();
+        check(simulated.contains("Authentication: not checked (simulated)")&&!simulated.contains("?"),"Simulated auth wording\n"+simulated);
+        String missing=new CompatibilityReport.Builder("1.3.1",new Random(6)).device(fixture(),ModelRegistry.resolve(fixture()),null).build().summary();
+        check(missing.contains("Authentication: not recorded")&&!missing.contains("Authentication: ?"),"Missing auth wording\n"+missing);
     }
     private static String repeat(String s,int n){StringBuilder b=new StringBuilder();for(int i=0;i<n;i++)b.append(s);return b.toString();}
     private static void check(boolean condition,String message){assertions++;if(!condition)throw new AssertionError(message);}

@@ -210,7 +210,7 @@ final class CompatibilityReport {
             s.append(" · SKU ").append(str(d.get("sku"),"?")).append(" · ").append(str(d.get("role"),"?")).append('\n');
             Map<String,Object> fw=map(d.get("firmware"));
             if(fw!=null){s.append("Firmware:");for(Map.Entry<String,Object> e:fw.entrySet())s.append(' ').append(e.getKey()).append(' ').append(e.getValue()).append(';');s.setLength(s.length()-1);s.append('\n');}
-            s.append("Authentication: ").append(str(d.get("auth"),"?").replace('_',' ')).append('\n');
+            s.append("Authentication: ").append(str(d.get("auth"),Boolean.TRUE.equals(tree.get("simulated"))?"not checked (simulated)":"not recorded").replace('_',' ')).append('\n');
         }
         List<Object> reads=list(tree.get("reads"));
         if(reads!=null&&!reads.isEmpty()){
