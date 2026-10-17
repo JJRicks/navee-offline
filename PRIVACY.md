@@ -120,6 +120,7 @@ if you do not want them retained there.
 | Ride CSV/JSON/GPX | Timestamps and measurements; phone/joined/route exports can include precise locations |
 | Charge JSON | Electrical samples, times, gaps and charger label; excludes owner credentials, names, addresses, PINs and locations |
 | Ordinary diagnostics | Readings, diagnostic payloads and bounded connection events, potentially device serials in readings; excludes owner identity and PIN responses |
+| Compatibility report | Model ID, region and SKU derived from the serial, firmware versions, read outcomes and lengths, status-field presence and setting values, and control decisions; excludes the serial, scooter address, owner identity, PINs, names, times of day, routes and raw payloads. A fresh random report ID is used each time; it is not stored |
 
 Exports only go to a destination you choose through the file picker or helper.
 A destination may itself sync to a cloud service. The backup password is
