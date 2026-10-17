@@ -31,6 +31,7 @@ jobs:
         run: |
           bash tests/run.sh
           python3 tests/owner-capture-guard-test.py
+          python3 -m unittest discover -s ops/ci -p 'test_*.py' -q
   web-setup:
     # Only trusted same-repository work reaches the disposable private worker.
     # External/fork contributions keep GitHub-hosted isolation (free when public).
