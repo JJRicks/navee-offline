@@ -264,11 +264,10 @@ h2 { margin: 0 0 20px; font-weight: 700; font-size: clamp(38px, 5.6vw, 72px); li
   background: radial-gradient(700px 320px at 50% 0%, rgba(234, 37, 43, .2), transparent 70%), rgba(255, 255, 255, .015);
 }
 .privacy h2 sup { margin-left: .12em; font-size: .4em; vertical-align: super; }
-.privacy-note { max-width: 650px; margin: 20px auto 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 .shield { width: 100px; margin: 0 auto 22px; filter: drop-shadow(0 0 34px rgba(234, 37, 43, .65)); animation: pulse 3.2s ease-in-out infinite; }
 .shield-body { fill: rgba(234, 37, 43, .12); stroke: var(--red); stroke-width: 3; }
 .shield-bolt { fill: var(--ink); }
-.promises { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; margin-top: 48px; text-align: left; }
+.promises { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 16px; margin-top: 48px; text-align: left; }
 .promise { padding: 24px; border-radius: 22px; border: 1px solid var(--edge); background: rgba(10, 10, 11, .62); }
 .promise b { display: block; margin-bottom: 8px; font-size: 18px; }
 .promise span { color: var(--muted); font-size: 15px; line-height: 1.55; }
@@ -312,6 +311,7 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
 /* Footer */
 .footer { display: grid; gap: 14px; max-width: 1240px; margin: 0 auto; padding: 40px var(--gutter) 64px; border-top: 1px solid var(--edge); color: var(--muted); font-size: 14px; }
 .footer p { margin: 0; max-width: 60em; }
+.footer .privacy-note { font-size: 12px; line-height: 1.6; }
 .footer-brand { display: flex; align-items: center; gap: 10px; color: var(--ink); font-weight: 700; letter-spacing: .2em; }
 .footer-brand .brand-mark { width: 30px; height: 30px; }
 .footer-links { display: flex; flex-wrap: wrap; gap: 10px 22px; }
@@ -361,7 +361,6 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
   .card-lock, .card-dash { grid-column: span 2; }
   /* Pair the two tall screenshot cards; the short dashboard card follows them. */
   .card-stats { order: 1; } .card-tune { order: 2; } .card-dash { order: 3; }
-  .promises { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 860px) {
   .nav { gap: 14px; flex-wrap: wrap; }
