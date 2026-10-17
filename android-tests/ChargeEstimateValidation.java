@@ -11,6 +11,7 @@ import android.graphics.RectF;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.SystemClock;
+import android.text.Layout;
 import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
@@ -42,7 +43,7 @@ public final class ChargeEstimateValidation extends Instrumentation {
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(()->activity.service()!=null,"Service missing");service=activity.service();
             await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Charge model load did not finish");
-            verifyServiceSnapshot();seedRecordings();verifyAsyncHistory();
+            verifyServiceSnapshot();verifyChargerCaption();seedRecordings();verifyAsyncHistory();
             main(()->{invoke(activity,"select",new Class<?>[]{String.class},"more");invoke(field(activity,"screen"),"selectSection",new Class<?>[]{String.class},"Developer");});settle();
             main(()->{View row=root().findViewWithTag("charge-history-action");require(row!=null&&row.isEnabled(),"Charge history unavailable offline");row.performClick();});
             await(()->dialog()!=null&&dialog().getWindow().getDecorView().findViewWithTag("charge-history-session:"+completeId)!=null,"History did not load");
@@ -198,6 +199,36 @@ public final class ChargeEstimateValidation extends Instrumentation {
         ChargeSessionStore.Estimate missing=(ChargeSessionStore.Estimate)invoke(service,"chargeRecordingEstimate",new Class<?>[]{});
         require(missing.remainingMinutesToFull==null&&missing.version.equals(ChargingEstimate.ESTIMATOR_VERSION),"Unavailable estimate was fabricated or unversioned");
     });}
+    /** The large-font, two-column Scooter page must retain the full charger label beside its value. */
+    private void verifyChargerCaption()throws Exception{
+        main(()->invoke(activity,"select",new Class<?>[]{String.class},"controls"));settle();
+        for(ChargeSessionStore.Charger charger:new ChargeSessionStore.Charger[]{null,ChargeSessionStore.Charger.HIGH_SPEED}){
+            main(()->{require(service.setChargeCharger(charger),"Charger preference unavailable");activity.redraw();});settle();
+            main(()->{
+                View row=root().findViewWithTag("estimate-charger-setting");require(row!=null,"Charger estimate row missing");
+                row.requestRectangleOnScreen(new Rect(0,0,row.getWidth(),row.getHeight()),true);
+            });settle();
+            main(()->{
+                Object row=field(field(activity,"screen"),"chargerLine");
+                TextView name=(TextView)field(row,"name"),value=(TextView)field(row,"value");
+                require("Charger for estimates".contentEquals(name.getText()),"Charger label changed");
+                require((charger==null?"Automatic":"High-speed").contentEquals(value.getText()),"Charger row value missing");
+                Layout layout=name.getLayout();require(layout!=null&&layout.getLineCount()>0,"Charger label not laid out");
+                int last=layout.getLineCount()-1;
+                require(layout.getLineEnd(last)==name.getText().length(),"Charger layout omits the end of the label");
+                require(layout.getLineBottom(last)<=name.getHeight()-name.getCompoundPaddingTop()-name.getCompoundPaddingBottom(),"Charger label exceeds its displayed height");
+                for(int line=0;line<layout.getLineCount();line++){
+                    require(layout.getEllipsisCount(line)==0,"Charger label ellipsized");
+                    require(layout.getLineLeft(line)>=-.5f&&layout.getLineRight(line)<=layout.getWidth()+.5f,"Charger label exceeds its text width");
+                }
+                int[] a=new int[2],b=new int[2];name.getLocationOnScreen(a);value.getLocationOnScreen(b);
+                require(a[0]+name.getWidth()<=b[0],"Charger label overlaps the selected charger");
+                Rect visible=new Rect();require(name.getGlobalVisibleRect(visible)&&visible.height()==name.getHeight(),"Charger label clipped by its row");
+            });
+            screenshot(charger==null?"charger-label-automatic":"charger-label-high-speed");
+        }
+        main(()->require(service.setChargeCharger(null),"Automatic charger preference did not restore"));settle();
+    }
     private void seedRecordings()throws Exception{
         long wall=1735775940000L,mono=100000;
         store().start(profile,ChargeSessionStore.Charger.STOCK,wall,mono);
