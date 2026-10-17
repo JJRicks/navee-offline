@@ -62,9 +62,15 @@ public final class DeviceDescriptor {
      * Simulator descriptor; "" stands in for the default UT5 MAX simulator (serial-like 2538).
      * An invalid ID (not 0–65535) simulates an unidentified model, never the UT5 MAX.
      */
-    public static DeviceDescriptor simulated(String advertisedPid,int role){
+    public static DeviceDescriptor simulated(String advertisedPid,int role){return simulated(advertisedPid,role,null);}
+    /**
+     * The same with a synthetic serial region (two capital letters, else none) for another simulated model's
+     * region rules. The UT5 MAX simulator never takes a region, so its rules and notes stay as today.
+     */
+    public static DeviceDescriptor simulated(String advertisedPid,int role,String region){
         String pid=pid(advertisedPid);boolean ut5=advertisedPid==null||advertisedPid.isEmpty();
-        return new DeviceDescriptor(pid,pid.isEmpty()?0:1,ut5?"2538":"",null,Firmware.NONE,false,Transport.STANDARD,role,true);
+        String area=!ut5&&region!=null&&region.matches("[A-Z]{2}")?region:null;
+        return new DeviceDescriptor(pid,pid.isEmpty()?0:1,ut5?"2538":"",area,Firmware.NONE,false,Transport.STANDARD,role,true);
     }
     public DeviceDescriptor withFirmware(Firmware fw,boolean thisSession){return new DeviceDescriptor(advertisedPid,advertisedWallMs,serialPid,region,fw,thisSession,transport,role,simulated);}
     public DeviceDescriptor withAdvertised(String pid,long wallMs){return new DeviceDescriptor(pid,wallMs,serialPid,region,firmware,firmwareThisSession,transport,role,simulated);}

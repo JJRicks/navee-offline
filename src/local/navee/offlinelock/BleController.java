@@ -28,7 +28,7 @@ public final class BleController {
     /** Short connection states shared by the connection dialog, onboarding and the notification. */
     public static final String NEARBY_NEEDED="Nearby devices permission needed",BLUETOOTH_OFF="Bluetooth off",NO_PROFILE="No scooter set up",
             NOTHING_FOUND="No scooter found",OWNER_REJECTED="Owner identity rejected",LIMITED_MODEL="Limited controls on this model";
-    private ScooterSimulation simulation;private boolean simulationChanging;private String simulationModel="";
+    private ScooterSimulation simulation;private boolean simulationChanging;private String simulationModel="",simulationRegion=null;
     /** Advertised model IDs seen in this scan, by MAC. One is committed to a profile only after authentication and a serial match on that MAC. */
     private final LinkedHashMap<String,AdvertisedIdentity.Result> advertised=new LinkedHashMap<>();
     private AdvertisedIdentity.Result pendingAdvertised;private String pendingAdvertisedMac="";private boolean identifying;
@@ -71,6 +71,9 @@ public final class BleController {
     public boolean simulationCharging(){return simulation!=null&&simulation.charging();}
     /** Developer simulator model: "" (UT5 MAX) or a synthetic advertised ID. Memory only; never reaches a profile. */
     public String simulationModel(){return simulationModel;}
+    /** Developer simulator serial region for another simulated model ("US", "DE", ... or null); memory only, never on the UT5 MAX. */
+    public String simulationRegion(){return simulationRegion;}
+    public void setSimulationRegion(String region){simulationRegion=region!=null&&region.matches("[A-Z]{2}")?region:null;tickSimulation();changed();}
     public void setSimulationModel(String pid){simulationModel=pid==null?"":pid;if(simulation!=null){simulation.setModel(simulationModel);tickSimulation();}changed();}
     public void setSimulationCharging(boolean charging){if(simulation==null)return;simulation.setCharging(charging);tickSimulation();changed();}
     private void connectSimulation(){if(simulation==null)return;state=State.READY;updateSimulation();notice("Simulated connection");}
@@ -135,7 +138,7 @@ public final class BleController {
      * authentication, so the transport is standard. Every control decision starts here.
      */
     public DeviceDescriptor descriptor(){
-        if(simulating())return DeviceDescriptor.simulated(simulation==null?simulationModel:simulation.model(),0);
+        if(simulating())return DeviceDescriptor.simulated(simulation==null?simulationModel:simulation.model(),0,simulationRegion);
         ScooterProfiles.Profile p=profile();DeviceDescriptor.Firmware fw=sessionFirmware;
         if(fw==null){
             String[] keys={"meter_version","controller_version","battery_version","screen_version","uwb_version"},values=new String[5];long seen=-1;
