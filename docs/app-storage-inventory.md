@@ -119,6 +119,7 @@ One String per `<pid>`: JSON of the last command results. Since Volt 1.1.0 (`c7b
 | `databases/telemetry-history.db` | Durable | rows keyed by `profiles.name` = `<pid>` | SQLite v1: `latest` (last-seen readings per profile), `profiles`, `keys`, `detail`, `minute`, `daily` rollups. Rollups outlive pruned detail, so they are data, not a recomputable cache. Delete-journal mode, 24 MiB maximum. TelemetryHistory. |
 | `databases/telemetry-history.db-journal` | Pending | — | Must be absent or empty when closed. |
 | `no_backup/connection-events` (+ `.tmp`) | Diagnostic | mixed | Last 200 connection phases/reasons, 128 KiB cap. ConnectionEventLog. |
+| `no_backup/compat-tests` (+ `.tmp`) | Device | mixed | Guided setting test records (up to 20 entries, 256 KiB cap): feature, variant, model prefix, meter firmware, baseline/target values, phases and outcomes; no packets, serials, MACs, owner identities or PIN data. Kept on this phone only (D4) and never in a backup. TestJournal. |
 | `files/missing-export` | — | — | Placeholder path MainActivity uses when no pending export is recorded; never created. |
 | `no_backup/app-data-transfer/` | Pending | — | Restore stages, transaction (`scope.bin`, `additions.bin`, `previous/`, `incoming/`, state marker). |
 | `no_backup/ride-transfer/` | Pending | — | Ride-restore stages and transaction. |

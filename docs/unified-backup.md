@@ -43,6 +43,7 @@ Stable IDs go in the manifest. Labels are UI copy.
 | `app_settings.dashboard_restore_undo_v1_<pid>` | Short-lived undo. Removed for every scooter whose dashboard is restored, so a stale undo cannot revert the restore. |
 | `owner_capture_cleanup.*`, `/data/local/tmp/volt-owner-capture.lock` | Shizuku cleanup journal for this phone. Never read, cleared or replaced. |
 | `no_backup/connection-events` | Device diagnostics |
+| `no_backup/compat-tests` (+ `.tmp`) | Guided setting test records stay on this phone (D4). Never exported, cleared or replaced by a restore. |
 | `no_backup/app-data-transfer`, `no_backup/ride-transfer`, `*.repair`, `*.mapping`, `*-journal` | Transactions and temporary files |
 | `cache/*` (map tiles, charge/ride exports, prepared backups) | Disposable |
 | Android permissions, battery-optimization exemption, notification settings, Bluetooth bonds, USB debugging, Shizuku grant | Owned by Android, not app files |

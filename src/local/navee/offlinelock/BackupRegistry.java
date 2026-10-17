@@ -107,6 +107,8 @@ final class BackupRegistry {
         {"files/rides", RIDES}, {"files/phone-rides", RIDES}, {"files/charge-recordings", CHARGES}, {"databases/telemetry-history.db", HISTORY},
         {"files/pending-owner-import.json", null, PENDING}, {"files/pending-owner-import.tmp", null, PENDING}, {"files/pending-export-", null, PENDING},
         {"databases/telemetry-history.db-journal", null, PENDING}, {"files/missing-export", null, "Placeholder for an absent pending export"}, {"no_backup/connection-events", null, "Device diagnostics"}, {"no_backup/connection-events.tmp", null, "Device diagnostics"},
+        // Guided setting test records stay on this phone (decision D4): never exported, cleared or replaced.
+        {"no_backup/compat-tests", null, "Guided-test records of this installation"}, {"no_backup/compat-tests.tmp", null, "Guided-test records of this installation"},
         {"no_backup/app-data-transfer", null, PENDING}, {"no_backup/ride-transfer", null, PENDING},
         {"cache/", null, "Disposable cache"}, {"shared_prefs/", null, "Preferences are classified key by key"},
     };
