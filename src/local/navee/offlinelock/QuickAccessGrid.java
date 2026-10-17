@@ -61,14 +61,19 @@ final class QuickAccessGrid extends ViewGroup {
                 if (fresh != null) value = fresh;
             }
             boolean pending = feature != null && ble != null && feature.key.equals(ble.pending());
-            String state = feature == null || feature.sensitive ? ""
-                    : pending ? "Updating…" : value == null ? "—"
+            // The resolver's decision for this model; an unmapped tile stays in the saved layout, muted.
+            CapabilityResolver.Decision decision = feature == null || ble == null ? null : ble.decision(feature.key);
+            boolean unmapped = decision != null && !feature.key.equals("range_algorithm")
+                    && decision.support != CapabilityResolver.Support.KNOWN_ENCODING && !ble.controlOffered(feature.key);
+            if (unmapped) { value = null; featureLive = false; }
+            String state = feature == null || feature.sensitive && !unmapped ? ""
+                    : unmapped ? "—" : pending ? "Updating…" : value == null ? "—"
                     : DisplayUnits.featureValue(feature, value, units);
             if (feature != null && feature.key.equals("range_algorithm")) {
                 featureLive = service != null && service.profiles.active() != null;
                 state = featureLive && service.usesLearnedRange() ? "Volt (learned)" : "Scooter";
             }
-            boolean showSchedule = feature != null && feature.key.equals("timed_charging")
+            boolean showSchedule = feature != null && !unmapped && feature.key.equals("timed_charging")
                     && schedule != null && schedule.number != null && schedule.number > 0;
             if (showSchedule) {
                 long wall = (long)(schedule.number * 1000)
@@ -90,8 +95,7 @@ final class QuickAccessGrid extends ViewGroup {
                 cell.value.setTextColor(highlight ? ui.onAccent : muted ? ui.muted : ui.text);
                 if (cell.entry.directToggle()) {
                     boolean available = !editing && featureLive && value != null && ble.featureValue(feature.key) != null
-                            && ble.pending() == null && !ble.readOnlyModel()
-                            && (!feature.requiresParked || ble.stationary());
+                            && decision != null && decision.available();
                     ((TileAction) cell.icon).appearance(selected && available ? ui.accent : ui.muted, available, highlight);
                 } else ((TileAction) cell.icon).appearance(highlight ? ui.onAccent : ui.muted, !editing, false);
                 if (cell.highlighted != highlight || cell.isSelected() != selected) {
@@ -108,7 +112,7 @@ final class QuickAccessGrid extends ViewGroup {
             }
             cell.setEnabled(!editing);
             String description = (tiles ? tileLabel(cell.entry) : cell.entry.label) + (state.isEmpty() ? "" : ", " + state)
-                    + (feature != null && !featureLive ? ", last seen" : "")
+                    + (unmapped ? ", not on this model" : feature != null && !featureLive ? ", last seen" : "")
                     + (showSchedule && !schedule.live ? ", scheduled time last seen" : "")
                     + (cell.entry.directToggle() ? ", toggle" : ", open");
             cell.setContentDescription(description);

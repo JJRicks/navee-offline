@@ -11,6 +11,8 @@ public final class ScooterSimulation {
     private final LinkedHashMap<String, Sample> fixed = new LinkedHashMap<>();
     private boolean charging;
     private long chargeStart;
+    /** Synthetic advertised model ID; "" is the default UT5 MAX simulator. Never stored or exported. */
+    private String model = "";
 
     private static final class Sample {
         final String text;
@@ -113,6 +115,15 @@ public final class ScooterSimulation {
             throw new IllegalArgumentException("Invalid simulation charging time");
         chargeStart = local;
     }
+
+    /** Developer model choice. Keeps every catalogue value: the UI hides or greys controls by decision. */
+    public void setModel(String advertisedPid) {
+        String pid = advertisedPid == null ? "" : advertisedPid;
+        if (!pid.isEmpty() && !pid.matches("[1-9][0-9]{0,4}"))
+            throw new IllegalArgumentException("Invalid simulation model");
+        model = pid;
+    }
+    public String model() { return model; }
 
     public boolean charging() { return charging; }
     public void setCharging(boolean value) { charging = value; }

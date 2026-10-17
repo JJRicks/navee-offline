@@ -11,6 +11,13 @@ public final class RangeFollowPolicyTest {
         eq(4, RangeFollowPolicy.target(2538, 11d, EDS));
         eq(null, RangeFollowPolicy.target(2538, 3d, new int[]{0}));
         eq(null, RangeFollowPolicy.target(0, 3d, DS));
+        // The product comes from the registry: only the UT5 MAX layer gets one; every other model gets 0.
+        eq(3, RangeFollowPolicy.target(ModelRegistry.rangeFollowProduct(ModelRegistryTest.serial("Q2538ZZ9US7777777")), 3d, DS));
+        for (DeviceDescriptor other : new DeviceDescriptor[]{ModelRegistryTest.advertised("24431"), ModelRegistryTest.serial("Q2443ZZ9US7777777"), ModelRegistryTest.advertised("39991"), null}) {
+            eq(0, ModelRegistry.rangeFollowProduct(other));
+            eq(null, RangeFollowPolicy.target(ModelRegistry.rangeFollowProduct(other), 3d, DS));
+        }
+        eq(null, new RangeFollowPolicy().next("other", 0, 3d, DS, 2, true, true, false, true, true));
         eq(null, RangeFollowPolicy.target(2538, 1d, DS));
         eq(null, RangeFollowPolicy.target(2538, Double.NaN, DS));
         eq(null, RangeFollowPolicy.target(2538, Double.POSITIVE_INFINITY, DS));

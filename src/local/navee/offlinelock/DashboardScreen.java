@@ -876,7 +876,7 @@ public final class DashboardScreen implements AppScreen {
         if (r == null || r.value == null) return "—";
         if (r.key.equals("driving_mode") && r.number != null) {
             ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
-            return Telemetry.drivingModeLabel(profile == null ? 0 : profile.pid(), r.number);
+            return Telemetry.drivingModeLabel(ModelRegistry.driveModeLabelProduct(profile == null ? null : profile.savedDescriptor()), r.number);
         }
         if (r.number != null) {
             if (DisplayTemperature.isTemperature(r.key))
@@ -1643,7 +1643,7 @@ public final class DashboardScreen implements AppScreen {
                 percent.setContentDescription("Battery " + number + " percent");
             }
             ScooterProfiles.Profile p = service == null ? null : service.profiles.active();
-            boolean known = p != null && p.pid() == 2538;
+            boolean known = ModelRegistry.showsPhoto(p == null ? null : p.savedDescriptor());
             if (known && photo.getDrawable() == null) photo.setImageBitmap(scooterPhoto());
             photo.setVisibility(known ? View.VISIBLE : View.GONE);
             stage.setMinimumHeight(ui.dp(known ? 236 : 44));
@@ -2801,7 +2801,7 @@ public final class DashboardScreen implements AppScreen {
                                 ? ", last seen " + when(charge.capturedWallMs) : "");
                 speak();
                 ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
-                boolean allowed = profile != null && profile.pid() == 2538;
+                boolean allowed = ModelRegistry.showsPhoto(profile == null ? null : profile.savedDescriptor());
                 if (allowed != photoAllowed) { photoAllowed = allowed; requestLayout(); }
             }
         }
@@ -3365,7 +3365,7 @@ public final class DashboardScreen implements AppScreen {
             if (photo != null) {
                 ScooterProfiles.Profile p = service == null ? null : service.profiles.active();
                 // Model identity is saved with the profile, independent of live readings.
-                boolean show = p != null && p.pid() == 2538;
+                boolean show = ModelRegistry.showsPhoto(p == null ? null : p.savedDescriptor());
                 photo.setVisibility(show ? View.VISIBLE : View.GONE);
                 photoHint.setVisibility(show ? View.GONE : View.VISIBLE);
             }
@@ -5396,7 +5396,7 @@ public final class DashboardScreen implements AppScreen {
         if (widget.advertisedWh > 0) return widget.advertisedWh;
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
         // NAVEE US UT5 MAX specification: 46.8 V nominal × 15.3 Ah.
-        return profile != null && profile.pid() == 2538 ? 716.04 : null;
+        return ModelRegistry.ratedWh(profile == null ? null : profile.savedDescriptor());
     }
 
     private String ratingLabel(DashboardConfig.Widget widget) {
@@ -5411,7 +5411,7 @@ public final class DashboardScreen implements AppScreen {
         dismiss();
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
         // NAVEE US UT5 MAX specification: 46.8 V nominal × 15.3 Ah (see rating()).
-        boolean modelKnown = profile != null && profile.pid() == 2538;
+        boolean modelKnown = ModelRegistry.ratedWh(profile == null ? null : profile.savedDescriptor()) != null;
         LinearLayout content = column();
         content.setPadding(ui.dp(24), ui.dp(8), ui.dp(24), 0);
         LinearLayout field = row();

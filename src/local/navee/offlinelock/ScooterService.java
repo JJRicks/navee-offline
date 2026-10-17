@@ -445,9 +445,10 @@ public final class ScooterService extends Service {
         ScooterProfiles.Profile profile=profiles.active();
         if(!canRetainStockReference()){
             stockChargeReferenceGate.reset();
-            return ChargingEstimate.forScooter(baseline,soc,rated,profile==null?-1:profile.pid(),charger,curve);
+            return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile==null?null:profile.savedDescriptor()),charger,curve);
         }
-        return ChargingEstimate.forScooter(baseline,soc,rated,profile.pid(),charger,curve,stockChargeReferenceGate,
+        // UT5 MAX reference curves only for the UT5 MAX layer; other models get live measured estimates.
+        return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),charger,curve,stockChargeReferenceGate,
                 profile.id+":"+ble.currentTransportSerial(),chargingValue(readings,"current_a").observedMs,SystemClock.elapsedRealtime());
     }
 
@@ -723,12 +724,12 @@ public final class ScooterService extends Service {
         boolean fresh = sameProfile && mode != null && mode.numericValue != null && mode.updatedMs > 0
                 && now >= mode.updatedMs && now - mode.updatedMs <= 7000 && ble.statusAge() <= 7000;
         Integer target = rangeFollowPolicy.next(profile == null ? "" : profile.id,
-                profile == null ? 0 : profile.pid(), mode == null ? null : mode.numericValue,
+                ModelRegistry.rangeFollowProduct(profile == null ? null : profile.savedDescriptor()), mode == null ? null : mode.numericValue,
                 ble.featureChoices("range_algorithm"), ble.featureValue("range_algorithm"),
                 ble.connected(), ble.ready() && ble.stationary(), ble.pending() != null, fresh, followsRidingMode());
         if (target != null) {
             selectingRange = true;
-            try { ble.set("range_algorithm", target); } finally { selectingRange = false; }
+            try { ble.set("range_algorithm", target, MutationGate.Origin.AUTOMATIC_RANGE_FOLLOW); } finally { selectingRange = false; }
         }
     }
     private String activeProfileId(){ScooterProfiles.Profile profile=profiles==null?null:profiles.active();

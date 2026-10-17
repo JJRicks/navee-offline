@@ -891,7 +891,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             design.decorate(lockTitle,Boolean.FALSE.equals(shownLock)?"unlock":"lock");
             android.graphics.drawable.Drawable lockGlyph=lockTitle.getCompoundDrawablesRelative()[0];
             if(lockGlyph!=null){lockGlyph.setBounds(0,0,design.dp(20),design.dp(20));lockTitle.setCompoundDrawablesRelative(lockGlyph,null,null,null);lockTitle.setCompoundDrawablePadding(design.dp(8));}
-            lockControl.update(shownLock,ready&&pending==null&&!editing);
+            lockControl.update(shownLock,ready&&pending==null&&!editing&&lockOffered(ble,shownLock));
             if(offlineTitle!=null){
                 // The scooter name is already in the Home header; repeating it can fill
                 // a narrow card and push Cancel out of view at larger system font sizes.
@@ -914,6 +914,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         updateConnectionAction(ready,connecting);
         ScooterProfiles.Profile p=scooterService==null?null:scooterService.profiles.active();if(profileTitle!=null){profileTitle.setText(p==null?"Your scooter":p.name);profileTitle.setVisibility(home?View.VISIBLE:View.GONE);}
+    }
+    /**
+     * Whether the lock switch can be used in the shown direction on this model. Riding, a missing
+     * motion report or a warning keep it tappable so the tap says why; the gate still refuses.
+     */
+    private static boolean lockOffered(BleController ble,Boolean shownLock){
+        if(ble==null)return false;CapabilityResolver.Decision d=ble.decision("lock",shownLock==null||!shownLock?1:0);
+        return d.available()||d.blockedByRide();
     }
     /**
      * Lock bar detail time, short enough for a 320 dp phone: the clock today, the weekday and clock
@@ -1241,7 +1249,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
         private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private final LinearLayout lightsHeader,banner,readOnlyBanner;
+        private final LinearLayout lightsHeader,banner,readOnlyBanner;private TextView identifyAction;private String offeredKeys="";
         private final View headlightRow,zonesRow,clockSpinner;
         private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
@@ -1268,11 +1276,12 @@ public final class MainActivity extends Activity implements ScreenHost {
             LinearLayout.LayoutParams bannerWords=new LinearLayout.LayoutParams(0,-2,1);bannerWords.leftMargin=design.dp(10);bannerWords.rightMargin=design.dp(8);banner.addView(bannerText,bannerWords);
             bannerAction=pill("Connect",MainActivity.this::connect);bannerAction.setContentDescription("Connect scooter");banner.addView(bannerAction);
             LinearLayout.LayoutParams bannerParams=new LinearLayout.LayoutParams(-1,-2);bannerParams.bottomMargin=design.dp(10);view.addView(banner,bannerParams);
-            // Connected to a model outside the verified catalog: one banner, and every control greys out.
+            // Connected to a model outside the UT5 MAX layer: one banner; unmapped controls are hidden.
             readOnlyBanner=row();readOnlyBanner.setGravity(Gravity.CENTER_VERTICAL);readOnlyBanner.setPadding(design.dp(14),design.dp(4),design.dp(14),design.dp(4));readOnlyBanner.setMinimumHeight(design.dp(52));
             readOnlyBanner.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?36:22),16,Ui.withAlpha(design.accent,design.dark?100:80)));
             readOnlyBanner.addView(design.icon("lock",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
-            TextView readOnlyText=design.text(BleController.READ_ONLY_MODEL,13,false);LinearLayout.LayoutParams readOnlyWords=new LinearLayout.LayoutParams(0,-2,1);readOnlyWords.leftMargin=design.dp(10);readOnlyBanner.addView(readOnlyText,readOnlyWords);
+            TextView readOnlyText=design.text(BleController.LIMITED_MODEL,13,false);LinearLayout.LayoutParams readOnlyWords=new LinearLayout.LayoutParams(0,-2,1);readOnlyWords.leftMargin=design.dp(10);readOnlyWords.rightMargin=design.dp(8);readOnlyBanner.addView(readOnlyText,readOnlyWords);
+            identifyAction=pill("Identify",()->{if(scooterService!=null){scooterService.ble.identifyModel();toast(scooterService.ble.message());redraw();}});identifyAction.setContentDescription("Identify scooter model");identifyAction.setTag("scooter-identify-model");readOnlyBanner.addView(identifyAction);
             readOnlyBanner.setVisibility(View.GONE);view.addView(readOnlyBanner,new LinearLayout.LayoutParams(-1,-2));
             ((LinearLayout.LayoutParams)readOnlyBanner.getLayoutParams()).bottomMargin=design.dp(10);
             // Wide: the banner spans both columns; search, results and top speed lead the left column.
@@ -1350,13 +1359,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         private void applyFilter(){
             String needle=normalize(query);boolean searching=!needle.isEmpty();int count=0;
             java.util.HashSet<String> visible=new java.util.HashSet<>();
-            for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=searching?row.haystack.contains(needle):onPage(group);row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
+            for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=offered(row.feature.key)&&(searching?row.haystack.contains(needle):onPage(group));row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
+            boolean zones=false;for(ControlRow row:rows)zones|=(row.feature.key.startsWith("line_")||row.feature.key.startsWith("star_"))&&offered(row.feature.key);
             for(Map.Entry<View,String[]> e:extras.entrySet()){
                 String[] metadata=e.getValue();
-                boolean match=e.getKey()==zonesRow&&lights||e.getKey()==headlightRow&&!lights&&!searching?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
+                boolean match=e.getKey()==zonesRow&&(lights||!zones)||e.getKey()==clockLine.card&&!offered("clock_sync")||e.getKey()==headlightRow&&!lights&&!searching?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
                 e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}
             }
-            boolean speed=searching?TOP_SPEED_WORDS.contains(needle):!lights;
+            boolean speed=offered("maximum_speed")&&(searching?TOP_SPEED_WORDS.contains(needle):!lights);
             topSpeed.card.setVisibility(speed?View.VISIBLE:View.GONE);if(speed)count++;
             for(Map.Entry<String,LinearLayout> e:sections.entrySet()){
                 e.getValue().setVisibility(visible.contains(e.getKey())?View.VISIBLE:View.GONE);
@@ -1366,6 +1376,15 @@ public final class MainActivity extends Activity implements ScreenHost {
             labels.get("Lights").setText((lights&&!searching?"Headlights":"Lights").toUpperCase(Locale.ROOT));
             lightsHeader.setVisibility(lights?View.VISIBLE:View.GONE);
             results.setVisibility(searching?View.VISIBLE:View.GONE);results.setText(count==0?"No matching settings":count+(count==1?" setting":" settings"));
+        }
+        /**
+         * Settings rows show only controls this model has a known encoding for (UT5 MAX: all; a profile that
+         * has never connected: all, unavailable). The range
+         * estimate row is Volt's own source choice, so it always shows.
+         */
+        private boolean offered(String key){
+            BleController ble=scooterService==null?null:scooterService.ble;
+            return ble==null||key.equals("range_algorithm")||ble.controlOffered(key);
         }
         private void clearSearch(){
             if(search.getText().length()>0)search.setText("");search.clearFocus();
@@ -1399,9 +1418,14 @@ public final class MainActivity extends Activity implements ScreenHost {
             // Two words keep it clear the grey values are not live; the Connect pill says the rest.
             bannerText.setText(connecting?"Connecting…":"Last seen (disconnected)");
             bannerAction.setVisibility(connecting?View.GONE:View.VISIBLE);
-            readOnlyBanner.setVisibility(ble!=null&&ble.readOnlyModel()?View.VISIBLE:View.GONE);
+            readOnlyBanner.setVisibility(ble!=null&&ble.limitedModel()?View.VISIBLE:View.GONE);
+            identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
+            // Rows follow the model's decisions; re-filter when the set of mapped controls changes.
+            StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(offered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(offered("maximum_speed")?'1':'0');
+            if(!offered.toString().equals(offeredKeys)){offeredKeys=offered.toString();applyFilter();}
             boolean clockPending=ble!=null&&"clock_sync".equals(ble.pending());
-            boolean clockReady=ready&&ble.pending()==null&&!ble.readOnlyModel();clockButton.setEnabled(clockReady);
+            CapabilityResolver.Decision clockDecision=ble==null?null:ble.decision("clock_sync");
+            boolean clockReady=clockDecision!=null&&(clockDecision.available()||clockDecision.blockedByRide());clockButton.setEnabled(clockReady);
             clockLine.name.setTextColor(clockReady?design.text:design.muted);
             // Results are row state: a spinner while sending, then "Sent 14:02" (no clock readback exists) or a short failure.
             clockSpinner.setVisibility(clockPending?View.VISIBLE:View.GONE);
@@ -1442,7 +1466,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         ScooterCommands.Feature feature = entry.feature();
         if (feature == null) return;
         if (feature.key.equals("range_algorithm")) { closeQuickMenu(); showRangeSource(); return; }
-        if (feature.experimental) { showQuickMore("Lab", feature); return; }
+        // The same resolver as the settings rows and the write gate: an unmapped control says why.
+        CapabilityResolver.Decision decision = scooterService.ble.decision(feature.key);
+        if (decision.support != CapabilityResolver.Support.KNOWN_ENCODING) { toast(decision.reasonText()); return; }
+        if (decision.variant != null && decision.variant.lab) { showQuickMore("Lab", feature); return; }
         if (feature.sensitive || feature.key.equals("proximity_key")) {
             showQuickMore("Security", null); return;
         }
@@ -1690,20 +1717,26 @@ public final class MainActivity extends Activity implements ScreenHost {
                 spinner.setVisibility(View.GONE);result.setVisibility(View.GONE);
                 action.setContentDescription("Range estimate, "+source+", opens choices");return;
             }
-            BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);boolean available=ble!=null&&ble.ready()&&ble.pending()==null&&!ble.readOnlyModel()&&liveActual!=null&&scooterService.featureFresh(feature.key);
+            BleController ble=scooterService==null?null:scooterService.ble;Integer liveActual=ble==null?null:ble.featureValue(feature.key);Integer actual=liveActual!=null?liveActual:scooterService==null?null:scooterService.displayFeatures().get(feature.key);
+            // The same decision admits the write; riding keeps a parked-only row tappable to say "Stop to change".
+            CapabilityResolver.Decision decision=ble==null?null:ble.decision(feature.key);boolean parked=decision!=null&&decision.blockedByRide();
+            boolean decided=decision!=null&&(decision.available()||parked);
+            boolean available=decided&&liveActual!=null&&scooterService.featureFresh(feature.key);
             String shown;
-            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=ble!=null&&ble.ready()&&ble.pending()==null&&!ble.readOnlyModel()&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.clock(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));}
+            if(feature.type==ScooterCommands.Type.TIME){Double seconds=ble==null?null:ble.telemetry.number("scheduled_charge_time_raw");if(seconds==null&&scooterService!=null){TelemetryHistory.Reading cached=scooterService.displayReadings().get("scheduled_charge_time_raw");if(cached!=null)seconds=cached.number;}available=decided&&seconds!=null&&scooterService.readingFresh("scheduled_charge_time_raw");shown=seconds==null?"Not reported":seconds<=0?"Not scheduled":DisplayTime.clock(MainActivity.this,preferences,(long)(seconds*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));}
             else shown=actual==null?"Not reported":valueText(feature,actual);
             boolean choices=feature.type!=ScooterCommands.Type.CHOICE||(ble!=null&&ble.featureChoices(feature.key).length>0);
             // Parked-only settings grey out while the scooter moves; the row stays tappable to say "Stop to change".
-            parkedBlocked=available&&choices&&feature.requiresParked&&!ble.stationary();
+            parkedBlocked=available&&choices&&parked;
+            String note=rowNote(ble,decision,parked);
             boolean usable=available&&choices&&!parkedBlocked;
             name.setTextColor(usable?design.text:design.muted);action.setEnabled(available&&choices);
             row.line.setAlpha(parkedBlocked?.45f:1f);
             if(toggle==null&&!inline){
                 // A long value moves under the label so the row never wraps beside the chevron.
-                boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(wide?shown:rowDetail(feature));
-            }else if(inline)row.setSub(actual==null?"Not reported":null);
+                boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(joinNote(wide?shown:rowDetail(feature),note));
+            }else if(inline)row.setSub(actual==null?"Not reported":note);
+            else row.setSub(joinNote(rowDetail(feature),note));
             if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(usable);patternSelector.setAlpha(usable?1f:.5f);}
             for(Map.Entry<Integer,View> option:options.entrySet()){
                 boolean on=actual!=null&&actual.intValue()==option.getKey();View view=option.getValue();
@@ -1717,9 +1750,20 @@ public final class MainActivity extends Activity implements ScreenHost {
             spinner.setVisibility(pending?View.VISIBLE:View.GONE);
             result.setText(chip==null?"":chip);result.setVisibility(chip==null?View.GONE:View.VISIBLE);
             // TalkBack reads the name and value, plus any short state.
-            action.setContentDescription(shortLabel(feature)+", "+shown+(pending?", confirming":chip!=null?", "+chip.toLowerCase(Locale.ROOT):parkedBlocked?", stop to change":""));
+            action.setContentDescription(shortLabel(feature)+", "+shown+(pending?", confirming":chip!=null?", "+chip.toLowerCase(Locale.ROOT):parkedBlocked?", stop to change":note!=null?", "+note.toLowerCase(Locale.ROOT):""));
             if(toggle!=null){toggle.setVisibility(pending?View.GONE:View.VISIBLE);toggle.setEnabled(usable);toggle.setChecked(actual!=null&&actual==1);if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(actual==null?"Not reported":actual==1?"On":"Off");}
         }
+        /**
+         * Short caption for a connected row: why the control is refused (not the transient states the row
+         * already shows), else "Untested here" for an OEM-mapped control on another model. None on the UT5 MAX.
+         */
+        private String rowNote(BleController ble,CapabilityResolver.Decision d,boolean parked){
+            if(ble==null||d==null||!ble.ready())return null;
+            if(!d.available()&&!parked&&d.reason!=CapabilityResolver.Reason.BUSY&&d.reason!=CapabilityResolver.Reason.FIELD_ABSENT
+                    &&d.reason!=CapabilityResolver.Reason.NOT_CONNECTED&&d.reason!=CapabilityResolver.Reason.STATUS_STALE)return d.reasonText();
+            return d.layer!=ModelRegistry.Layer.UT5_MAX&&d.evidence==CapabilityResolver.Evidence.OEM_MAPPED?"Untested here":null;
+        }
+        private String joinNote(String text,String note){return note==null?text:text==null||text.isEmpty()?note:text+" · "+note;}
         private void restorePatternSelection(boolean animate){
             Integer actual=scooterService==null?null:scooterService.ble.featureValue(feature.key);
             if(actual==null&&scooterService!=null)actual=scooterService.displayFeatures().get(feature.key);
@@ -1820,7 +1864,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             Integer live=ble==null?null:ble.featureValue(feature.key);
             Integer actual=live!=null?live:scooterService==null?null:scooterService.displayFeatures().get(feature.key);
             boolean ready=ble!=null&&ble.ready();
-            boolean available=ready&&ble.pending()==null&&!ble.readOnlyModel()&&live!=null&&scooterService.featureFresh(feature.key)&&ble.featureChoices(feature.key).length>0;
+            CapabilityResolver.Decision decision=ble==null?null:ble.decision(feature.key);
+            boolean available=decision!=null&&(decision.available()||decision.blockedByRide())&&live!=null&&scooterService.featureFresh(feature.key)&&ble.featureChoices(feature.key).length>0;
             String units=preferences.getString("units","mi");
             amount.setText(actual==null?"—":number(actual,units));
             unit.setText("km".equals(units)?"km/h":"dual".equals(units)&&actual!=null?"mph · "+actual+" km/h":"mph");
