@@ -13,12 +13,14 @@ import java.util.Set;
  * model IDs the OEM 2.1.9 app treats alike; they are UI policy evidence, not proof of what a
  * controller implements. OEM group rules test only an advertised PID (see DeviceDescriptor).
  *
- * Version 1 maps only the UT5 MAX layer and the shared lock: identified OEM groups get the shared
- * lock and explicit "not mapped" decisions until their rows are added. Nothing gates on it yet.
+ * Version 2 maps the UT5 MAX layer, the shared lock, and for identified OEM groups the OEM home
+ * screen family (units, range estimate, clock, lights, turn sound, cruise, energy recovery). Every
+ * other OEM-group key is "not mapped" until its rows are added. OEM-mapped rows are not tested by
+ * Volt on those models. BleController and the UI gate every control on these decisions.
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=1;
+    public static final int VERSION=2;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -84,6 +86,43 @@ public final class ModelRegistry {
     /** OEM 2.1.9 sends 0x51 [1|0] from the home slider for every standard scooter; readback 0x70 offset 2. */
     static final FeatureVariant SHARED_LOCK=new FeatureVariant("lock.shared","lock",0x51,new int[0],new int[]{0,1},new String[]{"Off","On"},"",0,1,1,
         2,255,0,FeatureVariant.Decode.EXACT,true,false,false,false,true);
+
+    // OEM-group variants (C2): exact readback bytes, so any other value reads as unknown.
+    private static final String[] OFF_ON={"Off","On"};
+    static final FeatureVariant OEM_UNITS=oem("display_units.oem","display_units",0x55,new int[]{0,1},new String[]{"Miles / mph","Kilometers / km/h"},7,false);
+    /** Range estimate sets come from offset 15 (FeatureVariant.choices); "Actual riding" only for the prefixes below. */
+    static final FeatureVariant OEM_RANGE=new FeatureVariant("range_algorithm.oem","range_algorithm",0x56,new int[0],new int[]{0,2,3,4},
+        new String[]{"Theoretical","D-mode estimate","Sport estimate","Eco estimate"},"",0,4,1,6,255,0,FeatureVariant.Decode.EXACT,false,false,false,true,true);
+    static final FeatureVariant OEM_RANGE_PERSONAL=new FeatureVariant("range_algorithm.oem_personal","range_algorithm",0x56,new int[0],new int[]{0,1,2,3,4},
+        new String[]{"Theoretical","Actual riding","D-mode estimate","Sport estimate","Eco estimate"},"",0,4,1,6,255,0,FeatureVariant.Decode.EXACT,false,false,false,true,true);
+    /** OEM 2.1.9 sends this after every authentication; Volt sends it only from the manual button. */
+    static final FeatureVariant OEM_CLOCK=new FeatureVariant("clock_sync.oem","clock_sync",0x6f,new int[]{6},new int[0],new String[0],"",0,0,1,
+        -1,255,0,FeatureVariant.Decode.BE32,false,false,false,false,false);
+    static final FeatureVariant OEM_TAIL=oem("headlight.oem","headlight",0x54,new int[]{0,1},OFF_ON,4,false);
+    static final FeatureVariant OEM_AUTO=oem("auto_sensor.oem","auto_sensor",0x57,new int[]{0,1},OFF_ON,8,false);
+    static final FeatureVariant OEM_TURN=oem("turn_sound.oem","turn_sound",0x60,new int[]{0,1},OFF_ON,12,false);
+    static final FeatureVariant OEM_CRUISE=oem("cruise_control.oem","cruise_control",0x52,new int[]{0,1},OFF_ON,3,true);
+    static final FeatureVariant OEM_ENERGY=oem("energy_recovery.levels","energy_recovery",0x53,new int[]{0,30,60,90},new String[]{"Off","Low","Medium","High"},5,true);
+    static final FeatureVariant OEM_ENERGY_NO_OFF=OEM_ENERGY.narrowed("energy_recovery.levels_no_off",new int[]{30,60,90},new String[]{"Low","Medium","High"});
+    static final FeatureVariant OEM_ENERGY_NO_HIGH=OEM_ENERGY.narrowed("energy_recovery.no_high",new int[]{0,30,60},new String[]{"Off","Low","Medium"});
+    static final FeatureVariant OEM_ENERGY_NO_OFF_NO_HIGH=OEM_ENERGY.narrowed("energy_recovery.no_off_no_high",new int[]{30,60},new String[]{"Low","Medium"});
+    /** OEM 2.1.9 offers Off only for these prefixes (plus groups G, H, C, B, O, K and L). */
+    static final String[] ENERGY_OFF={"2538","2585","2611","2753","2417","2634","2573","2612","2643","2754","2509","2545","2623","2782","2438"};
+    /** OEM 2.1.9 hides High for these prefixes when the serial region is NL or unknown. */
+    static final String[] ENERGY_NO_HIGH_NL={"2714","2704","2345","2403"};
+    /** OEM 2.1.9 adds "Actual riding" to range estimate set 0 for these prefixes (and group G). */
+    static final String[] RANGE_PERSONAL={"2213","2332"};
+    /** OEM 2.1.9 hides automatic lights for these prefixes (and group M). */
+    static final String[] NO_AUTO_LIGHT={"2332","2417","2422"};
+    /** OEM 2.1.9 hides cruise for 2573/2634 (and group M). */
+    static final String[] NO_CRUISE={"2573","2634"};
+    /** OEM 2.1.9 hides turn-signal sound for 2573/2634 (and group R) even when it would otherwise show it. */
+    static final String[] NO_TURN_SOUND={"2573","2634"};
+
+    private static FeatureVariant oem(String id,String feature,int cmd,int[] values,String[] labels,int offset,boolean parked){
+        int min=values[0],max=values[0];for(int v:values){min=Math.min(min,v);max=Math.max(max,v);}
+        return new FeatureVariant(id,feature,cmd,new int[0],values,labels,"",min,max,1,offset,255,0,FeatureVariant.Decode.EXACT,parked,false,false,false,true);
+    }
 
     /** Built on first use so ScooterCommands and this class never wait on each other's static initialiser. */
     private static final class Ut5 {
@@ -158,11 +197,59 @@ public final class ModelRegistry {
             default: {
                 if(feature.equals("lock"))return new Rule(CapabilityResolver.Support.KNOWN_ENCODING,CapabilityResolver.Reason.NONE,
                     CapabilityResolver.Evidence.SHARED_CONTRACT,"",preconditions(SHARED_LOCK),SHARED_LOCK);
+                if(r.layer==Layer.OEM_GROUP){Rule oem=oemRule(feature,d,s);if(oem!=null)return oem;}
                 CapabilityResolver.Reason reason=r.conflict?CapabilityResolver.Reason.IDENTITY_CONFLICT
                     :d==null||d.pidSource()!=DeviceDescriptor.PidSource.ADVERTISED?CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED:CapabilityResolver.Reason.MODEL_NOT_MAPPED;
                 return refused(CapabilityResolver.Support.UNKNOWN_MAPPING,reason);
             }
         }
+    }
+    /**
+     * The OEM 2.1.9 home-screen family for an advertised, listed PID, or null when not mapped yet.
+     * Region rules that remove a riding control or a value are enforced; region rules that hide
+     * a convenience control are deferred and only noted.
+     */
+    private static Rule oemRule(String feature,DeviceDescriptor d,StatusFields s){
+        boolean m=any(d,M);
+        switch(feature){
+            case "display_units": return oemMapped(OEM_UNITS,"",false);
+            case "range_algorithm": return oemMapped(any(d,RANGE_PERSONAL)||any(d,G)?OEM_RANGE_PERSONAL:OEM_RANGE,"",false);
+            case "clock_sync": return oemMapped(OEM_CLOCK,"",false);
+            case "headlight": return m?excluded():oemMapped(OEM_TAIL,tailNote(d),true);
+            case "auto_sensor": return m||any(d,NO_AUTO_LIGHT)?excluded():oemMapped(OEM_AUTO,"",true);
+            case "turn_sound": return !turnSoundGroup(d)||any(d,NO_TURN_SOUND)||any(d,R)?excluded()
+                :oemMapped(OEM_TURN,d.oemArea()==null||"DE".equals(d.oemArea())?"OEM 2.1.9 hides this in this region":"",true);
+            case "cruise_control": {
+                if(m||any(d,NO_CRUISE))return excluded();
+                // OEM 2.1.9 also shows it for 2620 with an EU region and a server location; Volt cannot check that offline.
+                Integer flag=s==null?null:s.u8(35);
+                if("USA".equals(d.sku())||d.region!=null&&flag!=null&&flag==1)return oemMapped(OEM_CRUISE,"",true);
+                Rule rule=oemMapped(OEM_CRUISE,"OEM 2.1.9 shows this here only when the scooter flags it",true);
+                return new Rule(rule.support,CapabilityResolver.Reason.REGION_RULE,rule.evidence,rule.oemNote,rule.preconditions,rule.variant);
+            }
+            case "energy_recovery": {
+                if(m)return null; // binary variant: not mapped yet
+                boolean off=any(d,ENERGY_OFF)||any(d,G)||any(d,H)||any(d,C)||any(d,B)||any(d,O)||any(d,K)||any(d,L);
+                boolean high=!(any(d,ENERGY_NO_HIGH_NL)&&(d.region==null||"NL".equals(d.oemArea())));
+                return oemMapped(off&&high?OEM_ENERGY:high?OEM_ENERGY_NO_OFF:off?OEM_ENERGY_NO_HIGH:OEM_ENERGY_NO_OFF_NO_HIGH,"",true);
+            }
+            default: return null;
+        }
+    }
+    /** OEM 2.1.9's turn-signal sound group: a known PID outside the legacy, M and extra exclusions. */
+    static boolean turnSoundGroup(DeviceDescriptor d){return d!=null&&!d.rulePid().isEmpty()&&!any(d,LEGACY_T)&&!any(d,NOT_I_EXTRA)&&!any(d,M);}
+    /** Tail light: OEM 2.1.9 hides it with no region or in DE (turn-sound group, 2417, 2422), otherwise with no region or in the ITA bucket. */
+    private static String tailNote(DeviceDescriptor d){
+        String area=d.oemArea();boolean strictDe=turnSoundGroup(d)||any(d,"2417","2422");
+        return area==null||(strictDe?"DE".equals(area):"ITA".equals(d.sku()))?"OEM 2.1.9 hides this in this region":"";
+    }
+    private static Rule oemMapped(FeatureVariant v,String note,boolean unlocked){
+        EnumSet<CapabilityResolver.Precondition> p=preconditions(v);if(unlocked)p.add(CapabilityResolver.Precondition.UNLOCKED);
+        return new Rule(CapabilityResolver.Support.KNOWN_ENCODING,CapabilityResolver.Reason.NONE,CapabilityResolver.Evidence.OEM_MAPPED,note,p,v);
+    }
+    private static Rule excluded(){
+        return new Rule(CapabilityResolver.Support.INCOMPATIBLE,CapabilityResolver.Reason.MODEL_EXCLUDED,CapabilityResolver.Evidence.NONE,
+            "OEM 2.1.9 hides this for this model",EnumSet.noneOf(CapabilityResolver.Precondition.class),null);
     }
     private static Rule refused(CapabilityResolver.Support support,CapabilityResolver.Reason reason){
         return new Rule(support,reason,CapabilityResolver.Evidence.NONE,"",EnumSet.noneOf(CapabilityResolver.Precondition.class),null);

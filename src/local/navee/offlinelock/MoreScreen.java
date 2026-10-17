@@ -92,7 +92,10 @@ public final class MoreScreen implements AppScreen {
     private final List<Row> lockedProfileRows = new ArrayList<>();
     private TextView profileUnlock;
     private Row nearbyRow, locationRow, notificationRow;
-    private Row developerIndexRow, simulationRow;
+    private Row developerIndexRow, simulationRow, simulationModelRow;
+    /** Developer simulator models: "" is the UT5 MAX simulator; the others are synthetic advertised IDs. */
+    private static final String[] SIMULATION_MODELS = {"", "24431", "39991"};
+    private static final String[] SIMULATION_MODEL_NAMES = {"UT5 MAX", "Mapped model (synthetic 24431)", "Unknown model (synthetic 39991)"};
     private TextView simulationStatus, chargeCaptureStatus, chargeCurveValue;
     private LinearLayout chargeCurve;
     private Row chargeCaptureRow, clearChargeRow, exportChargeRow, chargeHistoryRow;
@@ -1189,7 +1192,10 @@ public final class MoreScreen implements AppScreen {
     }
     private boolean ownerReady() {
         ScooterProfiles.Profile p = active();
-        return service() != null && service().ble.ready() && p != null && p.role == 0 && p.pid() == 2538;
+        if (service() == null || !service().ble.ready() || p == null || p.role != 0) return false;
+        // The resolver decides whether this model has the PIN; riding or a pending change only disable the rows.
+        CapabilityResolver.Decision pin = service().ble.decision("pin");
+        return pin.available() || pin.blockedByRide() || pin.reason == CapabilityResolver.Reason.BUSY;
     }
     /** One of the four PIN boxes; it only knows whether it is filled, never which digit. */
     private final class PinBox extends View {
@@ -1477,7 +1483,9 @@ public final class MoreScreen implements AppScreen {
         Integer current = ble.featureValue(feature.key);
         if (current == null) return "Not reported by firmware";
         if (!feature.allows(current)) return "Unknown value · can't change safely";
-        if (p == null || p.pid() != 2538) return "UT5 MAX only";
+        CapabilityResolver.Decision decision = ble.decision(feature.key);
+        if (decision.support != CapabilityResolver.Support.KNOWN_ENCODING || (!decision.available() && !decision.blockedByRide()
+                && decision.reason != CapabilityResolver.Reason.BUSY)) return decision.reasonText();
         if (ble.pending() != null) return "Wait for the current change";
         return null;
     }
@@ -1636,6 +1644,8 @@ public final class MoreScreen implements AppScreen {
         });
         simulationRow.view.setTag("developer-simulation-row");
         simulationRow.toggle.setTag("developer-simulation-toggle");
+        simulationModelRow = row(controls, "scooter", "Simulated model", null, this::chooseSimulationModel);
+        simulationModelRow.view.setTag("developer-simulation-model");
         simulationStatus = footnote("Simulation active · sample data");
         simulationStatus.setTag("developer-simulation-status");
         simulationStatus.setTextColor(ui.orange);
@@ -1711,6 +1721,19 @@ public final class MoreScreen implements AppScreen {
         hide.view.setTag("developer-hide-options");
     }
 
+    private void chooseSimulationModel() {
+        ScooterService s = service();
+        if (closed || s == null || !developerEnabled()) return;
+        int selected = Math.max(0, java.util.Arrays.asList(SIMULATION_MODELS).indexOf(s.ble.simulationModel()));
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Simulated model")
+                .setSingleChoiceItems(SIMULATION_MODEL_NAMES, selected, (d, which) -> {
+                    ScooterService current = service();
+                    if (closed || current == null || !developerEnabled()) return;
+                    current.ble.setSimulationModel(SIMULATION_MODELS[which]); d.dismiss();
+                    refreshDeveloper(); host.redraw();
+                }).setNegativeButton("Close", null).create(); show(dialog);
+    }
+
     private void refreshDeveloper() {
         ScooterService s = service();
         boolean enabled = developerEnabled();
@@ -1723,6 +1746,9 @@ public final class MoreScreen implements AppScreen {
         if (simulationRow != null) {
             refreshSwitch(simulationRow, simulating, enabled && s != null);
             simulationStatus.setVisibility(simulating ? View.VISIBLE : View.GONE);
+            int model = s == null ? 0 : Math.max(0, java.util.Arrays.asList(SIMULATION_MODELS).indexOf(s.ble.simulationModel()));
+            simulationModelRow.value(model == 0 ? "UT5 MAX" : model == 1 ? "Mapped" : "Unknown");
+            simulationModelRow.enabled(enabled && s != null);
         }
         if(chargeCaptureRow!=null){
             ChargeSessionStore.Charger selected=s==null?null:s.chargeCharger();
@@ -1842,7 +1868,8 @@ public final class MoreScreen implements AppScreen {
     // ---- Refresh ------------------------------------------------------------------------
 
     private void refreshProfiles(ScooterService s, ScooterProfiles.Profile p) {
-        boolean recognised = p != null && p.pid() == 2538;
+        DeviceDescriptor saved = p == null ? null : p.savedDescriptor();
+        boolean recognised = ModelRegistry.showsPhoto(saved);
         boolean photo = recognised && scooterPhoto != null;
         indexPhoto.setVisibility(photo ? View.VISIBLE : View.GONE);
         indexPhotoFallback.setVisibility(photo ? View.GONE : View.VISIBLE);
@@ -1861,9 +1888,10 @@ public final class MoreScreen implements AppScreen {
         scootersName.setText(name);
         scootersRole.setText(p == null ? "Add an owner profile to begin"
                 : "Active · " + (p.role == 0 ? "owner" : "shared") + " profile");
-        // The model line appears once a connection has reported it; 2538 is shown by name.
-        boolean modelKnown = p != null && !p.serial.isEmpty() && p.pid() > 0;
-        scootersModel.setText(!modelKnown ? "" : recognised ? "UT5 MAX" : "Model " + p.pid());
+        // The model line appears once a connection has reported it; the UT5 MAX is shown by name.
+        String modelLine = ModelRegistry.modelLine(saved);
+        boolean modelKnown = !modelLine.isEmpty();
+        scootersModel.setText(modelLine);
         scootersModel.setVisibility(modelKnown ? View.VISIBLE : View.GONE);
         scootersProfileCard.setContentDescription(name + ", " + scootersRole.getText()
                 + (modelKnown ? ", " + scootersModel.getText() : ""));
@@ -1937,8 +1965,12 @@ public final class MoreScreen implements AppScreen {
         pill(proximityPairedChip, paired ? "Paired ✓" : "Paired —", ui.ok, paired);
         proximityPairedChip.setContentDescription(paired ? "Phone paired" : "Phone not paired");
         BleController.State link = s.ble.state();
+        CapabilityResolver.Decision near = s.ble.decision("proximity_key");
+        // The UT5 MAX keeps its wording; other models say what the resolver decided.
+        String modelReason = near.layer == ModelRegistry.Layer.UT5_MAX ? "UT5 MAX owner only" : p != null && p.role != 0 ? "Owner only"
+                : near.support != CapabilityResolver.Support.KNOWN_ENCODING ? near.reasonText() : s.ble.decision("pin").reasonText();
         proximityReason = proximityRow.toggle.isEnabled() ? null
-                : !owner ? (link == BleController.State.READY ? "UT5 MAX owner only" : "Connect first")
+                : !owner ? (link == BleController.State.READY ? modelReason : "Connect first")
                 : busy ? "Waiting for scooter"
                 : proximity == null ? "Not reported by firmware"
                 : !pinOn ? "Enable the fallback PIN first"
@@ -1951,7 +1983,7 @@ public final class MoreScreen implements AppScreen {
         bondRow.icon.step(paired ? 2 : pinOn ? 1 : 0);
         proximityRow.icon.step(proximity != null && proximity == 1 ? 2 : enablePrerequisites ? 1 : 0);
         securityConnect.setVisibility(link == BleController.State.DISCONNECTED ? View.VISIBLE : View.GONE);
-        String notice = owner ? "Test while parked." : link == BleController.State.READY ? "UT5 MAX owner only" : "";
+        String notice = owner ? "Test while parked." : link == BleController.State.READY ? modelReason : "";
         securityNotice.setText(notice);
         securityNotice.setVisibility(notice.isEmpty() ? View.GONE : View.VISIBLE);
         int available = 0;
@@ -1975,7 +2007,8 @@ public final class MoreScreen implements AppScreen {
                 pill(row.value, "● " + shown, confirmed ? ui.ok : ui.orange, true);
                 row.value.setContentDescription(shown + (confirmed ? ", confirmed" : result == null ? ", unverified" : ", " + result));
             }
-            boolean inspectable = s.ble.ready() && p != null && p.pid() == 2538 && !busy && knownBaseline;
+            CapabilityResolver.Decision decision = s.ble.decision(row.feature.key);
+            boolean inspectable = s.ble.ready() && (decision.available() || decision.blockedByRide()) && !busy && knownBaseline;
             row.action.setEnabled(inspectable);
             // A disabled pill passes its taps to the row, which explains why.
             row.action.setClickable(inspectable);

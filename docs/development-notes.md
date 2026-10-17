@@ -32,6 +32,17 @@ compact large-text case when these controls change.
 
 Preserve the app's confirmed-state lock behavior, permission/lifecycle guards, fixed ten-second idle background grace, and recording exception. Firmware settings use canonical raw units; mph/km display conversion must not change command values. Missing/stale samples must remain unavailable rather than becoming zeros or invented energy.
 
+## Model compatibility rules
+
+`ModelRegistry` (versioned) resolves each scooter to one layer: `UT5_MAX`, `OEM_GROUP`, `SHARED`, `UNSUPPORTED_PRODUCT` or `UNSUPPORTED_TRANSPORT`. `CapabilityResolver` turns that into one decision per feature, and every UI gate and every write uses it.
+
+- **PID provenance:** OEM group rules test only the advertised model ID (parsed from the raw advertisement by `AdvertisedIdentity`). The serial-derived PID (`Profile.pid()`) is Volt's adapter: it selects only the UT5 MAX layer (2538) or the shared layer. A serial-2538 profile always stays `UT5_MAX`, even if an advertisement disagrees (the conflict is diagnostic only), and keeps today's choices in every region; regional OEM rules for it are notes.
+- **Advertised IDs** are written to a profile only after authentication and a serial match on that MAC (`BleController.remember()`); **Identify** captures one without a write.
+- **One admission point:** every write goes through `MutationGate.check` when requested and again just before queueing; `BleController.send()` drops any frame that is not a read, 0x30/0x31 or the admitted mutation bytes. Unlock is the explicit recovery exception (fresh ready session, lock field present, no pending change). `AUTOMATIC_RANGE_FOLLOW` writes only on the UT5 MAX layer.
+- **Model assumptions:** UT5 labels via `ModelRegistry.driveModeLabelProduct`; the UT5 charge reference, 716.04 Wh, photo and range following come from the same registry helpers. Measured telemetry stays universal.
+- **Adding a mapping:** add a `FeatureVariant` (keys never change; a new domain is a new variant id), a registry row with its evidence, a `validPayload` change only with a paired negative test, and bump `ModelRegistry.VERSION`. Keep the US UT5 MAX golden tests green.
+- `android-tests/CompatibilityGatingValidation.java` checks the UI gates with the developer simulator models (UT5 MAX, mapped 24431, unknown 39991) on a disposable emulator.
+
 ## Reports and local data
 
 For a bug report, include app version, phone model, Android version, the relevant screen, expected behavior, and the minimal exception or steps needed to reproduce it. Remove owner identities, serials, addresses, account credentials, and unrelated phone data before attaching logs. Full Android bug reports and ride journals contain private data and are not source files.
