@@ -907,6 +907,8 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(connection, "bluetooth", "Connect automatically", null, "auto_connect", true);
         preferenceToggle(connection, "bluetooth", "Stay connected in background", "Recordings always stay connected", "background_connection", false);
         preferenceToggle(connection, "screen", "Keep screen awake", "While recording", "keep_screen_awake", true);
+        // Default on. ScooterService/RideAutoStopPolicy decide; this only stores the choice.
+        preferenceToggle(connection, "walk", "End parked rides", "10 s after Bluetooth drops at a stop", "ride_auto_stop", true);
         // Battery use is the one setting that decides whether long background recordings survive:
         // show it as the value and open Android's page for this app directly.
         Row background = row(connection, "battery", "Background recording", null,

@@ -85,6 +85,9 @@ public final class BleController {
                 visible,recording,ConnectionEventLog.Phase.valueOf(state.name()),
                 statusMs<=0?-1:Math.max(0,elapsed-statusMs),lastFrameMs<=0?-1:Math.max(0,elapsed-lastFrameMs)));
     }
+    /** Raw motion push facts for ride auto-end; -1/0 mean missing. All reset whenever the transport closes. */
+    public long motionSampleMs(){return simulating()?0:motionMs;}public int speedRaw(){return simulating()?-1:speedRaw;}public int drivingStatus(){return simulating()?-1:driving;}
+    public long lastFrameMs(){return simulating()?0:lastFrameMs;}public int connectionGeneration(){return generation;}
     public boolean stationary(){if(simulating())return simulation!=null&&state==State.READY;return motionMs>0&&now()>=motionMs&&now()-motionMs<6000&&speedRaw==0&&driving==0;}
     public ScooterProfiles.Profile profile(){return profile==null?profiles.active():profile;}public List<ScanResult> discoveries(){return new ArrayList<>(discoveries.values());}public List<String> events(){return new ArrayList<>(events);}public Map<String,String> commandResults(){return new LinkedHashMap<>(commandResults);}
     /** Wall time of a key's latest result, or 0. */

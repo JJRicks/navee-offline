@@ -1023,6 +1023,12 @@ public final class RidesScreen implements AppScreen {
             LinearLayout.LayoutParams recoveredParams = new LinearLayout.LayoutParams(-2, -2); recoveredParams.leftMargin = ui.dp(4); recoveredParams.bottomMargin = ui.dp(10);
             body.addView(recovered, recoveredParams);
         }
+        if (s.automaticStop) {
+            TextView automatic = pill("Saved automatically", ui.blue); automatic.setMinHeight(ui.dp(28));
+            automatic.setContentDescription("Saved automatically after Bluetooth was lost while parked");
+            LinearLayout.LayoutParams automaticParams = new LinearLayout.LayoutParams(-2, -2); automaticParams.leftMargin = ui.dp(4); automaticParams.bottomMargin = ui.dp(10);
+            body.addView(automatic, automaticParams);
+        }
 
         if (!s.notes.isEmpty()) { body.addView(ui.sectionLabel("Notes")); LinearLayout notes = ui.card(); notes.addView(ui.text(s.notes, 14, false)); body.addView(notes); }
 

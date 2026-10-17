@@ -27,6 +27,11 @@ sources+=("$APP_DIR/src/local/navee/offlinelock/ShizukuCaptureClient.java" "$TES
 sources+=("$APP_DIR/src/local/navee/offlinelock/RouteSpeedScale.java" "$TEST_DIR/RouteSpeedScaleTest.java")
 # Lock slider motion trail.
 sources+=("$APP_DIR/src/local/navee/offlinelock/LockSliderTrail.java" "$TEST_DIR/LockSliderTrailTest.java")
+# Ride auto-end policy and its journal/learned-range effects.
+for name in RideAutoStopPolicy; do
+    sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
+done
+sources+=("$TEST_DIR/RideAutoStopStoreTest.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
 for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"
@@ -39,3 +44,5 @@ java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceG
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ShizukuCaptureClientTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RouteSpeedScaleTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.LockSliderTrailTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopPolicyTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopStoreTest
