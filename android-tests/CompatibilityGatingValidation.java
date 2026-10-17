@@ -317,6 +317,9 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         long end = SystemClock.uptimeMillis() + 35000;
         while (SystemClock.uptimeMillis() < end) { final boolean[] running = {true}; main(() -> running[0] = activity.service().ble.discovering()); if (!running[0]) break; SystemClock.sleep(200); }
         settle();
+        // Body refreshes share a 1 Hz pulse: wait for the results to be drawn.
+        long drawn = SystemClock.uptimeMillis() + 4000; final boolean[] drawnResults = {false};
+        do { main(() -> drawnResults[0] = byText(root(), "Preview report") != null); if (drawnResults[0]) break; SystemClock.sleep(100); } while (SystemClock.uptimeMillis() < drawn);
         main(() -> {
             BleController ble = activity.service().ble;
             require(!ble.discovering() && invoke(ble, "discovery") != null, label + ": check did not finish within 35 s");
