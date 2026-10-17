@@ -249,24 +249,26 @@ public final class CapabilityResolverTest {
         // Turn sound: the OEM's turn-sound group except 2573, 2634 and R.
         for(String pid:new String[]{"22131","23141","25731","26341","26231","27811","27821","25061","24171"})check(decide("turn_sound",advertised(pid),s,parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"No turn sound on "+pid);
         check(decide("turn_sound",sGroup,s,parked()).available()&&!decide("turn_sound",q,s,parked()).oemNote.isEmpty(),"Turn sound, DE note");
-        // Cruise: not M/2573/2634; SKU USA, or a known region with offset 35 == 1, else the region rule.
+        // Cruise: model exclusions remain; regional visibility and offset 35 are provenance only.
         for(String pid:new String[]{"25041","25731","26341"})check(decide("cruise_control",advertised(pid),s,parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"No cruise on "+pid);
         CapabilityResolver.Decision eur=decide("cruise_control",q,s,parked());
-        check(eur.reason==CapabilityResolver.Reason.REGION_RULE&&eur.support==CapabilityResolver.Support.KNOWN_ENCODING&&eur.reasonText().equals("Not offered for this region")&&!eur.oemNote.isEmpty(),"EUR cruise without the flag");
-        check(decide("cruise_control",q,status(Arrays.copyOf(data,35),SEEN),parked()).reason==CapabilityResolver.Reason.REGION_RULE,"Offset 35 absent is not a flag");
+        check(eur.available()&&eur.support==CapabilityResolver.Support.KNOWN_ENCODING&&!eur.oemNote.isEmpty(),"EUR cruise without the flag keeps provenance, not a refusal");
+        check(decide("cruise_control",q,status(Arrays.copyOf(data,35),SEEN),parked()).available(),"Absent regional visibility flag does not remove actual cruise field");
+        check(decide("cruise_control",q,status(Arrays.copyOf(data,3),SEEN),parked()).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Actual cruise field remains required");
         byte[] flagged=data.clone();flagged[35]=1;
         check(decide("cruise_control",q,status(flagged,SEEN),parked()).available(),"Cruise with offset 35 == 1");
-        check(decide("cruise_control",advertised("25851"),status(flagged,SEEN),parked()).reason==CapabilityResolver.Reason.REGION_RULE,"No region: the flag cannot help");
-        check(decide("cruise_control",ModelRegistryTest.both("Q2620ZZ9EU7777777","26201"),s,parked()).reason==CapabilityResolver.Reason.REGION_RULE,"2620 EU server branch fails closed");
+        check(decide("cruise_control",advertised("25851"),status(flagged,SEEN),parked()).available(),"No region retains same-model cruise");
+        check(decide("cruise_control",ModelRegistryTest.both("Q2620ZZ9EU7777777","26201"),s,parked()).available(),"2620 EU visibility does not need server location");
         check(decide("cruise_control",sGroup,s,moving).reason==CapabilityResolver.Reason.MOVING,"Cruise needs the scooter parked");
-        // Energy recovery: levels, Off only for the OEM list, no High for four prefixes in NL or without a region; M not mapped yet.
+        // Energy recovery: levels, Off only for the OEM model list, regional High visibility deferred.
         check(Arrays.equals(decide("energy_recovery",q,s,parked()).values(),new int[]{0,30,60,90}),"2585 offers Off");
         CapabilityResolver.Decision noOff=decide("energy_recovery",sGroup,s,parked());
         check(Arrays.equals(noOff.values(),new int[]{30,60,90})&&noOff.variant.id.equals("energy_recovery.levels_no_off")&&!noOff.allows(0),"S has no Off");
         for(String pid:new String[]{"27011","25431","24021","24421","26191","23451","24411","26111","25451","27821"})
             check(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9US7777777",pid),s,parked()).allows(0),"Off for "+pid);
         for(String pid:new String[]{"27141","27041","23451","24031"}){
-            check(Arrays.equals(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9NL7777777",pid),s,parked()).values(),new int[]{0,30,60}),"No High in NL for "+pid);
+            CapabilityResolver.Decision nl=decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9NL7777777",pid),s,parked());
+            check(Arrays.equals(nl.values(),new int[]{0,30,60,90})&&!nl.oemNote.isEmpty(),"High retained with NL provenance for "+pid);
             check(Arrays.equals(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9NE7777777",pid),s,parked()).values(),new int[]{0,30,60,90}),"NE is not NL for "+pid);
         }
         // Group M's energy recovery is on/off (C5): a level read back there is unknown.

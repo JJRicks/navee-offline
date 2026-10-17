@@ -13,6 +13,7 @@ public final class CapabilityResolver {
     public enum Support { KNOWN_ENCODING, UNKNOWN_MAPPING, INCOMPATIBLE }
     public enum Evidence { VOLT_VERIFIED, VOLT_LAB, OEM_MAPPED, SHARED_CONTRACT, LOCAL_TEST, NONE }
     public enum Precondition { FRESH_STATUS, STATIONARY, MOTION_REPORT, NO_WARNING, OWNER, UNLOCKED, BONDED, PIN_ENABLED, FIRMWARE_READ, FULL_PID }
+    /** REGION_RULE remains readable for older reports; the current registry does not return it. */
     public enum Reason { NONE, NOT_CONNECTED, STATUS_STALE, FIELD_ABSENT, VALUE_UNKNOWN, NO_CHOICES, BUSY, MOVING, NO_MOTION_REPORT,
         WARNING_ACTIVE, LOCKED, OWNER_ONLY, NEEDS_BOND, NEEDS_PIN, FIRMWARE_UNKNOWN, FIRMWARE_OLD, FULL_PID_NEEDED,
         IDENTITY_CONFLICT, MODEL_NOT_IDENTIFIED, MODEL_NOT_MAPPED, MODEL_EXCLUDED, REGION_RULE,
@@ -80,7 +81,8 @@ public final class CapabilityResolver {
         StatusFields status=s==null?StatusFields.NONE:s;
         ModelRegistry.Resolution r=ModelRegistry.resolve(d);
         ModelRegistry.Rule rule=ModelRegistry.rule(feature,d,r,status);
-        // 1-2. Registry and model conditions (product, transport, identity, mapping, region, firmware, full PID).
+        // 1-2. Registry and model conditions (product, transport, identity, mapping, firmware, full PID).
+        // Regional OEM UI policy is recorded as provenance; it does not refuse a control.
         if(rule.support!=Support.KNOWN_ENCODING||rule.reason!=Reason.NONE)return new Decision(feature,r.layer,rule,rule.reason,status,null);
         FeatureVariant v=rule.variant;
         if(rt==null||!rt.ready)return new Decision(feature,r.layer,rule,Reason.NOT_CONNECTED,status,v.choices(status));

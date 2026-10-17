@@ -40,7 +40,7 @@ import local.navee.offlinelock.ScooterService;
 /**
  * Fresh disposable emulator only. Developer simulator with synthetic advertised model IDs and
  * synthetic serial regions (memory only, no frames): checks the C5 OEM-mapped control families on
- * the Scooter page, choice and confirm sheets, region and firmware refusals, the Lights page and
+ * the Scooter page, choice and confirm sheets, region-independent choices and firmware refusals, the Lights page and
  * Quick access tiles. Every change it makes goes to the simulator; nothing reaches Bluetooth.
  */
 public final class CompatControlsValidation extends Instrumentation {
@@ -82,17 +82,18 @@ public final class CompatControlsValidation extends Instrumentation {
         }
     }
 
-    /** 2585 (synthetic 25851) without a serial region: riding controls refused for the region, the rest Untested here. */
+    /** 2585 (synthetic 25851): missing region still offers this model's permissive OEM choice union. */
     private void qGroupNoRegion() throws Exception {
         model("25851", null);
         scooterPage("q-noregion");
-        expectCaption("maximum_speed", "Not offered for this region");
+        expectCaption("maximum_speed", "Untested here");
         main(() -> require(((View)field(field(screen(), "topSpeed"), "card")).getVisibility() != View.VISIBLE, "UT5 MAX top speed card shown for another model"));
         for (String key : new String[]{"traction_control", "low_power", "charge_limit", "timed_charging", "hill_start_assist", "parking_assist",
                 "hill_descent_control", "prompt_tone", "dual_drive", "start_speed"}) expectCaption(key, "Untested here");
         expectHidden("long_range_mode"); expectHidden("speed_limit"); expectHidden("overspeed_control");
-        // Kick-start speed outside the USA bucket: 3-5 km/h only.
-        main(() -> require(Arrays.equals(activity.service().ble.featureChoices("start_speed"), new int[]{3, 4, 5}), "q: start speed choices " + Arrays.toString(activity.service().ble.featureChoices("start_speed"))));
+        // Model-specific domains remain exact even without region metadata.
+        expectChoices("maximum_speed", new int[]{25, 32, 40, 50, 70});
+        expectChoices("start_speed", new int[]{0, 1, 2, 3, 4, 5});
         screenshotRow("q-noregion-rows", "traction_control");
         // A long charge-start value moves under the label beside its caption instead of squeezing both.
         main(() -> {
@@ -135,10 +136,10 @@ public final class CompatControlsValidation extends Instrumentation {
         screenshot("q-lab");
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
         home("q-noregion");
-        checks.add("25851 without region: maximum speed 'Not offered for this region', Untested here rows, TCS/single-motor confirm sheets (Cancel keeps, Continue sends to the simulator), 3-5 km/h kick-start, six-colour zones, Lab says In Scooter settings");
+        checks.add("25851 without region: maximum speed 25/32/40/50/70 km/h, Untested here rows, TCS/single-motor confirm sheets (Cancel keeps, Continue sends to the simulator), 0-5 km/h kick-start, six-colour zones, Lab says In Scooter settings");
     }
 
-    /** 2585 in the US area: its OEM table (25/32/40/50/70 km/h), the >32 prompt and the 0-5 kick-start caution. */
+    /** 2585: US and DE offer the same model-specific table, retaining high-speed and low-start cautions. */
     private void qGroupUs() throws Exception {
         model("25851", "US");
         scooterPage("q-us");
@@ -160,9 +161,15 @@ public final class CompatControlsValidation extends Instrumentation {
         chooseInSheet(1);
         confirmSheet("Kick-start speed below 3 km/h. The official app shows a caution for this change. Volt has not tested it on this model.", "q-us-start-confirm", "Cancel");
         closeSheet();
-        // DE (ITA bucket) refuses maximum speed like no region.
-        model("25851", "DE"); scooterPage("q-de"); expectCaption("maximum_speed", "Not offered for this region");
-        checks.add("25851 US: maximum speed offers exactly 25/32/40/50/70 km/h (shown in mph), 70 asks first, 32 does not; kick-start 0-5 with a caution below 3; DE refuses maximum speed for the region");
+        // Region metadata cannot hide or reduce this same model's known choices.
+        model("25851", "DE"); scooterPage("q-de");
+        expectCaption("maximum_speed", "Untested here");
+        expectCaption("start_speed", "Untested here");
+        expectChoices("maximum_speed", new int[]{25, 32, 40, 50, 70});
+        expectChoices("start_speed", new int[]{0, 1, 2, 3, 4, 5});
+        choiceSheet("maximum_speed", null, "q-de-speed-choices"); closeSheet();
+        choiceSheet("start_speed", null, "q-de-start-choices"); closeSheet();
+        checks.add("25851 missing/US/DE regions: maximum speed offers exactly 25/32/40/50/70 km/h (shown in mph), 70 asks first, 32 does not; kick-start 0-5 with a caution below 3; the actual Scooter and dashboard sheets match those domains");
     }
 
     /** 2547: two colours per zone (the UT5 MAX swatches only) and a 25-60 km/h table without the 2585 prompt. */
@@ -212,6 +219,7 @@ public final class CompatControlsValidation extends Instrumentation {
         scooterPage("m");
         expectCaption("energy_recovery", "Untested here");
         expectCaption("speed_limit", "Untested here");
+        expectChoices("start_speed", new int[]{3, 4, 5});
         main(() -> {
             BleController ble = activity.service().ble;
             require(Arrays.equals(ble.featureChoices("energy_recovery"), new int[]{0, 1}), "M energy recovery " + Arrays.toString(ble.featureChoices("energy_recovery")));
@@ -246,24 +254,28 @@ public final class CompatControlsValidation extends Instrumentation {
         checks.add("24431: ambient, logo and daytime lights (Off/On/Follow headlight) on the Lights page; no line/star zones");
     }
 
-    /** 2745 (group G): long range and kick-start need a serial region (OEM rules); with US both are offered. */
+    /** 2745 (group G): region metadata does not gate mapped long-range or kick-start controls. */
     private void regionalLongRange() throws Exception {
         model("27451", null);
         // Back to a level after group M's on/off value (a synthetic simulator value in 2745's domain).
         main(() -> require(activity.service().ble.set("energy_recovery", 30), "Simulator refused energy recovery Low: " + activity.service().ble.message())); settle();
-        scooterPage("g-noregion");
-        expectCaption("long_range_mode", "Not offered for this region");
-        expectCaption("start_speed", "Not offered for this region");
-        screenshotRow("g-noregion-rows", "long_range_mode");
-        model("27451", "US");
-        scooterPage("g-us");
-        expectCaption("long_range_mode", "Untested here");
-        expectCaption("start_speed", "Untested here");
-        model("27451", "DE");
-        scooterPage("g-de");
-        expectCaption("start_speed", "Not offered for this region");
-        expectCaption("long_range_mode", "Not offered for this region");
-        checks.add("27451: long range and kick-start refused without a region and in DE ('Not offered for this region'), offered in US");
+        for (String region : new String[]{null, "US", "DE"}) {
+            model("27451", region);
+            String label = "g-" + (region == null ? "noregion" : region.toLowerCase(Locale.ROOT));
+            scooterPage(label);
+            expectCaption("long_range_mode", "Untested here");
+            expectCaption("start_speed", "Untested here");
+            expectChoices("long_range_mode", new int[]{0, 1});
+            expectChoices("start_speed", new int[]{0, 1, 2, 3, 4, 5});
+            screenshotRow(label + "-rows", "long_range_mode");
+            choiceSheet("start_speed", null, label + "-start-choices"); closeSheet();
+            final int before = activity.service().ble.featureValue("long_range_mode");
+            toggleRow("long_range_mode");
+            await(() -> Integer.valueOf(before == 1 ? 0 : 1).equals(activity.service().ble.featureValue("long_range_mode")), label + ": long range did not toggle");
+            toggleRow("long_range_mode");
+            await(() -> Integer.valueOf(before).equals(activity.service().ble.featureValue("long_range_mode")), label + ": long range did not restore");
+        }
+        checks.add("27451 missing/US/DE regions: same long-range Off/On control toggles and restores, same 0-5 km/h kick-start choices appear in the sheet");
     }
 
     /** Back on the UT5 MAX simulator: no Untested captions, the top speed card, no OEM-only rows. */
@@ -361,12 +373,15 @@ public final class CompatControlsValidation extends Instrumentation {
         reveal("quick-access-grid"); screenshot(label + "-quick");
         reveal("setting-tiles"); screenshot(label + "-tiles");
         if (!label.equals("ut5")) {
-            // A tile whose control a region rule refuses says so and opens nothing (as its Scooter row).
+            // The dashboard opens the same model-specific choices, including without region metadata.
+            expectChoices("maximum_speed", new int[]{25, 32, 40, 50, 70});
+            main(() -> invoke(activity, "quickAction", new Class<?>[]{String.class}, "feature:maximum_speed")); settle();
             main(() -> {
-                require(activity.service().ble.decision("maximum_speed").reason == CapabilityResolver.Reason.REGION_RULE, label + ": maximum speed fixture is not region-refused");
-                invoke(activity, "quickAction", new Class<?>[]{String.class}, "feature:maximum_speed");
-            }); settle();
-            main(() -> require(field(activity, "choiceSheet") == null && field(activity, "quickMenuDialog") == null, label + ": a region-refused tile opened a sheet"));
+                Object sheet = field(activity, "choiceSheet");
+                require(sheet != null && field(activity, "quickMenuDialog") == null, label + ": maximum speed tile did not open its choices");
+                require(Arrays.equals((int[])field(sheet, "choices"), new int[]{25, 32, 40, 50, 70}), label + ": maximum speed tile choices differ from the model domain");
+            });
+            screenshot(label + "-tile-speed-choices"); closeSheet();
             // A dual motor tile toggles here (Lab on the UT5 MAX) and asks before single motor.
             main(() -> invoke(activity, "quickAction", new Class<?>[]{String.class}, "feature:dual_drive")); settle();
             confirmSheet("Switch to single motor? The official app asks before this change. Volt has not tested it on this model.", label + "-tile-dual-confirm", "Cancel");
@@ -391,6 +406,13 @@ public final class CompatControlsValidation extends Instrumentation {
             String sub = String.valueOf(((TextView)field(field(row, "row"), "sub")).getText());
             require(sub.contains(text), "Row " + key + " caption \"" + sub + "\" lacks \"" + text + "\"");
             if (!text.equals("Untested here")) require(!((View)field(row, "action")).isEnabled() || field(row, "toggle") != null && !((View)field(row, "toggle")).isEnabled(), "Refused row " + key + " is enabled");
+        });
+    }
+    private void expectChoices(String key, int[] expected) {
+        main(() -> {
+            BleController ble = activity.service().ble;
+            require(ble.decision(key).available(), key + ": mapped control unavailable for " + ble.descriptor() + ": " + ble.decision(key));
+            require(Arrays.equals(ble.featureChoices(key), expected), key + ": choices " + Arrays.toString(ble.featureChoices(key)) + " instead of " + Arrays.toString(expected));
         });
     }
     private void expectHidden(String key) { main(() -> require(((View)field(row(key), "card")).getVisibility() != View.VISIBLE, "Row " + key + " shown for " + activity.service().ble.descriptor())); }

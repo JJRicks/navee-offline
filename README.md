@@ -10,7 +10,7 @@
   <a href="CHANGELOG.md">What's new</a>
 </p>
 
-An Android companion for the **NAVEE UT5 MAX**. Connect over Bluetooth, control your scooter, make the dashboard yours, and explore your rides and battery data. Everyday use works without a Volt account or server.
+An Android companion for **NAVEE scooters**. Connect over Bluetooth, control your scooter, make the dashboard yours, and explore your rides and battery data. Everyday use works without a Volt account or server.
 
 > [!NOTE]
 > **Independent community project.** Volt is not affiliated with, endorsed by, sponsored by, or supported by NAVEE or its app vendor. Product names identify compatible hardware only.
@@ -27,7 +27,7 @@ An Android companion for the **NAVEE UT5 MAX**. Connect over Bluetooth, control 
 
 ## Install & connect
 
-**You'll need:** Android **8.0+** with Bluetooth LE and an already activated, owner-bound **US UT5 MAX**. Other models and regions are not yet verified.
+**You'll need:** Android **8.0+** with Bluetooth LE and an already activated, owner-bound **NAVEE scooter**. Available controls depend on the model; the US UT5 MAX is physically verified, while other models use mappings from the official app. [Compatibility details →](docs/user-guide.md#other-navee-models)
 
 1. **Install Volt.** Download the `.apk` from [Releases](https://github.com/JJRicks/navee-offline/releases/latest), open it on your phone and allow installation when Android asks.
 2. **Pair once.** Keep your powered-on scooter nearby and safely parked, and confirm it connects in NAVEE. Follow Volt's onboarding and the [setup guide](docs/getting-started.md): computer ADB is the established route; Chrome/USB is a testing preview, and on-phone Shizuku has limited validation. You can also import an existing setup or full backup.

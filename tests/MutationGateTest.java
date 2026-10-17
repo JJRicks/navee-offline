@@ -29,7 +29,7 @@ public final class MutationGateTest {
             kind(MutationGate.Kind.CHARGE_START,0),kind(MutationGate.Kind.CLOCK,0),kind(MutationGate.Kind.PIN_SET,1),kind(MutationGate.Kind.PIN_ENABLE,1),
             kind(MutationGate.Kind.PIN_READ,0),kind(MutationGate.Kind.BOND,1),kind(MutationGate.Kind.PROXIMITY,1),
             new MutationGate.Request(MutationGate.Kind.SET,"range_algorithm",2,MutationGate.Origin.AUTOMATIC_RANGE_FOLLOW)};
-        String A="NONE",NM="MODEL_NOT_MAPPED",NI="MODEL_NOT_IDENTIFIED",IC="IDENTITY_CONFLICT",EX="MODEL_EXCLUDED",RR="REGION_RULE",PU="PRODUCT_UNSUPPORTED",TU="TRANSPORT_UNSUPPORTED";
+        String A="NONE",NM="MODEL_NOT_MAPPED",NI="MODEL_NOT_IDENTIFIED",IC="IDENTITY_CONFLICT",EX="MODEL_EXCLUDED",PU="PRODUCT_UNSUPPORTED",TU="TRANSPORT_UNSUPPORTED";
         Object[][] rows={
             // fixture, lock1, lock0, units, cruise, energy, charge_limit, charge_start, clock, pin set, pin enable, pin read, bond, proximity, auto range
             {serial("Q2538ZZ9US7777777"),A,A,A,A,A,A,A,A,A,A,A,A,A,A},
@@ -38,7 +38,7 @@ public final class MutationGateTest {
             {both("Q2538ZZ9US7777777","24431"),A,A,A,A,A,A,A,A,A,A,A,A,A,A},
             // C5: charging (S, Q, H) and the Bluetooth lock screen (PIN, bond, proximity) are OEM-mapped; group M reaches neither.
             {both("Q2443ZZ9US7777777","24431"),A,A,A,A,A,A,A,A,A,A,A,A,A,EX},
-            {both("Q2585ZZ9DE7777777","25851"),A,A,A,RR,A,A,A,A,A,A,A,A,A,EX},
+            {both("Q2585ZZ9DE7777777","25851"),A,A,A,A,A,A,A,A,A,A,A,A,A,EX},
             // Group M's energy recovery is on/off: the fixture's level 60 reads as unknown there.
             {both("Q2504ZZ9US7777777","25041"),A,A,A,EX,"VALUE_UNKNOWN",EX,EX,A,NM,NM,NM,NM,NM,EX},
             {advertised("39991"),A,A,NM,NM,NM,NM,NM,NM,NM,NM,NM,NM,NM,EX},

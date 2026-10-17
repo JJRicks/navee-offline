@@ -122,15 +122,15 @@ Clock sync         OEM-mapped   Manual button; no readback
 Tail light         OEM-mapped   Unlocked; not group 2504-2506
 Automatic lights   OEM-mapped   Unlocked; not 2332, 2417, 2422, 2504-2506
 Turn signal sound  OEM-mapped   Unlocked; models the official app offers it on
-Cruise control     OEM-mapped   Unlocked, parked; US/CN/RU region or the
-                                scooter's eligibility flag
-Energy recovery    OEM-mapped   Unlocked, parked; Off and High per model/region
+Cruise control     OEM-mapped   Unlocked, parked; model-mapped, with the
+                                cruise status field present and known
+Energy recovery    OEM-mapped   Unlocked, parked; choices depend on model
 Traction control   OEM-mapped   Parked; 2547, 2585, 2619, 2620, 2646, 2701,
                                 2745; turning it off asks first
 Low Battery Mode   OEM-mapped   Parked; the models the official app shows it
                                 for; turning it off asks first
-Long range mode    OEM-mapped   Parked; 2745 and the 2543 group; US/RU region,
-                                or EU/AT/IT/SE/ME with the scooter's flag
+Long range mode    OEM-mapped   Parked; 2745 and the 2543 group; its status
+                                field must be present and known
 Charge ceiling,    OEM-mapped   Parked; 2416/2443/2529, 2547/2585 and the 2543
 scheduled charging              group; four IDs need the full model ID; start
 and start time                  times on the hour, within 48 hours
@@ -145,16 +145,15 @@ Acceleration       OEM-mapped   Parked; 2345, 2714, 2509 (firmware), the 2545
                                 and 2619 groups
 PIN, proximity     OEM-mapped   Owner, parked; Volt's strict flow (PIN, then
                                 pairing); firmware where the official app checks
-Maximum speed      OEM-mapped   Parked; US/CN/RU serial region only; the
-                                official app's choices for that model (never
-                                probed); firmware or full model ID for some
+Maximum speed      OEM-mapped   Parked; the official app's mapped choices for
+                                that model across regions (never probed);
+                                firmware or full model ID for some
 Custom speed cap   OEM-mapped   Parked; 2573, 2634, 2611, 2753, 2612, 2643,
-                                2754 (8-20 km/h, 8-25 EU, 8-32 RU), 2782
-                                (8/15/25/32), 2504-2506 (8-16; 2506 in CN/US/RU
-                                8-20); Off sends 0
-Kick-start speed   OEM-mapped   Parked; 0-5 km/h in US/CN/RU, else 3-5; some
-                                models need a known region other than DE;
-                                below 3 km/h shows a caution
+                                2754 (8-32 km/h), 2782 (8/15/25/32),
+                                2504/2505 (8-16), 2506 (8-20); Off sends 0
+Kick-start speed   OEM-mapped   Parked; mapped models offer 0-5 km/h,
+                                except 2504-2506 (3-5); below 3 shows a caution;
+                                firmware and full-model-ID gates still apply
 Energy recovery    OEM-mapped   Unlocked, parked; on/off; turning it off shows
 (2504-2506)                     a caution
 Line and star      OEM-mapped   2547 (two colours) and 2585 (six colours);
@@ -170,8 +169,10 @@ the drive-mode speed cap, weather display and anything that needs the full
 model ID while only a serial is known.
 
 Every other control stays hidden until mapped. A serial number alone never
-selects an OEM group; Identify reads the advertised model ID. Region rules that
-hide only convenience controls are noted, not applied. A control that is Lab
+selects an OEM group; Identify reads the advertised model ID. Regional hiding
+and value restrictions are noted, not applied: each model offers its widest
+mapped domain, with no values borrowed from other models. The scooter's
+firmware can still reject a setting. A control that is Lab
 on the UT5 MAX is an ordinary row on a model the official app maps it for.
 Firmware conditions need the version read in the current connection, and a
 value the scooter reports outside the mapped choices reads as unknown.

@@ -15,7 +15,7 @@ public final class OemControlsTest {
         batch1Tables(); batch1Firmware(); batch1Region(); batch1Fields(); batch1Frames(); batch1Rules();
         batch2MaximumSpeed(); batch2SpeedLimit(); batch2StartSpeed(); batch2Energy(); batch2Frames();
         batch3Zones(); batch3GroupS(); batch3Frames();
-        quickAccessFollowsDecision();
+        regionalUnion(); quickAccessFollowsDecision();
         System.out.println("OemControls tests passed: "+assertions+" assertions");
     }
 
@@ -24,8 +24,12 @@ public final class OemControlsTest {
     static DeviceDescriptor model(String pid){return model(pid,"US");}
     /** The same with meter firmware read in this session (null = 0x73 not read). */
     static DeviceDescriptor firmware(String pid,String meter){
+        return firmware(pid,"US",meter);
+    }
+    static DeviceDescriptor firmware(String pid,String area,String meter){
         DeviceDescriptor.Firmware fw=meter==null?DeviceDescriptor.Firmware.NONE:new DeviceDescriptor.Firmware(meter,null,null,null,null,SEEN);
-        return DeviceDescriptor.of("Q"+pid.substring(0,4)+"ZZ9US7777777",pid,1,fw,meter!=null,DeviceDescriptor.Transport.STANDARD,0);
+        String serial=area==null?null:"Q"+pid.substring(0,4)+"ZZ9"+area+"7777777";
+        return DeviceDescriptor.of(serial,pid,1,fw,meter!=null,DeviceDescriptor.Transport.STANDARD,0);
     }
     /** Every batch field inside its OEM domain: unlocked, Eco, TCS on, tone 2, single motor, 90 %, timed on, 12 h, walk+descent. */
     static byte[] data(){byte[] d=CapabilityResolverTest.full();d[2]=0;d[35]=0;return d;}
@@ -128,21 +132,21 @@ public final class OemControlsTest {
         check(decide("lock_expiry",stored,data()).reason==CapabilityResolver.Reason.FIRMWARE_UNKNOWN,"Stored firmware is not this session's");
     }
 
-    /** Long range is a riding control: its region rule is enforced. RU/US always; EU/AT/IT/SE/ME with the scooter flag; never DE, CN, NA or no region. */
+    /** Regional long-range visibility is provenance only; the same-model actual field is still required. */
     private static void batch1Region() {
         byte[] flag0=data(),flag1=data();flag1[35]=1;
-        String RR="REGION_RULE";
-        String[][] rows={{"US","0",A},{"RU","0",A},{"CN","0",RR},{"EU","0",RR},{"EU","1",A},{"AT","1",A},{"IT","1",A},{"SE","1",A},{"ME","1",A},
-            {"DE","1",RR},{"NE","1",RR},{"NL","1",RR},{"ZZ","1",RR},{"UK","1",RR},{"eu","1",RR}};
+        String N="noted";
+        String[][] rows={{"US","0",A},{"RU","0",A},{"CN","0",N},{"EU","0",N},{"EU","1",A},{"AT","1",A},{"IT","1",A},{"SE","1",A},{"ME","1",A},
+            {"DE","1",N},{"NE","1",N},{"NL","1",N},{"ZZ","1",N},{"UK","1",N},{"eu","1",N}};
         for(String[] r:rows)for(String pid:new String[]{"27451","25431"}){
             CapabilityResolver.Decision d=decide("long_range_mode",model(pid,r[0]),r[1].equals("1")?flag1:flag0);
-            check((d.available()?A:d.reason.name()).equals(r[2]),"Long range "+pid+" "+r[0]+" flag "+r[1]+" expected "+r[2]+" got "+d);
-            check(d.support==CapabilityResolver.Support.KNOWN_ENCODING&&(r[2].equals(A)==d.oemNote.isEmpty()),"Region refusal keeps the mapping, with a note");
+            check(d.available(),"Long range "+pid+" "+r[0]+" flag "+r[1]+" has same-model availability: "+d);
+            check(d.support==CapabilityResolver.Support.KNOWN_ENCODING&&(r[2].equals(A)==d.oemNote.isEmpty()),"Regional provenance remains accurate");
         }
-        // Offset 35 absent is not a flag; an invalid serial has no region.
-        check(decide("long_range_mode",model("27451","EU"),Arrays.copyOf(flag1,35)).reason==CapabilityResolver.Reason.REGION_RULE,"Absent flag");
+        // Truncation also removes actual offset 38; this is a missing field, not a regional refusal.
+        check(decide("long_range_mode",model("27451","EU"),Arrays.copyOf(flag1,35)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Actual long-range field required");
         DeviceDescriptor invalid=ModelRegistryTest.both("Q2745ZZ9US777777","27451");
-        check(invalid.region==null&&decide("long_range_mode",invalid,flag1).reason==CapabilityResolver.Reason.REGION_RULE,"No region");
+        check(invalid.region==null&&decide("long_range_mode",invalid,flag1).available(),"No region retains same-model long range");
         // Convenience and charging rows ignore region (permissive).
         for(String area:new String[]{"DE","NL","ZZ"})check(decide("charge_limit",model("24431",area),flag0).available()&&decide("low_power",model("24431",area),flag0).available(),"No region rule for charging "+area);
     }
@@ -282,7 +286,7 @@ public final class OemControlsTest {
     static int[] span(int from,int to){int[] out=new int[to-from+1];for(int i=0;i<out.length;i++)out[i]=from+i;return out;}
     static int[] off(int[] kmh){int[] out=new int[kmh.length+1];System.arraycopy(kmh,0,out,1,kmh.length);return out;}
 
-    /** Maximum speed: the OEM table per prefix (never probed), the USA-bucket row rule, K/C firmware and the fifth digit. */
+    /** Maximum speed: the OEM table per prefix (never probed), regional provenance, K/C firmware and the fifth digit. */
     private static void batch2MaximumSpeed() {
         byte[] d=data();d[25]=25; // 25 km/h is in every table
         Object[][] tables={{"24021",ints(25,32)},{"27041",ints(25,32)},{"24421",ints(25,32)},{"25191",ints(25,32)},{"27011",ints(25,32)},{"24169",ints(25,32,40,50)},
@@ -302,12 +306,11 @@ public final class OemControlsTest {
         check(decide("maximum_speed",model("2543"),d).reason==CapabilityResolver.Reason.FULL_PID_NEEDED&&decide("maximum_speed",model("2799"),d).reason==CapabilityResolver.Reason.FULL_PID_NEEDED,"Fifth digit needed");
         for(String pid:new String[]{"28081","26111","27531","25731","26341","23141","24171","25041","25061","22131","26231","27821"})
             check(reason("maximum_speed",model(pid),d).equals("MODEL_EXCLUDED"),"No maximum speed row on "+pid);
-        // Riding region rule: only the OEM's USA bucket (US, CN, RU) shows the row.
-        String[][] regions={{"US",A},{"CN",A},{"RU",A},{"EU","REGION_RULE"},{"DE","REGION_RULE"},{"IT","REGION_RULE"},{"NE","REGION_RULE"},{"NL","REGION_RULE"},{"ZZ","REGION_RULE"},{"us","REGION_RULE"}};
-        for(String[] r:regions){CapabilityResolver.Decision x=decide("maximum_speed",model("24431",r[0]),d);
-            check((x.available()?A:x.reason.name()).equals(r[1])&&x.support==CapabilityResolver.Support.KNOWN_ENCODING,"Max speed region "+r[0]+" "+x);}
-        check(decide("maximum_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).reason==CapabilityResolver.Reason.REGION_RULE,"No region: EUR bucket");
-        check(decide("maximum_speed",model("26201","EU"),d).reason==CapabilityResolver.Reason.REGION_RULE,"2620's EU server branch fails closed");
+        for(String area:new String[]{"US","CN","RU","EU","DE","IT","NE","NL","ZZ","us"}){
+            CapabilityResolver.Decision x=decide("maximum_speed",model("24431",area),d);
+            check(x.available()&&Arrays.equals(x.values(),ints(25,32,45,50)),"Same-model max speed regardless of region "+area+" "+x);}
+        check(decide("maximum_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).available(),"No region retains mapped maximum speed");
+        check(decide("maximum_speed",model("26201","EU"),d).available(),"2620's EU visibility needs no server");
         // K and C: blocked below meter 2.0.1.2; equal passes; unknown fails closed; lexicographic order.
         String[][] fw={{"2.0.1.2",A},{"2.0.1.1","FIRMWARE_OLD"},{"2.0.0.9","FIRMWARE_OLD"},{"2.0.2.0",A},{"2.0.10.0",A},{null,"FIRMWARE_UNKNOWN"}};
         for(String pid:new String[]{"24011","23451","27141","24021","24031","24181","27041"})for(String[] f:fw){
@@ -334,43 +337,44 @@ public final class OemControlsTest {
         check(Arrays.equals(ut5.values(),ints(25,32,40,50))&&!ut5.allows(60)&&!ut5.allows(45)&&ut5.variant.id.equals("maximum_speed.ut5"),"UT5 MAX maximum speed unchanged");
     }
 
-    /** Custom speed cap: per-model ranges (region decides the range, not the row), Off as 0, 7-bit km/h with the enable bit. */
+    /** Custom speed cap: union of this model's regional ranges, Off as 0, 7-bit km/h with the enable bit. */
     private static void batch2SpeedLimit() {
         byte[] d=data();d[20]=(byte)0x88; // on, 8 km/h: inside every range
         Object[][] rows={{"27821","US",off(ints(8,15,25,32))},{"27821","DE",off(ints(8,15,25,32))},{"25061","US",off(span(8,20))},{"25061","CN",off(span(8,20))},
-            {"25061","RU",off(span(8,20))},{"25061","DE",off(span(8,16))},{"25041","US",off(span(8,16))},{"25051","RU",off(span(8,16))},
-            {"25731","EU",off(span(8,25))},{"26341","RU",off(span(8,32))},{"26111","DE",off(span(8,20))},{"27531","US",off(span(8,20))},{"26121","eu",off(span(8,20))},
-            {"26431","ZZ",off(span(8,20))},{"27541","EU",off(span(8,25))}};
+            {"25061","RU",off(span(8,20))},{"25061","DE",off(span(8,20))},{"25041","US",off(span(8,16))},{"25051","RU",off(span(8,16))},
+            {"25731","EU",off(span(8,32))},{"26341","RU",off(span(8,32))},{"26111","DE",off(span(8,32))},{"27531","US",off(span(8,32))},{"26121","eu",off(span(8,32))},
+            {"26431","ZZ",off(span(8,32))},{"27541","EU",off(span(8,32))}};
         for(Object[] r:rows){DeviceDescriptor dev=model((String)r[0],(String)r[1]);check(reason("speed_limit",dev,d).equals(A),"Speed cap "+r[0]+" "+r[1]);values("speed_limit",dev,d,(int[])r[2]);}
-        check(Arrays.equals(decide("speed_limit",ModelRegistryTest.both("Q2573ZZ9US777777","25731"),d).values(),off(span(8,20))),"No region: 8-20");
+        check(Arrays.equals(decide("speed_limit",ModelRegistryTest.both("Q2573ZZ9US777777","25731"),d).values(),off(span(8,32))),"No region: same-model 8-32 union");
         for(String pid:new String[]{"25471","24431","27811","26231","24011","28081"})check(reason("speed_limit",model(pid),d).equals("MODEL_EXCLUDED"),"No speed cap on "+pid);
         CapabilityResolver.Decision cap=decide("speed_limit",model("27821"),d);
         check(cap.current()==8&&cap.label(0).equals("Off")&&cap.allows(0)&&!cap.allows(9)&&!cap.allows(33),"2782 radio choices");
         byte[] offNow=d.clone();offNow[20]=0x05;check(decide("speed_limit",model("25731","EU"),offNow).current()==0,"Enable bit clear reads as Off");
         byte[] seven=d.clone();seven[20]=(byte)0x87;check(decide("speed_limit",model("25731","EU"),seven).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"7 km/h is outside every range");
         byte[] high=d.clone();high[20]=(byte)(0x80|30);
-        check(decide("speed_limit",model("25731","EU"),high).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("speed_limit",model("26341","RU"),high).current()==30,"Range follows region");
+        check(decide("speed_limit",model("25731","EU"),high).current()==30&&decide("speed_limit",model("26341","RU"),high).current()==30,"Same-model union accepts regional values");
+        check(decide("speed_limit",model("25061","EU"),high).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Union never borrows another model's range");
         check(decide("speed_limit",model("25731","EU"),Arrays.copyOf(d,20)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset 20");
         CapabilityResolver.Decision ut5=decide("speed_limit",ModelRegistryTest.serial("Q2538ZZ9US7777777"),d);
         check(ut5.variant.lab&&ut5.variant.id.equals("speed_limit.ut5"),"UT5 MAX keeps the Lab cap");
     }
 
-    /** Kick-start speed: 0-5 only in the USA bucket (not M), else 3-5; regional members need a known region that is not DE; firmware gates. */
+    /** Kick-start speed: same-model regional union 0-5, group M remains 3-5; firmware gates remain. */
     private static void batch2StartSpeed() {
         byte[] d=data();d[19]=3;
-        Object[][] rows={{"24431","US",span(0,5)},{"24431","CN",span(0,5)},{"24431","RU",span(0,5)},{"24431","EU",span(3,5)},{"24431","DE",span(3,5)},{"24431","ZZ",span(3,5)},
-            {"25471","US",span(0,5)},{"24411","US",span(0,5)},{"24421","IT",span(3,5)},{"25451","US",span(0,5)},{"26191","NE",span(3,5)},{"26111","US",span(0,5)},
-            {"25731","EU",span(3,5)},{"25091","US",span(0,5)},{"25431","US",span(0,5)},{"24491","DE",span(3,5)},{"26231","US",span(0,5)},{"27821","US",span(0,5)},
-            {"25041","US",span(3,5)},{"25061","RU",span(3,5)},{"27011","US",span(0,5)},{"27451","IT",span(3,5)},{"27811","ZZ",span(3,5)},{"26571","US",span(0,5)},
-            {"26581","EU",span(3,5)},{"27071","UK",span(3,5)},{"27991","US",span(0,5)},{"28001","SE",span(3,5)}};
+        Object[][] rows={{"24431","US",span(0,5)},{"24431","CN",span(0,5)},{"24431","RU",span(0,5)},{"24431","EU",span(0,5)},{"24431","DE",span(0,5)},{"24431","ZZ",span(0,5)},
+            {"25471","US",span(0,5)},{"24411","US",span(0,5)},{"24421","IT",span(0,5)},{"25451","US",span(0,5)},{"26191","NE",span(0,5)},{"26111","US",span(0,5)},
+            {"25731","EU",span(0,5)},{"25091","US",span(0,5)},{"25431","US",span(0,5)},{"24491","DE",span(0,5)},{"26231","US",span(0,5)},{"27821","US",span(0,5)},
+            {"25041","US",span(3,5)},{"25061","RU",span(3,5)},{"27011","US",span(0,5)},{"27451","IT",span(0,5)},{"27811","ZZ",span(0,5)},{"26571","US",span(0,5)},
+            {"26581","EU",span(0,5)},{"27071","UK",span(0,5)},{"27991","US",span(0,5)},{"28001","SE",span(0,5)}};
         for(Object[] r:rows){DeviceDescriptor dev=model((String)r[0],(String)r[1]);check(reason("start_speed",dev,d).equals(A),"Start speed "+r[0]+" "+r[1]+" "+decide("start_speed",dev,d));values("start_speed",dev,d,(int[])r[2]);}
-        // Regional members: no region or DE hides this riding control.
+        // Formerly regional members retain the same-model choices even with no region or DE.
         for(String pid:new String[]{"27011","27451","27811","26571","26581","27071","27991","28001"}){
-            check(reason("start_speed",model(pid,"DE"),d).equals("REGION_RULE"),"DE hides start speed on "+pid);
+            check(reason("start_speed",model(pid,"DE"),d).equals(A),"DE retains start speed on "+pid);
             DeviceDescriptor invalid=ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9US777777",pid);
-            check(invalid.region==null&&reason("start_speed",invalid,d).equals("REGION_RULE"),"No region hides start speed on "+pid);
+            check(invalid.region==null&&reason("start_speed",invalid,d).equals(A),"No region retains start speed on "+pid);
         }
-        check(reason("start_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).equals(A)&&Arrays.equals(decide("start_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).values(),span(3,5)),"Unconditional members keep it without a region (3-5)");
+        check(reason("start_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).equals(A)&&Arrays.equals(decide("start_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).values(),span(0,5)),"Mapped members keep full same-model choices without a region");
         for(String pid:new String[]{"28081","24171","24221","22131","24361"})check(reason("start_speed",model(pid),d).equals("MODEL_EXCLUDED"),"No start speed on "+pid);
         // Firmware: K/C below 2.0.1.2; 2314 by fifth digit (1: below 0.0.0.8; 2: below 2.0.0.9; others: none).
         Object[][] fw={{"24011","2.0.1.2",A},{"24011","2.0.1.1","FIRMWARE_OLD"},{"24011",null,"FIRMWARE_UNKNOWN"},{"24181","2.0.1.3",A},
@@ -381,11 +385,82 @@ public final class OemControlsTest {
         check(reason("start_speed",model("2314"),d).equals("FULL_PID_NEEDED"),"2314 needs the fifth digit");
         // Readback offset 19 exact; 0-2 show the official app's caution; 3-5 on a 3-5 model read 0 as unknown.
         check(decide("start_speed",model("24431"),Arrays.copyOf(d,19)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset 19");
-        byte[] zero=d.clone();zero[19]=0;check(decide("start_speed",model("24431","EU"),zero).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("start_speed",model("24431"),zero).current()==0,"0 is outside 3-5");
+        byte[] zero=d.clone();zero[19]=0;check(decide("start_speed",model("25041","EU"),zero).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("start_speed",model("24431","EU"),zero).current()==0,"0 is allowed by regional union but remains outside group M");
         byte[] six=d.clone();six[19]=6;check(decide("start_speed",model("24431"),six).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"6 is outside every domain");
         for(int v=0;v<=5;v++)check((ModelRegistry.caution(decide("start_speed",model("24431"),d),v)!=null)==(v<3),"Caution below 3 km/h: "+v);
         CapabilityResolver.Decision ut5=decide("start_speed",ModelRegistryTest.serial("Q2538ZZ9DE7777777"),d);
         check(ut5.variant.id.equals("start_speed.ut5")&&ut5.allows(0)&&ut5.allows(5)&&ModelRegistry.caution(ut5,0)==null,"Every UT5 MAX keeps 0-5 and no prompt");
+    }
+
+    /**
+     * All known standard model IDs retain the same six riding-control decisions across regions,
+     * including absent/unknown regions and either regional visibility flag. Explicit per-model
+     * domain fixtures above independently establish the expected unions. Exercise admission and
+     * encoded bytes too: presentation alone must never bypass the remaining runtime guards.
+     */
+    private static void regionalUnion() {
+        String[] keys={"cruise_control","energy_recovery","long_range_mode","maximum_speed","speed_limit","start_speed"};
+        String[] areas={"US","RU","CN","EU","DE","NL","AT","IT","SE","ZZ",null};
+        int mapped=0;
+        for(String prefix:ModelRegistry.LISTED){
+            String pid=prefix.length()==4?prefix+"1":prefix;
+            DeviceDescriptor reference=firmware(pid,"US","9.9.9.9");
+            if(ModelRegistry.resolve(reference).layer!=ModelRegistry.Layer.OEM_GROUP)continue;
+            byte[] d=data();d[25]=25;d[20]=(byte)0x88;
+            if(ModelRegistry.any(reference,ModelRegistry.M))d[5]=1;
+            for(String key:keys){
+                CapabilityResolver.Decision base=decide(key,reference,d);
+                if(base.available())mapped++;
+                for(String area:areas)for(int flag:new int[]{0,1}){
+                    DeviceDescriptor dev=firmware(pid,area,"9.9.9.9");
+                    byte[] sample=d.clone();sample[35]=(byte)flag;
+                    CapabilityResolver.Decision x=decide(key,dev,sample);
+                    String context=pid+" "+key+" "+area+" flag="+flag;
+                    check(x.reason==base.reason&&x.support==base.support&&x.reason!=CapabilityResolver.Reason.REGION_RULE,"Same-model regional availability: "+context);
+                    check(Arrays.equals(x.values(),base.values()),"Same-model regional choices: "+context);
+                    if(!base.available())continue;
+                    check(x.variant.id.equals(base.variant.id)&&x.preconditions.equals(base.preconditions),"Regional union retains exact encoding and guards: "+context);
+                    StatusFields s=status(sample);
+                    for(int value:base.values()){
+                        MutationGate.Request request=new MutationGate.Request(MutationGate.Kind.SET,key,value,MutationGate.Origin.USER);
+                        check(MutationGate.check(request,dev,s,CapabilityResolverTest.parked()).available(),"Same-model union admitted: "+context+" "+value);
+                        check(Arrays.equals(x.variant.encode(value),base.variant.encode(value)),"Regional wire bytes stable: "+context+" "+value);
+                    }
+                    int first=base.values()[0];
+                    MutationGate.Request request=new MutationGate.Request(MutationGate.Kind.SET,key,first,MutationGate.Origin.USER);
+                    CapabilityResolver.Runtime rt=CapabilityResolverTest.parked();rt.stationary=false;
+                    check(MutationGate.check(request,dev,s,rt).reason==CapabilityResolver.Reason.MOVING,"Motion guard retained: "+context);
+                    rt=CapabilityResolverTest.parked();rt.motionSeen=false;rt.stationary=false;
+                    check(MutationGate.check(request,dev,s,rt).reason==CapabilityResolver.Reason.NO_MOTION_REPORT,"Motion presence retained: "+context);
+                    rt=CapabilityResolverTest.parked();rt.nowMs=SEEN+7001;
+                    check(MutationGate.check(request,dev,s,rt).reason==CapabilityResolver.Reason.STATUS_STALE,"Fresh status retained: "+context);
+                    rt=CapabilityResolverTest.parked();rt.discovery=true;
+                    check(MutationGate.check(request,dev,s,rt).reason==CapabilityResolver.Reason.DISCOVERY_ACTIVE,"Discovery gate retained: "+context);
+                    check(decide(key,dev,Arrays.copyOf(sample,x.variant.offset)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Actual field presence retained: "+context);
+                    byte[] unknown=sample.clone();unknown[x.variant.offset]=(byte)0xfe;
+                    check(decide(key,dev,unknown).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Current value domain retained: "+context);
+                }
+            }
+        }
+        check(mapped>100,"Matrix covers mapped riding controls across the OEM model catalogue");
+        // Regional policy cannot waive meter version or full model ID evidence.
+        for(String area:areas)for(String key:new String[]{"maximum_speed","start_speed"}){
+            for(String pid:new String[]{"24011","27041"}){
+                check(decide(key,firmware(pid,area,null),data()).reason==CapabilityResolver.Reason.FIRMWARE_UNKNOWN,"Unknown firmware still refused: "+key+" "+area);
+                check(decide(key,firmware(pid,area,"2.0.1.1"),data()).reason==CapabilityResolver.Reason.FIRMWARE_OLD,"Old firmware still refused: "+key+" "+area);
+            }
+            String prefix=key.equals("maximum_speed")?"2543":"2314";
+            check(decide(key,firmware(prefix,area,"9.9.9.9"),data()).reason==CapabilityResolver.Reason.FULL_PID_NEEDED,"Full PID still required: "+key+" "+area);
+        }
+        for(String area:areas){
+            DeviceDescriptor ut5=firmware("25381",area,"9.9.9.9");
+            byte[] d=data();d[25]=25;
+            values("maximum_speed",ut5,d,ints(25,32,40,50));
+            CapabilityResolver.Decision start=decide("start_speed",ut5,d);
+            check(start.values().length==0&&start.variant.min==0&&start.variant.max==5&&start.variant.step==1,
+                "UT5 retains the continuous 0–5 slider, not the OEM choice sheet: "+area);
+            check(decide("speed_limit",ut5,d).variant.lab,"UT5 experimental speed cap unchanged: "+area);
+        }
     }
 
     /** Quick Access tiles: the decided variant labels the value and decides direct toggles; the UT5 MAX is unchanged. */
@@ -456,7 +531,7 @@ public final class OemControlsTest {
         };
         java.util.Map<String,String> hex=new java.util.HashMap<>();for(String[] f:frames)hex.put(f[0]+"/"+f[1],f[2]);
         for(String name:new String[]{"SPEED_25_32","SPEED_25_50","SPEED_25_50_45","SPEED_25_60","SPEED_25_70","SPEED_25_40_STEP5","SPEED_25_50_STEP5","SPEED_25_65_STEP5","SPEED_25_45",
-                "LIMIT_2782","LIMIT_8_16","LIMIT_8_20","LIMIT_8_25","LIMIT_8_32","START_0_5","START_3_5","OEM_ENERGY_BINARY"}){
+                "LIMIT_2782","LIMIT_8_16","LIMIT_8_20","LIMIT_8_32","START_0_5","START_3_5","OEM_ENERGY_BINARY"}){
             FeatureVariant v=(FeatureVariant)ModelRegistry.class.getDeclaredField(name).get(null);
             for(int value:v.values){
                 String expected=hex.get(String.format("0x%02x",v.cmd)+"/"+value);

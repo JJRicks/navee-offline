@@ -27,11 +27,13 @@ import java.util.Set;
  * The guided-test table (testRule: which settings an owner may try once and set back) was
  * developed alongside versions 3-5 as its own version 3; version 6 is the first registry with both
  * the guided-test table and the More-screen, speed and lighting rows. A finished test is
- * report-only evidence; it never enables a control.
+ * report-only evidence; it never enables a control. Version 7 defers regional UI restrictions:
+ * each already-mapped model gets the union of its OEM regional choices. Region and visibility
+ * flags remain provenance, not capability negotiation; model, firmware and runtime guards remain.
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=6;
+    public static final int VERSION=7;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -54,7 +56,7 @@ public final class ModelRegistry {
     // Prefix groups as the OEM 2.1.9 app tests them (startsWith on its advertised model ID).
     static final String[] Q={"2538","2547","2585"};
     static final String[] O={"2619","2620","2646"};
-    /** OEM 2.1.9 adds EU + server-location branches for this prefix; Volt cannot evaluate them offline, so they fail closed. */
+    /** OEM 2.1.9 adds EU + server-location visibility branches for this prefix; Volt defers regional UI policy. */
     static final String[] P={"2620"};
     static final String[] G={"2701","2745"};
     static final String[] H={"2543","2449","2657","2658","2707","2799","2800"};
@@ -115,8 +117,6 @@ public final class ModelRegistry {
     static final FeatureVariant OEM_CRUISE=oem("cruise_control.oem","cruise_control",0x52,new int[]{0,1},OFF_ON,3,true);
     static final FeatureVariant OEM_ENERGY=oem("energy_recovery.levels","energy_recovery",0x53,new int[]{0,30,60,90},new String[]{"Off","Low","Medium","High"},5,true);
     static final FeatureVariant OEM_ENERGY_NO_OFF=OEM_ENERGY.narrowed("energy_recovery.levels_no_off",new int[]{30,60,90},new String[]{"Low","Medium","High"});
-    static final FeatureVariant OEM_ENERGY_NO_HIGH=OEM_ENERGY.narrowed("energy_recovery.no_high",new int[]{0,30,60},new String[]{"Off","Low","Medium"});
-    static final FeatureVariant OEM_ENERGY_NO_OFF_NO_HIGH=OEM_ENERGY.narrowed("energy_recovery.no_off_no_high",new int[]{30,60},new String[]{"Low","Medium"});
     /** OEM 2.1.9 offers Off only for these prefixes (plus groups G, H, C, B, O, K and L). */
     static final String[] ENERGY_OFF={"2538","2585","2611","2753","2417","2634","2573","2612","2643","2754","2509","2545","2623","2782","2438"};
     /** OEM 2.1.9 hides High for these prefixes when the serial region is NL or unknown. */
@@ -178,7 +178,6 @@ public final class ModelRegistry {
     static final FeatureVariant LIMIT_2782=speedLimit("radio",new int[]{8,15,25,32});
     static final FeatureVariant LIMIT_8_16=speedLimit("8_16",range(8,16));
     static final FeatureVariant LIMIT_8_20=speedLimit("8_20",range(8,20));
-    static final FeatureVariant LIMIT_8_25=speedLimit("8_25",range(8,25));
     static final FeatureVariant LIMIT_8_32=speedLimit("8_32",range(8,32));
     /** Kick-start speed: 0-5 km/h only in the OEM's USA bucket (not group M); 3-5 elsewhere. */
     static final FeatureVariant START_0_5=startSpeed("0_5",range(0,5));
@@ -349,8 +348,9 @@ public final class ModelRegistry {
     }
     /**
      * The OEM 2.1.9 home-screen family for an advertised, listed PID, or null when not mapped yet.
-     * Region rules that remove a riding control or a value are enforced; region rules that hide
-     * a convenience control are deferred and only noted.
+     * Regional visibility is provenance only. Choices are the union of the OEM's regional
+     * tables for this same model; this does not borrow another model's values or bypass its
+     * firmware, full-PID or actual setting-field requirements.
      */
     private static Rule oemRule(String feature,DeviceDescriptor d,StatusFields s){
         boolean m=any(d,M);
@@ -364,17 +364,19 @@ public final class ModelRegistry {
                 :oemMapped(OEM_TURN,d.oemArea()==null||"DE".equals(d.oemArea())?"OEM 2.1.9 hides this in this region":"",true);
             case "cruise_control": {
                 if(m||any(d,NO_CRUISE))return excluded();
-                // OEM 2.1.9 also shows it for 2620 with an EU region and a server location; Volt cannot check that offline.
+                // breakSpeed (offset 35) controls regional visibility, not the actual cruise
+                // field (offset 3). The OEM's USA bucket bypasses it for this same model.
+                // 2620 also has an EU + server-location visibility path; no server is needed here.
                 Integer flag=s==null?null:s.u8(35);
-                if("USA".equals(d.sku())||d.region!=null&&flag!=null&&flag==1)return oemMapped(OEM_CRUISE,"",true);
-                Rule rule=oemMapped(OEM_CRUISE,"OEM 2.1.9 shows this here only when the scooter flags it",true);
-                return new Rule(rule.support,CapabilityResolver.Reason.REGION_RULE,rule.evidence,rule.oemNote,rule.preconditions,rule.variant);
+                boolean offered="USA".equals(d.sku())||d.region!=null&&flag!=null&&flag==1;
+                return oemMapped(OEM_CRUISE,offered?"":"OEM 2.1.9 limits regional visibility using the scooter flag or server location; Volt defers this policy",true);
             }
             case "energy_recovery": {
                 if(m)return oemMapped(OEM_ENERGY_BINARY,"",true);
                 boolean off=any(d,ENERGY_OFF)||any(d,G)||any(d,H)||any(d,C)||any(d,B)||any(d,O)||any(d,K)||any(d,L);
-                boolean high=!(any(d,ENERGY_NO_HIGH_NL)&&(d.region==null||"NL".equals(d.oemArea())));
-                return oemMapped(off&&high?OEM_ENERGY:high?OEM_ENERGY_NO_OFF:off?OEM_ENERGY_NO_HIGH:OEM_ENERGY_NO_OFF_NO_HIGH,"",true);
+                String note=any(d,ENERGY_NO_HIGH_NL)&&(d.region==null||"NL".equals(d.oemArea()))
+                    ?"OEM 2.1.9 hides High in NL or without a serial region; Volt defers this policy":"";
+                return oemMapped(off?OEM_ENERGY:OEM_ENERGY_NO_OFF,note,true);
             }
             // C5 batch 1: More-screen toggles and choices.
             case "traction_control":
@@ -386,8 +388,9 @@ public final class ModelRegistry {
                 if(!any(d,"2745")&&!any(d,H))return excluded();
                 String area=d.oemArea();Integer flag=s==null?null:s.u8(35);
                 boolean offered="RU".equals(area)||"US".equals(area)||area!=null&&contains(LONG_RANGE_FLAGGED_AREAS,area)&&flag!=null&&flag==1;
-                Rule rule=oemMapped(OEM_LONG_RANGE,offered?"":"OEM 2.1.9 offers this here only in some regions, some only when the scooter flags it",false);
-                return offered?rule:gated(rule,CapabilityResolver.Reason.REGION_RULE,null);
+                // The actual field is offset 38. US/RU bypass breakSpeed, so it is not a
+                // negotiated presence bit and is retained only in the OEM provenance note.
+                return oemMapped(OEM_LONG_RANGE,offered?"":"OEM 2.1.9 limits regional visibility, sometimes using the scooter flag; Volt defers this policy",false);
             }
             case "charge_limit": return chargeFamily(d,OEM_CHARGE_LIMIT);
             case "timed_charging": return chargeFamily(d,OEM_TIMED_CHARGING);
@@ -422,31 +425,36 @@ public final class ModelRegistry {
                 // OEM 2.1.9 blocks its Bluetooth lock screen for K and C up to meter firmware 2.0.0.4.
                 return any(d,K)||any(d,C)?firmware(rule,meterAtMost(d,"2.0.0.4")):rule;
             }
-            // C5 batch 2: the speed family. Riding-region rules are enforced.
+            // C5 batch 2: the speed family. Per-model union of OEM regional choices.
             case "maximum_speed": {
                 if(!any(d,MAX_SPEED_ROW)&&!any(d,S)&&!any(d,Q)&&!any(d,H)&&!any(d,K)&&!any(d,L)&&!any(d,B)&&!any(d,C)&&!any(d,D)&&!any(d,O)&&!any(d,G))return excluded();
                 FeatureVariant table=maxSpeedTable(d);
                 if(table==null)return gated(oemMapped(SPEED_25_40_STEP5,"",false),CapabilityResolver.Reason.FULL_PID_NEEDED,CapabilityResolver.Precondition.FULL_PID);
                 // The official prompt is for the US area only; CN and RU share the USA row without it.
-                Rule rule=oemMapped(table,any(d,"2585")&&"US".equals(d.oemArea())?SPEED_PROMPT_NOTE:"",false);
+                String note=any(d,"2585")&&"US".equals(d.oemArea())?SPEED_PROMPT_NOTE:
+                    "USA".equals(d.sku())?"":"OEM 2.1.9 limits this row by region; Volt offers this model's same OEM speed table";
+                Rule rule=oemMapped(table,note,false);
                 // OEM 2.1.9 blocks maximum speed for K and C below meter firmware 2.0.1.2.
                 if(any(d,K)||any(d,C)){rule=firmware(rule,meterBelow(d,"2.0.1.2"));if(rule.reason!=CapabilityResolver.Reason.NONE)return rule;}
-                // The row exists only in the OEM's USA bucket (its EU + server-location branch fails closed offline).
-                return "USA".equals(d.sku())?rule:gated(new Rule(rule.support,rule.reason,rule.evidence,"OEM 2.1.9 offers this only for US-region models",rule.preconditions,rule.variant),
-                    CapabilityResolver.Reason.REGION_RULE,null);
+                return rule;
             }
             case "speed_limit": {
                 String area=d.oemArea();
                 if(any(d,"2782"))return oemMapped(LIMIT_2782,"",false);
-                if(any(d,"2506")&&("CN".equals(area)||"US".equals(area)||"RU".equals(area)))return oemMapped(LIMIT_8_20,"",false);
-                if(any(d,SPEED_LIMIT_SEVEN))return oemMapped("EU".equals(area)?LIMIT_8_25:"RU".equals(area)?LIMIT_8_32:LIMIT_8_20,"",false);
+                if(any(d,"2506"))return oemMapped(LIMIT_8_20,"CN".equals(area)||"US".equals(area)||"RU".equals(area)?"":
+                    "OEM 2.1.9 limits this region to 16 km/h; Volt uses this model's 20 km/h regional maximum",false);
+                if(any(d,SPEED_LIMIT_SEVEN))return oemMapped(LIMIT_8_32,"RU".equals(area)?"":
+                    "OEM 2.1.9 varies this range by region; Volt uses this model's 32 km/h regional maximum",false);
                 return m?oemMapped(LIMIT_8_16,"",false):excluded();
             }
             case "start_speed": {
                 boolean always=m||any(d,START_SPEED)||any(d,S)||any(d,Q)||any(d,K)||any(d,L)||any(d,B)||any(d,C)||any(d,D)||any(d,O);
                 boolean regional=any(d,G)||any(d,START_SPEED_REGIONAL);
                 if(!always&&!regional)return excluded();
-                Rule rule=oemMapped("USA".equals(d.sku())&&!m?START_0_5:START_3_5,"",false);
+                String area=d.oemArea();
+                String note=!always&&(area==null||"DE".equals(area))?"OEM 2.1.9 hides this without a serial region or in DE; Volt defers this policy":
+                    !m&&!"USA".equals(d.sku())?"OEM 2.1.9 offers 3–5 km/h here; Volt uses this model's 0–5 km/h regional choices":"";
+                Rule rule=oemMapped(m?START_3_5:START_0_5,note,false);
                 if(any(d,"2314")){
                     // OEM 2.1.9 gates 2314 by the fifth digit: 1 below meter 0.0.0.8, 2 below meter 2.0.0.9.
                     Tri one=endsWith(d,'1');
@@ -457,9 +465,6 @@ public final class ModelRegistry {
                 }
                 // OEM 2.1.9 blocks it for K and C below meter firmware 2.0.1.2.
                 if(any(d,K)||any(d,C))return firmware(rule,meterBelow(d,"2.0.1.2"));
-                String area=d.oemArea();
-                if(!always&&(area==null||"DE".equals(area)))
-                    return gated(new Rule(rule.support,rule.reason,rule.evidence,"OEM 2.1.9 hides this without a serial region or in DE",rule.preconditions,rule.variant),CapabilityResolver.Reason.REGION_RULE,null);
                 return rule;
             }
             // C5 batch 3: lighting (convenience: region visibility deferred, noted).
@@ -475,7 +480,7 @@ public final class ModelRegistry {
     }
     /**
      * The rule for a guided test of this feature: the normal rule on UT5 MAX and OEM groups (so
-     * model, region and firmware refusals still apply), SHARED_UNITS for an unidentified standard
+     * model and firmware refusals still apply), SHARED_UNITS for an unidentified standard
      * scooter, and NOT_TESTABLE for anything outside TESTABLE or marked Lab.
      */
     static Rule testRule(String feature,DeviceDescriptor d,Resolution r,StatusFields s){
@@ -551,7 +556,7 @@ public final class ModelRegistry {
         if(blocked==Tri.NO)return gated(rule,CapabilityResolver.Reason.NONE,CapabilityResolver.Precondition.FIRMWARE_READ);
         return gated(rule,blocked==Tri.YES?CapabilityResolver.Reason.FIRMWARE_OLD:CapabilityResolver.Reason.FIRMWARE_UNKNOWN,CapabilityResolver.Precondition.FIRMWARE_READ);
     }
-    /** The same mapping refused for a model condition (region, firmware, full model ID), with that condition recorded. */
+    /** The same mapping refused for a model condition (firmware or full model ID), with that condition recorded. */
     private static Rule gated(Rule rule,CapabilityResolver.Reason reason,CapabilityResolver.Precondition needs){
         EnumSet<CapabilityResolver.Precondition> p=EnumSet.copyOf(rule.preconditions);if(needs!=null)p.add(needs);
         return new Rule(rule.support,reason,rule.evidence,rule.oemNote,p,rule.variant);

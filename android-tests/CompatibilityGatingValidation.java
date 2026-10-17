@@ -333,7 +333,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
             for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
                 CapabilityResolver.Decision d = ble.decision(f.key);
                 if (f.key.equals("lock")) require(d.reason != CapabilityResolver.Reason.DISCOVERY_ACTIVE, label + ": lock held by the check");
-                // A control that is otherwise available is held by the check; one already refused (e.g. a region rule) keeps its reason.
+                // A control that is otherwise available is held by the check; one already refused (e.g. missing firmware evidence) keeps its reason.
                 else { require(!d.available(), label + ": " + f.key + " available during the check: " + d); if (d.reason == CapabilityResolver.Reason.DISCOVERY_ACTIVE) held[0]++; }
             }
             require(pid.equals("39991") || held[0] > 0, label + ": no control reports the check");
