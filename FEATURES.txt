@@ -514,8 +514,9 @@ Starting a ride focuses the name field, selects the current name and opens the
 keyboard. New explicit recordings can save GPS, pressure and experimental motion
 separately from electrical-energy sampling. Route overlays color power, speed, grade,
 GPS speed derivative and elevation; pinch to zoom, pan and tap for synchronized readings.
-Speed uses one source per ride (scooter when fresh for most fixes, else GPS), labelled
-in the legend and tooltip, on a stable per-ride 0-to-top scale; missing is dashed gray.
+Speed uses one source per ride (scooter when fresh for half the fixes or more than
+GPS, else GPS), labelled in the legend and tooltip, on a stable per-ride 0-to-top
+scale; missing is dashed gray.
 The expand icon opens a full-screen route map; a separate center icon fits the
 whole route. Center, zoom, overlay and inspected point survive opening/closing
 the expanded view. Pinch, pan, zoom buttons and inspection work in either view.
