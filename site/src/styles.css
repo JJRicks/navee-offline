@@ -263,6 +263,8 @@ h2 { margin: 0 0 20px; font-weight: 700; font-size: clamp(38px, 5.6vw, 72px); li
   border: 1px solid rgba(234, 37, 43, .28);
   background: radial-gradient(700px 320px at 50% 0%, rgba(234, 37, 43, .2), transparent 70%), rgba(255, 255, 255, .015);
 }
+.privacy h2 sup { margin-left: .12em; font-size: .4em; vertical-align: super; }
+.privacy-note { max-width: 650px; margin: 20px auto 0; color: var(--muted); font-size: 15px; line-height: 1.6; }
 .shield { width: 100px; margin: 0 auto 22px; filter: drop-shadow(0 0 34px rgba(234, 37, 43, .65)); animation: pulse 3.2s ease-in-out infinite; }
 .shield-body { fill: rgba(234, 37, 43, .12); stroke: var(--red); stroke-width: 3; }
 .shield-bolt { fill: var(--ink); }
