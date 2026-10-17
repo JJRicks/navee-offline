@@ -83,7 +83,8 @@ public final class BleController {
     public String simulationModel(){return simulationModel;}
     /** Developer simulator serial region for another simulated model ("US", "DE", ... or null); memory only, never on the UT5 MAX. */
     public String simulationRegion(){return simulationRegion;}
-    public void setSimulationRegion(String region){simulationRegion=region!=null&&region.matches("[A-Z]{2}")?region:null;tickSimulation();changed();}
+    /** Like a model change, a different simulated region stops a running check and clears its results (the report's descriptor would no longer match). */
+    public void setSimulationRegion(String region){String next=region!=null&&region.matches("[A-Z]{2}")?region:null;if(simulation!=null&&!Objects.equals(next,simulationRegion)){if(discovering)stopDiscovery();clearDiscovery();}simulationRegion=next;tickSimulation();changed();}
     public void setSimulationModel(String pid){String next=pid==null?"":pid;if(simulation!=null&&!next.equals(simulationModel)){if(discovering)stopDiscovery();clearDiscovery();}simulationModel=next;if(simulation!=null){simulation.setModel(simulationModel);tickSimulation();}changed();}
     public void setSimulationCharging(boolean charging){if(simulation==null)return;simulation.setCharging(charging);tickSimulation();changed();}
     private void connectSimulation(){if(simulation==null)return;state=State.READY;updateSimulation();notice("Simulated connection");}
