@@ -82,6 +82,8 @@ public final class TestJournalTest {
     private static void unreadable() {
         GuidedTestTest.Memory m=new GuidedTestTest.Memory();m.failReads=true;TestJournal j=new TestJournal(m);
         check(!j.healthy()&&!j.canStart(),"Unreadable journal: no tests");
+        // It can list nothing, so the app shows the unavailable note in place of unfinished tests; the note must say one may be outstanding.
+        check(j.unresolved().isEmpty()&&TestJournal.UNAVAILABLE_NOTE.contains("may not have been set back"),"Unreadable journal: possible unfinished test reported");
         try{j.commit(entry(id(1),false,WALL));check(false,"No overwrite of an unreadable journal");}catch(IOException expected){check(m.writes==0,"No overwrite of an unreadable journal");}
     }
 

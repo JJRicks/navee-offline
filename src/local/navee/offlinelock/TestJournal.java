@@ -71,7 +71,10 @@ final class TestJournal {
         readable=ok;
     }
 
-    /** False when the saved journal could not be read; no test may start then. */
+    /** Shown wherever unfinished tests would be, connected or not, while the journal cannot be read. */
+    static final String UNAVAILABLE_NOTE="Test records unavailable. A previous test may not have been set back; check the scooter's settings.";
+
+    /** False when the saved journal could not be read; no test may start then, and earlier unfinished tests cannot be listed. */
     boolean healthy(){return readable;}
     /** Lines dropped on load (corrupt, unknown or invalid). */
     int dropped(){return dropped;}

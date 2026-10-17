@@ -1430,8 +1430,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             bannerAction.setVisibility(connecting?View.GONE:View.VISIBLE);
             readOnlyBanner.setVisibility(ble!=null&&ble.limitedModel()?View.VISIBLE:View.GONE);
             java.util.List<TestJournal.Entry> unfinished=ble==null?java.util.Collections.<TestJournal.Entry>emptyList():ble.unresolvedTests();
-            testBanner.setVisibility(unfinished.isEmpty()?View.GONE:View.VISIBLE);
-            if(!unfinished.isEmpty()){String text="Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"");if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);}
+            boolean recordsLost=ble!=null&&!ble.testRecordsHealthy();
+            testBanner.setVisibility(unfinished.isEmpty()&&!recordsLost?View.GONE:View.VISIBLE);
+            if(recordsLost||!unfinished.isEmpty()){String text=recordsLost?"Test records unavailable":"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"");if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);}
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // One pill at a time keeps the banner readable on narrow screens: Identify first, then Check.
             checkAction.setVisibility(ble!=null&&!ble.modelUnidentified()?View.VISIBLE:View.GONE);

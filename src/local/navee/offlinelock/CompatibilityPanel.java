@@ -120,10 +120,11 @@ final class CompatibilityPanel {
         int elsewhere=ble.unresolvedTestsElsewhere();
         if(elsewhere>0)root.addView(note(elsewhere==1?"1 unfinished test on another scooter. Select it to review.":elsewhere+" unfinished tests on other scooters. Select one to review."));
         for(TestJournal.Entry e:ble.orphanedTests())orphaned(ble,e);
+        // An unreadable journal may hide an unfinished test, so say so whether or not a scooter is connected.
+        if(!ble.testRecordsHealthy()){root.addView(note(TestJournal.UNAVAILABLE_NOTE));return;}
         if(!ble.ready()||ble.testing()||!open.isEmpty())return;
         LinearLayout g=group("Try a setting");
         if(g==null)return;
-        if(!ble.testRecordsHealthy()){row(g,"Tests","Test records unavailable",ui.muted);return;}
         boolean any=false,askParked=false;
         for(String f:ModelRegistry.TESTABLE){
             CapabilityResolver.Decision d=ble.testDecision(f);
