@@ -35,6 +35,10 @@ sources+=("$TEST_DIR/RideAutoStopStoreTest.java")
 # Unified backup: category registry, archive, plan and transaction (pure Java, temporary files only).
 for name in BackupRegistry BackupJson BackupProfiles BackupArchive BackupTransaction; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java"); done
 for name in BackupRegistryTest BackupTestStore BackupArchiveTest BackupPlanTest BackupTransactionTest; do sources+=("$TEST_DIR/$name.java"); done
+# Model compatibility suites (separate block to limit merge conflicts with sibling branches).
+COMPAT_TESTS=(DeviceDescriptor AdvertisedIdentity StatusFields WireCommands ModelRegistry CapabilityResolver)
+for name in "${COMPAT_TESTS[@]}"; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java"); done
+sources+=("$APP_DIR/src/local/navee/offlinelock/FeatureVariant.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
 for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"
@@ -59,3 +63,5 @@ backup_tmp=()
 for name in BackupArchiveTest BackupPlanTest BackupTransactionTest; do
     (cd "$APP_DIR" && java "${backup_tmp[@]}" -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.$name")
 done
+
+for name in "${COMPAT_TESTS[@]}"; do java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"; done

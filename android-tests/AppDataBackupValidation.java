@@ -86,6 +86,16 @@ public final class AppDataBackupValidation extends Instrumentation {
             require(snapshot(restored).equals(before)&&!AppDataBackup.needsRecovery(restored),"Invalid startup preferences/profiles leave target untouched");
             source.getSharedPreferences("profiles",0).edit().putString("items",(String)before.get("profiles").get("items")).commit();
             checks.add("Known preference-type mismatches and malformed owner profiles are rejected before they can break startup");
+            String evidence="[{\"id\":\"owner\",\"identity\":\"A1B2C3D4E5F6\",\"role\":0,\"name\":\"Fixture scooter\",\"pid_advertised\":\"24431\",\"pid_advertised_wall\":1700000000000,\"name_default\":true,\"fw_meter\":\"2.0.1.2\",\"fw_controller\":\"\",\"fw_wall\":1700000000000}]";
+            source.getSharedPreferences("profiles",0).edit().putString("items",evidence).commit();byte[] modelEvidence=export(source);
+            AppDataBackup.discard(restored,AppDataBackup.stage(restored,new ByteArrayInputStream(modelEvidence),PASSWORD));
+            for(String bad:new String[]{"\"pid_advertised\":\"2443a\"","\"pid_advertised\":\"123456\"","\"pid_advertised\":24431","\"fw_meter\":\"0123456789abcdefg\"","\"name_default\":\"yes\"","\"fw_wall\":\"1\""}) {
+                source.getSharedPreferences("profiles",0).edit().putString("items","[{\"id\":\"owner\",\"identity\":\"A1B2C3D4E5F6\",\"role\":0,"+bad+"}]").commit();byte[] invalid=export(source);
+                expectFailure(()->AppDataBackup.stage(restored,new ByteArrayInputStream(invalid),PASSWORD),"Invalid model evidence rejected: "+bad);
+            }
+            require(snapshot(restored).equals(before)&&!AppDataBackup.needsRecovery(restored),"Model evidence checks leave target untouched");
+            source.getSharedPreferences("profiles",0).edit().putString("items",(String)before.get("profiles").get("items")).commit();
+            checks.add("Profiles with model evidence fields stage; malformed advertised IDs, firmware strings and flags are rejected");
             // Same authenticated format, but corrupt database content, must be rejected before apply.
             file(source.getDatabasePath("telemetry-history.db"),new byte[]{1,2,3,4});byte[] badDatabase=export(source);
             expectFailure(()->AppDataBackup.stage(restored,new ByteArrayInputStream(badDatabase),PASSWORD),"Malformed authenticated SQLite database is rejected");
