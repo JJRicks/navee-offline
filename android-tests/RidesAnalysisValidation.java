@@ -26,7 +26,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             for (String name : new String[]{"app_settings", "profiles", "scooter", "pending_documents"}) check(context.getSharedPreferences(name, 0).getAll().isEmpty(), "Requires empty preferences");
             check(context.getFilesDir().list().length == 0 && context.databaseList().length == 0, "Requires empty private data");
             BluetoothAdapter adapter = context.getSystemService(BluetoothManager.class).getAdapter(); check(adapter == null || !adapter.isEnabled(), "Bluetooth must be off");
-            context.getSharedPreferences("app_settings", 0).edit().putBoolean("auto_connect", false).putBoolean("background_connection", false).putBoolean("map_basemap_enabled", false).putString("theme", args.getString("theme", "dark")).commit();
+            context.getSharedPreferences("app_settings", 0).edit().putBoolean("auto_connect", false).putBoolean("background_connection", false).putBoolean("map_basemap_enabled", false).putString("theme", args.getString("theme", "dark")).putFloat("text_scale", Float.parseFloat(args.getString("text_scale", "1"))).commit();
             main(() -> { ScooterProfiles profiles = new ScooterProfiles(context); profiles.create("Synthetic ride validation", "000000000000", 0); });
             activity = (MainActivity) startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             long until = SystemClock.uptimeMillis() + 8000; while (activity.service() == null && SystemClock.uptimeMillis() < until) SystemClock.sleep(40);
@@ -277,8 +277,8 @@ public final class RidesAnalysisValidation extends Instrumentation {
         }
         synthetic.stop(wall + 300000, 301000); service.phoneRides.appendBatch(speedId, phone.toString(), ""); service.phoneRides.stop(speedId, wall + 300000, 301000);
         SharedPreferences settings = service.settings; AtomicInteger tileCalls = new AtomicInteger();
-        int[][] colors = new int[2][]; String[] units = {"km", "mi"}, tops = {"35 km/h", "22 mph"};
-        for (int pass = 0; pass < 2; pass++) {
+        int[][] colors = new int[3][]; String[] units = {"km", "mi", "dual"}, tops = {"35 km/h", "22 mph", "22 mph / 35 km/h"};
+        for (int pass = 0; pass < units.length; pass++) {
             final int u = pass;
             main(() -> { for (Object dialog : new ArrayList<>((List<?>)field(screen, "dialogs"))) ((AlertDialog)dialog).dismiss();
                 service.rides = synthetic; settings.edit().putBoolean("map_basemap_enabled", false).putString("units", units[u]).commit(); }); settle();
@@ -305,6 +305,8 @@ public final class RidesAnalysisValidation extends Instrumentation {
             Object legend = null;
             for (View v : all(detail)) if (v.getClass().getSimpleName().equals("LegendView")) legend = v;
             check("Speed · scooter".equals(field(legend, "title")) && tops[u].equals(((String[])field(legend, "labels"))[1]), "Legend names the source and shows top speed in " + units[u]);
+            final View shownLegend = (View)legend;
+            main(() -> verifyLegendFit(shownLegend));
             main(() -> inline.requestRectangleOnScreen(new android.graphics.Rect(0, 0, inline.getWidth(), inline.getHeight()), true)); settle();
             int target = probe[u == 0 ? 1 : 0]; tapPoint(inline, points.get(target)); settle();
             int picked = (int)field(inline, "selected"); check(picked >= 0, "Tapping the speed route selects a point");
@@ -336,8 +338,30 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check("speed".equals(field(inline, "metric")) && byDescription(detail, "Route color: Speed").isSelected(), "Closing fullscreen keeps Speed inline");
             check(tileCalls.get() == 0, "Speed overlay, gestures and expansion make no tile requests with basemap off");
         }
-        check(Arrays.equals(colors[0], colors[1]), "Changing units changes only labels, never route colors");
+        check(Arrays.equals(colors[0], colors[1]) && Arrays.equals(colors[0], colors[2]), "Changing units changes only labels, never route colors");
         main(() -> { for (Object dialog : new ArrayList<>((List<?>)field(screen, "dialogs"))) ((AlertDialog)dialog).dismiss(); settings.edit().remove("units").commit(); }); settle();
+    }
+    void verifyLegendFit(View legend) {
+        String[] labels = (String[])field(legend, "labels");
+        for (int widthDp : new int[]{240, 312, 344, 700}) {
+            Object layout = invoke(legend, "layoutFor", new Class[]{int.class}, activity.ui().dp(widthDp));
+            android.graphics.Paint paint = (android.graphics.Paint)field(legend, "paint");
+            float left = (float)field(layout, "barLeft"), right = (float)field(layout, "barRight");
+            float lastStart = right - paint.measureText(labels[labels.length - 1]);
+            boolean separate = (boolean)field(layout, "separateLabels");
+            check(separate || lastStart - (left + paint.measureText(labels[0])) >= activity.ui().dp(9),
+                    "Legend endpoint labels keep a measured gap at " + widthDp + " dp: " + labels[labels.length - 1]);
+            check(left >= legend.getPaddingLeft() && right <= activity.ui().dp(widthDp) - legend.getPaddingRight() && right > left,
+                    "Legend bar stays within the view at " + widthDp + " dp");
+            float bottom = (float)field(layout, "labelBaseline") + paint.getFontMetrics().descent
+                    + (separate ? (labels.length - 1) * ((float)field(layout, "line") + activity.ui().dp(3)) : 0);
+            check(bottom <= (float)field(layout, "height") - legend.getPaddingBottom() + .01f,
+                    "Legend's measured height includes its labels at " + widthDp + " dp");
+            String title = (String)field(layout, "shownTitle");
+            float keyStart = (float)field(layout, "right") - paint.measureText("missing") - activity.ui().dp(6 + 18);
+            check((float)field(layout, "left") + paint.measureText(title) + activity.ui().dp(8) <= keyStart,
+                    "Legend source title stays separate from the missing-data key at " + widthDp + " dp");
+        }
     }
     void verifyChoicesFit(View selector) {
         selector.requestRectangleOnScreen(new android.graphics.Rect(0, 0, selector.getWidth(), selector.getHeight()), true);

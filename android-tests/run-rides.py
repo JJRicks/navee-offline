@@ -11,6 +11,7 @@ parser.add_argument("--app", required=True)
 parser.add_argument("--runner", required=True)
 parser.add_argument("--out", required=True)
 parser.add_argument("--case", action="append", help="widthxheight dp:font scale:dark|light")
+parser.add_argument("--text-scale", default="1", choices=("1", "1.4"), help="App text scaling, independent of Android font scale")
 args = parser.parse_args()
 if not args.serial.startswith("emulator-"):
     parser.error("This destructive fixture refuses physical phones; use a disposable emulator.")
@@ -53,7 +54,7 @@ try:
         adb("install", args.runner)
         for permission in ("BLUETOOTH_SCAN", "BLUETOOTH_CONNECT"):
             adb("shell", "pm", "grant", "local.navee.offlinelock", f"android.permission.{permission}")
-        result = adb("shell", "am", "instrument", "-w", "-r", "-e", "variant", variant, "-e", "theme", theme,
+        result = adb("shell", "am", "instrument", "-w", "-r", "-e", "variant", variant, "-e", "theme", theme, "-e", "text_scale", args.text_scale,
                      "local.navee.offlinelock.tests/local.navee.offlinelock.tests.RidesAnalysisValidation")
         (output / f"{variant}.txt").write_text(result)
         adb("pull", "/sdcard/Android/data/local.navee.offlinelock/files/rides-validation", str(output), optional=True)

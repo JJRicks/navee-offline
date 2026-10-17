@@ -1593,7 +1593,7 @@ public final class DashboardScreen implements AppScreen {
          */
         void updatePulse() {
             boolean run = shown && !closed && !editing && Ui.motionEnabled() && stage.onScreen
-                    && photo.getVisibility() == View.VISIBLE && stage.isAttachedToWindow();
+                    && photo.getVisibility() == View.VISIBLE && stage.isAttachedToWindow() && stage.intersectsViewport();
             if (run == (pulse != null)) return;
             if (!run) {
                 android.animation.ValueAnimator old = pulse;
@@ -1706,6 +1706,10 @@ public final class DashboardScreen implements AppScreen {
             int glowColor;
             /** This view, its ancestors and the window are all visible (false while backgrounded or the screen is off). */
             boolean onScreen;
+            final Rect viewport = new Rect();
+            ViewTreeObserver observedTree;
+            final ViewTreeObserver.OnScrollChangedListener viewportScroll = () -> updatePulse();
+            final ViewTreeObserver.OnGlobalLayoutListener viewportLayout = () -> updatePulse();
 
             Stage() {
                 super(host.activity());
@@ -1719,10 +1723,27 @@ public final class DashboardScreen implements AppScreen {
                 updatePulse();
             }
 
-            @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); updatePulse(); }
+            boolean intersectsViewport() {
+                return getWidth() > 0 && getHeight() > 0 && getGlobalVisibleRect(viewport) && !viewport.isEmpty();
+            }
+
+            @Override protected void onAttachedToWindow() {
+                super.onAttachedToWindow();
+                observedTree = getViewTreeObserver();
+                // Aggregated visibility ignores clipping by a scrolling parent. These callbacks
+                // stop the loop as it leaves the viewport and restart it without polling on return.
+                observedTree.addOnScrollChangedListener(viewportScroll);
+                observedTree.addOnGlobalLayoutListener(viewportLayout);
+                updatePulse();
+            }
 
             @Override protected void onDetachedFromWindow() {
                 onScreen = false; updatePulse();
+                if (observedTree != null && observedTree.isAlive()) {
+                    observedTree.removeOnScrollChangedListener(viewportScroll);
+                    observedTree.removeOnGlobalLayoutListener(viewportLayout);
+                }
+                observedTree = null;
                 super.onDetachedFromWindow();
             }
 

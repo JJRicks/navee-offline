@@ -441,6 +441,33 @@ public final class MotionPolishValidation extends Instrumentation {
         if (motion) { await(() -> pulse() != null && pulse().isRunning(), "Glow did not survive rebuilds"); remember(seen); requireOneRunning(seen, "after 6 refresh+render rounds"); }
         else main(() -> require(pulse() == null, "Rebuild started a reduced-motion glow"));
 
+        // Scrolling clips a still-attached VISIBLE view without changing aggregated visibility.
+        int visibleScroll = scroll().getScrollY();
+        main(() -> {
+            View stage = (View)field(hero(), "stage"); int[] at = new int[2]; stage.getLocationOnScreen(at);
+            scroll().scrollBy(0, at[1] - viewport().top + stage.getHeight() / 2);
+        }); settle();
+        main(() -> {
+            View stage = (View)field(hero(), "stage"); Rect visible = new Rect();
+            require(stage.getGlobalVisibleRect(visible) && visible.height() > 0 && visible.height() < stage.getHeight(),
+                    "Viewport fixture did not partially clip the charging stage");
+        });
+        if (motion) { await(() -> pulse() != null && pulse().isRunning(), "Partially visible glow stopped"); requireOneRunning(seen, "partial viewport clipping"); }
+        else main(() -> require(pulse() == null, "Partially visible stage started a reduced-motion glow"));
+        main(() -> scroll().scrollTo(0, hero().getBottom() + ui().dp(24)));
+        settle();
+        main(() -> {
+            View stage = (View)field(hero(), "stage");
+            require(stage.isAttachedToWindow() && (Boolean)field(stage, "onScreen"), "Viewport fixture must keep the stage attached and aggregated-visible");
+            require(!stage.getGlobalVisibleRect(new Rect()), "Viewport fixture did not scroll the charging stage completely off screen");
+        });
+        await(() -> pulse() == null && glow() == 1f, "Clipped charging hero kept its glow animator");
+        requireNoneRunning(seen, "scrolling completely outside the viewport");
+        SystemClock.sleep(1200);
+        main(() -> { screen().refresh(); require(pulse() == null && glow() == 1f, "Ordinary refresh restarted an offscreen glow"); });
+        main(() -> scroll().scrollTo(0, visibleScroll)); settle();
+        resumed(motion, seen, "scrolling back into the viewport");
+
         // Edit mode stops it; finishing editing resumes it.
         main(() -> invoke(screen(), "toggleEditing")); settleMotion();
         main(() -> require(pulse() == null && glow() == 1f && hero().getVisibility() == View.GONE, "Edit mode kept the glow running"));
@@ -495,7 +522,7 @@ public final class MotionPolishValidation extends Instrumentation {
         settle(); main(() -> screen().refresh());
         resumed(motion, seen, "returning to Home");
         save(screencap(), "glow-final");
-        check("Glow lifecycle: one loop through refreshes and rebuilds; stops (static glow == 1) for edit mode, disconnect, detach, Home key backgrounding and leaving Home; resumes cleanly with a single running animator" + (motion ? "" : " (reduced motion: never starts)"));
+        check("Glow lifecycle: one loop through refreshes and rebuilds; stops (static glow == 1) when clipped outside the scroll viewport, in edit mode, on disconnect, detach, Home key backgrounding and leaving Home; resumes cleanly with a single running animator" + (motion ? "" : " (reduced motion: never starts)"));
     }
 
     private void resumed(boolean motion, List<android.animation.ValueAnimator> seen, String when) {

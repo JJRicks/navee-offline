@@ -1821,37 +1821,75 @@ public final class RidesScreen implements AppScreen {
             setContentDescription(mapLegend(track, metric)); requestLayout(); invalidate();
         }
         private float textSize() { return ui.sp(11.5f); }
+        private final class LegendLayout {
+            String shownTitle;
+            boolean stacked, separateLabels;
+            float left, right, barLeft, barRight, headerCenter, barCenter, baseline, labelBaseline, line, height;
+        }
+        private LegendLayout layoutFor(int width) {
+            paint.setTextSize(textSize()); paint.setTypeface(ui.regular());
+            Paint.FontMetrics metrics = paint.getFontMetrics();
+            LegendLayout layout = new LegendLayout();
+            layout.line = metrics.descent - metrics.ascent;
+            layout.left = getPaddingLeft(); layout.right = width - getPaddingRight();
+            float gap = ui.dp(10), row = Math.max(layout.line, ui.dp(8));
+            float first = paint.measureText(labels[0]), last = paint.measureText(labels[labels.length - 1]);
+            // Reserve the actual endpoint text, including both units and the user's text size.
+            float minimumBar = first + last + gap;
+            if (labels.length == 3) {
+                float middle = paint.measureText(labels[1]);
+                minimumBar = Math.max(minimumBar, 2 * (Math.max(first, last) + middle / 2 + gap));
+            }
+            layout.barRight = layout.right - paint.measureText("missing") - ui.dp(6 + 18 + 14);
+            layout.shownTitle = title;
+            if (shortTitle != null && layout.barRight - layout.left - paint.measureText(title) - gap < minimumBar)
+                layout.shownTitle = shortTitle;
+            layout.barLeft = layout.left + Math.max(paint.measureText("Power"), paint.measureText(layout.shownTitle)) + gap;
+            layout.stacked = layout.barRight - layout.barLeft < minimumBar;
+            layout.headerCenter = getPaddingTop() + row / 2;
+            layout.barCenter = layout.headerCenter;
+            if (layout.stacked) {
+                // On narrow screens the gradient uses its own full-width row. Keep the source
+                // title whenever it fits beside the missing-data key.
+                float titleSpace = layout.barRight - layout.left;
+                if (paint.measureText(title) <= titleSpace) layout.shownTitle = title;
+                layout.barLeft = layout.left; layout.barRight = layout.right;
+                layout.barCenter = getPaddingTop() + row + ui.dp(8 + 4);
+            }
+            layout.baseline = layout.headerCenter - (metrics.ascent + metrics.descent) / 2;
+            layout.labelBaseline = layout.barCenter + (layout.stacked ? ui.dp(4) : row / 2) + ui.dp(3) - metrics.ascent;
+            // Unusually narrow containers can still keep each endpoint readable on its own line.
+            layout.separateLabels = layout.barRight - layout.barLeft < minimumBar;
+            layout.height = layout.labelBaseline + metrics.descent + getPaddingBottom()
+                    + (layout.separateLabels ? (labels.length - 1) * (layout.line + ui.dp(3)) : 0);
+            return layout;
+        }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
-            paint.setTextSize(textSize()); Paint.FontMetrics metrics = paint.getFontMetrics();
-            float line = metrics.descent - metrics.ascent;
-            int height = Math.round(getPaddingTop() + Math.max(line, ui.dp(8)) + ui.dp(3) + line + getPaddingBottom());
-            setMeasuredDimension(MeasureSpec.getSize(widthSpec), resolveSize(height, heightSpec));
+            int width = MeasureSpec.getSize(widthSpec);
+            setMeasuredDimension(width, resolveSize((int)Math.ceil(layoutFor(width).height), heightSpec));
         }
         @Override protected void onDraw(Canvas canvas) {
-            paint.setTextSize(textSize()); paint.setTypeface(ui.regular()); paint.setShader(null); paint.setPathEffect(null);
-            Paint.FontMetrics metrics = paint.getFontMetrics(); float line = metrics.descent - metrics.ascent;
-            float left = getPaddingLeft(), right = getWidth() - getPaddingRight();
-            float rowCenter = getPaddingTop() + Math.max(line, ui.dp(8)) / 2f, baseline = rowCenter - (metrics.ascent + metrics.descent) / 2f;
+            LegendLayout layout = layoutFor(getWidth());
+            paint.setShader(null); paint.setPathEffect(null);
             paint.setStyle(Paint.Style.FILL); paint.setColor(ui.muted); paint.setTextAlign(Paint.Align.LEFT);
             String missing = "missing"; float missingWidth = paint.measureText(missing), dash = ui.dp(18);
-            float barRight = right - missingWidth - ui.dp(6) - dash - ui.dp(14);
-            // A long source title gives way to the short one before the bar becomes too narrow to read.
-            String shown = shortTitle != null && barRight - left - paint.measureText(title) - ui.dp(10) < ui.dp(56) ? shortTitle : title;
-            canvas.drawText(shown, left, baseline, paint);
-            canvas.drawText(missing, right - missingWidth, baseline, paint);
-            float barLeft = left + Math.max(paint.measureText("Power"), paint.measureText(shown)) + ui.dp(10);
+            canvas.drawText(layout.shownTitle, layout.left, layout.baseline, paint);
+            canvas.drawText(missing, layout.right - missingWidth, layout.baseline, paint);
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2)); paint.setColor(Color.rgb(128, 128, 128));
             paint.setPathEffect(new android.graphics.DashPathEffect(new float[]{ui.dp(4), ui.dp(3)}, 0));
-            canvas.drawLine(right - missingWidth - ui.dp(6) - dash, rowCenter, right - missingWidth - ui.dp(6), rowCenter, paint);
+            canvas.drawLine(layout.right - missingWidth - ui.dp(6) - dash, layout.headerCenter,
+                    layout.right - missingWidth - ui.dp(6), layout.headerCenter, paint);
             paint.setPathEffect(null); paint.setStyle(Paint.Style.FILL);
-            if (barRight <= barLeft) return;
-            paint.setShader(new android.graphics.LinearGradient(barLeft, 0, barRight, 0, colors, null, android.graphics.Shader.TileMode.CLAMP));
-            canvas.drawRoundRect(new RectF(barLeft, rowCenter - ui.dp(4), barRight, rowCenter + ui.dp(4)), ui.dp(4), ui.dp(4), paint);
+            if (layout.barRight <= layout.barLeft) return;
+            paint.setShader(new android.graphics.LinearGradient(layout.barLeft, 0, layout.barRight, 0, colors, null, android.graphics.Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(new RectF(layout.barLeft, layout.barCenter - ui.dp(4), layout.barRight, layout.barCenter + ui.dp(4)), ui.dp(4), ui.dp(4), paint);
             paint.setShader(null); paint.setColor(ui.muted);
-            float under = rowCenter + Math.max(line, ui.dp(8)) / 2f + ui.dp(3) - metrics.ascent;
-            paint.setTextAlign(Paint.Align.LEFT); canvas.drawText(labels[0], barLeft, under, paint);
-            paint.setTextAlign(Paint.Align.RIGHT); canvas.drawText(labels[labels.length - 1], barRight, under, paint);
-            if (labels.length == 3) { paint.setTextAlign(Paint.Align.CENTER); canvas.drawText(labels[1], (barLeft + barRight) / 2f, under, paint); }
+            for (int i = 0; i < labels.length; i++) {
+                float x = i == 0 ? layout.barLeft : i == labels.length - 1 ? layout.barRight : (layout.barLeft + layout.barRight) / 2;
+                paint.setTextAlign(i == 0 ? Paint.Align.LEFT : i == labels.length - 1 ? Paint.Align.RIGHT : Paint.Align.CENTER);
+                float baseline = layout.labelBaseline + (layout.separateLabels ? i * (layout.line + ui.dp(3)) : 0);
+                canvas.drawText(labels[i], x, baseline, paint);
+            }
         }
     }
     /** Small dark rounded route outline; a neutral glyph when the ride has no GPS route. */
