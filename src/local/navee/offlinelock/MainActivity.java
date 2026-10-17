@@ -1249,7 +1249,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
         private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private final LinearLayout lightsHeader,banner,readOnlyBanner;private TextView identifyAction,checkAction;private String offeredKeys="";
+        private final LinearLayout lightsHeader,banner,readOnlyBanner,testBanner;private TextView identifyAction,checkAction,testBannerText;private String offeredKeys="";
         private final View headlightRow,zonesRow,clockSpinner;
         private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
@@ -1286,6 +1286,14 @@ public final class MainActivity extends Activity implements ScreenHost {
             LinearLayout.LayoutParams checkSpacing=new LinearLayout.LayoutParams(-2,-2);checkSpacing.leftMargin=design.dp(6);readOnlyBanner.addView(checkAction,checkSpacing);
             readOnlyBanner.setVisibility(View.GONE);view.addView(readOnlyBanner,new LinearLayout.LayoutParams(-1,-2));
             ((LinearLayout.LayoutParams)readOnlyBanner.getLayoutParams()).bottomMargin=design.dp(10);
+            // An unfinished guided test (restoration outstanding) stays visible until the owner reviews it.
+            testBanner=row();testBanner.setGravity(Gravity.CENTER_VERTICAL);testBanner.setPadding(design.dp(14),design.dp(4),design.dp(14),design.dp(4));testBanner.setMinimumHeight(design.dp(52));
+            testBanner.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?36:22),16,Ui.withAlpha(design.accent,design.dark?100:80)));
+            testBanner.addView(design.icon("lab",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
+            testBannerText=design.text("Unfinished test",13,false);LinearLayout.LayoutParams testWords=new LinearLayout.LayoutParams(0,-2,1);testWords.leftMargin=design.dp(10);testWords.rightMargin=design.dp(8);testBanner.addView(testBannerText,testWords);
+            TextView reviewAction=pill("Review",()->openMoreSection("Compatibility"));reviewAction.setContentDescription("Review unfinished test");reviewAction.setTag("scooter-review-test");testBanner.addView(reviewAction);
+            testBanner.setVisibility(View.GONE);view.addView(testBanner,new LinearLayout.LayoutParams(-1,-2));
+            ((LinearLayout.LayoutParams)testBanner.getLayoutParams()).bottomMargin=design.dp(10);
             // Wide: the banner spans both columns; search, results and top speed lead the left column.
             leftPane=expanded?column():null;rightPane=expanded?column():null;
             LinearLayout lead=expanded?leftPane:view;
@@ -1421,6 +1429,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             bannerText.setText(connecting?"Connecting…":"Last seen (disconnected)");
             bannerAction.setVisibility(connecting?View.GONE:View.VISIBLE);
             readOnlyBanner.setVisibility(ble!=null&&ble.limitedModel()?View.VISIBLE:View.GONE);
+            java.util.List<TestJournal.Entry> unfinished=ble==null?java.util.Collections.<TestJournal.Entry>emptyList():ble.unresolvedTests();
+            testBanner.setVisibility(unfinished.isEmpty()?View.GONE:View.VISIBLE);
+            if(!unfinished.isEmpty()){String text="Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"");if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);}
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // One pill at a time keeps the banner readable on narrow screens: Identify first, then Check.
             checkAction.setVisibility(ble!=null&&!ble.modelUnidentified()?View.VISIBLE:View.GONE);
@@ -2484,7 +2495,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             scooterService.ble.disconnect();
             ScooterProfiles.Profile match=null;for(ScooterProfiles.Profile profile:scooterService.profiles.all())if(profile.identity.equalsIgnoreCase(parsed.identity)&&profile.role==parsed.role&&((!serial.isEmpty()&&serial.equals(profile.serial))||(!mac.isEmpty()&&mac.equalsIgnoreCase(profile.mac))||(profile.mac.isEmpty()&&profile.serial.isEmpty()))){match=profile;break;}
             // Volt's own fallback stays a default name, so a later model name can replace it.
-            if(match==null){match=scooterService.profiles.create(name,parsed.identity,parsed.role);if(name.trim().isEmpty()||IMPORTED_NAME.equals(name.trim()))match.nameDefault=true;}else scooterService.profiles.select(match.id);
+            if(match==null){match=scooterService.profiles.create(name,parsed.identity,parsed.role);if(name.trim().isEmpty()||IMPORTED_NAME.equals(name.trim()))match.nameDefault=true;}else{scooterService.profiles.select(match.id);scooterService.ble.profileSelected();}
             if(!mac.isEmpty())match.mac=mac;if(!serial.isEmpty())match.serial=serial;scooterService.profiles.update(match);
             // Commit the existing profile snapshot before deleting its recovery staging file.
             SharedPreferences profilePrefs=getSharedPreferences("profiles",MODE_PRIVATE);String savedProfiles=profilePrefs.getString("items","[]");if(!profilePrefs.edit().putString("items",savedProfiles).commit())throw new java.io.IOException();

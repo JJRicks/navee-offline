@@ -11,8 +11,10 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * More › Compatibility: the scooter's identity, the read-only check, its results and the report
- * preview. Nothing leaves the phone unless the owner opens the preview and taps Share or Save.
+ * More › Compatibility: the scooter's identity, the read-only check, its results, guided setting
+ * tests and the report preview. Nothing leaves the phone unless the owner opens the preview and
+ * taps Share or Save. A guided test writes only after the owner approves it, and its result is
+ * report-only: it never turns a control on.
  */
 final class CompatibilityPanel {
     private final ScreenHost host;
@@ -29,7 +31,7 @@ final class CompatibilityPanel {
         this.host=host;ui=host.ui();
         root=new LinearLayout(host.activity());root.setOrientation(LinearLayout.VERTICAL);
         destination.addView(root,new LinearLayout.LayoutParams(-1,-2));
-        expanded.add("Reads");expanded.add("Controls");
+        expanded.add("Reads");expanded.add("Controls");expanded.add("Try a setting");
         refresh();
     }
 
@@ -43,7 +45,7 @@ final class CompatibilityPanel {
         if(running||check==null){preview=false;report=null;}
         DeviceDescriptor d=ble.descriptor();
         String key=(ready?"ready":"offline")+"|"+running+"|"+(check==null?"":Integer.toHexString(System.identityHashCode(check)))+"|"+preview+"|"+showJson+"|"+expanded
-            +"|"+ble.modelUnidentified()+"|"+ModelRegistry.modelLine(d)+"|"+d.pidSource()+"|"+d.region+"|"+d.firmware.meter+"|"+ble.resolution();
+            +"|"+ble.modelUnidentified()+"|"+ModelRegistry.modelLine(d)+"|"+d.pidSource()+"|"+d.region+"|"+d.firmware.meter+"|"+ble.resolution()+"|"+testKey(ble);
         rebuild(key,ble);
         if(running&&check!=null)progress(check);
     }
@@ -55,13 +57,14 @@ final class CompatibilityPanel {
         DiscoveryCoordinator check=ble.discovery();boolean running=ble.discovering();
         identity(ble);
         if(running&&check!=null)running();
-        else if(ble.ready()&&!ble.modelUnidentified())root.addView(ui.button(check==null?"Run check":"Run again",()->{ble.startDiscovery();toastIfIdle(ble);host.redraw();}));
+        else if(ble.ready()&&!ble.modelUnidentified()&&!ble.testing())root.addView(ui.button(check==null?"Run check":"Run again",()->{ble.startDiscovery();toastIfIdle(ble);host.redraw();}));
+        if(!running)tests(ble);
         if(!running&&check!=null){
             results(ble,check);
             if(preview)preview(ble);
             else root.addView(ui.secondaryButton("Preview report",()->{report=ble.compatibilityReport(AppVersion.name(host.activity()));if(report==null){host.toast("No finished check yet");return;}preview=true;showJson=false;refresh();}));
         }
-        TextView foot=ui.caption("Reads only. Never changes settings or firmware.");foot.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),ui.dp(12));root.addView(foot);
+        TextView foot=ui.caption("The check only reads. A test changes one setting after you approve it, then sets it back. Never changes firmware.");foot.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),ui.dp(12));root.addView(foot);
     }
     private void toastIfIdle(BleController ble){if(!ble.discovering())host.toast(ble.message());}
 
@@ -96,6 +99,135 @@ final class CompatibilityPanel {
             default: return "Not supported";
         }
     }
+
+    // ---- Try a setting (guided tests; results are report-only) --------------------------------
+
+    /** Everything the test cards show, so the panel rebuilds only when one of them changes. */
+    private String testKey(BleController ble){
+        StringBuilder k=new StringBuilder();GuidedTest t=ble.guidedTest();
+        if(t!=null)k.append(t.phase()).append(t.outcomes().size()).append(t.note()).append(t.baseline());
+        for(TestJournal.Entry e:ble.unresolvedTests()){GuidedTest.Review r=ble.reviewTest(e.testId);k.append('|').append(e.testId).append(e.phase).append(r==null?"":r.state+"/"+r.current+"/"+r.restorable+"/"+ble.testDecision(e.feature).reason);}
+        k.append('|').append(ble.unresolvedTestsElsewhere()).append(ble.testParked()).append(ble.testRecordsHealthy());
+        if(t==null||t.terminal())for(String f:ModelRegistry.TESTABLE){CapabilityResolver.Decision d=ble.testDecision(f);k.append('|').append(d.reason).append(d.current()).append(java.util.Arrays.toString(d.values()));}
+        return k.toString();
+    }
+    private void tests(BleController ble){
+        GuidedTest t=ble.guidedTest();
+        if(t!=null)liveTest(ble,t);
+        List<TestJournal.Entry> open=ble.unresolvedTests();
+        for(TestJournal.Entry e:open)unfinished(ble,e);
+        int elsewhere=ble.unresolvedTestsElsewhere();
+        if(elsewhere>0)root.addView(note(elsewhere==1?"1 unfinished test on another scooter. Select it to review.":elsewhere+" unfinished tests on other scooters. Select one to review."));
+        if(!ble.ready()||ble.testing()||!open.isEmpty())return;
+        LinearLayout g=group("Try a setting");
+        if(g==null)return;
+        if(!ble.testRecordsHealthy()){row(g,"Tests","Test records unavailable",ui.muted);return;}
+        boolean any=false,askParked=false;
+        for(String f:ModelRegistry.TESTABLE){
+            CapabilityResolver.Decision d=ble.testDecision(f);
+            if(d.support!=CapabilityResolver.Support.KNOWN_ENCODING)continue;
+            any=true;askParked|=d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED;
+            Integer now=d.current();
+            boolean can=d.available()||d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED;
+            row(g,ScooterCommands.find(f).label,can&&now!=null?"Now "+d.label(now):d.reasonText(),can?ui.text:ui.muted);
+            if(!can||now==null)continue;
+            for(int v:d.values()){
+                if(v==now)continue;
+                final int target=v;
+                TextView start=ui.secondaryButton("Try "+d.label(v),()->{ble.startTest(f,target);toastIfIdleTest(ble);refresh();});
+                start.setEnabled(d.available());start.setContentDescription("Test "+ScooterCommands.find(f).label+": try "+d.label(v));g.addView(start);
+            }
+        }
+        if(!any)row(g,"Tests","None offered for this model",ui.muted);
+        if(askParked)g.addView(ui.toggleRow("Scooter is parked","No motion report yet on this connection.",ble.testParked(),true,ble::setTestParked));
+        TextView why=ui.caption("Volt reads the current value, you approve the change, then Volt sets it back and checks it. Results go in the report only.");
+        why.setPadding(ui.dp(2),ui.dp(8),ui.dp(2),ui.dp(4));g.addView(why);
+    }
+    private void toastIfIdleTest(BleController ble){if(!ble.testing())host.toast(ble.message());}
+    private void liveTest(BleController ble,GuidedTest t){
+        LinearLayout card=ui.card();root.addView(card);
+        String label=ScooterCommands.find(t.feature).label;CapabilityResolver.Decision d=ble.testDecision(t.feature);
+        card.addView(ui.text("Test · "+label,16,true));
+        Integer base=t.baseline();String from=base==null?"":d.label(base),to=d.label(t.target);
+        TextView status;
+        switch(t.phase()){
+            case PRECHECK: card.addView(muted("Reading the current value…"));card.addView(ui.secondaryButton("Cancel",()->{ble.cancelTest();refresh();}));return;
+            case BASELINE:
+                line(card,"Now",from);line(card,"Test value",to);
+                card.addView(muted("Expected: "+expectation(t.feature,to)+" Afterwards Volt sets it back to "+from+" and checks it. Results go in the report only."));
+                if(d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED)card.addView(ui.toggleRow("Scooter is parked","No motion report yet on this connection.",ble.testParked(),true,ble::setTestParked));
+                else if(!d.available())card.addView(muted(d.reasonText()));
+                TextView go=ui.button("Change to "+to,()->{ble.approveTest();refresh();});go.setEnabled(d.available());go.setContentDescription("Approve test: change "+label+" to "+to+", then set it back");card.addView(go);
+                card.addView(ui.secondaryButton("Cancel",()->{ble.cancelTest();refresh();}));
+                return;
+            case TARGET_PENDING: case TARGET_AWAIT: status=muted("Changing to "+to+"…");status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);card.addView(status);return;
+            case RESTORE_PENDING: case RESTORE_AWAIT: status=muted(t.verifying()?"Checking it is unchanged…":"Setting it back to "+from+"…");
+                status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);card.addView(status);return;
+            case OBSERVE:
+                card.addView(ui.text(question(t.feature,to),15,false));
+                card.addView(ui.button("Yes",()->{ble.testEffect(true);refresh();}));
+                card.addView(ui.secondaryButton("No",()->{ble.testEffect(false);refresh();}));
+                card.addView(ui.secondaryButton("Skip",()->{ble.testEffect(null);refresh();}));
+                return;
+            default:
+                if(!t.note().isEmpty())card.addView(muted(t.note()));
+                if(!t.nothingWritten()){
+                    card.addView(muted(join(t.outcomeTexts())));
+                    String r=t.restorationStatus();
+                    TextView restored=ui.text(r.equals("confirmed")?"Restoration confirmed":"Restoration outstanding · review below",13.5f,true);
+                    restored.setTextColor(r.equals("confirmed")?ui.ok:ui.text);restored.setPadding(0,ui.dp(6),0,0);card.addView(restored);
+                }
+                card.addView(ui.secondaryButton("Close",()->{ble.closeTest();refresh();}));
+        }
+    }
+    private void unfinished(BleController ble,TestJournal.Entry e){
+        LinearLayout card=ui.card();root.addView(card);
+        String label=ScooterCommands.find(e.feature).label;CapabilityResolver.Decision d=ble.testDecision(e.feature);
+        card.addView(ui.text("Unfinished test · "+label,16,true));
+        line(card,"Before the test",d.label(e.baseline));line(card,"Test value",d.label(e.target));
+        if(!e.outcomes.isEmpty()){List<String> texts=new java.util.ArrayList<>();for(String o:e.outcomes)texts.add(GuidedTest.Outcome.describe(o));card.addView(muted(join(texts)));}
+        GuidedTest.Review r=ble.reviewTest(e.testId);
+        if(r==null)return;
+        card.addView(ui.text(r.text,14,false));
+        boolean restore=(r.state==GuidedTest.ReviewState.RESTORE_NEEDED||r.state==GuidedTest.ReviewState.CHANGED_OUTSIDE)&&r.restorable;
+        if(restore&&d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED)card.addView(ui.toggleRow("Scooter is parked","No motion report yet on this connection.",ble.testParked(),true,ble::setTestParked));
+        else if(restore&&!d.available())card.addView(muted(d.reasonText()));
+        switch(r.state){
+            case FIRMWARE_CHANGED: card.addView(ui.secondaryButton("Continue anyway",()->{ble.confirmTestFirmware(e.testId);refresh();}));break;
+            case ALREADY_RESTORED: card.addView(ui.button("Mark restored",()->{ble.markTestRestored(e.testId);refresh();}));break;
+            case RESTORE_NEEDED: if(restore)addRestore(card,ble,e,d,"Restore to "+d.label(e.baseline));break;
+            case CHANGED_OUTSIDE:
+                if(r.current!=null)card.addView(ui.secondaryButton("Keep "+d.label(r.current),()->{ble.keepTest(e.testId);refresh();}));
+                if(restore)addRestore(card,ble,e,d,"Set "+d.label(e.baseline));
+                break;
+            default: break;
+        }
+        TextView dismiss=ui.secondaryButton("Dismiss · leave as is",()->{ble.dismissTest(e.testId);refresh();});
+        dismiss.setContentDescription("Dismiss the unfinished "+label+" test without restoring it");card.addView(dismiss);
+    }
+    private void addRestore(LinearLayout card,BleController ble,TestJournal.Entry e,CapabilityResolver.Decision d,String text){
+        TextView b=ui.button(text,()->{ble.restoreTest(e.testId);if(!ble.testing())host.toast(ble.message());refresh();});b.setEnabled(d.available());card.addView(b);
+    }
+    /** What the owner should see while the test value is set. */
+    static String expectation(String feature,String value){
+        switch(feature){
+            case "display_units": return "the dashboard shows "+(value.contains("mph")?"mph":"km/h")+".";
+            case "headlight": return "the tail light is "+value.toLowerCase(java.util.Locale.ROOT)+".";
+            case "turn_sound": return "the turn signal sound is "+value.toLowerCase(java.util.Locale.ROOT)+".";
+            case "auto_sensor": return "automatic lights are "+value.toLowerCase(java.util.Locale.ROOT)+".";
+            default: return "the range estimate on the dashboard changes.";
+        }
+    }
+    static String question(String feature,String value){
+        switch(feature){
+            case "display_units": return "Does the dashboard show "+(value.contains("mph")?"mph":"km/h")+"?";
+            case "headlight": return "Is the tail light "+value.toLowerCase(java.util.Locale.ROOT)+"?";
+            case "turn_sound": return "With a turn signal on, is the sound "+value.toLowerCase(java.util.Locale.ROOT)+"?";
+            case "auto_sensor": return "Are automatic lights "+value.toLowerCase(java.util.Locale.ROOT)+"?";
+            default: return "Did the range estimate on the dashboard change?";
+        }
+    }
+    private static String join(List<String> parts){StringBuilder b=new StringBuilder();for(String p:parts)b.append(b.length()==0?"":" · ").append(p);return b.toString();}
 
     // ---- Running --------------------------------------------------------------------------
 

@@ -217,6 +217,8 @@ final class GuidedTest {
     boolean wantsRead(){return readWanted&&!terminal();}
     /** Waiting for the ACK or readback of our own write. */
     boolean awaitingWrite(){return (phase==Phase.TARGET_AWAIT||phase==Phase.RESTORE_AWAIT)&&writeIssued&&!verifyOnly;}
+    /** Checking by a fresh read that nothing changed after a rejected or unsent write (no restore write). */
+    boolean verifying(){return verifyOnly&&phase==Phase.RESTORE_AWAIT;}
     boolean terminal(){return phase==Phase.DONE||phase==Phase.OUTSTANDING||phase==Phase.CONFLICT;}
     /** Nothing was written (cancelled, not testable now, or the record could not be saved). */
     boolean nothingWritten(){return entry==null;}
