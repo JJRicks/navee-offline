@@ -102,6 +102,15 @@ explains provider access to your IP address and viewed area, with Enable basemap
 choices. The switch and acknowledgement are remembered across views and included
 in a full app backup. Recording does not enable or request map tiles.
 
+The Speed route overlay is drawn locally from saved fixes. Per ride it uses
+scooter speed matched to each fix (same GPS epoch, reading at most 3 s old) when
+that covers at least half of the drawn fixes or as many as GPS speed does;
+otherwise GPS speed. It never mixes sources within a ride. Points without the
+chosen source are no data (dashed gray), not zero. The scale is km/h internally:
+0 to the 95th percentile of moving (non-zero) points (capped at the upper
+quartile plus three interquartile ranges when the quartiles differ), rounded up to 5 km/h with a 10 km/h minimum; higher values use the top
+color. Units change labels only. Segments are not joined across gaps.
+
 ## Ride exports and journal format
 
 CSV/JSON exports use Android's file picker; you choose the destination. Volt does
@@ -113,7 +122,9 @@ wall/monotonic timestamps, frame ID, sensor key, numeric/text value, unit, sourc
 command, sensor time/age, current-direction interpretation and recording events.
 `BEGIN` / `SENSOR` / `COMMIT` preserve sample boundaries; only committed frames
 are accepted during replay. `GAP` / `HEARTBEAT` / `RECOVER` describe missing
-exposure and process recovery without inventing samples. Analysis JSON contains
+exposure and process recovery without inventing samples. A `STOP` row's details
+column is empty when the rider stopped, or `AUTO_PARKED_DISCONNECT` when Volt
+ended the ride automatically; older readers ignore it. Analysis JSON contains
 unit-explicit quantities, coverage and session metadata. `null` means
 insufficient evidence, not zero.
 
@@ -147,7 +158,13 @@ again.
 
 Ride and charge recording are independent of this idle option. Their service
 and ongoing Stop notification remain while hidden, with a renewed CPU wake lock.
-Ride recording can reconnect, recording Bluetooth loss as gaps. An explicitly
+Ride recording can reconnect, recording Bluetooth loss as gaps. A forgotten ride
+ends itself: when fresh scooter reports showed it stopped for a few seconds and
+Bluetooth then stays lost for 10 seconds, Volt saves the ride through the normal
+Stop path and posts "Ride saved automatically". Losses while moving, without
+fresh speed, after a process restart or after an explicit Disconnect keep
+recording as before. App preferences > End parked rides turns this off. Exact
+rules: [ride auto-end](validation/ride-auto-stop.md). An explicitly
 started charge capture retries a temporary loss for up to five minutes, resuming
 the same journal only after the same scooter authenticates and provides fresh
 charging readings. Missing intervals stay marked as gaps and are excluded from

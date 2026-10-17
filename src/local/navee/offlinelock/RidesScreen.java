@@ -33,11 +33,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.view.WindowManager;
-import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -211,15 +207,8 @@ public final class RidesScreen implements AppScreen {
         refresh();
         if (wide) Motion.scrollBeforeDraw(scroll, wideListScroll);
     }
-    private void rideBackups() {
-        LinearLayout box = dialogBody("Ride backups", "Complete recordings, routes and phone sensors");
-        TextView export = ui.button("Back up saved rides", null), restore = ui.secondaryButton("Restore rides", null);
-        box.addView(export); LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.topMargin = ui.dp(10); box.addView(restore, spacing);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Close", null).create();
-        export.setOnClickListener(v -> { dialog.dismiss(); host.rideBackup(false); });
-        restore.setOnClickListener(v -> { dialog.dismiss(); host.rideBackup(true); });
-        show(dialog, DIALOG, null);
-    }
+    /** A shortcut into Back up & restore with only Rides selected. */
+    private void rideBackups() { host.dataBackup(null, BackupRegistry.RIDES); }
     private LinearLayout vertical() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.VERTICAL); return result; }
     private LinearLayout horizontal() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.HORIZONTAL); return result; }
     @Override public View view() { return root; }
@@ -267,60 +256,31 @@ public final class RidesScreen implements AppScreen {
         if (service.phoneSaving()) { host.toast("Finishing the previous ride…"); return; }
         if (service.rides == null) { host.toast("Ride storage is unavailable."); return; }
         if (!service.ble.ready()) { host.toast("Connect first"); return; }
-        showRideNameDialog();
-    }
-    private void showRideNameDialog() {
-        EditText label = input("Sport + Boost, evening hills…"); label.setText(preferences.getString("last_ride_label", "Sport + Boost"));
-        label.setImeOptions(EditorInfo.IME_ACTION_DONE); label.setSelectAllOnFocus(true);
-        LinearLayout box = dialogBody("Name this ride", null);
-        box.addView(label);
-        // Phone sensors on one line with the active sensors beneath it, then the privacy fact.
-        LinearLayout sensors = ui.groupCard(); sensors.setBackground(ui.shape(ui.bg, 14, ui.outline));
-        LinearLayout.LayoutParams sensorsParams = new LinearLayout.LayoutParams(-1, -2); sensorsParams.topMargin = ui.dp(10);
-        Row[] sensorRow = new Row[1];
-        sensorRow[0] = navRow("sensors", "Phone sensors", sensorSummary(), "", () -> phoneOptions(() -> sensorRow[0].update(sensorSummary(), null)));
-        sensors.addView(sensorRow[0].view); box.addView(sensors, sensorsParams);
-        LinearLayout privacy = horizontal(); privacy.setGravity(Gravity.CENTER_VERTICAL); privacy.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0);
-        privacy.addView(ui.icon("lock", 13, ui.muted), new LinearLayout.LayoutParams(ui.dp(13), ui.dp(13)));
-        TextView stays = ui.caption("Stays on this phone"); stays.setPadding(ui.dp(6), 0, 0, 0); privacy.addView(stays);
-        box.addView(privacy);
-        TextView cancel = ui.secondaryButton("Cancel", null), start = ui.button("Start", null);
-        start.setContentDescription("Start recording");
-        LinearLayout buttons = pair(cancel, start); ((LinearLayout.LayoutParams) buttons.getLayoutParams()).topMargin = ui.dp(12);
-        box.addView(buttons);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
-        cancel.setOnClickListener(v -> dialog.dismiss());
-        start.setOnClickListener(v -> {
-            String name = label.getText().toString().trim(); if (name.isEmpty()) name = "Ride";
-            preferences.edit().putString("last_ride_label", name).apply(); final String rideName = name;
-            dialog.dismiss();
-            Runnable begin = () -> { if (!closed && !host.activity().isDestroyed() && !service.isRecording()) { service.startRide(rideName); if (service.isRecording()) Haptics.confirm(scroll); refresh(); } };
-            if (preferences.getBoolean("phone_gps", true)) host.requestRideLocation(begin); else begin.run();
-        });
-        label.setOnEditorActionListener((v, action, event) -> { if (action == EditorInfo.IME_ACTION_DONE) { start.performClick(); return true; } return false; });
-        // Request the keyboard only after this dialog owns the focused window. A queued request
-        // must not reopen it after Cancel, a tab change, or an activity rebuild.
-        ViewTreeObserver.OnWindowFocusChangeListener keyboard = new ViewTreeObserver.OnWindowFocusChangeListener() {
-            @Override public void onWindowFocusChanged(boolean focused) {
-                if (!focused) return;
-                if (label.getViewTreeObserver().isAlive()) label.getViewTreeObserver().removeOnWindowFocusChangeListener(this);
-                label.post(() -> {
-                    if (closed || !dialog.isShowing() || host.activity().isFinishing() || host.activity().isDestroyed()
-                            || !label.isAttachedToWindow() || !label.hasWindowFocus()) return;
-                    label.requestFocus(); label.selectAll();
-                    InputMethodManager input = host.activity().getSystemService(InputMethodManager.class);
-                    if (input != null) input.showSoftInput(label, InputMethodManager.SHOW_IMPLICIT);
-                });
-            }
+        // Keep permission handling ahead of capture; name the ride at its actual start,
+        // since the permission prompt can stay open for an arbitrary amount of time.
+        Runnable begin = () -> {
+            if (closed || host.activity().isDestroyed() || service.isRecording()) return;
+            service.startRide(defaultRideName());
+            if (service.isRecording()) Haptics.confirm(scroll);
+            refresh();
         };
-        label.getViewTreeObserver().addOnWindowFocusChangeListener(keyboard);
-        label.requestFocus(); label.selectAll();
-        if (dialog.getWindow() != null) dialog.getWindow().setSoftInputMode(
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        show(dialog, DIALOG, () -> {
-            if (label.getViewTreeObserver().isAlive()) label.getViewTreeObserver().removeOnWindowFocusChangeListener(keyboard);
-        });
-        if (label.hasWindowFocus()) keyboard.onWindowFocusChanged(true);
+        if (preferences.getBoolean("phone_gps", true)) host.requestRideLocation(begin);
+        else begin.run();
+    }
+    private String defaultRideName() {
+        String mode = "";
+        long now = android.os.SystemClock.elapsedRealtime();
+        ScooterProfiles.Profile active = service.profiles.active(), bound = service.ble.profile();
+        if (service.ble.ready() && !service.simulating() && active != null && bound != null && active.id.equals(bound.id)) {
+            for (Telemetry.Metric reading : service.ble.telemetry.metrics()) {
+                if (!reading.key.equals("driving_mode") || reading.numericValue == null
+                        || reading.updatedMs <= 0 || reading.updatedMs > now || now - reading.updatedMs > 7000) continue;
+                String label = Telemetry.drivingModeLabel(ModelRegistry.driveModeLabelProduct(service.ble.descriptor()), reading.numericValue);
+                if (!label.equals("—")) mode = label.endsWith(" (raw)") ? "Mode " + label : label;
+                break;
+            }
+        }
+        return DisplayTime.rideName(host.activity(), preferences, System.currentTimeMillis(), mode);
     }
     private EditText input(String hint) {
         EditText input = new EditText(host.activity()); input.setSingleLine(true); input.setHint(hint);
@@ -1023,6 +983,12 @@ public final class RidesScreen implements AppScreen {
             LinearLayout.LayoutParams recoveredParams = new LinearLayout.LayoutParams(-2, -2); recoveredParams.leftMargin = ui.dp(4); recoveredParams.bottomMargin = ui.dp(10);
             body.addView(recovered, recoveredParams);
         }
+        if (s.automaticStop) {
+            TextView automatic = pill("Saved automatically", ui.blue); automatic.setMinHeight(ui.dp(28));
+            automatic.setContentDescription("Saved automatically after Bluetooth was lost while parked");
+            LinearLayout.LayoutParams automaticParams = new LinearLayout.LayoutParams(-2, -2); automaticParams.leftMargin = ui.dp(4); automaticParams.bottomMargin = ui.dp(10);
+            body.addView(automatic, automaticParams);
+        }
 
         if (!s.notes.isEmpty()) { body.addView(ui.sectionLabel("Notes")); LinearLayout notes = ui.card(); notes.addView(ui.text(s.notes, 14, false)); body.addView(notes); }
 
@@ -1295,7 +1261,8 @@ public final class RidesScreen implements AppScreen {
         bottom.addView(export);
         return ride;
     }
-    /** Shared controls keep power, grade, acceleration, selection and basemap attribution in both views. */
+    private static final String[] ROUTE_METRICS = {"power", "speed", "grade", "accel", "elevation"};
+    /** Shared controls keep power, speed, grade, acceleration, selection and basemap attribution in both views. */
     private PhoneRide mapPanel(PhoneRideStore.Track track, LinearLayout top, boolean inline, boolean full) {
         // Label-over-value cells like the chart's readout; the last point starts selected so they always show values.
         Flow selection = new Flow(); selection.setPadding(0, ui.dp(2), 0, ui.dp(10));
@@ -1321,10 +1288,12 @@ public final class RidesScreen implements AppScreen {
         mapStatus.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); top.addView(mapStatus);
         map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
         LegendView legend = new LegendView(); legend.show(track, "power");
-        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Grade", "Accel", "Elev."}, choice -> {
-            String key = new String[]{"power", "grade", "accel", "elevation"}[choice]; map.setMetric(key);
+        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Speed", "Grade", "Accel", "Elev."}, choice -> {
+            String key = ROUTE_METRICS[choice]; map.setMetric(key);
             legend.show(track, key);
         }); colors.select(0, false);
+        // Five choices stay visible on cover screens and with large text: one row when it fits, otherwise wrapped.
+        colors.useCompactPadding(); colors.setWrapChoices(true);
         if (!track.points.isEmpty()) {
             LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2); colorParams.topMargin = ui.dp(6);
             top.addView(colors, colorParams); top.addView(legend); top.addView(selection);
@@ -1355,11 +1324,12 @@ public final class RidesScreen implements AppScreen {
         return "grade".equals(metric) ? "Grade · blue −12% → gray 0% → orange +12% · gray dashed: missing"
                 : "accel".equals(metric) ? "GPS acceleration · blue −2 → gray 0 → orange +2 m/s² · gray dashed: missing"
                 : "elevation".equals(metric) ? elevationLegend(track)
+                : "speed".equals(metric) ? speedLegend(RouteSpeedScale.of(track.points))
                 : "Power magnitude · blue 0 → yellow 2,000 W · gray: missing";
     }
     private void syncMapControls(PhoneRide ride) {
         String metric = ride.map.metric(); int selected = 0;
-        String[] keys = {"power", "grade", "accel", "elevation"};
+        String[] keys = ROUTE_METRICS;
         for (int i = 0; i < keys.length; i++) if (keys[i].equals(metric)) selected = i;
         ride.colors.select(selected, false); ride.legend.show(ride.track, metric);
     }
@@ -1401,6 +1371,11 @@ public final class RidesScreen implements AppScreen {
         }
         return "Relative elevation · blue " + height(low) + " → yellow " + height(high) + " · gray: missing";
     }
+    private String speedLegend(RouteSpeedScale scale) {
+        if (scale.source == null) return "Speed not recorded · gray dashed: missing";
+        return (RouteSpeedScale.SCOOTER.equals(scale.source) ? "Scooter speed" : "GPS speed") + " · blue 0 → yellow "
+                + RouteSpeedScale.label(scale.topKmh, preferences.getString("units", "mi")) + " or faster · gray dashed: missing";
+    }
     private View mapButton(String glyph, String description, Runnable action) {
         FrameLayout button = new FrameLayout(host.activity());
         int plate = ui.dark ? ui.bg : ui.text, ink = ui.dark ? ui.text : ui.surface;
@@ -1415,7 +1390,7 @@ public final class RidesScreen implements AppScreen {
     /** Route point readings as label-over-value cells; "—" where a reading was not measured. */
     private void pointReadout(Flow readout, PhoneRideStore.Point p) {
         String gps = p.speedMps == null ? "—" : speed(p.speedMps * 3.6);
-        String[] cells = {"Time", duration(p.elapsedMs), "GPS", gps, "Power", dash(quantity(p.powerW, "W", 0)), "Battery", dash(quantity(p.batteryPercent, "%", 0)),
+        String[] cells = {"Time", duration(p.elapsedMs), "GPS", gps, "Scooter", p.scooterSpeedKmh == null ? "—" : speed(p.scooterSpeedKmh), "Power", dash(quantity(p.powerW, "W", 0)), "Battery", dash(quantity(p.batteryPercent, "%", 0)),
                 "Grade", p.gradePercent == null ? "—" : String.format(Locale.US, "≈%+.1f%%", p.gradePercent),
                 "GPS accel", accel(p.gpsAccelerationMps2), "Scooter accel", accel(p.scooterAccelerationMps2)};
         readout.removeAllViews();
@@ -1791,12 +1766,17 @@ public final class RidesScreen implements AppScreen {
     /** Route colour legend: a drawn gradient bar with end labels and a dashed "missing" swatch. */
     private final class LegendView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private String title = ""; private int[] colors = {0, 0}; private String[] labels = {"", ""};
+        private String title = "", shortTitle; private int[] colors = {0, 0}; private String[] labels = {"", ""};
         LegendView() { super(host.activity()); setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8)); setFocusable(true); }
         void show(PhoneRideStore.Track track, String metric) {
             int blue = Color.rgb(0, 114, 178), gray = Color.rgb(226, 226, 226), orange = Color.rgb(213, 94, 0);
-            int low = Color.rgb(35, 73, 155), high = Color.rgb(255, 210, 70);
-            if ("grade".equals(metric)) { title = "Grade"; colors = new int[]{blue, gray, orange}; labels = new String[]{"−12%", "0", "+12%"}; }
+            int low = RouteSpeedScale.LOW, high = RouteSpeedScale.HIGH; shortTitle = null;
+            if ("speed".equals(metric)) {
+                RouteSpeedScale scale = RouteSpeedScale.of(track.points);
+                title = scale.title(); shortTitle = "Speed";
+                colors = scale.source == null ? new int[]{RouteSpeedScale.NO_DATA, RouteSpeedScale.NO_DATA} : new int[]{low, high};
+                labels = scale.source == null ? new String[]{"", ""} : new String[]{"0", RouteSpeedScale.label(scale.topKmh, preferences.getString("units", "mi"))};
+            } else if ("grade".equals(metric)) { title = "Grade"; colors = new int[]{blue, gray, orange}; labels = new String[]{"−12%", "0", "+12%"}; }
             else if ("accel".equals(metric)) { title = "Accel"; colors = new int[]{blue, gray, orange}; labels = new String[]{"−2", "0", "+2 m/s²"}; }
             else if ("elevation".equals(metric)) {
                 Double bottom = null, top = null; for (PhoneRideStore.Point point : track.points) if (point.relativeAltitudeM != null) {
@@ -1808,35 +1788,75 @@ public final class RidesScreen implements AppScreen {
             setContentDescription(mapLegend(track, metric)); requestLayout(); invalidate();
         }
         private float textSize() { return ui.sp(11.5f); }
+        private final class LegendLayout {
+            String shownTitle;
+            boolean stacked, separateLabels;
+            float left, right, barLeft, barRight, headerCenter, barCenter, baseline, labelBaseline, line, height;
+        }
+        private LegendLayout layoutFor(int width) {
+            paint.setTextSize(textSize()); paint.setTypeface(ui.regular());
+            Paint.FontMetrics metrics = paint.getFontMetrics();
+            LegendLayout layout = new LegendLayout();
+            layout.line = metrics.descent - metrics.ascent;
+            layout.left = getPaddingLeft(); layout.right = width - getPaddingRight();
+            float gap = ui.dp(10), row = Math.max(layout.line, ui.dp(8));
+            float first = paint.measureText(labels[0]), last = paint.measureText(labels[labels.length - 1]);
+            // Reserve the actual endpoint text, including both units and the user's text size.
+            float minimumBar = first + last + gap;
+            if (labels.length == 3) {
+                float middle = paint.measureText(labels[1]);
+                minimumBar = Math.max(minimumBar, 2 * (Math.max(first, last) + middle / 2 + gap));
+            }
+            layout.barRight = layout.right - paint.measureText("missing") - ui.dp(6 + 18 + 14);
+            layout.shownTitle = title;
+            if (shortTitle != null && layout.barRight - layout.left - paint.measureText(title) - gap < minimumBar)
+                layout.shownTitle = shortTitle;
+            layout.barLeft = layout.left + Math.max(paint.measureText("Power"), paint.measureText(layout.shownTitle)) + gap;
+            layout.stacked = layout.barRight - layout.barLeft < minimumBar;
+            layout.headerCenter = getPaddingTop() + row / 2;
+            layout.barCenter = layout.headerCenter;
+            if (layout.stacked) {
+                // On narrow screens the gradient uses its own full-width row. Keep the source
+                // title whenever it fits beside the missing-data key.
+                float titleSpace = layout.barRight - layout.left;
+                if (paint.measureText(title) <= titleSpace) layout.shownTitle = title;
+                layout.barLeft = layout.left; layout.barRight = layout.right;
+                layout.barCenter = getPaddingTop() + row + ui.dp(8 + 4);
+            }
+            layout.baseline = layout.headerCenter - (metrics.ascent + metrics.descent) / 2;
+            layout.labelBaseline = layout.barCenter + (layout.stacked ? ui.dp(4) : row / 2) + ui.dp(3) - metrics.ascent;
+            // Unusually narrow containers can still keep each endpoint readable on its own line.
+            layout.separateLabels = layout.barRight - layout.barLeft < minimumBar;
+            layout.height = layout.labelBaseline + metrics.descent + getPaddingBottom()
+                    + (layout.separateLabels ? (labels.length - 1) * (layout.line + ui.dp(3)) : 0);
+            return layout;
+        }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
-            paint.setTextSize(textSize()); Paint.FontMetrics metrics = paint.getFontMetrics();
-            float line = metrics.descent - metrics.ascent;
-            int height = Math.round(getPaddingTop() + Math.max(line, ui.dp(8)) + ui.dp(3) + line + getPaddingBottom());
-            setMeasuredDimension(MeasureSpec.getSize(widthSpec), resolveSize(height, heightSpec));
+            int width = MeasureSpec.getSize(widthSpec);
+            setMeasuredDimension(width, resolveSize((int)Math.ceil(layoutFor(width).height), heightSpec));
         }
         @Override protected void onDraw(Canvas canvas) {
-            paint.setTextSize(textSize()); paint.setTypeface(ui.regular()); paint.setShader(null); paint.setPathEffect(null);
-            Paint.FontMetrics metrics = paint.getFontMetrics(); float line = metrics.descent - metrics.ascent;
-            float left = getPaddingLeft(), right = getWidth() - getPaddingRight();
-            float rowCenter = getPaddingTop() + Math.max(line, ui.dp(8)) / 2f, baseline = rowCenter - (metrics.ascent + metrics.descent) / 2f;
+            LegendLayout layout = layoutFor(getWidth());
+            paint.setShader(null); paint.setPathEffect(null);
             paint.setStyle(Paint.Style.FILL); paint.setColor(ui.muted); paint.setTextAlign(Paint.Align.LEFT);
-            canvas.drawText(title, left, baseline, paint);
             String missing = "missing"; float missingWidth = paint.measureText(missing), dash = ui.dp(18);
-            canvas.drawText(missing, right - missingWidth, baseline, paint);
-            float barLeft = left + Math.max(paint.measureText("Power"), paint.measureText(title)) + ui.dp(10);
-            float barRight = right - missingWidth - ui.dp(6) - dash - ui.dp(14);
+            canvas.drawText(layout.shownTitle, layout.left, layout.baseline, paint);
+            canvas.drawText(missing, layout.right - missingWidth, layout.baseline, paint);
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2)); paint.setColor(Color.rgb(128, 128, 128));
             paint.setPathEffect(new android.graphics.DashPathEffect(new float[]{ui.dp(4), ui.dp(3)}, 0));
-            canvas.drawLine(right - missingWidth - ui.dp(6) - dash, rowCenter, right - missingWidth - ui.dp(6), rowCenter, paint);
+            canvas.drawLine(layout.right - missingWidth - ui.dp(6) - dash, layout.headerCenter,
+                    layout.right - missingWidth - ui.dp(6), layout.headerCenter, paint);
             paint.setPathEffect(null); paint.setStyle(Paint.Style.FILL);
-            if (barRight <= barLeft) return;
-            paint.setShader(new android.graphics.LinearGradient(barLeft, 0, barRight, 0, colors, null, android.graphics.Shader.TileMode.CLAMP));
-            canvas.drawRoundRect(new RectF(barLeft, rowCenter - ui.dp(4), barRight, rowCenter + ui.dp(4)), ui.dp(4), ui.dp(4), paint);
+            if (layout.barRight <= layout.barLeft) return;
+            paint.setShader(new android.graphics.LinearGradient(layout.barLeft, 0, layout.barRight, 0, colors, null, android.graphics.Shader.TileMode.CLAMP));
+            canvas.drawRoundRect(new RectF(layout.barLeft, layout.barCenter - ui.dp(4), layout.barRight, layout.barCenter + ui.dp(4)), ui.dp(4), ui.dp(4), paint);
             paint.setShader(null); paint.setColor(ui.muted);
-            float under = rowCenter + Math.max(line, ui.dp(8)) / 2f + ui.dp(3) - metrics.ascent;
-            paint.setTextAlign(Paint.Align.LEFT); canvas.drawText(labels[0], barLeft, under, paint);
-            paint.setTextAlign(Paint.Align.RIGHT); canvas.drawText(labels[labels.length - 1], barRight, under, paint);
-            if (labels.length == 3) { paint.setTextAlign(Paint.Align.CENTER); canvas.drawText(labels[1], (barLeft + barRight) / 2f, under, paint); }
+            for (int i = 0; i < labels.length; i++) {
+                float x = i == 0 ? layout.barLeft : i == labels.length - 1 ? layout.barRight : (layout.barLeft + layout.barRight) / 2;
+                paint.setTextAlign(i == 0 ? Paint.Align.LEFT : i == labels.length - 1 ? Paint.Align.RIGHT : Paint.Align.CENTER);
+                float baseline = layout.labelBaseline + (layout.separateLabels ? i * (layout.line + ui.dp(3)) : 0);
+                canvas.drawText(labels[i], x, baseline, paint);
+            }
         }
     }
     /** Small dark rounded route outline; a neutral glyph when the ride has no GPS route. */

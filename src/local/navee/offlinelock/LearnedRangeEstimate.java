@@ -7,6 +7,8 @@ public final class LearnedRangeEstimate {
     public static final int WINDOW_DAYS = 90, MIN_RIDES = 3;
     public static final double MIN_BATTERY_POINTS = 20, MIN_DISTANCE_KM = 3;
     private static final long DAY = 86400000L, ENDPOINT_MS = 3000;
+    /** Longest silent link + disconnect grace accepted after an automatic parked stop (about 25 s in practice). */
+    static final long PARKED_TAIL_MS = 60000;
     private LearnedRangeEstimate() {}
 
     /** Compact evidence from a full, completed journal; no raw route or owner data retained. */
@@ -79,8 +81,8 @@ public final class LearnedRangeEstimate {
     }
     /** O(1) validation state; every committed sample is checked, including hidden preview spikes. */
     static final class Inspector {
-        private RideStore.Point first, last;
-        private long count, validSocSamples, previous = -1;
+        private RideStore.Point first, last, complete;
+        private long count, validSocSamples, previous = -1, completeCount, completeValidSoc;
         private double lowest;
         private String pointRejection;
         void accept(RideStore.Point p) {
@@ -96,30 +98,41 @@ public final class LearnedRangeEstimate {
                 if (p.batteryPercent > lowest + 1.000001) { pointRejection = "Battery gauge rose"; return; }
                 lowest = Math.min(lowest, p.batteryPercent);
             }
+            if (finite(p.speedKmh) && soc(p.batteryPercent) && finite(p.odometerKm)) { complete = p; completeCount = count; completeValidSoc = validSocSamples; }
         }
         Evidence finish(RideStore.Summary summary) { return new Evidence(summary, rejection(summary)); }
         private String rejection(RideStore.Summary s) {
             if (s == null || s.active) return "Recording is unfinished";
-            if (s.recovered || s.gapCount > 0 || s.clockDiscontinuities > 0
+            // A ride Volt ended after a parked Bluetooth loss closes with the silent link, one
+            // disconnect gap and the grace. Judge it at its last complete reading instead: that
+            // tail holds no distance or battery use, and the journal itself is never shortened.
+            boolean parkedTail = s.automaticStop && complete != null && !s.recovered && s.clockDiscontinuities == 0
+                    && s.gapCount == complete.segment + 1L && s.elapsedMs >= complete.elapsedMs
+                    && s.elapsedMs - complete.elapsedMs <= PARKED_TAIL_MS;
+            RideStore.Point end = parkedTail ? complete : last;
+            long elapsed = parkedTail ? complete.elapsedMs : s.elapsedMs, gaps = parkedTail ? s.gapCount - 1 : s.gapCount;
+            long counted = parkedTail ? completeCount : count, validSoc = parkedTail ? completeValidSoc : validSocSamples;
+            double speedCoverage = !parkedTail ? s.speedCoverage : elapsed <= 0 ? 0 : Math.min(1, complete.speedCoverageMs / (double) elapsed);
+            if (s.recovered || gaps > 0 || s.clockDiscontinuities > 0
                     || s.endWallMs < s.startWallMs || Math.abs((s.endWallMs - s.startWallMs) - s.elapsedMs) > 5000) return "Recording has gaps or clock changes";
             if (s.odometerReset || !positive(s.distanceKm)) return "Odometer distance unavailable";
             if (!soc(s.startBatteryPercent) || !soc(s.endBatteryPercent)
                     || s.batteryDropPercent == null || s.batteryDropPercent < 2)
                 return "Battery drop below two points";
-            if (s.elapsedMs < 60000 || s.movingMs < 30000 || s.distanceKm < .2)
+            if (elapsed < 60000 || s.movingMs < 30000 || s.distanceKm < .2)
                 return "Too little recorded movement";
-            if (s.speedCoverage < .95 || !positive(s.speedIntegratedDistanceKm)) return "Movement coverage below 95%";
+            if (speedCoverage < .95 || !positive(s.speedIntegratedDistanceKm)) return "Movement coverage below 95%";
             // Odometer is coarse on some models. Reject resets/large jumps, not normal 0.1 km rounding.
             if (Math.abs(s.distanceKm - s.speedIntegratedDistanceKm) > Math.max(.3, s.distanceKm * .25))
                 return "Distance readings disagree";
             if (count < 2 || count != s.sampleCount) return "Full ride samples unavailable";
-            if (first.elapsedMs < 0 || first.elapsedMs > ENDPOINT_MS || last.elapsedMs > s.elapsedMs
-                    || s.elapsedMs - last.elapsedMs > ENDPOINT_MS
-                    || !same(first.batteryPercent, s.startBatteryPercent) || !same(last.batteryPercent, s.endBatteryPercent)
-                    || !same(first.odometerKm, s.startOdometerKm) || !same(last.odometerKm, s.endOdometerKm))
+            if (first.elapsedMs < 0 || first.elapsedMs > ENDPOINT_MS || end.elapsedMs > elapsed
+                    || elapsed - end.elapsedMs > ENDPOINT_MS
+                    || !same(first.batteryPercent, s.startBatteryPercent) || !same(end.batteryPercent, s.endBatteryPercent)
+                    || !same(first.odometerKm, s.startOdometerKm) || !same(end.odometerKm, s.endOdometerKm))
                 return "Battery and distance endpoints missing";
             if (pointRejection != null) return pointRejection;
-            if (validSocSamples < count * .95) return "Battery coverage below 95%";
+            if (validSoc < counted * .95) return "Battery coverage below 95%";
             return null;
         }
     }

@@ -36,6 +36,26 @@ public final class ChargeSessionStoreTest {
         store.stop(ChargeSessionStore.Stop.STOPPED);
     }
     static ChargeSessionStore.Curve curve(ChargeSessionStore store,String profile,ChargeSessionStore.Charger charger)throws Exception{return store.snapshot().curves.get(ChargeSessionStore.key(profile,charger));}
+    /** Backup staging reads and re-associates journals without opening a store or recovering them. */
+    static void journals()throws Exception{
+        File folder=Files.createTempDirectory("charge-journal-test-").toFile();ChargeSessionStore store=new ChargeSessionStore(folder);
+        session(store,"source-1",ChargeSessionStore.Charger.HIGH_SPEED,40,60,60000,false,false);
+        File saved=folder.listFiles((d,n)->n.endsWith(".csv"))[0];byte[] before=Files.readAllBytes(saved.toPath());
+        ChargeSessionStore.Journal journal=ChargeSessionStore.inspectJournal(saved);
+        check(journal.profile.equals("source-1")&&journal.startedWall==WALL&&journal.startedMono==MONO&&journal.finished,"journal header facts are read");
+        ChargeSessionStore.reassignJournal(saved,"local-2");byte[] after=Files.readAllBytes(saved.toPath());
+        String a=new String(before,StandardCharsets.UTF_8),b=new String(after,StandardCharsets.UTF_8);
+        check(ChargeSessionStore.inspectJournal(saved).profile.equals("local-2")&&a.substring(a.indexOf('\n')).equals(b.substring(b.indexOf('\n')))&&b.startsWith("charge-v2,local-2,HIGH_SPEED,"),"reassignment changes only the header profile");
+        check(!new File(saved.getPath()+".mapping").exists(),"no temporary mapping file remains");
+        File active=new File(folder,UUID.randomUUID()+".active");Files.write(active.toPath(),("charge-v2,source-1,STOCK,"+WALL+","+MONO+"\n").getBytes(StandardCharsets.UTF_8));
+        check(!ChargeSessionStore.inspectJournal(active).finished&&active.exists(),"an unfinished journal is inspected without being finalized");
+        for(String bad:new String[]{"charge-v3,a,STOCK,1,1\n","charge-v2,../x,STOCK,1,1\n","charge-v2,a,NONE,1,1\n","charge-v2,a,STOCK,1,1\nend,STOPPED\nend,STOPPED\n","charge-v2,a,STOCK,0,1\n"}){
+            File file=new File(folder,UUID.randomUUID()+".csv");Files.write(file.toPath(),bad.getBytes(StandardCharsets.UTF_8));
+            boolean refused=false;try{ChargeSessionStore.inspectJournal(file);}catch(IOException expected){refused=true;}check(refused,"unreadable journal refused: "+bad.trim());
+            refused=false;try{ChargeSessionStore.reassignJournal(file,"x");}catch(IOException expected){refused=true;}check(refused&&Arrays.equals(Files.readAllBytes(file.toPath()),bad.getBytes(StandardCharsets.UTF_8)),"unreadable journal is never rewritten");
+        }
+        boolean refused=false;try{ChargeSessionStore.reassignJournal(saved,"bad/profile");}catch(IOException expected){refused=true;}check(refused,"invalid destination refused");
+    }
     public static void main(String[] args)throws Exception{
         ChargeSessionStore a=store();
         session(a,"one",ChargeSessionStore.Charger.STOCK,40,100,60000,false,false);
@@ -58,7 +78,7 @@ public final class ChargeSessionStoreTest {
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(live,new ChargingEstimate.Value(52d,true,100),new ChargingEstimate.Value(-2d,true,100),new ChargingEstimate.Value(50d,true,100),new ChargingEstimate.Value(14.5,true,100),new ChargingEstimate.Value(80d,true,100));
         ChargingEstimate.Result adjusted=ChargingEstimate.withObservedCurve(baseline,new ChargingEstimate.Value(50d,true,100),p);
         check(adjusted.learnedToLimit&&!adjusted.learnedToFull&&adjusted.learnedSessions==2,"Result exposes mixed estimate sources");near(30,adjusted.remainingMinutesToLimit,"Learned cutoff replaces baseline");near(217.5,adjusted.remainingMinutesToFull,"Current-rate fallback retained for uncovered taper");
-        check(adjusted.status.contains("taper")&&adjusted.status.contains("manual"),"Fallback and selected charger are explained");
+        check(adjusted.status.contains("taper")&&adjusted.status.contains("stock"),"Fallback and selected charger are explained");
         check("From 2 past charges".equals(adjusted.label),"Short label names the learned source: "+adjusted.label);
         ChargingEstimate.Result unknownCutoff=ChargingEstimate.calculate(live,new ChargingEstimate.Value(52d,true,100),new ChargingEstimate.Value(-2d,true,100),new ChargingEstimate.Value(50d,true,100),new ChargingEstimate.Value(14.5,true,100),new ChargingEstimate.Value(null,true,100));
         ChargingEstimate.Result learnedUnknown=ChargingEstimate.withObservedCurve(unknownCutoff,new ChargingEstimate.Value(50d,true,100),learned);
@@ -133,7 +153,7 @@ public final class ChargeSessionStoreTest {
         ChargingEstimate.Result faster=observed(stockCurve,60,5.5);
         near(14.5*.4/5.5*60,faster.remainingMinutesToFull,"Twice the training current keeps the review's approximately 63-minute live estimate");
         check(!faster.learnedToFull&&!faster.learnedToLimit&&faster.learnedSessions==0,"Mismatched power cannot claim a learned ETA");
-        check(faster.status.contains("Live power differs")&&faster.status.contains("manual")&&!faster.status.contains("Observed average"),"Power mismatch is explicit without claiming charger identification");
+        check(faster.status.contains("Live power differs")&&faster.status.contains("selected charger")&&!faster.status.contains("Observed average"),"Power mismatch is explicit without claiming charger identification");
         check("Charger mismatch · rate estimate".equals(faster.label),"Short label marks the mismatch as a rate estimate");
         ChargingEstimate.Result same=observed(stockCurve,60,2.75);
         near(120,same.remainingMinutesToFull,"Compatible stock power keeps the learned 120-minute curve");
@@ -208,6 +228,7 @@ public final class ChargeSessionStoreTest {
         StringWriter resumedJson=new StringWriter();reconnected.exportJson("one",resumedJson);
         check(resumedJson.toString().contains("\"battery_percent\":54.0,\"voltage_v\":56.0,\"current_a\":-0.2,\"power_w\":-11.200000000000001,\"temperature_c\":null,\"gap_before\":true"),"First post-loss sample keeps gap and real measurements");
         check(reconnected.snapshot().sessions==1,"Transient recovery remains one journal, not a second session");
+        journals();
         System.out.println("ChargeSessionStore: "+checks+" checks passed");
     }
 }

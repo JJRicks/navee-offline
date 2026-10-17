@@ -63,7 +63,7 @@ public final class CompletedChargeEstimateTest {
         check(one!=null&&one.qualifiedSessions==1,"One observed complete finish is retained");
         ChargingEstimate.Result at95=estimate(one,95,114d,100d);
         range(at95.remainingMinutesToFull,38,42,"95% includes the observed approximately 41-minute finish");
-        check(at95.learnedToFull&&at95.learnedToLimit&&at95.learnedSessions==1&&at95.status.contains("Provisional")&&at95.status.contains("manual"),"Single prior charge is explicitly provisional and manually selected");
+        check(at95.learnedToFull&&at95.learnedToLimit&&at95.learnedSessions==1&&at95.status.contains("Provisional")&&at95.status.contains("matched battery level and charging power"),"Single prior charge is explicitly provisional and matched to live readings");
         range(estimate(one,92,114,100d).remainingMinutesToFull,41,43,"A genuine 20-second SOC interval does not erase finishing coverage");
         double early=estimate(one,99,110,100d).remainingMinutesToFull;
         double middle=estimate(one,99,88,100d).remainingMinutesToFull;

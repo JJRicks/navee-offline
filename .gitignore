@@ -29,6 +29,8 @@
 *.log
 *.zip
 *.voltbackup
+# Synthetic legacy fixtures (no real data; see tests/fixtures/legacy/README.md)
+!/tests/fixtures/legacy/full-v1.voltbackup
 *.gpx
 *.geojson
 ride-*.json
@@ -51,3 +53,6 @@ bugreport-*
 .vscode/
 __pycache__/
 *.pyc
+
+# Sanitized calibration evidence: relative elapsed time and electrical measurements only.
+!/tests/fixtures/ut5-max-fast-charge-calibration.csv

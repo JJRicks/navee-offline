@@ -198,7 +198,7 @@ replay/behavior checks, not an independent prediction trial.
 Boundary checks verify continuity as bulk reaches 89% and nondecreasing time
 for later cutoffs, including fractional targets around that transition.
 
-`StockChargeReferenceGateTest` exercises the reported 95/94.5 W and 93/92.5 W
+`ChargeReferenceGateTest` exercises the reported 95/94.5 W and 93/92.5 W
 boundary fluctuations, repeated redraws, distinct-frame and elapsed-time expiry,
 large mismatches, context/clock resets and stale/non-charging input rejection.
 Source flags and lower/unknown cutoffs remain independent of the runtime gate.

@@ -25,11 +25,18 @@ import org.json.JSONObject;
  * 1. Fresh app: -e mode export. Pull archive_path to the host.
  * 2. pm clear target app, push the saved archive back to archive_path.
  * 3. -e mode restore-check. No Nearby/location grants or scooter service are needed.
+ * Legacy: pm clear, push tests/fixtures/legacy/full-v1.voltbackup as legacy-v1.voltbackup,
+ * then -e mode legacy-v1 restores the Volt 1.3.1 file with Replace everything.
  */
 public final class FullBackupJourneyValidation extends Instrumentation {
     private static final String[] PREFS={"app_settings","profiles","scooter","control_evidence","onboarding"};
     private static final char[] PASSWORD="synthetic clear-storage journey".toCharArray();
     private static final String DIGEST="fixture_expected_preferences_digest";
+    // Synthetic, non-empty C1 profile fields: the round trip must keep each exactly, not fall back to defaults.
+    private static final String C1_PID="24431";private static final long C1_PID_WALL=1700000000000L,C1_FW_WALL=1700000000001L;
+    private static final String[] C1_FW={"2.0.1.2","1.4.0.7","3.1","0.9.2","u1"}; // meter, controller, BMS, screen, UWB
+    /** Device and pending keys planted before export; a backup never carries them. */
+    private static final String[] EXCLUDED={"app_settings/last_page","app_settings/more_away_boot","app_settings/owner_import_applied","app_settings/notification_prompted","onboarding/nearby_asked"};
     private String mode;private int assertions;private Context app;
     @Override public void onCreate(Bundle args){mode=args==null?null:args.getString("mode");start();}
     @Override public void onStart(){
@@ -52,7 +59,14 @@ public final class FullBackupJourneyValidation extends Instrumentation {
                 require(prefs("profiles").getAll().isEmpty()&&!app.getDatabasePath("telemetry-history.db").exists(),"Import staging changed the fresh installation before approval");
                 AppDataBackup.apply(app,prepared);verifyRestored();
                 result.putString("phase","RESTORED_AFTER_CLEAR_STORAGE");result.putInt("restored_files",prepared.fileCount);
-            } else throw new IllegalArgumentException("Use mode export or restore-check");
+            } else if("legacy-v1".equals(mode)) {
+                File legacy=new File(external,"legacy-v1.voltbackup");require(legacy.isFile(),"Push tests/fixtures/legacy/full-v1.voltbackup after clearing storage");
+                AppDataBackup.PreparedRestore prepared;
+                try(InputStream in=new FileInputStream(legacy)){prepared=AppDataBackup.stage(app,in,"synthetic fixture password".toCharArray());}
+                require("v1".equals(prepared.format)&&prepared.complete&&prepared.categories.size()==7,"A 1.3.1 full backup is a complete backup");
+                AppDataBackup.apply(app,prepared);verifyLegacy();
+                result.putString("phase","LEGACY_V1_RESTORED");
+            } else throw new IllegalArgumentException("Use mode export, restore-check or legacy-v1");
             result.putString("result","PASS");result.putString("archive_path",archive.getAbsolutePath());
             result.putBoolean("nearby_granted",app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED);
             result.putInt("scooter_mutations",0);
@@ -75,7 +89,9 @@ public final class FullBackupJourneyValidation extends Instrumentation {
             .putBoolean("developer_options",true).putString("theme","dark").putString("units","mi").putString("temperature_unit","f")
             .putString("time_format","24h").putFloat("text_scale",1.15f).putStringSet("stats_favourites",new LinkedHashSet<>(Arrays.asList("battery_percent","odometer_km"))).commit(),"Store real app preferences");
         ScooterProfiles profiles=new ScooterProfiles(app);ScooterProfiles.Profile owner=profiles.create("Synthetic clear-storage scooter","000000000000",0);
-        owner.serial="fixture-serial";owner.lastConnected=1234567890123L;profiles.update(owner);
+        owner.serial="fixture-serial";owner.lastConnected=1234567890123L;
+        owner.advertisedPid=C1_PID;owner.advertisedPidWall=C1_PID_WALL;owner.nameDefault=true;
+        owner.fwMeter=C1_FW[0];owner.fwController=C1_FW[1];owner.fwBms=C1_FW[2];owner.fwScreen=C1_FW[3];owner.fwUwb=C1_FW[4];owner.fwWall=C1_FW_WALL;profiles.update(owner);
         require(prefs("scooter").edit().putString("identity","000000000000").putInt("role",0).putString("serial","legacy-fixture").commit(),"Store legacy setup preferences");
         require(prefs("control_evidence").edit().putString(owner.id,"{\"headlight\":\"Observed fixture\"}").commit(),"Store cached control evidence");
         require(prefs("onboarding").edit().putBoolean("onboarding_done",true).commit(),"Store onboarding completion");
@@ -123,13 +139,31 @@ public final class FullBackupJourneyValidation extends Instrumentation {
         JSONObject hashes=new JSONObject();for(File file:durableFiles())hashes.put(relative(file),hash(Files.readAllBytes(file.toPath())));
         require(settings.edit().putString("fixture_file_hashes",hashes.toString()).commit(),"Store dataset byte expectations");
         require(settings.edit().putString(DIGEST,preferenceDigest()).commit(),"Store all-preferences expectation");
+        require(settings.edit().putString("last_page","rides").putInt("more_away_boot",4).putString("owner_import_applied","fixture-import").putBoolean("notification_prompted",true).commit()
+            &&prefs("onboarding").edit().putBoolean("nearby_asked",true).commit(),"Plant excluded device keys");
+    }
+    private void verifyLegacy()throws Exception {
+        String id="8c1f3a52-0d7e-4b8e-9a41-5b2f6c7d8e90";SharedPreferences settings=prefs("app_settings");
+        ScooterProfiles profiles=new ScooterProfiles(app);require(profiles.all().size()==1&&profiles.active().id.equals(id)&&profiles.active().configured(),"Legacy scooter restored");
+        require("light".equals(settings.getString("theme",""))&&"kept only by an exact restore".equals(settings.getString("legacy_removed_key",""))&&!settings.contains("last_page")&&!settings.contains("owner_import_applied"),"Legacy durable keys restored and excluded keys left out");
+        require(prefs("onboarding").getAll().equals(Collections.singletonMap("onboarding_done",true)),"Legacy wizard state left out");
+        DashboardConfig dashboard=new DashboardConfig(settings,id);require(dashboard.widgets.size()==1&&dashboard.slotExists(0),"Legacy dashboard and slot reopen");
+        RideStore rides=new RideStore(new File(app.getFilesDir(),"rides"));require(rides.list().size()==1&&rides.list().get(0).scooterId.equals(id),"Legacy ride reopens");
+        require(new ChargeSessionStore(new File(app.getFilesDir(),"charge-recordings")).snapshot().sessions==1,"Legacy charge reopens");
+        TelemetryHistory history=new TelemetryHistory(app);AtomicReference<TelemetryHistory.Snapshot> loaded=new AtomicReference<>();CountDownLatch latch=new CountDownLatch(1);
+        history.load(id,s->{loaded.set(s);latch.countDown();});require(latch.await(10,TimeUnit.SECONDS)&&loaded.get()!=null&&loaded.get().readings.containsKey("battery_percent"),"Legacy SQLite history reopens");
+        require(history.closeAndAwait(10000)&&!AppDataBackup.needsRecovery(app),"Legacy restore completed");
     }
     private void verifyRestored()throws Exception {
         SharedPreferences settings=prefs("app_settings");require(settings.getString(DIGEST,"").equals(preferenceDigest()),"Exact full preference inventory differs after clear-storage restore");
+        for(String key:EXCLUDED){String[] part=key.split("/");require(!prefs(part[0]).contains(part[1]),"Excluded key restored: "+key);}
         JSONObject hashes=new JSONObject(settings.getString("fixture_file_hashes","{}"));List<File> files=durableFiles();require(hashes.length()==5&&files.size()==5,"Restored durable file inventory differs");
         for(File file:files)require(hashes.getString(relative(file)).equals(hash(Files.readAllBytes(file.toPath()))),"Restored file byte hash differs: "+relative(file));
         String profileId=settings.getString("fixture_profile_id",""),ride=settings.getString("fixture_ride_id","");
         ScooterProfiles profiles=new ScooterProfiles(app);require(profiles.all().size()==1&&profiles.active().id.equals(profileId)&&profiles.active().configured(),"Restored scooter owner setup is not usable by the real profile model");
+        ScooterProfiles.Profile c1=profiles.active();String[] fw={c1.fwMeter,c1.fwController,c1.fwBms,c1.fwScreen,c1.fwUwb};
+        require(C1_PID.equals(c1.advertisedPid)&&c1.advertisedPidWall==C1_PID_WALL&&c1.nameDefault&&Arrays.equals(C1_FW,fw)&&c1.fwWall==C1_FW_WALL,
+            "C1 profile fields changed: pid="+c1.advertisedPid+"@"+c1.advertisedPidWall+" nameDefault="+c1.nameDefault+" fw="+Arrays.toString(fw)+"@"+c1.fwWall);
         DashboardConfig dashboard=new DashboardConfig(settings,profileId);require(settings.getString("fixture_dashboard_export","").equals(dashboard.exportLayouts()),"Paired layouts/options/slots differ after reconstruction");
         require(dashboard.widgets.size()==2&&dashboard.widgets.get(0).maximum==99.5&&dashboard.widgets.get(0).title.equals("Active custom gauge"),"Active widget parameters changed");
         for(int columns=1;columns<=6;columns++)require(dashboard.widgets.get(0).layouts.get(columns).w==columns,"An arbitrary-width layout was lost");
@@ -151,7 +185,7 @@ public final class FullBackupJourneyValidation extends Instrumentation {
     private String preferenceDigest()throws Exception {
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();DataOutputStream out=new DataOutputStream(bytes);
         for(String name:PREFS){text(out,name);Map<String,?> all=new TreeMap<>(prefs(name).getAll());for(Map.Entry<String,?> e:all.entrySet()){
-            if(e.getKey().equals(DIGEST))continue;text(out,e.getKey());Object v=e.getValue();text(out,v.getClass().getSimpleName());
+            if(e.getKey().equals(DIGEST)||Arrays.asList(EXCLUDED).contains(name+"/"+e.getKey()))continue;text(out,e.getKey());Object v=e.getValue();text(out,v.getClass().getSimpleName());
             if(v instanceof Set){for(String s:new TreeSet<>((Set<String>)v))text(out,s);}else text(out,String.valueOf(v));
         }}out.flush();return hash(bytes.toByteArray());
     }

@@ -321,7 +321,7 @@ public final class OnboardingScreen implements AppScreen {
         ScooterProfiles store = profiles();
         ScooterProfiles.Profile p = find(store, prefs.getString(KEY_PROFILE, ""));
         if (p == null) return;
-        if (!name.trim().isEmpty() && !name.trim().equals(p.name)) { p.name = name.trim(); store.update(p); }
+        if (!name.trim().isEmpty() && !name.trim().equals(p.name)) { p.name = name.trim(); p.nameDefault = false; store.update(p); }
         prefs.edit().remove(KEY_PENDING_NAME).apply();
     }
 
@@ -329,13 +329,13 @@ public final class OnboardingScreen implements AppScreen {
 
     /** Reads only the display name and role of the staged file; the identity is not kept. */
     private String[] pendingSummary() {
-        String name = "UT5 MAX"; int role = 0;
+        String name = MainActivity.IMPORTED_NAME; int role = 0;
         try (InputStream in = new FileInputStream(pendingOwnerFile())) {
             byte[] buffer = new byte[8192]; int total = 0, count;
             while (total < buffer.length && (count = in.read(buffer, total, buffer.length - total)) > 0) total += count;
             JSONObject json = new JSONObject(new String(buffer, 0, total, StandardCharsets.UTF_8));
             name = json.optString("name", name).trim(); role = json.optInt("role", 0);
-            if (name.isEmpty()) name = "UT5 MAX";
+            if (name.isEmpty()) name = MainActivity.IMPORTED_NAME;
         } catch (Exception ignored) { }
         return new String[] {name, role == 1 ? "shared role" : "owner role"};
     }
@@ -659,7 +659,7 @@ public final class OnboardingScreen implements AppScreen {
         footerLink("I already have an owner file", () -> {
             prefs.edit().putString(KEY_PATH, BACKUP).apply(); go(IMPORT);
         });
-        footerLink("Restore a full app backup", () -> host.fullBackup(true));
+        footerLink("Restore a backup", () -> host.dataBackup(true, null));
     }
 
     /** Welcome: what the app does, as four labelled icons instead of a sentence. */
@@ -977,7 +977,7 @@ public final class OnboardingScreen implements AppScreen {
                 if (store == null || target == null) { render(); return; }
                 if (!name.isEmpty() && !name.equals(target.name)) {
                     if (!prepareProfileChange()) return;
-                    target.name = name; store.update(target);
+                    target.name = name; target.nameDefault = false; store.update(target);
                 }
                 store.select(target.id);
             } else prefs.edit().putString(KEY_PENDING_NAME, name).apply();
@@ -1031,7 +1031,7 @@ public final class OnboardingScreen implements AppScreen {
         status.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);
         status.setPadding(0, ui.dp(8), 0, 0);
         content.addView(status);
-        nameField = nameInput("UT5 MAX");
+        nameField = nameInput("");
         TextView save = primary("Save and continue", this::saveIdentity);
         // While the local service starts, Save waits with a spinner instead of answering a tap with a toast.
         View starting = spinnerOn(save);
@@ -1096,7 +1096,7 @@ public final class OnboardingScreen implements AppScreen {
             ScooterProfiles.Profile earlier = find(store, prefs.getString(KEY_CREATED, ""));
             ScooterProfiles.Profile profile;
             if (earlier != null && earlier.identity.equalsIgnoreCase(parsed.identity) && earlier.role == parsed.role) {
-                if (!name.trim().isEmpty()) earlier.name = name.trim();
+                if (!name.trim().isEmpty()) { earlier.name = name.trim(); earlier.nameDefault = false; }
                 store.update(earlier); store.select(earlier.id); profile = earlier;
             } else {
                 if (earlier != null) store.remove(earlier.id);
@@ -1544,7 +1544,7 @@ public final class OnboardingScreen implements AppScreen {
         edit.setFilters(new InputFilter[] {new InputFilter.LengthFilter(60)});
         edit.setSingleLine(true);
         edit.setText(value == null ? "" : value);
-        edit.setTextColor(ui.text); edit.setHintTextColor(ui.muted); edit.setHint("UT5 MAX");
+        edit.setTextColor(ui.text); edit.setHintTextColor(ui.muted); edit.setHint("Scooter name");
         edit.setTextSize(TypedValue.COMPLEX_UNIT_SP, 16 * ui.textScale); edit.setTypeface(ui.regular());
         edit.setPadding(ui.dp(16), ui.dp(14), ui.dp(16), ui.dp(14));
         edit.setMinHeight(ui.dp(54));

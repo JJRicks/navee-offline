@@ -9,10 +9,10 @@ TEST_BUILD_DIR="$NAVEE_BUILD_DIR/core-tests"
 rm -rf -- "$TEST_BUILD_DIR/classes"
 mkdir -p "$TEST_BUILD_DIR/classes"
 sources=()
-for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
+for name in ChargerDetection Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
 done
-sources+=("$APP_DIR/src/local/navee/offlinelock/ChargeTaperMatcher.java" "$TEST_DIR/StockChargeHoldoutTrace.java" "$TEST_DIR/ChargeTaperMatcherTest.java" "$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockChargeReference.java" "$APP_DIR/src/local/navee/offlinelock/StockChargeReferenceGate.java" "$TEST_DIR/CompletedChargeEstimateTest.java" "$TEST_DIR/StockChargeReferenceTest.java" "$TEST_DIR/StockChargeReferenceGateTest.java")
+sources+=("$TEST_DIR/DualChargerEstimateTest.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxFastChargeReference.java" "$TEST_DIR/Ut5MaxFastChargeReferenceTest.java" "$APP_DIR/src/local/navee/offlinelock/ChargeTaperMatcher.java" "$TEST_DIR/StockChargeHoldoutTrace.java" "$TEST_DIR/ChargeTaperMatcherTest.java" "$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockChargeReference.java" "$APP_DIR/src/local/navee/offlinelock/ChargeReferenceGate.java" "$TEST_DIR/CompletedChargeEstimateTest.java" "$TEST_DIR/StockChargeReferenceTest.java" "$TEST_DIR/ChargeReferenceGateTest.java")
 # Compile the actual Android coordinator against test-only binding and preferences APIs.
 # These stubs are confined to this test output and never enter the Android build.
 for source in "$TEST_DIR"/shizuku-stubs/android/content/*.java \
@@ -23,13 +23,49 @@ for source in "$TEST_DIR"/shizuku-stubs/android/content/*.java \
     sources+=("$source")
 done
 sources+=("$APP_DIR/src/local/navee/offlinelock/ShizukuCaptureClient.java" "$TEST_DIR/ShizukuCaptureClientTest.java")
+# Route speed colours (depends on PhoneRideStore and RideStore above).
+sources+=("$APP_DIR/src/local/navee/offlinelock/RouteSpeedScale.java" "$TEST_DIR/RouteSpeedScaleTest.java")
+# Lock slider motion trail.
+sources+=("$APP_DIR/src/local/navee/offlinelock/LockSliderTrail.java" "$TEST_DIR/LockSliderTrailTest.java")
+# Ride auto-end policy and its journal/learned-range effects.
+for name in RideAutoStopPolicy; do
+    sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
+done
+sources+=("$TEST_DIR/RideAutoStopStoreTest.java")
+# Unified backup: category registry, archive, plan and transaction (pure Java, temporary files only).
+for name in BackupRegistry BackupJson BackupProfiles BackupArchive BackupTransaction; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java"); done
+for name in BackupRegistryTest BackupTestStore BackupArchiveTest BackupPlanTest BackupTransactionTest; do sources+=("$TEST_DIR/$name.java"); done
+# Model compatibility suites (separate block to limit merge conflicts with sibling branches).
+COMPAT_TESTS=(DeviceDescriptor AdvertisedIdentity StatusFields WireCommands ModelRegistry CapabilityResolver MutationGate ReadPolicy DiscoveryCoordinator CompatibilityReport TestJournal GuidedTest)
+for name in "${COMPAT_TESTS[@]}"; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java"); done
+sources+=("$APP_DIR/src/local/navee/offlinelock/FeatureVariant.java" "$TEST_DIR/OemControlsTest.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
-for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
+for name in ChargerDetection Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"
 done
 
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.CompletedChargeEstimateTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeTaperMatcherTest
-java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceGateTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeReferenceGateTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ShizukuCaptureClientTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RouteSpeedScaleTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.LockSliderTrailTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopPolicyTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.RideAutoStopStoreTest
+
+# Unified backup suites.
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.BackupRegistryTest "$APP_DIR/src/local/navee/offlinelock"
+# These suites run hundreds of synthetic restores; a RAM-backed temporary folder keeps their
+# fsyncs fast. AppDataArchiveTest and RideArchiveTest still exercise the normal folder.
+# Bash 3.2 treats an empty array as unset under nounset. Keep the command array nonempty.
+backup_java=(java)
+[[ -d /dev/shm && -w /dev/shm ]] && backup_java+=(-Djava.io.tmpdir=/dev/shm)
+for name in BackupArchiveTest BackupPlanTest BackupTransactionTest; do
+    (cd "$APP_DIR" && "${backup_java[@]}" -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.$name")
+done
+
+for name in "${COMPAT_TESTS[@]}" OemControls; do java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"; done
+
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.DualChargerEstimateTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.Ut5MaxFastChargeReferenceTest "$TEST_DIR/fixtures/ut5-max-fast-charge-calibration.csv"

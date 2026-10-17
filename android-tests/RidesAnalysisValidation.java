@@ -26,13 +26,14 @@ public final class RidesAnalysisValidation extends Instrumentation {
             for (String name : new String[]{"app_settings", "profiles", "scooter", "pending_documents"}) check(context.getSharedPreferences(name, 0).getAll().isEmpty(), "Requires empty preferences");
             check(context.getFilesDir().list().length == 0 && context.databaseList().length == 0, "Requires empty private data");
             BluetoothAdapter adapter = context.getSystemService(BluetoothManager.class).getAdapter(); check(adapter == null || !adapter.isEnabled(), "Bluetooth must be off");
-            context.getSharedPreferences("app_settings", 0).edit().putBoolean("auto_connect", false).putBoolean("background_connection", false).putBoolean("map_basemap_enabled", false).putString("theme", args.getString("theme", "dark")).commit();
+            context.getSharedPreferences("app_settings", 0).edit().putBoolean("auto_connect", false).putBoolean("background_connection", false).putBoolean("map_basemap_enabled", false).putString("theme", args.getString("theme", "dark")).putFloat("text_scale", Float.parseFloat(args.getString("text_scale", "1"))).commit();
             main(() -> { ScooterProfiles profiles = new ScooterProfiles(context); profiles.create("Synthetic ride validation", "000000000000", 0); });
             activity = (MainActivity) startActivitySync(new Intent(context, MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             long until = SystemClock.uptimeMillis() + 8000; while (activity.service() == null && SystemClock.uptimeMillis() < until) SystemClock.sleep(40);
             check(activity.service() != null, "Service ready"); main(this::verifyBoundedHatching); mapPreferences(); seed();
             main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen) field(activity, "screen"); }); settle();
             verifyRideNaming();
+            if (args.getString("start_only", "false").equals("true")) { result.putString("result", "PASS"); return; }
             main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
             main(() -> { View options = root(); check(find(options, SegmentedSelector.class) != null, "Phone placement uses sliding selector"); text(options, "Mounted").performClick(); check(activity.service().settings.getString("phone_placement", "").equals("mounted"), "Placement saves immediately"); text(options, "Pocket").performClick(); ((AlertDialog)((List<?>)field(screen, "dialogs")).get(0)).dismiss(); });
             if (context.getResources().getConfiguration().screenWidthDp < 650) main(() -> invoke(screen, "showDetails", new Class[]{String.class}, id));
@@ -40,6 +41,9 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(text(screen.view(), "Energy direction") == null, "Redundant current-direction selection removed");
             View root = root(); check(find(root, RideChartView.class) != null, "Unified chart exists");
             check(find(root, RouteMapView.class) != null, "Map at top of same overview");
+            main(() -> { RouteMapView map = (RouteMapView)find(root, RouteMapView.class); byDescription(root, "Route color: Speed").performClick(); check("speed".equals(field(map, "metric")), "Speed overlay selects route speed");
+                Object scale = field(map, "speedScale"); check("scooter".equals(field(scale, "source")) && (double)field(scale, "topKmh") == 25, "Speed overlay uses fresh scooter speed on a stable ride scale");
+                check(byDescription(root, "Route color: Speed").isSelected(), "Speed choice shows selected"); }); settle(); screenshot("speed-route");
             main(() -> { text(root, "Elev.").performClick(); check("elevation".equals(field(find(root, RouteMapView.class), "metric")), "Elevation overlay selects recorded heights"); text(root, "Grade").performClick(); verifyMapContrast((RouteMapView)find(root,RouteMapView.class)); }); settle(); screenshot("grade-route");
             main(() -> { text(root,"Power").performClick();SegmentedSelector selector=(SegmentedSelector)text(root,"Elev.").getParent().getParent();View track=(View)field(selector,"track");check(track.getWidth()<=selector.getWidth(),"Short route overlay labels fit without hidden choices");verifyZoomButtons(root); }); screenshot("overview");
             verifyExpandedMap(root);
@@ -88,9 +92,10 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(activity.service().rides.get(id).label.equals("Evening campus loop"), "Pencil rename saves to journal");
             verifySavingAndEmptyPhone();
             verifyFullDetail();
+            verifySpeedRide();
             check(!activity.service().ble.connected() && !activity.service().isRecording(), "No scooter connection or active recording");
             result.putString("result", "PASS");
-        } catch (Throwable error) { result.putString("result", "FAIL"); result.putString("error", error.toString()); try { screenshot("failure"); } catch (Throwable ignored) {} }
+        } catch (Throwable error) { result.putString("result", "FAIL"); result.putString("error", android.util.Log.getStackTraceString(error)); try { screenshot("failure"); } catch (Throwable ignored) {} }
         finally {
             result.putInt("checks", checks); result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
             if (activity != null) main(() -> { activity.finish(); ScooterService.setUiVisible(false); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); });
@@ -98,26 +103,110 @@ public final class RidesAnalysisValidation extends Instrumentation {
         }
     }
     void verifyRideNaming() throws Exception {
-        // Open the actual naming dialog below the BLE guard; this fixture never starts a ride.
-        main(() -> { activity.service().settings.edit().putString("last_ride_label", "Evening campus loop").commit(); invoke(screen, "showRideNameDialog", new Class[0]); }); settle();
-        AlertDialog dialog = (AlertDialog)((List<?>)field(screen, "dialogs")).get(0);
-        EditText name = (EditText)find(dialog.getWindow().getDecorView(), EditText.class);
-        check(name.hasFocus() && name.hasWindowFocus(), "Ride name owns keyboard focus immediately");
-        check(name.getSelectionStart() == 0 && name.getSelectionEnd() == name.length(), "Previous ride name is fully selected");
-        check((dialog.getWindow().getAttributes().softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)
-                == WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE, "Naming dialog asks Android to show the keyboard");
-        long until = SystemClock.uptimeMillis() + 5000;
-        while (Build.VERSION.SDK_INT >= 30 && !name.getRootWindowInsets().isVisible(WindowInsets.Type.ime()) && SystemClock.uptimeMillis() < until) settle();
-        check(Build.VERSION.SDK_INT < 30 || name.getRootWindowInsets().isVisible(WindowInsets.Type.ime()), "Naming keyboard is visible without another tap");
-        screenshot("ride-name-keyboard");
-        main(() -> text(dialog.getWindow().getDecorView(), "Cancel").performClick()); settle();
-        check(!dialog.isShowing() && !name.isAttachedToWindow() && !activity.service().isRecording(), "Cancel releases the editor without recording");
-        main(() -> { invoke(screen, "showRideNameDialog", new Class[0]); ((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss(); }); settle();
-        check(((List<?>)field(screen,"dialogs")).isEmpty(), "Immediate dismissal leaves no pending naming dialog");
-        main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
-        View next = root();
-        check(find(next, EditText.class) == null && (Build.VERSION.SDK_INT < 30 || !next.getRootWindowInsets().isVisible(WindowInsets.Type.ime())), "A dismissed naming request cannot reopen the keyboard over the next dialog");
-        main(() -> ((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss()); settle();
+        ScooterService service = activity.service(); SharedPreferences settings = service.settings;
+        Locale locale = Locale.getDefault(); TimeZone zone = TimeZone.getDefault();
+        String oldFormat = settings.getString("time_format", "system");
+        try {
+            Locale.setDefault(Locale.US); TimeZone.setDefault(TimeZone.getTimeZone("America/Boise"));
+            Calendar instant = Calendar.getInstance(TimeZone.getTimeZone("UTC")); instant.clear(); instant.set(2026, Calendar.OCTOBER, 18, 1, 5);
+            long wall = instant.getTimeInMillis();
+            settings.edit().putString("time_format", "24h").commit();
+            check(DisplayTime.rideName(activity, settings, wall, "SPORT").equals("Oct 17, 2026 - 19:05 - SPORT"), "Default name uses local date with year and the selected 24-hour clock");
+            check(DisplayTime.rideName(activity, settings, wall, "").equals("Oct 17, 2026 - 19:05"), "Unavailable mode is omitted without a trailing separator");
+            check(DisplayTime.rideName(activity, settings, wall, null).equals("Oct 17, 2026 - 19:05"), "Null mode is also omitted");
+            settings.edit().putString("time_format", "12h").commit();
+            check(DisplayTime.rideName(activity, settings, wall, "ECO").replace('\u202f', ' ').replace('\u00a0', ' ').equals("Oct 17, 2026 - 7:05 PM - ECO"), "Default name respects the selected 12-hour clock");
+            settings.edit().putString("time_format", "system").commit();
+            String systemName = DisplayTime.rideName(activity, settings, wall, "WALK");
+            check(android.text.format.DateFormat.is24HourFormat(activity) ? systemName.contains("19:05") : systemName.contains("7:05"), "System clock preference follows Android");
+        } finally { Locale.setDefault(locale); TimeZone.setDefault(zone); settings.edit().putString("time_format", oldFormat).commit(); }
+        boolean gps = settings.getBoolean("phone_gps", true), motion = settings.getBoolean("phone_motion", true), developer = settings.getBoolean("developer_options", false);
+        settings.edit().putBoolean("phone_gps", false).putBoolean("phone_motion", false).putString("last_ride_label", "Old manually named ride").commit();
+        List<String> created = new ArrayList<>(); ScooterProfiles.Profile profile = service.profiles.active();
+        String serial = profile.serial, pid = profile.advertisedPid;
+        try {
+            main(() -> { screen.beginRecording(); check(!service.isRecording(), "Home record still requires a ready connection"); });
+            main(() -> {
+                syntheticReady(profile); profile.serial = "S2538SYNTHETIC"; profile.advertisedPid = "2538";
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime());
+                screen.refresh(); TextView record = (TextView)field(screen, "recordButton");
+                check(record.isEnabled(), "Real Rides Record action is enabled on the synthetic ready connection"); record.performClick();
+                check(service.isRecording(), "One Record tap starts capture immediately");
+                RideStore.Summary started = service.rides.activeSummary(); created.add(started.id);
+                check(started.label.endsWith(" - SPORT") && !started.label.contains("Old manually"), "Actual journal uses fresh model-aware mode instead of the previous manual label");
+                check(started.label.equals(DisplayTime.rideName(activity, settings, started.startWallMs, "SPORT")), "Actual journal gets its date and time at capture start");
+                check(((List<?>)field(screen, "dialogs")).isEmpty() && find(screen.view(), EditText.class) == null, "Record opens no pre-start naming dialog or text editor");
+                screen.beginRecording(); check(started.id.equals(service.rides.activeId()), "Repeated Home Record leaves the existing recording intact");
+            }); settle(); screenshot("immediate-ride-recording");
+            main(() -> service.stopRide()); awaitPhoneSave();
+            final String first = created.get(0);
+            main(() -> invoke(screen, "showDetails", new Class[]{String.class}, first)); settle();
+            main(() -> { View rename = byDescription(root(), "Rename ride"); check(rename != null, "Autogenerated ride retains its rename pencil"); rename.performClick(); }); settle();
+            AlertDialog rename = (AlertDialog)((List<?>)field(screen, "dialogs")).get(((List<?>)field(screen, "dialogs")).size() - 1);
+            main(() -> { EditText input = (EditText)find(rename.getWindow().getDecorView(), EditText.class); check(input.getText().toString().endsWith(" - SPORT"), "Rename starts with the generated name"); input.setText("Morning campus ride"); rename.getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
+            check(service.rides.get(first).label.equals("Morning campus ride"), "Renaming the new ride persists to its journal"); screenshot("renamed-immediate-ride");
+            main(() -> {
+                for (Object dialog : new ArrayList<>((List<?>)field(screen, "dialogs"))) ((AlertDialog)dialog).dismiss();
+                setField(service.ble, "statusMs", SystemClock.elapsedRealtime());
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 2}, SystemClock.elapsedRealtime());
+                invoke(activity, "select", new Class[]{String.class}, "home");
+                DashboardScreen home = (DashboardScreen)field(activity, "screen");
+                ((DashboardScreen.Actions)field(home, "actions")).startRide(); screen = (RidesScreen)field(activity, "screen");
+                check(service.isRecording() && service.rides.activeSummary().label.endsWith(" - ECO"), "Actual dashboard callback starts immediately with the newly reported mode");
+                created.add(service.rides.activeId()); check(((List<?>)field(screen, "dialogs")).isEmpty(), "Dashboard start has no extra naming step");
+                service.stopRide();
+            }); awaitPhoneSave();
+            main(() -> {
+                setField(service.ble, "statusMs", SystemClock.elapsedRealtime());
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 11}, SystemClock.elapsedRealtime());
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).endsWith(" - WALK"), "Known walking mode gets its actual label");
+                profile.serial = "S9999SYNTHETIC"; profile.advertisedPid = "9999";
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime());
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).endsWith(" - Mode 3 (raw)"), "Another scooter never inherits the UT5 mode meanings");
+                service.ble.telemetry.clear(); // The parser deliberately rejects out-of-order samples.
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime() - 8000);
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Stale mode is not presented as current");
+                service.ble.telemetry.clear();
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime() + 8000);
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Future-dated mode is not treated as fresh");
+                service.ble.telemetry.clear();
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime());
+                setField(service.ble, "profile", new ScooterProfiles.Profile("other", "Other", "000000000000", 0, "", "S2538SYNTHETIC", 0));
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Another connected profile cannot provide the new ride's mode");
+                setField(service.ble, "profile", profile); service.ble.telemetry.clear();
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Missing mode is omitted without a placeholder or trailing separator");
+                setField(service, "phoneSavingCount", 1); screen.beginRecording(); check(!service.isRecording(), "Pending sensor save still blocks a new ride"); setField(service, "phoneSavingCount", 0);
+                setField(service.ble, "gatt", null); service.ble.disconnect();
+                settings.edit().putBoolean("developer_options", true).commit(); check(service.setSimulation(true), "Developer simulation fixture enabled"); screen.beginRecording(); check(!service.isRecording() && service.simulating(), "Home cannot start a simulated ride or silently exit simulation");
+                service.setSimulation(false); screen = (RidesScreen)field(activity, "screen");
+            });
+        } finally {
+            main(() -> { if (service.isRecording()) service.stopRide(); setField(service.ble, "gatt", null); service.ble.disconnect(); profile.serial = serial; profile.advertisedPid = pid; });
+            awaitPhoneSave();
+            for (String ride : created) { service.rides.delete(ride); service.phoneRides.delete(ride); }
+            settings.edit().putBoolean("phone_gps", gps).putBoolean("phone_motion", motion).putBoolean("developer_options", developer).remove("last_ride_label").commit();
+            main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen)field(activity, "screen"); if (activity.getResources().getConfiguration().screenWidthDp >= 650) invoke(screen, "showDetails", new Class[]{String.class}, id); }); settle();
+        }
+        check(!service.ble.connected() && !service.isRecording(), "Immediate-start fixture leaves no connection or capture running");
+    }
+    /** Ready-state fixture only: Bluetooth stays disabled, with no writer, poll or remote GATT service. */
+    void syntheticReady(ScooterProfiles.Profile profile) {
+        try {
+            Class<?> unsafe = Class.forName("sun.misc.Unsafe"); Field singleton = unsafe.getDeclaredField("theUnsafe"); singleton.setAccessible(true);
+            BluetoothGatt dummy = (BluetoothGatt)unsafe.getMethod("allocateInstance", Class.class).invoke(singleton.get(null), BluetoothGatt.class);
+            BluetoothAdapter adapter = getTargetContext().getSystemService(BluetoothManager.class).getAdapter();
+            setField(dummy, "mDevice", adapter.getRemoteDevice("02:00:00:00:00:01"));
+            BleController ble = activity.service().ble;
+            setField(ble, "profile", profile); setField(ble, "gatt", dummy); setField(ble, "writer", null);
+            setField(ble, "serial", "S2538SYNTHETIC"); setField(ble, "authenticated", true); setField(ble, "wanted", false);
+            setField(ble, "statusMs", SystemClock.elapsedRealtime()); setField(ble, "state", BleController.State.READY);
+            check(ble.ready(), "Synthetic connection is ready without any Bluetooth writer");
+        } catch (Exception e) { throw new IllegalStateException("Synthetic ready state unavailable", e); }
+    }
+    void awaitPhoneSave() {
+        long until = SystemClock.uptimeMillis() + 8000;
+        while (activity.service().phoneSaving() && SystemClock.uptimeMillis() < until) settle();
+        check(!activity.service().phoneSaving(), "Phone sensor journal finished saving");
     }
     void verifyExpandedMap(View sourceRoot) throws Exception {
         RouteMapView inline = (RouteMapView)find(sourceRoot, RouteMapView.class);
@@ -251,6 +340,128 @@ public final class RidesAnalysisValidation extends Instrumentation {
         check(((List<RideChartData.Series>)field(otherExpanded,"data")).get(0).values.size()==240,"Changing rides loads only the selected ride, never a stale full result");
         main(()->{for(Object dialog:new ArrayList<>((List<?>)field(screen,"dialogs")))((AlertDialog)dialog).dismiss();});
     }
+    /** Stops, a GPS gap, a scooter dropout and a spike: Speed colours, legend, readout, units and sync with basemap off. */
+    void verifySpeedRide() throws Exception {
+        ScooterService service = activity.service(); long wall = System.currentTimeMillis() - 3000000;
+        RideStore synthetic = new RideStore(new File(getTargetContext().getFilesDir(), "rides"));
+        String speedId = synthetic.start("fixture", "Stops and gap · synthetic", wall, 1000);
+        service.phoneRides.start(speedId, wall, 1000, "pocket"); StringBuilder phone = new StringBuilder();
+        double lat = 43.82, lon = -111.78;
+        for (int i = 0; i < 300; i++) {
+            long mono = 1000 + i * 1000L;
+            // 0-59 rolling, 60-149 long stop, 150-199 fast with one scooter spike, 200-224 no GPS, 225-259 no scooter, 260+ slow.
+            double kmh = i < 60 ? 18 + 6 * Math.sin(i / 8.0) : i < 150 ? 0 : i < 200 ? (i == 180 ? 90 : 30) : i < 260 ? 20 : 15;
+            double step = (i == 180 ? 30 : kmh) / 3.6 / 111000;
+            if (i < 60) lat += step; else if (i < 200) lon += step * 1.4; else { lat += step * .7; lon += step; }
+            Map<String,RideStore.Sample> row = new LinkedHashMap<>(); row.put("voltage_v", new RideStore.Sample(50d, "", "V", 0x72, mono));
+            row.put("current_a", new RideStore.Sample(kmh * 25 / 50, "", "A", 0x72, mono)); row.put("battery_percent", new RideStore.Sample(80 - i / 60.0, mono));
+            if (i < 225 || i >= 260) row.put("speed_kmh", new RideStore.Sample(kmh, mono));
+            synthetic.sample(wall + i * 1000L, mono, row);
+            if (i < 200 || i >= 225) phone.append(PhoneRideStore.row("GPS", wall + i * 1000L, mono, lat, lon, 3, (i == 180 ? 30 : kmh) / 3.6, .2, 1500, 4));
+            if (i < 225 || i >= 260) phone.append(PhoneRideStore.row("TELEMETRY", wall + i * 1000L, mono, kmh, kmh * 25, 80 - i / 60.0, mono, mono, mono));
+        }
+        synthetic.stop(wall + 300000, 301000); service.phoneRides.appendBatch(speedId, phone.toString(), ""); service.phoneRides.stop(speedId, wall + 300000, 301000);
+        SharedPreferences settings = service.settings; AtomicInteger tileCalls = new AtomicInteger();
+        int[][] colors = new int[3][]; String[] units = {"km", "mi", "dual"}, tops = {"35 km/h", "22 mph", "22 mph / 35 km/h"};
+        for (int pass = 0; pass < units.length; pass++) {
+            final int u = pass;
+            main(() -> { for (Object dialog : new ArrayList<>((List<?>)field(screen, "dialogs"))) ((AlertDialog)dialog).dismiss();
+                service.rides = synthetic; settings.edit().putBoolean("map_basemap_enabled", false).putString("units", units[u]).commit(); }); settle();
+            // A unit change can rebuild the visible screen; open the ride on the current one.
+            main(() -> { screen = (RidesScreen)field(activity, "screen"); invoke(screen, "showDetails", new Class[]{String.class}, speedId);
+                for (Object map : (List<?>)field(screen, "maps")) fakeTiles((RouteMapView)map, tileCalls); }); settle();
+            long until = SystemClock.uptimeMillis() + 8000; while (find(root(), RouteMapView.class) == null && SystemClock.uptimeMillis() < until) settle();
+            View detail = root(); RouteMapView inline = (RouteMapView)find(detail, RouteMapView.class);
+            check(inline != null, "Speed fixture opens with a route map: dialogs=" + ((List<?>)field(screen, "dialogs")).size());
+            check(!(boolean)field(inline, "streets"), "Speed fixture map draws offline with basemap off");
+            List<PhoneRideStore.Point> points = (List<PhoneRideStore.Point>)field(inline, "points");
+            int[] probe = new int[4]; // stop, missing scooter, spike, after GPS gap
+            for (int i = 0; i < points.size(); i++) { long t = points.get(i).elapsedMs / 1000;
+                if (t == 100) probe[0] = i; if (t == 242) probe[1] = i; if (t == 180) probe[2] = i; if (points.get(i).gapBefore && i > 0) probe[3] = i; }
+            main(() -> { View choice = byDescription(detail, "Route color: Speed"); choice.performClick(); check(choice.isSelected() && "speed".equals(field(inline, "metric")), "Speed choice selects the speed overlay: " + units[u]);
+                verifyChoicesFit((View)ancestor(choice, "SegmentedSelector")); });
+            Object scale = field(inline, "speedScale");
+            check("scooter".equals(field(scale, "source")) && (double)field(scale, "topKmh") == 35, "Speed scale ignores the long stop and spike: " + field(scale, "topKmh"));
+            check(probe[3] > 0 && points.get(probe[3]).segment != points.get(probe[3] - 1).segment, "GPS gap starts a new route segment instead of joining");
+            check(Double.valueOf(0).equals(invoke(scale, "kmh", new Class[]{int.class}, probe[0])) && (int)invoke(scale, "color", new Class[]{int.class}, probe[0]) == 0xff23499b, "Stopped points are zero speed on the low color, not missing");
+            check(invoke(scale, "kmh", new Class[]{int.class}, probe[1]) == null && (int)invoke(scale, "color", new Class[]{int.class}, probe[1]) == 0xff808080, "Points without scooter speed are no data, never GPS or zero");
+            check((int)invoke(scale, "color", new Class[]{int.class}, probe[2]) == 0xffffd246, "A spike clips to the top color");
+            colors[u] = new int[points.size()]; for (int i = 0; i < points.size(); i++) colors[u][i] = (int)invoke(inline, "color", new Class[]{int.class}, i);
+            Object legend = null;
+            for (View v : all(detail)) if (v.getClass().getSimpleName().equals("LegendView")) legend = v;
+            check("Speed · scooter".equals(field(legend, "title")) && tops[u].equals(((String[])field(legend, "labels"))[1]), "Legend names the source and shows top speed in " + units[u]);
+            final View shownLegend = (View)legend;
+            main(() -> verifyLegendFit(shownLegend));
+            main(() -> inline.requestRectangleOnScreen(new android.graphics.Rect(0, 0, inline.getWidth(), inline.getHeight()), true)); settle();
+            int target = probe[u == 0 ? 1 : 0]; tapPoint(inline, points.get(target)); settle();
+            int picked = (int)field(inline, "selected"); check(picked >= 0, "Tapping the speed route selects a point");
+            View readout = null; for (View v : all(detail)) if (v.getClass().getSimpleName().equals("Flow") && text(v, "Scooter") != null) readout = v;
+            check(readout != null && text(readout, "GPS") != null, "Point readout lists scooter and GPS speeds side by side");
+            SystemClock.sleep(800); settle(); screenshot("speed-inline-" + units[u]);
+            main(() -> byDescription(detail, "Expand route map").performClick()); settle();
+            View full = root(); RouteMapView map = (RouteMapView)find(full, RouteMapView.class);
+            main(() -> fakeTiles(map, tileCalls));
+            check("speed".equals(field(map, "metric")) && byDescription(full, "Route color: Speed").isSelected() && (int)field(map, "selected") == picked, "Fullscreen keeps Speed and the inspected point");
+            Object fullScale = field(map, "speedScale");
+            check(field(fullScale, "source").equals(field(scale, "source")) && (double)field(fullScale, "topKmh") == (double)field(scale, "topKmh"), "Fullscreen uses the same speed scale");
+            main(() -> verifyChoicesFit((View)ancestor(byDescription(full, "Route color: Speed"), "SegmentedSelector")));
+            double zoom = (double)field(map, "zoom"), center = (double)field(map, "centerX");
+            main(() -> { float x = map.getWidth() / 2f, y = map.getHeight() / 2f, span = activity.ui().dp(24); long now = SystemClock.uptimeMillis();
+                touch(map, now, 0, MotionEvent.ACTION_DOWN, new float[]{x, y}); touch(map, now, 20, MotionEvent.ACTION_MOVE, new float[]{x - activity.ui().dp(40), y}); touch(map, now, 50, MotionEvent.ACTION_UP, new float[]{x - activity.ui().dp(40), y});
+                touch(map, now + 100, 0, MotionEvent.ACTION_DOWN, new float[]{x - span, y});
+                touch(map, now + 100, 20, MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), new float[]{x - span, y, x + span, y});
+                touch(map, now + 100, 40, MotionEvent.ACTION_MOVE, new float[]{x - span * 2, y, x + span * 2, y});
+                touch(map, now + 100, 60, MotionEvent.ACTION_POINTER_UP | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), new float[]{x - span * 2, y, x + span * 2, y});
+                touch(map, now + 100, 80, MotionEvent.ACTION_UP, new float[]{x - span * 2, y}); }); settle();
+            check((double)field(map, "zoom") > zoom && Math.abs((double)field(map, "centerX") - center) > 1e-9, "Speed overlay keeps pan and pinch in fullscreen");
+            check(field(map, "speedScale") == fullScale && (double)field(fullScale, "topKmh") == 35, "Panning and zooming never re-range the speed scale");
+            main(() -> byDescription(full, "Fit route").performClick()); settle(); check((boolean)field(map, "fitted"), "Fit route still works with Speed");
+            tapPoint(map, points.get(probe[u == 0 ? 2 : 1])); settle(); SystemClock.sleep(800); settle(); screenshot("speed-full-" + units[u]);
+            main(() -> text(full, "Power").performClick()); settle();
+            main(() -> byDescription(full, "Route color: Speed").performClick());
+            main(() -> byDescription(full, "Close expanded route map").performClick()); settle();
+            check("speed".equals(field(inline, "metric")) && byDescription(detail, "Route color: Speed").isSelected(), "Closing fullscreen keeps Speed inline");
+            check(tileCalls.get() == 0, "Speed overlay, gestures and expansion make no tile requests with basemap off");
+        }
+        check(Arrays.equals(colors[0], colors[1]) && Arrays.equals(colors[0], colors[2]), "Changing units changes only labels, never route colors");
+        main(() -> { for (Object dialog : new ArrayList<>((List<?>)field(screen, "dialogs"))) ((AlertDialog)dialog).dismiss(); settings.edit().remove("units").commit(); }); settle();
+    }
+    void verifyLegendFit(View legend) {
+        String[] labels = (String[])field(legend, "labels");
+        for (int widthDp : new int[]{240, 312, 344, 700}) {
+            Object layout = invoke(legend, "layoutFor", new Class[]{int.class}, activity.ui().dp(widthDp));
+            android.graphics.Paint paint = (android.graphics.Paint)field(legend, "paint");
+            float left = (float)field(layout, "barLeft"), right = (float)field(layout, "barRight");
+            float lastStart = right - paint.measureText(labels[labels.length - 1]);
+            boolean separate = (boolean)field(layout, "separateLabels");
+            check(separate || lastStart - (left + paint.measureText(labels[0])) >= activity.ui().dp(9),
+                    "Legend endpoint labels keep a measured gap at " + widthDp + " dp: " + labels[labels.length - 1]);
+            check(left >= legend.getPaddingLeft() && right <= activity.ui().dp(widthDp) - legend.getPaddingRight() && right > left,
+                    "Legend bar stays within the view at " + widthDp + " dp");
+            float bottom = (float)field(layout, "labelBaseline") + paint.getFontMetrics().descent
+                    + (separate ? (labels.length - 1) * ((float)field(layout, "line") + activity.ui().dp(3)) : 0);
+            check(bottom <= (float)field(layout, "height") - legend.getPaddingBottom() + .01f,
+                    "Legend's measured height includes its labels at " + widthDp + " dp");
+            String title = (String)field(layout, "shownTitle");
+            float keyStart = (float)field(layout, "right") - paint.measureText("missing") - activity.ui().dp(6 + 18);
+            check((float)field(layout, "left") + paint.measureText(title) + activity.ui().dp(8) <= keyStart,
+                    "Legend source title stays separate from the missing-data key at " + widthDp + " dp");
+        }
+    }
+    void verifyChoicesFit(View selector) {
+        selector.requestRectangleOnScreen(new android.graphics.Rect(0, 0, selector.getWidth(), selector.getHeight()), true);
+        List<TextView> choices = (List<TextView>)field(field(selector, "track"), "choices"); android.graphics.Rect bounds = new android.graphics.Rect(); selector.getGlobalVisibleRect(bounds);
+        check(choices.size() == 5, "Five route color choices");
+        for (int i = 0; i < choices.size(); i++) { TextView c = choices.get(i); android.graphics.Rect r = new android.graphics.Rect();
+            check(c.getGlobalVisibleRect(r) && r.width() == c.getWidth() && r.height() == c.getHeight() && bounds.contains(r), "Route color choice fully visible: " + c.getText());
+            check(c.getLayout() != null && c.getLayout().getEllipsisCount(c.getLineCount() - 1) == 0 && c.getLineCount() == 1, "Route color label is unclipped on one line: " + c.getText());
+            for (int j = 0; j < i; j++) { android.graphics.Rect o = new android.graphics.Rect(); choices.get(j).getGlobalVisibleRect(o); check(!android.graphics.Rect.intersects(r, o), "Route color choices do not overlap"); } }
+    }
+    void tapPoint(RouteMapView map, PhoneRideStore.Point point) {
+        main(() -> { float x = (float)invoke(map, "screenX", new Class[]{PhoneRideStore.Point.class}, point), y = (float)invoke(map, "screenY", new Class[]{PhoneRideStore.Point.class}, point); long now = SystemClock.uptimeMillis();
+            touch(map, now, 0, MotionEvent.ACTION_DOWN, new float[]{x, y}); touch(map, now, 30, MotionEvent.ACTION_UP, new float[]{x, y}); });
+    }
+    List<View> all(View view) { List<View> out = new ArrayList<>(); out.add(view); if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) out.addAll(all(((ViewGroup)view).getChildAt(i))); return out; }
     void verifyZoomButtons(View root){for(String label:new String[]{"Zoom out ride chart","Fit the whole ride in the chart","Zoom in ride chart"}){View button=byDescription(root,label);ViewGroup row=(ViewGroup)button.getParent();check(button.getTop()>=row.getPaddingTop()&&button.getBottom()<=row.getHeight()-row.getPaddingBottom(),"Zoom button fits inside row: "+label);}}
     void verifyMapContrast(RouteMapView map){
         int casing=(int)invoke(map,"routeCasingColor",new Class[0]);check(casing==(activity.ui().dark?android.graphics.Color.WHITE:0xff20242c),"Map canvas chooses contrasting route casing");
@@ -428,7 +639,9 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(!prompt.isShowing() && !settings.getBoolean("map_basemap_explained", false), "Removing the inline control cancels its pending approval");
             parent.addView(control, index, params);
         }); settle();
+        main(() -> { byDescription(sourceRoot, "Route color: Speed").performClick(); inline.zoomBy(1); inline.zoomBy(-1); }); settle();
         check(tileCalls.get() == 0, "Default-off and canceled consent cause no tile requests");
+        main(() -> text(sourceRoot, "Power").performClick());
         main(() -> { inlineToggle.performClick(); basemapPrompt(inlineToggle).getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
         check(inlineToggle.isChecked() && (boolean)field(inline, "streets"), "Approving the inline switch enables the current map");
         check(tileCalls.get() > 0, "Approved visible map uses the synthetic tile connection only");

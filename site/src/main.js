@@ -6,7 +6,7 @@
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const canHover = window.matchMedia('(hover: hover) and (pointer: fine)');
 
-  const init = () => { nav(); counters(); reveal(); spotlight(); tilt(); route(); field(); };
+  const init = () => { nav(); lockDemo(); reveal(); spotlight(); tilt(); route(); field(); openLinked(); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();
 
@@ -63,27 +63,32 @@
     stage.addEventListener('pointerleave', () => { phone.style.removeProperty('--ry'); phone.style.removeProperty('--rx'); });
   }
 
-  function counters() {
-    const items = Array.from(document.querySelectorAll('.count'));
-    if (reduceMotion.matches || !('IntersectionObserver' in window)) return; // Final values are already in the markup.
-    const run = item => {
-      const target = Number(item.dataset.count || 0);
-      const start = performance.now();
-      const step = now => {
-        const progress = Math.min(1, (now - start) / 1500);
-        item.textContent = String(Math.round(target * (1 - Math.pow(1 - progress, 3))));
-        if (progress < 1) requestAnimationFrame(step);
-      };
-      requestAnimationFrame(step);
+  // Opens an FAQ answer when a link (or the address bar) points at it. Without JavaScript the link still scrolls to the question.
+  // A malformed hash (#100%) is treated as no target, and a repeat click on the same link reopens a closed answer.
+  function openLinked() {
+    const open = hash => {
+      let id = null;
+      try { id = hash.length > 1 ? decodeURIComponent(hash.slice(1)) : null; } catch (error) { return; }
+      const target = id ? document.getElementById(id) : null;
+      if (target && target.tagName === 'DETAILS') target.open = true;
     };
-    const observer = new IntersectionObserver(entries => {
-      for (const entry of entries) {
-        if (!entry.isIntersecting) continue;
-        run(entry.target);
-        observer.unobserve(entry.target);
-      }
-    }, { threshold: 0.6 });
-    items.forEach(item => { if (Number(item.dataset.count || 0) > 0) { item.textContent = '0'; observer.observe(item); } });
+    open(location.hash);
+    window.addEventListener('hashchange', () => open(location.hash));
+    document.addEventListener('click', event => {
+      const link = event.target instanceof Element ? event.target.closest('a[href^="#"]') : null;
+      if (link) open(link.getAttribute('href'));
+    });
+  }
+
+  // The lock demo is pure CSS with one shared duration. Pinning every part to the same start time keeps knob, glyph and
+  // label in lockstep even if parsing or styling started them a frame apart.
+  function lockDemo() {
+    const demo = document.querySelector('.lock-demo');
+    if (!demo || typeof demo.getAnimations !== 'function' || !document.timeline) return;
+    const animations = demo.getAnimations({ subtree: true });
+    const now = document.timeline.currentTime;
+    if (animations.length < 2 || now == null) return;
+    animations.forEach(animation => { animation.startTime = now; });
   }
 
   function route() {

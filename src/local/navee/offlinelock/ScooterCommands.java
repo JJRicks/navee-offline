@@ -8,7 +8,8 @@ import java.util.List;
 /**
  * Named, bounded OEM controls. No arbitrary register/opcode console is exposed.
  * Evidence: installed NAVEE 2.1.9 BleHandler and its settings activities.
- * Catalog targets the US UT5 MAX, PID 2538; sibling scooters have different limits.
+ * Option domains and labels in this catalogue are Volt's UT5 MAX (PID 2538) layer.
+ * Other models receive FeatureVariants from ModelRegistry.
  * Sending a control is not confirmation: wait for its response and fresh readback.
  */
 public final class ScooterCommands {
@@ -80,6 +81,9 @@ public final class ScooterCommands {
             return (raw & readbackMask) >>> readbackShift;
         }
 
+        /** Wire selector bytes before the value (0x6e/0x6f/0x81 selector, 0x6d target and sub). */
+        int[] selector() { return prefix.clone(); }
+
         public Long timeReadback(Protocol.Frame frame) {
             if(type!=Type.TIME || frame==null || frame.cmd!=readbackCmd || frame.error()!=0
                     || frame.data.length<payloadOffset+5) return null;
@@ -90,6 +94,8 @@ public final class ScooterCommands {
     }
 
     private static final LinkedHashMap<String, Feature> FEATURES = new LinkedHashMap<String, Feature>();
+    /** Controls with no UT5 MAX counterpart: never in catalog(), offered only where ModelRegistry maps them. */
+    private static final LinkedHashMap<String, Feature> OEM_ONLY = new LinkedHashMap<String, Feature>();
     private static final String[] NO_OPTIONS = new String[0];
     private static final int[] NO_VALUES = new int[0];
     private static final int[] READS = {0x70, 0x71, 0x72, 0x73, 0x74, 0x75, 0x76, 0x79, 0x7b};
@@ -149,6 +155,10 @@ public final class ScooterCommands {
         // PIN bytes must never enter diagnostics or exports: Telemetry drops 0x7a/0x63 and parsePin keeps only state.
         add("pin","Handlebar PIN","Security","",Type.PIN,"",0x63,0,0,1,
                 NO_OPTIONS,NO_VALUES,NO_VALUES,"",0,255,0,"password",true,true);
+        // OEM 2.1.9 light controls for other models: 0x6d [type, 0 off | 1 on | 2 follow headlight], raw readback.
+        oemOnlyLight("ambient_light_mode","Ambient light",1,10);
+        oemOnlyLight("logo_light","Logo light",2,23);
+        oemOnlyLight("daytime_light","Daytime running light",3,24);
     }
 
     private ScooterCommands() {}
@@ -174,8 +184,15 @@ public final class ScooterCommands {
         return Collections.unmodifiableList(new ArrayList<Feature>(FEATURES.values()));
     }
 
+    /** Controls other models may have and the UT5 MAX does not; saved layouts never reference them. */
+    public static List<Feature> oemOnly() {
+        return Collections.unmodifiableList(new ArrayList<Feature>(OEM_ONLY.values()));
+    }
+    public static boolean oemOnly(String key) { return OEM_ONLY.containsKey(key); }
+
     public static Feature find(String key) {
         Feature feature = FEATURES.get(key);
+        if (feature == null) feature = OEM_ONLY.get(key);
         require(feature != null, "Unknown scooter feature");
         return feature;
     }
@@ -187,16 +204,17 @@ public final class ScooterCommands {
         require(feature.allows(value), "Value is outside the OEM feature domain");
         if (key.equals("speed_limit")) {
             require(value == 0 || value >= 8, "Off or 8–32 km/h");
-            return Protocol.frame(feature.cmd, new byte[]{(byte)(value == 0 ? 0 : value | 128)});
+            return WireCommands.enabledCap(feature.cmd,-1,value,value!=0);
         }
         if (key.equals("drive_speed_limit")) {
             require(value == 0 || value >= 5, "Off or 5–20 km/h");
-            return Protocol.frame(feature.cmd,new byte[]{3,(byte)(value == 0 ? 0 : value | 128)});
+            return WireCommands.enabledCap(feature.cmd,3,value,value!=0);
         }
-        byte[] payload = new byte[feature.prefix.length + 1];
-        for (int i=0;i<feature.prefix.length;i++) payload[i]=(byte)feature.prefix[i];
-        payload[payload.length-1]=(byte)value;
-        return Protocol.frame(feature.cmd,payload);
+        int[] selector=feature.prefix;
+        if (selector.length==0) return WireCommands.scalar(feature.cmd,value);
+        if (selector.length==1) return WireCommands.selector(feature.cmd,selector[0],value);
+        require(selector.length==2 && feature.cmd==0x6d,"Feature has no wire encoder");
+        return WireCommands.light(selector[0],selector[1],value);
     }
 
     /** Runtime-gated builder: missing firmware fields cannot be treated as supported controls. */
@@ -236,26 +254,19 @@ public final class ScooterCommands {
         if (key.equals("voice")) {
             require(values.length == 3 && binary(values[0]) && between(values[1],0,100) && binary(values[2]),
                     "Voice needs enabled, volume 0–100, and language 0 (Chinese) / 1 (English)");
-            return Protocol.frame(0x6c,new byte[]{(byte)(values[0] == 0 ? 0 : 128 | values[1]),(byte)values[2]});
+            return WireCommands.voice(values[0]!=0,values[1],values[2]);
         }
         require(values.length == 1,"Scalar feature accepts exactly one parameter");
         return set(key,values[0]);
     }
 
     public static byte[] setChargeStart(long unixSeconds, int timezoneOffsetSeconds) {
-        return timestamp(3,unixSeconds,timezoneOffsetSeconds);
+        return WireCommands.localTime(3,unixSeconds,timezoneOffsetSeconds);
     }
 
     /** The OEM synchronizes this clock after owner authentication. */
     public static byte[] setClock(long unixSeconds, int timezoneOffsetSeconds) {
-        return timestamp(6,unixSeconds,timezoneOffsetSeconds);
-    }
-
-    private static byte[] timestamp(int parameter, long unixSeconds, int offset) {
-        require(between(offset,-18*3600,18*3600),"Timezone offset is invalid");
-        long local = unixSeconds + offset;
-        require(unixSeconds > 0 && local > 0 && local <= 0xffffffffL,"Timestamp must fit OEM's four-byte clock");
-        return Protocol.frame(0x6f,new byte[]{(byte)parameter,(byte)(local>>>24),(byte)(local>>>16),(byte)(local>>>8),(byte)local});
+        return WireCommands.localTime(6,unixSeconds,timezoneOffsetSeconds);
     }
 
     public static int[] diagnosticReads() { return READS.clone(); }
@@ -345,7 +356,8 @@ public final class ScooterCommands {
         switch(cmd) {
             case 0x51: case 0x52: case 0x54: case 0x55: case 0x57: case 0x5f: case 0x60: case 0x61: case 0x82:
                 return d.length==1 && binary(a);
-            case 0x53: return d.length==1 && (a==0||a==30||a==60||a==90);
+            // 1 is group M's on/off energy recovery (OEM-mapped); the UT5 MAX catalogue still offers only 0/30/60/90.
+            case 0x53: return d.length==1 && (a==0||a==1||a==30||a==60||a==90);
             case 0x56: return d.length==1 && between(a,0,4);
             case 0x58: return d.length==1 && (a==3||a==5);
             case 0x63:
@@ -362,9 +374,11 @@ public final class ScooterCommands {
                 if(d.length==2) return between(a,1,3) && between(b,0,2);
                 if(d.length!=3 || (a!=4 && a!=5)) return false;
                 int c=d[2]&255;
-                return (b==0 && binary(c)) || (b==1 && between(c,0,2)) || ((b==2||b==3) && between(c,0,1));
+                // Colours 0-5: the union of the OEM two-colour and six-colour line/star tables (each model offers its own).
+                return (b==0 && binary(c)) || (b==1 && between(c,0,2)) || ((b==2||b==3) && between(c,0,5));
             case 0x6e:
-                return d.length==2 && ((a==1 && (b==25||b==32||b==40||b==50))
+                // Selector 1: the union of the OEM per-model maximum-speed tables; each model offers only its own.
+                return d.length==2 && ((a==1 && (b==25||b==30||b==32||b==35||b==40||b==45||b==50||b==55||b==60||b==65||b==70))
                     || (a==2 && binary(b)) || (a==3 && (b==0 || (b>=128 && between(b&127,5,20)))));
             case 0x6f:
                 if(d.length==5) return (a==3||a==6) && (d[1]!=0||d[2]!=0||d[3]!=0||d[4]!=0);
@@ -387,6 +401,11 @@ public final class ScooterCommands {
             new String[]{"Ice blue","Red"},new int[]{0,1},new int[]{target,3},target==4?"eco_light":"sport_light",colorOffset,240,4,"ambientV3",false,false);
     }
 
+    private static void oemOnlyLight(String key,String label,int type,int offset) {
+        require(!FEATURES.containsKey(key),"OEM-only key collides with the catalogue");
+        OEM_ONLY.put(key,new Feature(key,label,"Lights & sound","",Type.CHOICE,"",0x6d,0,2,1,new String[]{"Off","On","Follow headlight"},new int[]{0,1,2},
+            new int[]{type},"",offset,255,0,"lights",false,false));
+    }
     private static void toggle(String key,String label,String group,String description,int cmd,int offset,String readback,String capability,boolean parked) {
         add(key,label,group,description,Type.TOGGLE,"",cmd,0,1,1,new String[]{"Off","On"},new int[]{0,1},NO_VALUES,readback,offset,255,0,capability,false,parked);
     }

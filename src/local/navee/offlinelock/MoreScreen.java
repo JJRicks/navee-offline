@@ -67,12 +67,14 @@ public final class MoreScreen implements AppScreen {
     private LinearLayout cardDestination, onboardingCard, sectionMenu, indexView, sectionHeader;
     private View sectionBack;
     private TextView sectionTitle, sectionBackLabel;
-    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About", "Developer"};
+    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Compatibility", "Data", "About", "Developer"};
     private static final String[] SECTION_LABELS = {"App preferences", "My scooters", "PIN & proximity unlock",
-            "Experimental controls", "Data & history", "About & permissions", "Developer options"};
+            "Experimental controls", "Compatibility", "Data & history", "About & permissions", "Developer options"};
     private static final String[] SECTION_TITLES = {"App preferences", "My scooters", "PIN & proximity",
-            "Firmware lab", "Data & history", "About & permissions", "Developer options"};
-    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "history", "info", "lab"};
+            "Firmware lab", "Compatibility", "Data & history", "About & permissions", "Developer options"};
+    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "check", "history", "info", "lab"};
+    /** More › Compatibility: the read-only model check and its report preview. */
+    private CompatibilityPanel compatibilityPanel;
     /** TelemetryHistory's database file; only its size on disk is read here, never its contents. */
     private static final String HISTORY_DATABASE = "telemetry-history.db";
     private final Map<String,LinearLayout> sections = new LinkedHashMap<>();
@@ -92,13 +94,15 @@ public final class MoreScreen implements AppScreen {
     private final List<Row> lockedProfileRows = new ArrayList<>();
     private TextView profileUnlock;
     private Row nearbyRow, locationRow, notificationRow;
-    private Row developerIndexRow, simulationRow;
-    private TextView simulationStatus, chargeCaptureStatus, chargeCurveValue;
+    private Row developerIndexRow, simulationRow, simulationModelRow;
+    /** Developer simulator models: "" is the UT5 MAX simulator; the others are synthetic advertised IDs. */
+    private static final String[] SIMULATION_MODELS = {"", "24431", "39991"};
+    private static final String[] SIMULATION_MODEL_NAMES = {"UT5 MAX", "Mapped model (synthetic 24431)", "Unknown model (synthetic 39991)"};
+    private TextView simulationStatus, chargeCaptureStatus, chargeCurveValue, chargeCurveScope;
     private LinearLayout chargeCurve;
     private Row chargeCaptureRow, clearChargeRow, exportChargeRow, chargeHistoryRow;
     private ChargeHistoryDialog chargeHistoryDialog;
     private SegmentedSelector chargeChargerSelector;
-    private ChargeSessionStore.Charger chosenCharger=ChargeSessionStore.Charger.STOCK;
     private android.widget.Toast developerCountdown;
     private int developerTaps;
     private long lastDeveloperTap;
@@ -155,7 +159,8 @@ public final class MoreScreen implements AppScreen {
         for (int i = 0; i < SECTIONS.length; i++) {
             final String section = SECTIONS[i];
             if (!knownSection(section)) continue;
-            Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i], null, () -> selectSection(section));
+            Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i],
+                    section.equals("Compatibility") ? "Model check & report" : null, () -> selectSection(section));
             // Room for the selected row's red tint to frame its icon in the wide menu.
             if (wide) row.view.setPadding(ui.dp(8), ui.dp(9), ui.dp(8), ui.dp(9));
             menuRows[i] = row;
@@ -190,6 +195,7 @@ public final class MoreScreen implements AppScreen {
             else if (section.equals("Scooters")) profiles();
             else if (section.equals("Security")) security();
             else if (section.equals("Lab")) lab();
+            else if (section.equals("Compatibility")) compatibilityPanel = new CompatibilityPanel(host, cardDestination);
             else if (section.equals("Data")) dataHistory();
             else if (section.equals("Developer")) developerOptions();
             else privacy();
@@ -815,7 +821,7 @@ public final class MoreScreen implements AppScreen {
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Choose scooter")
                 .setSingleChoiceItems(names, selected, (d, which) -> {
                     if (!canEditProfiles()) return;
-                    service().profiles.select(all.get(which).id); d.dismiss();
+                    service().profiles.select(all.get(which).id); service().ble.profileSelected(); d.dismiss();
                     host.toast(all.get(which).name + " selected"); host.redraw();
                 }).setNegativeButton("Close", null).create(); show(dialog);
     }
@@ -852,7 +858,7 @@ public final class MoreScreen implements AppScreen {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             if (!canEditProfiles()) return;
             String value = name.getText().toString().trim(); if (value.isEmpty()) { name.setError("Enter a scooter name"); return; }
-            p.name = value; service().profiles.update(p); dialog.dismiss(); host.redraw();
+            p.name = value; p.nameDefault = false; service().profiles.update(p); dialog.dismiss(); host.redraw();
         });
     }
     private void backupProfile() {
@@ -899,7 +905,6 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(display, "vibrate", "Haptic feedback", null, Haptics.PREFERENCE, true);
         Row map = row(display, "map", "Map settings", null, this::mapSettings);
         valueRefreshers.add(() -> map.value(basemapSummary()));
-        row(display, "grid", "Dashboard backups", null, this::dashboardBackups);
         label("Connection & recording");
         LinearLayout connection = group();
         Row rate = row(connection, "clock", "Telemetry refresh", null, this::telemetryRate);
@@ -907,6 +912,8 @@ public final class MoreScreen implements AppScreen {
         preferenceToggle(connection, "bluetooth", "Connect automatically", null, "auto_connect", true);
         preferenceToggle(connection, "bluetooth", "Stay connected in background", "Recordings always stay connected", "background_connection", false);
         preferenceToggle(connection, "screen", "Keep screen awake", "While recording", "keep_screen_awake", true);
+        // Default on. ScooterService/RideAutoStopPolicy decide; this only stores the choice.
+        preferenceToggle(connection, "walk", "End parked rides", "10 s after Bluetooth drops at a stop", "ride_auto_stop", true);
         // Battery use is the one setting that decides whether long background recordings survive:
         // show it as the value and open Android's page for this app directly.
         Row background = row(connection, "battery", "Background recording", null,
@@ -943,13 +950,6 @@ public final class MoreScreen implements AppScreen {
     private void mapSettings() {
         AlertDialog dialog = MapPreferences.show(host);
         if (dialog != null) dialog.setOnDismissListener(d -> { if (!closed) refresh(); });
-    }
-    private void dashboardBackups() {
-        LinearLayout box = dialogBox("Dashboard backups", "Layouts and notes · no keys or rides");
-        button(box, "Export dashboards", host::exportDashboardLayouts, true);
-        button(box, "Import dashboards", host::importDashboardLayouts, false);
-        ScrollView scroller = new ScrollView(host.activity()); scroller.addView(box);
-        show(new AlertDialog.Builder(host.activity()).setView(scroller).setNegativeButton("Close", null).create());
     }
     private void openAndroidSettings(String action){
         android.content.Intent intent=new android.content.Intent(action);
@@ -1195,7 +1195,10 @@ public final class MoreScreen implements AppScreen {
     }
     private boolean ownerReady() {
         ScooterProfiles.Profile p = active();
-        return service() != null && service().ble.ready() && p != null && p.role == 0 && p.pid() == 2538;
+        if (service() == null || !service().ble.ready() || p == null || p.role != 0) return false;
+        // The resolver decides whether this model has the PIN; riding or a pending change only disable the rows.
+        CapabilityResolver.Decision pin = service().ble.decision("pin");
+        return pin.available() || pin.blockedByRide() || pin.reason == CapabilityResolver.Reason.BUSY;
     }
     /** One of the four PIN boxes; it only knows whether it is filled, never which digit. */
     private final class PinBox extends View {
@@ -1480,12 +1483,21 @@ public final class MoreScreen implements AppScreen {
         ScooterService s = service(); if (s == null) return "Connect first";
         BleController ble = s.ble; ScooterProfiles.Profile p = active();
         if (!ble.ready()) return "Connect first";
+        // Lab on the UT5 MAX, but an ordinary OEM-mapped control on this model: it lives in Scooter settings.
+        if (oemMapped(ble.decision(feature.key))) return "In Scooter settings for this model";
         Integer current = ble.featureValue(feature.key);
         if (current == null) return "Not reported by firmware";
         if (!feature.allows(current)) return "Unknown value · can't change safely";
-        if (p == null || p.pid() != 2538) return "UT5 MAX only";
+        CapabilityResolver.Decision decision = ble.decision(feature.key);
+        if (decision.support != CapabilityResolver.Support.KNOWN_ENCODING || (!decision.available() && !decision.blockedByRide()
+                && decision.reason != CapabilityResolver.Reason.BUSY)) return decision.reasonText();
         if (ble.pending() != null) return "Wait for the current change";
         return null;
+    }
+    /** A known, non-Lab variant from another model's mapping (never the UT5 MAX catalogue). */
+    private static boolean oemMapped(CapabilityResolver.Decision d) {
+        return d.support == CapabilityResolver.Support.KNOWN_ENCODING && d.variant != null && !d.variant.lab
+                && d.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
     }
     void inspectQuickFeature(ScooterCommands.Feature feature) {
         if (!closed && feature != null && feature.experimental) experimental(feature);
@@ -1597,6 +1609,8 @@ public final class MoreScreen implements AppScreen {
         label("Your data");
         LinearLayout data = ui.card(); cardDestination.addView(data);
         note(data, "All data stays on this phone. Owner backups include your scooter key.");
+        LinearLayout backups = group();
+        row(backups, "download", "Back up & restore", "Encrypted · choose what to include", () -> host.dataBackup(null, null)).view.setTag("data-backup");
         LinearLayout maps = group();
         Row online = row(maps, "map", "Online map", null, this::mapSettings);
         valueRefreshers.add(() -> online.value(basemapSummary()));
@@ -1640,30 +1654,35 @@ public final class MoreScreen implements AppScreen {
         });
         simulationRow.view.setTag("developer-simulation-row");
         simulationRow.toggle.setTag("developer-simulation-toggle");
+        simulationModelRow = row(controls, "scooter", "Simulated model", null, this::chooseSimulationModel);
+        simulationModelRow.view.setTag("developer-simulation-model");
         simulationStatus = footnote("Simulation active · sample data");
         simulationStatus.setTag("developer-simulation-status");
         simulationStatus.setTextColor(ui.orange);
         simulationStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         label("Charge recording");
-        TextView attached = ui.text("Attached charger", 12.5f, false); attached.setTextColor(ui.muted);
+        TextView attached = ui.text("Charger for estimates", 12.5f, false); attached.setTextColor(ui.muted);
         attached.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(6)); cardDestination.addView(attached);
         ScooterService current=service();
-        chosenCharger=current!=null&&current.chargeCharger()!=null?current.chargeCharger():ChargeSessionStore.Charger.STOCK;
-        chargeChargerSelector=new SegmentedSelector(ui,"Attached charger",new String[]{"Stock","High-speed"},choice->{
+        ChargeSessionStore.Charger chosen=current==null?null:current.chargeCharger();
+        chargeChargerSelector=new SegmentedSelector(ui,"Charger for estimates",new String[]{"Auto","Stock","High-speed"},choice->{
             ScooterService s=service();if(s==null||s.isChargeRecording())return;
-            chosenCharger=choice==0?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED;
-            s.setChargeCharger(chosenCharger);refreshDeveloper();
+            s.setChargeCharger(choice==0?null:choice==1?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED);
+            refreshDeveloper();
         });
-        chargeChargerSelector.setTag("charge-charger-selector");chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
+        chargeChargerSelector.setTag("charge-charger-selector");chargeChargerSelector.select(chosen==null?0:chosen==ChargeSessionStore.Charger.STOCK?1:2,false);
         preferenceSelectors.add(chargeChargerSelector);
         LinearLayout.LayoutParams chargerParams=new LinearLayout.LayoutParams(-1,-2);chargerParams.bottomMargin=ui.dp(12);
         cardDestination.addView(chargeChargerSelector,chargerParams);
+        footnote("Auto recognizes UT5 MAX chargers from live power. If uncertain, Volt uses the current rate; choose a charger to override.");
         // Count qualified evidence without claiming every range is ready at a fixed session count.
         chargeCurve=ui.card();chargeCurve.setTag("charge-learning-status");
         LinearLayout curveHead=row();
         TextView curveTitle=ui.text("Saved charge curves",14,false);curveHead.addView(curveTitle,new LinearLayout.LayoutParams(0,-2,1));
         chargeCurveValue=ui.text("",14,true);curveHead.addView(chargeCurveValue);
         chargeCurve.addView(curveHead);
+        chargeCurveScope=ui.text("",12.5f,false);chargeCurveScope.setTextColor(ui.muted);chargeCurveScope.setTag("charge-learning-scope");
+        chargeCurve.addView(chargeCurveScope);
         cardDestination.addView(chargeCurve);
         LinearLayout capture=group();
         chargeCaptureRow=row(capture,"battery","Record this charge",null,()->{
@@ -1692,10 +1711,8 @@ public final class MoreScreen implements AppScreen {
                     .setMessage("Removes charges and learned curves. Rides stay.")
                     .setNegativeButton("Cancel",null).setPositiveButton("Clear recordings",(d,which)->s.clearChargeRecordings(this::refreshDeveloper)).create();show(dialog);
         });clearChargeRow.view.setTag("charge-clear-action");
-        label("Backups & test layouts");
+        label("Test layouts");
         LinearLayout backups = group();
-        row(backups, "download", "Export all app data", "Encrypted backup · includes private setup keys", () -> host.fullBackup(false)).view.setTag("developer-full-export");
-        row(backups, "restore", "Restore all app data", "Replaces all data", () -> host.fullBackup(true)).view.setTag("developer-full-restore");
         row(backups, "grid", "Load All widgets into slot 3", null, () -> {
             ScooterProfiles.Profile profile = active();
             if (profile == null) { host.toast("Choose a scooter first."); return; }
@@ -1717,6 +1734,19 @@ public final class MoreScreen implements AppScreen {
         hide.view.setTag("developer-hide-options");
     }
 
+    private void chooseSimulationModel() {
+        ScooterService s = service();
+        if (closed || s == null || !developerEnabled()) return;
+        int selected = Math.max(0, java.util.Arrays.asList(SIMULATION_MODELS).indexOf(s.ble.simulationModel()));
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Simulated model")
+                .setSingleChoiceItems(SIMULATION_MODEL_NAMES, selected, (d, which) -> {
+                    ScooterService current = service();
+                    if (closed || current == null || !developerEnabled()) return;
+                    current.ble.setSimulationModel(SIMULATION_MODELS[which]); d.dismiss();
+                    refreshDeveloper(); host.redraw();
+                }).setNegativeButton("Close", null).create(); show(dialog);
+    }
+
     private void refreshDeveloper() {
         ScooterService s = service();
         boolean enabled = developerEnabled();
@@ -1729,11 +1759,13 @@ public final class MoreScreen implements AppScreen {
         if (simulationRow != null) {
             refreshSwitch(simulationRow, simulating, enabled && s != null);
             simulationStatus.setVisibility(simulating ? View.VISIBLE : View.GONE);
+            int model = s == null ? 0 : Math.max(0, java.util.Arrays.asList(SIMULATION_MODELS).indexOf(s.ble.simulationModel()));
+            simulationModelRow.value(model == 0 ? "UT5 MAX" : model == 1 ? "Mapped" : "Unknown");
+            simulationModelRow.enabled(enabled && s != null);
         }
         if(chargeCaptureRow!=null){
             ChargeSessionStore.Charger selected=s==null?null:s.chargeCharger();
-            chosenCharger=selected==null?ChargeSessionStore.Charger.STOCK:selected;
-            chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
+            chargeChargerSelector.select(selected==null?0:selected==ChargeSessionStore.Charger.STOCK?1:2,false);
             boolean capturing=s!=null&&s.isChargeRecording();
             String unavailable=s==null?"Connect your scooter first":s.chargeCaptureUnavailable();
             chargeCaptureRow.title.setText(capturing?"Stop charge recording":"Record this charge");
@@ -1758,23 +1790,29 @@ public final class MoreScreen implements AppScreen {
         ScooterProfiles.Profile profile = active();
         if (profile == null) { host.toast("Choose a scooter first."); return; }
         final String profileId = profile.id;
-        final ChargeSessionStore.Charger[] selected = {chosenCharger};
+        // Capture labels train curves, so only an explicit preference is pre-selected; an
+        // Automatic guess must never become a label in one tap. An open panel must never start
+        // a different scooter's recording.
+        final ChargeSessionStore.Charger[] selected = {s.chargeCharger()};
         LinearLayout box = dialogBox("", "Saved on phone · stops at 100% · keeps the last 20");
         TextView heading = (TextView) box.getChildAt(0);
-        Runnable title = () -> heading.setText("Record with " + (selected[0] == ChargeSessionStore.Charger.STOCK ? "Stock" : "High-speed") + " charger?");
-        title.run();
-        // A choice in a confirmation panel is provisional until Start. Cancel must not change
-        // future estimates, and an open panel must never start a different scooter's recording.
+        final TextView[] start = new TextView[1];
+        Runnable title = () -> {
+            heading.setText(selected[0] == null ? "Which charger is attached?"
+                    : "Record with " + (selected[0] == ChargeSessionStore.Charger.STOCK ? "Stock" : "High-speed") + " charger?");
+            if (start[0] != null) { start[0].setEnabled(selected[0] != null); start[0].setAlpha(selected[0] != null ? 1f : .5f); }
+        };
         SegmentedSelector picker = new SegmentedSelector(ui, "Attached charger", new String[]{"Stock", "High-speed"}, choice -> {
             selected[0] = choice == 0 ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED;
             title.run();
         });
         picker.setTag("charge-confirmation-selector");
-        picker.select(selected[0] == ChargeSessionStore.Charger.STOCK ? 0 : 1, false);
+        picker.select(selected[0] == null ? -1 : selected[0] == ChargeSessionStore.Charger.STOCK ? 0 : 1, false);
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2); pp.topMargin = ui.dp(6); pp.bottomMargin = ui.dp(6);
         box.addView(picker, pp);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
-        dialogButtons(box, "Cancel", dialog::dismiss, "Start recording", () -> {
+        start[0] = dialogButtons(box, "Cancel", dialog::dismiss, "Start recording", () -> {
+            if (selected[0] == null) return;
             dialog.dismiss();
             ScooterProfiles.Profile current = active();
             if (closed || service() != s || current == null || !profileId.equals(current.id)) {
@@ -1782,19 +1820,25 @@ public final class MoreScreen implements AppScreen {
             }
             if (!s.startChargeRecording(selected[0])) host.toast(s.chargeCaptureStatus());
             refreshDeveloper();
-        });
+        })[1];
+        start[0].setTag("charge-confirmation-start");
+        title.run();
         show(dialog, picker::finishMotion);
     }
     /** One completed finish can be useful; broad ranges can need more evidence. */
     private void refreshChargeCurve(ScooterService s) {
         if (chargeCurve == null) return;
         int qualified = s == null ? -1 : s.qualifiedChargeCurves();
-        chargeCurveValue.setText(qualified < 0 ? "…" : Integer.toString(qualified));
+        // Count only the family estimates use; while Automatic is undecided, none applies.
+        ChargeSessionStore.Charger effective = s == null ? null : s.effectiveChargeCharger();
+        String scope = qualified < 0 ? "" : effective == null ? "Not applied until the charger is known"
+                : effective == ChargeSessionStore.Charger.STOCK ? "Stock charges" : "High-speed charges";
+        chargeCurveValue.setText(qualified < 0 ? "…" : effective == null ? "—" : Integer.toString(qualified));
         chargeCurveValue.setTextColor(qualified > 0 ? ui.accent : ui.muted);
-        String charger = chosenCharger == ChargeSessionStore.Charger.STOCK ? "stock" : "high-speed";
-        chargeCurve.setContentDescription(qualified < 0 ? "Saved charge curves loading"
-                : qualified + " qualified " + charger + " charge recordings");
-        chargeCurve.setTooltipText("A completed charge can refine its finishing range. Other ranges need two matching recordings. Estimates depend on coverage and live power; UT5 MAX stock estimates also work without recordings.");
+        chargeCurveScope.setText(scope);chargeCurveScope.setVisibility(scope.isEmpty() ? View.GONE : View.VISIBLE);
+        chargeCurve.setContentDescription(qualified < 0 ? "Saved charge curves loading" : effective == null ? "Saved charge curves not applied until the charger is known"
+                : qualified + " qualified " + (effective == ChargeSessionStore.Charger.STOCK ? "stock" : "high-speed") + " charge recordings");
+        chargeCurve.setTooltipText("A completed charge can refine its finishing range. Other ranges need two matching recordings. Estimates depend on coverage and live power; UT5 MAX stock and high-speed estimates also work without recordings.");
     }
     private void setChildrenEnabled(View view,boolean enabled){
         view.setEnabled(enabled);if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)setChildrenEnabled(((ViewGroup)view).getChildAt(i),enabled);
@@ -1848,7 +1892,8 @@ public final class MoreScreen implements AppScreen {
     // ---- Refresh ------------------------------------------------------------------------
 
     private void refreshProfiles(ScooterService s, ScooterProfiles.Profile p) {
-        boolean recognised = p != null && p.pid() == 2538;
+        DeviceDescriptor saved = p == null ? null : p.savedDescriptor();
+        boolean recognised = ModelRegistry.showsPhoto(saved);
         boolean photo = recognised && scooterPhoto != null;
         indexPhoto.setVisibility(photo ? View.VISIBLE : View.GONE);
         indexPhotoFallback.setVisibility(photo ? View.GONE : View.VISIBLE);
@@ -1867,9 +1912,10 @@ public final class MoreScreen implements AppScreen {
         scootersName.setText(name);
         scootersRole.setText(p == null ? "Add an owner profile to begin"
                 : "Active · " + (p.role == 0 ? "owner" : "shared") + " profile");
-        // The model line appears once a connection has reported it; 2538 is shown by name.
-        boolean modelKnown = p != null && !p.serial.isEmpty() && p.pid() > 0;
-        scootersModel.setText(!modelKnown ? "" : recognised ? "UT5 MAX" : "Model " + p.pid());
+        // The model line appears once a connection has reported it; the UT5 MAX is shown by name.
+        String modelLine = ModelRegistry.modelLine(saved);
+        boolean modelKnown = !modelLine.isEmpty();
+        scootersModel.setText(modelLine);
         scootersModel.setVisibility(modelKnown ? View.VISIBLE : View.GONE);
         scootersProfileCard.setContentDescription(name + ", " + scootersRole.getText()
                 + (modelKnown ? ", " + scootersModel.getText() : ""));
@@ -1899,6 +1945,7 @@ public final class MoreScreen implements AppScreen {
         ScooterService s = service(); if (s == null) return;
         refreshDeveloper();
         if (shownSection().equals("Data")) refreshHistoryStorage();
+        if (compatibilityPanel != null) compatibilityPanel.refresh();
         for (Runnable refresh : valueRefreshers) refresh.run();
         ScooterProfiles.Profile p = active();
         boolean configured = p != null && p.configured();
@@ -1943,8 +1990,12 @@ public final class MoreScreen implements AppScreen {
         pill(proximityPairedChip, paired ? "Paired ✓" : "Paired —", ui.ok, paired);
         proximityPairedChip.setContentDescription(paired ? "Phone paired" : "Phone not paired");
         BleController.State link = s.ble.state();
+        CapabilityResolver.Decision near = s.ble.decision("proximity_key");
+        // The UT5 MAX keeps its wording; other models say what the resolver decided.
+        String modelReason = near.layer == ModelRegistry.Layer.UT5_MAX ? "UT5 MAX owner only" : p != null && p.role != 0 ? "Owner only"
+                : near.support != CapabilityResolver.Support.KNOWN_ENCODING ? near.reasonText() : s.ble.decision("pin").reasonText();
         proximityReason = proximityRow.toggle.isEnabled() ? null
-                : !owner ? (link == BleController.State.READY ? "UT5 MAX owner only" : "Connect first")
+                : !owner ? (link == BleController.State.READY ? modelReason : "Connect first")
                 : busy ? "Waiting for scooter"
                 : proximity == null ? "Not reported by firmware"
                 : !pinOn ? "Enable the fallback PIN first"
@@ -1957,7 +2008,7 @@ public final class MoreScreen implements AppScreen {
         bondRow.icon.step(paired ? 2 : pinOn ? 1 : 0);
         proximityRow.icon.step(proximity != null && proximity == 1 ? 2 : enablePrerequisites ? 1 : 0);
         securityConnect.setVisibility(link == BleController.State.DISCONNECTED ? View.VISIBLE : View.GONE);
-        String notice = owner ? "Test while parked." : link == BleController.State.READY ? "UT5 MAX owner only" : "";
+        String notice = owner ? "Test while parked." : link == BleController.State.READY ? modelReason : "";
         securityNotice.setText(notice);
         securityNotice.setVisibility(notice.isEmpty() ? View.GONE : View.VISIBLE);
         int available = 0;
@@ -1981,7 +2032,8 @@ public final class MoreScreen implements AppScreen {
                 pill(row.value, "● " + shown, confirmed ? ui.ok : ui.orange, true);
                 row.value.setContentDescription(shown + (confirmed ? ", confirmed" : result == null ? ", unverified" : ", " + result));
             }
-            boolean inspectable = s.ble.ready() && p != null && p.pid() == 2538 && !busy && knownBaseline;
+            CapabilityResolver.Decision decision = s.ble.decision(row.feature.key);
+            boolean inspectable = s.ble.ready() && (decision.available() || decision.blockedByRide()) && !busy && knownBaseline && !oemMapped(decision);
             row.action.setEnabled(inspectable);
             // A disabled pill passes its taps to the row, which explains why.
             row.action.setClickable(inspectable);

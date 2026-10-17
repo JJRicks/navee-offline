@@ -10,7 +10,7 @@
   <a href="CHANGELOG.md">What's new</a>
 </p>
 
-An Android companion for the **NAVEE UT5 MAX**. Connect over Bluetooth, control your scooter, make the dashboard yours, and explore your rides and battery data. Everyday use works without a Volt account or server.
+An Android companion for **NAVEE scooters**. Connect over Bluetooth, control your scooter, make the dashboard yours, and explore your rides and battery data. Everyday use works without a Volt account or server.
 
 > [!NOTE]
 > **Independent community project.** Volt is not affiliated with, endorsed by, sponsored by, or supported by NAVEE or its app vendor. Product names identify compatible hardware only.
@@ -27,7 +27,7 @@ An Android companion for the **NAVEE UT5 MAX**. Connect over Bluetooth, control 
 
 ## Install & connect
 
-**You'll need:** Android **8.0+** with Bluetooth LE and an already activated, owner-bound **US UT5 MAX**. Other models and regions are not yet verified.
+**You'll need:** Android **8.0+** with Bluetooth LE and an already activated, owner-bound **NAVEE scooter**. Available controls depend on the model; the US UT5 MAX is physically verified, while other models use mappings from the official app. [Compatibility details →](docs/user-guide.md#other-navee-models)
 
 1. **Install Volt.** Download the `.apk` from [Releases](https://github.com/JJRicks/navee-offline/releases/latest), open it on your phone and allow installation when Android asks.
 2. **Pair once.** Keep your powered-on scooter nearby and safely parked, and confirm it connects in NAVEE. Follow Volt's onboarding and the [setup guide](docs/getting-started.md): computer ADB is the established route; Chrome/USB is a testing preview, and on-phone Shizuku has limited validation. You can also import an existing setup or full backup.
@@ -38,7 +38,7 @@ First-time capture needs your working NAVEE account and Android debugging access
 ## Good to know
 
 - **Local by default.** Controls and recording work offline. **Basemap** starts off; the switch below a ride map explains provider access before enabling online tiles and remembers your choice. Existing saved choices are kept. [Privacy →](PRIVACY.md)
-- **Keep a backup.** Save your recordings with [Ride backups](docs/ride-backups.md); [full app backups](docs/user-guide.md#back-up-and-restore) also preserve setup and settings. Export before clearing app data, and keep backup files private.
+- **Keep a backup.** [Back up & restore](docs/user-guide.md#back-up-and-restore) saves an encrypted copy of what you choose, from rides alone to setup, settings, rides and history. Export before clearing app data, and keep backup files private.
 - **Estimates have limits.** Range, charging time, usable capacity and phone motion are estimates; reported battery health is not an independent capacity test. [Understanding readings →](docs/recording-reference.md)
 
 ## Go further

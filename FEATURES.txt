@@ -1,5 +1,5 @@
-VOLT — UT5 MAX FEATURE AVAILABILITY
-Current version: 1.3.1 (versionCode 36)
+VOLT — MODEL-AWARE FEATURE AVAILABILITY
+Current version: 1.4.0 (versionCode 37)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -7,15 +7,33 @@ The app talks directly to the scooter over Bluetooth. Optional map tiles use
 internet; authentication, controls and recording require no server. First-time
 owner setup is covered in SETUP.txt.
 
-1.0.0 brings compact-card value fitting, a quieter reconnect haptic pattern,
+Historical 1.0.0 release: compact-card value fitting, a quieter reconnect haptic pattern,
 and an optional Basemap switch with first-use consent. Maps start without
 online tiles unless an earlier explicit choice is saved. Recorded routes and
 ride controls remain available with Basemap off. Documentation now separates
 quick installation steps from detailed setup, build and privacy guides.
 Volt is an independent community project, not affiliated with, endorsed by
 or sponsored by NAVEE.
-No new scooter command or decoded telemetry field is introduced by this pass.
+That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
+
+NEW IN 1.4.0
+
+- Model-aware controls, read-only compatibility checks and redacted reports.
+  Choices depend on the identified model, firmware and live reported fields.
+  Unknown or incompatible controls stay unavailable. UT5 MAX is the only model
+  physically validated here; mapped OEM APIs do not establish hardware support.
+- Optional developer guided tests for selected reversible settings, with explicit
+  approval, journalled restoration, parked checks and fresh readback.
+- One category-based backup/restore system, including full recovery, profile
+  mapping, rides, charge history, dashboards, preferences and owner setup.
+- Optional automatic ride ending after a confirmed stop and connection loss.
+  Record starts immediately with a date/time/mode name; rename later.
+- Speed-colored ride routes; battery clipping, charging glow and lock motion polish.
+- UT5 MAX automatic stock/high-speed charger selection, separate provisional
+  charging curves and matching personal history. Ambiguous/unsupported cases
+  fall back to live power; manual family overrides remain available.
+- Simpler homepage with the alternating lock/unlock demonstration.
 
 NEW OWNER-SETUP ROUTES: VALIDATION LIMITS
 
@@ -104,6 +122,96 @@ Proximity unlock      OEM protocol and pairing flow implemented; pairing and
 Local clock sync      Scooter accepted the command. No clock readback exists,
                        so the app reports acceptance rather than verification.
 
+OTHER NAVEE MODELS: OEM-MAPPED, NOT TESTED BY VOLT
+
+Only the US UT5 MAX (PID 2538) is physically verified. Another standard
+scooter gets the lock under a shared contract (lock needs fresh status, a
+recent stopped motion report and no warning; unlock needs only a fresh
+authenticated status) plus readings. A scooter whose advertised model ID is in
+the official app's lists also gets the controls below. They come from the
+official NAVEE 2.1.9 app's mapping and are marked "Untested here".
+
+Control            Evidence     Conditions on non-UT5 models
+-----------------  -----------  -----------------------------------------------
+Electronic lock    Shared       Every standard model; never golf, e-bike, Exo
+Dashboard units    OEM-mapped   Identified models
+Range estimate     OEM-mapped   Choices from the scooter's reported set
+Clock sync         OEM-mapped   Manual button; no readback
+Tail light         OEM-mapped   Unlocked; not group 2504-2506
+Automatic lights   OEM-mapped   Unlocked; not 2332, 2417, 2422, 2504-2506
+Turn signal sound  OEM-mapped   Unlocked; models the official app offers it on
+Cruise control     OEM-mapped   Unlocked, parked; model-mapped, with the
+                                cruise status field present and known
+Energy recovery    OEM-mapped   Unlocked, parked; choices depend on model
+Traction control   OEM-mapped   Parked; 2547, 2585, 2619, 2620, 2646, 2701,
+                                2745; turning it off asks first
+Low Battery Mode   OEM-mapped   Parked; the models the official app shows it
+                                for; turning it off asks first
+Long range mode    OEM-mapped   Parked; 2745 and the 2543 group; its status
+                                field must be present and known
+Charge ceiling,    OEM-mapped   Parked; 2416/2443/2529, 2547/2585 and the 2543
+scheduled charging              group; four IDs need the full model ID; start
+and start time                  times on the hour, within 48 hours
+Lock duration      OEM-mapped   Parked; firmware read this session where the
+                                official app checks it
+Walk, power and    OEM-mapped   Parked; 2547, 2585, 2619, 2620, 2646
+descent assist
+Overspeed control  OEM-mapped   Parked; the models the official app offers it on
+Prompt sound       OEM-mapped   Parked; 2547, 2585
+Dual motor drive   OEM-mapped   Parked; 2443, 2585; single motor asks first
+Acceleration       OEM-mapped   Parked; 2345, 2714, 2509 (firmware), the 2545
+                                and 2619 groups
+PIN, proximity     OEM-mapped   Owner, parked; Volt's strict flow (PIN, then
+                                pairing); firmware where the official app checks
+Maximum speed      OEM-mapped   Parked; the official app's mapped choices for
+                                that model across regions (never probed);
+                                firmware or full model ID for some
+Custom speed cap   OEM-mapped   Parked; 2573, 2634, 2611, 2753, 2612, 2643,
+                                2754 (8-32 km/h), 2782 (8/15/25/32),
+                                2504/2505 (8-16), 2506 (8-20); Off sends 0
+Kick-start speed   OEM-mapped   Parked; mapped models offer 0-5 km/h,
+                                except 2504-2506 (3-5); below 3 shows a caution;
+                                firmware and full-model-ID gates still apply
+Energy recovery    OEM-mapped   Unlocked, parked; on/off; turning it off shows
+(2504-2506)                     a caution
+Line and star      OEM-mapped   2547 (two colours) and 2585 (six colours);
+lights                          region hiding noted, not applied
+Ambient, logo and  OEM-mapped   2416, 2443, 2529: Off, On or follow headlight;
+daytime lights                  region hiding noted, not applied
+
+Still hidden because the evidence is incomplete: traction control outside
+the groups above, ambient lights on 2345/2714 (their readback is only partly
+mapped) and 2504-2506 (per-gear colours), lighting on models without an
+official light screen, group 2504-2506 lock settings, sound effects on 2506,
+the drive-mode speed cap, weather display and anything that needs the full
+model ID while only a serial is known.
+
+Every other control stays hidden until mapped. A serial number alone never
+selects an OEM group; Identify reads the advertised model ID. Regional hiding
+and value restrictions are noted, not applied: each model offers its widest
+mapped domain, with no values borrowed from other models. The scooter's
+firmware can still reject a setting. A control that is Lab
+on the UT5 MAX is an ordinary row on a model the official app maps it for.
+Firmware conditions need the version read in the current connection, and a
+value the scooter reports outside the mapped choices reads as unknown.
+
+More > Compatibility runs a read-only check (nine known reads, at most 30 s)
+and builds a report for review: model ID, derived region, firmware, read
+outcomes, status-field presence and control decisions, with no serial, address,
+owner key, PIN, names or routes. On models other than the UT5 MAX, optional
+reads that are rejected or silent twice are not requested again that session;
+UT5 MAX polling is unchanged.
+
+The same screen can run one guided, reversible test of dashboard units, tail
+light, turn signal sound, automatic lights or range estimate (units only on an
+unidentified model). Volt reads a fresh baseline, writes the test value only
+after the owner approves it while parked, confirms it by a later readback, asks
+what the owner saw, then writes the baseline back and confirms that. Each write
+is journalled on the phone first; an interrupted test is reported as
+outstanding and is never replayed after a reconnect or restart. Results go in
+the report only (report-only: no control is enabled by a test). Speed, charging,
+lock, PIN, proximity, clock, composite and Lab settings are never tested.
+
 PHONE-FREE AND RIDING CHECKS STILL NEEDED
 
 Test your existing handlebar PIN while safely parked. Proximity unlock needs
@@ -186,7 +294,9 @@ hidden or stopping a hidden recording creates no new grace period. Active
 ride/charge capture retains foreground-service protection and an immediate
 ongoing Stop notification with a renewed bounded CPU wake lock. Charge capture
 retries temporary disconnects for up to five minutes with marked gaps and
-same-scooter verification; rides preserve Bluetooth gaps and can reconnect. Android may
+same-scooter verification; rides preserve Bluetooth gaps and can reconnect. A ride
+ends automatically 10 s after Bluetooth is lost following fresh stationary
+reports (preference, default on); moving or uncertain losses keep recording. Android may
 allow dismissing ongoing notifications while unlocked. Force stop and device
 battery restrictions remain limits. No lock state changes automatically.
 
@@ -405,22 +515,24 @@ to empty or capacity/health claim. Hills, speed, payload, weather, rounding and
 unobserved battery levels limit accuracy. See docs/validation/learned-range.md.
 
 
-RIDE BACKUP AND RESTORE
+BACK UP AND RESTORE
 
-Rides > Ride backups > Back up saved rides saves complete raw scooter journals
-and any recorded GPS/phone-motion data, names and notes in a .voltrides file.
-This unencrypted ZIP contains private ride data; pairing credentials, app
-settings and charge recordings are excluded. Save it outside Volt and keep it
-private. Encrypted full .voltbackup files are a separate format.
-
-Restore rides previews a merge: identical recordings are skipped and conflicts
-keep the local recording. Known scooter profiles keep their association;
-unknown profiles need an explicit destination scooter, also used for learning.
-After clearing app storage, set up the scooter before restoring ride backups.
-Finish active recordings/pending saves first. Transfers disconnect and pause
-Volt until it closes and reopens, including after cancellation from the transfer
-screen. Reopening recreates the recording stores and estimate models.
-See docs/ride-backups.md and docs/user-guide.md for the steps and recovery limits.
+More > About & permissions > Back up & restore is the single entry. Back up
+lists seven categories with counts (Scooters & setup keys, Dashboards, App
+preferences, Rides, Charges, Readings history, Scooter preferences); any
+subset, or Select all for a complete copy, is saved as a password-encrypted
+.voltbackup. Restore accepts new and older .voltbackup files, .voltrides ride
+backups and dashboard layout files. It previews every change: settings
+categories take the backup's values, scooters/rides/charges are added without
+UUID or same-recording duplicates, history merges with this phone's rows
+winning, and unselected data is unchanged. Unknown scooters map to a local
+scooter, are added with Scooters, or are skipped and listed. A complete file
+can Replace everything (default after Clear storage). Rides > Ride backups opens
+the same screen with Rides preselected; .voltrides files are no longer written.
+Permissions, pairing, pending operations, caches and scooter firmware settings
+are never restored. Transfers disconnect and pause Volt until it closes and
+reopens, including after cancellation. See docs/unified-backup.md,
+docs/app-data-backup.md and docs/user-guide.md.
 
 
 EXPERIMENTAL CAPACITY WIDGET
@@ -510,10 +622,15 @@ Older journals have no historical predictions; estimates are not backfilled.
 
 PHONE RECORDING AND ROUTE MAPS
 
-Starting a ride focuses the name field, selects the current name and opens the
-keyboard. New explicit recordings can save GPS, pressure and experimental motion
-separately from electrical-energy sampling. Route overlays color power, grade, GPS speed
-derivative and elevation; pinch to zoom, pan and tap for synchronized readings.
+Record starts directly with a Date - Time - Drive mode name; the clock follows
+your time-format preference. An unavailable mode is omitted. The ride can be
+renamed afterward in its details.
+New explicit recordings can save GPS, pressure and experimental motion
+separately from electrical-energy sampling. Route overlays color power, speed, grade,
+GPS speed derivative and elevation; pinch to zoom, pan and tap for synchronized readings.
+Speed uses one source per ride (scooter when fresh for half the fixes or more than
+GPS, else GPS), labelled in the legend and tooltip, on a stable per-ride 0-to-top
+scale; missing is dashed gray.
 The expand icon opens a full-screen route map; a separate center icon fits the
 whole route. Center, zoom, overlay and inspected point survive opening/closing
 the expanded view. Pinch, pan, zoom buttons and inspection work in either view.
@@ -540,7 +657,8 @@ A remembered Basemap switch directly below both inline and full-screen maps
 shares its state with App preferences > Map settings. The first new enable
 explains that the provider receives your IP address and viewed area, then asks
 for Enable basemap or Cancel. Approval is remembered; cancellation keeps tiles off.
-Full app backups include the switch choice and acknowledgement. Provider changes
+Backups with App preferences include the choice and acknowledgement; the restore
+preview shows "Online map: on" when it will be on. Provider changes
 alone do not enable tiles. Local routes and recording work with Basemap off.
 USGS Topo is the default provider and supplies U.S. streets/terrain with caching
 and attribution. USGS, OSM and custom

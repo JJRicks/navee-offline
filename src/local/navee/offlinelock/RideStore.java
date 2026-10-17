@@ -36,6 +36,9 @@ public final class RideStore {
     public static final int MAX_TREND_POINTS = 600;
     public static final double MIN_EFFICIENCY_DISTANCE_KM = 0.2;
     public static final double MIN_EFFICIENCY_COVERAGE = 0.8;
+    /** STOP details token for a ride Volt ended after a parked Bluetooth loss. An empty value means
+     *  the rider stopped it; Volt 1.3.1 and earlier ignore the column, so old builds still load it. */
+    public static final String STOP_AUTO_PARKED = "AUTO_PARKED_DISCONNECT";
     private static final int MAX_METRICS = 160;
     private static final String HEADER = "schema_version,event,recorded_utc,wall_ms,monotonic_ms,frame,key,numeric,text,unit,source_command,sensor_updated_monotonic_ms,sensor_age_ms,current_direction,details\n";
 
@@ -69,12 +72,15 @@ public final class RideStore {
     public static final class Point {
         public final long wallMs, monotonicMs, elapsedMs;
         public final int segment;
+        /** Journal-derived cumulative coverage at this point, excluding later partial readings. */
+        final long speedCoverageMs;
         public final Double voltageV, powerW, speedKmh, batteryPercent, odometerKm, chargingState;
         private Point(long wallMs, long monotonicMs, long elapsedMs, int segment, Double voltageV, Double powerW,
-                Double speedKmh, Double batteryPercent, Double odometerKm, Double chargingState) {
+                Double speedKmh, Double batteryPercent, Double odometerKm, Double chargingState, long speedCoverageMs) {
             this.wallMs = wallMs; this.monotonicMs = monotonicMs; this.elapsedMs = elapsedMs; this.segment = segment;
             this.voltageV = voltageV; this.powerW = powerW; this.speedKmh = speedKmh;
             this.batteryPercent = batteryPercent; this.odometerKm = odometerKm; this.chargingState = chargingState;
+            this.speedCoverageMs = speedCoverageMs;
         }
         public Map<String, Object> fields() {
             LinkedHashMap<String, Object> result = new LinkedHashMap<String, Object>();
@@ -89,6 +95,8 @@ public final class RideStore {
     /** Immutable, unit-explicit values; JSON null means insufficient evidence. */
     public static final class Summary {
         public final String id, scooterId, label, notes, currentDirection, energyInterpretation;
+        /** START record clocks; with the scooter they identify a recording across UUIDs. */
+        public final long startMonotonicMs;
         public final long startWallMs, endWallMs, elapsedMs, electricalCoverageMs,
                 skippedElectricalMs, speedCoverageMs, movingMs, stationaryMs;
         public final long sampleCount, gapCount, clockDiscontinuities, directionChanges;
@@ -107,9 +115,12 @@ public final class RideStore {
                 unknownMotionElectricalCoverageMs;
         public final Double movingThroughputWh, stationaryThroughputWh, unknownMotionThroughputWh;
         public final String efficiencyStatus;
+        /** Null while recording; "" for a rider's stop (and every older journal); otherwise a STOP token. */
+        public final String stopReason;
+        public final boolean automaticStop;
         private Summary(Accumulator a) {
             id = a.id; scooterId = a.scooterId; label = a.label; notes = a.notes;
-            currentDirection = a.direction.name(); startWallMs = a.startWall;
+            currentDirection = a.direction.name(); startWallMs = a.startWall; startMonotonicMs = a.startMono;
             endWallMs = a.lastWall; elapsedMs = a.elapsed;
             electricalCoverageMs = a.electricalMs;
             skippedElectricalMs = Math.max(0, a.elapsed - a.electricalMs);
@@ -117,6 +128,7 @@ public final class RideStore {
             stationaryMs = a.stationaryMs; sampleCount = a.samples;
             gapCount = a.gaps; clockDiscontinuities = a.clockDiscontinuities; directionChanges = a.directionChanges;
             active = !a.stopped; recovered = a.recovered; odometerReset = a.odometerReset;
+            stopReason = a.stopped ? a.stopReason : null; automaticStop = STOP_AUTO_PARKED.equals(stopReason);
             confirmedDirectionCoverageMs = a.confirmedMs;
             unconfirmedDirectionCoverageMs = a.unconfirmedMs;
             movingElectricalCoverageMs = a.movingElectricalMs;
@@ -204,6 +216,7 @@ public final class RideStore {
             m.put("throughputWhPerKm", throughputWhPerKm); m.put("throughputWhPerMile", throughputWhPerMile);
             m.put("netWhPerKm", netWhPerKm); m.put("netWhPerMile", netWhPerMile);
             m.put("efficiencyStatus", efficiencyStatus);
+            m.put("stopReason", stopReason == null ? null : automaticStop ? "automatic_parked_disconnect" : stopReason.isEmpty() ? "rider" : stopReason);
             return Collections.unmodifiableMap(m);
         }
         public String toJson() { return json(fields()); }
@@ -314,9 +327,14 @@ public final class RideStore {
     }
 
     public synchronized Summary stop(long wallMillis, long monotonicMillis) throws IOException {
+        return stop(wallMillis, monotonicMillis, "");
+    }
+    /** Stops at the given (current) time; the reason never moves the end or adds samples. */
+    public synchronized Summary stop(long wallMillis, long monotonicMillis, String reason) throws IOException {
         if (active == null) return null;
-        append(file(active.id), row("STOP", wallMillis, monotonicMillis, "", "", "", "", "", "", "", "", "", ""));
-        active.stop(wallMillis, monotonicMillis);
+        String details = STOP_AUTO_PARKED.equals(reason) ? STOP_AUTO_PARKED : "";
+        append(file(active.id), row("STOP", wallMillis, monotonicMillis, "", "", "", "", "", "", "", "", "", details));
+        active.stop(wallMillis, monotonicMillis); active.stopReason = details;
         Summary result = new Summary(active); active = null; return result;
     }
 
@@ -512,11 +530,12 @@ public final class RideStore {
         final String id, scooterId;
         String label;
         String notes = "";
-        final long startWall;
+        final long startWall, startMono;
         long lastWall, lastMono, elapsed, electricalMs, speedMs, movingMs, stationaryMs;
         long samples, gaps, clockDiscontinuities, directionChanges, confirmedMs, unconfirmedMs, pointStride = 1;
         long movingElectricalMs, stationaryElectricalMs, unknownMotionElectricalMs;
         boolean stopped, recovered, odometerReset;
+        String stopReason = "";
         CurrentDirection direction = CurrentDirection.UNCONFIRMED;
         Double startSoc, endSoc, startVoltage, minVoltage, maxVoltage, minTemperature, maxTemperature;
         Double startOdo, endOdo, maxSpeed, peakPower, maxCurrent;
@@ -529,7 +548,7 @@ public final class RideStore {
         LearnedRangeEstimate.Inspector rangeInspector;
         Accumulator(String id, String scooterId, String label, long wall, long mono) {
             this.id = id; this.scooterId = scooterId; this.label = label;
-            startWall = lastWall = wall; lastMono = mono;
+            startWall = lastWall = wall; lastMono = startMono = mono;
         }
         void breakAnchor() { previousPower = null; previousSpeed = null; }
         void recover() { recovered = true; gaps++; breakAnchor(); }
@@ -593,7 +612,7 @@ public final class RideStore {
             }
             if (dt > MAX_INTEGRATION_INTERVAL_MS && samples > 0) gaps++;
             previousPower = power; previousSpeed = speed; samples++;
-            Point point = new Point(wall, mono, elapsed, (int)Math.min(Integer.MAX_VALUE, gaps), voltage, power, speed, soc, odo, number(m, "charging_state", mono));
+            Point point = new Point(wall, mono, elapsed, (int)Math.min(Integer.MAX_VALUE, gaps), voltage, power, speed, soc, odo, number(m, "charging_state", mono), speedMs);
             lastPoint = point;
             if (rangeInspector != null) rangeInspector.accept(point);
             if (keepAllPoints) points.add(point);
@@ -668,7 +687,7 @@ public final class RideStore {
                         } else if ("GAP".equals(event)) { a.gap(wall, mono); pending = null; }
                         else if ("HEARTBEAT".equals(event)) { a.heartbeat(wall, mono); pending = null; }
                         else if ("RECOVER".equals(event)) { a.recover(); pending = null; }
-                        else if ("STOP".equals(event)) { a.stop(wall, mono); pending = null; }
+                        else if ("STOP".equals(event)) { a.stop(wall, mono); a.stopReason = trim(r.get(14), 80); pending = null; }
                         else if ("NOTE".equals(event)) a.notes = r.get(14);
                         else if ("DIRECTION".equals(event)) { CurrentDirection changed = direction(r.get(13)); if (changed != a.direction && a.samples > 0) a.directionChanges++; a.direction = changed; a.breakAnchor(); }
                     }
@@ -682,6 +701,19 @@ public final class RideStore {
         Accumulator parsed = read(source);
         if (parsed == null || !parsed.stopped) throw new IOException("The backup contains an unfinished or unreadable ride.");
         return new Summary(parsed);
+    }
+
+    /** A journal's scooter and START clocks, read from its first records only; null if unreadable.
+     * With the scooter, the two clocks identify one recording even under another UUID. */
+    static final class Start { final String scooterId; final long wallMs, monotonicMs;
+        Start(String scooter, long wall, long mono) { scooterId = scooter; wallMs = wall; monotonicMs = mono; } }
+    static Start start(File source) {
+        try (Reader in = new BufferedReader(new InputStreamReader(new FileInputStream(source), "UTF-8"))) {
+            List<String> record;
+            for (int i = 0; i < 4 && (record = csvRecord(in)) != null; i++)
+                if (acceptedStartRecord(record)) return new Start(record.get(6), Long.parseLong(record.get(3)), Long.parseLong(record.get(4)));
+        } catch (IOException | RuntimeException unreadable) { return null; }
+        return null;
     }
 
     /** The reader ignores unsupported schemas and START records with invalid clocks. */

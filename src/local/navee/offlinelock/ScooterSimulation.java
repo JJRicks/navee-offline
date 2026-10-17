@@ -11,6 +11,8 @@ public final class ScooterSimulation {
     private final LinkedHashMap<String, Sample> fixed = new LinkedHashMap<>();
     private boolean charging;
     private long chargeStart;
+    /** Synthetic advertised model ID; "" is the default UT5 MAX simulator. Never stored or exported. */
+    private String model = "";
 
     private static final class Sample {
         final String text;
@@ -23,6 +25,8 @@ public final class ScooterSimulation {
             if (!feature.sensitive && feature.type != ScooterCommands.Type.TIME)
                 features.put(feature.key, feature.optionValues.length == 0
                         ? feature.min : feature.optionValues[0]);
+        for (ScooterCommands.Feature feature : ScooterCommands.oemOnly())
+            features.put(feature.key, feature.optionValues[0]);
         choose("energy_recovery", 30);
         choose("acceleration", 3);
         choose("headlight", 1);
@@ -107,12 +111,33 @@ public final class ScooterSimulation {
         features.put(key, value);
     }
 
+    /**
+     * The same, validated against the decided model variant (another simulated model's domain);
+     * a UT5 MAX variant keeps the catalogue check.
+     */
+    public void set(String key, int value, FeatureVariant variant) {
+        if (variant == null || variant.decode == FeatureVariant.Decode.UT5_FEATURE) { set(key, value); return; }
+        ScooterCommands.Feature feature = ScooterCommands.find(key);
+        if (feature.sensitive || feature.type == ScooterCommands.Type.TIME || !variant.feature.equals(key) || !variant.allows(value))
+            throw new IllegalArgumentException("Unavailable simulation setting");
+        features.put(key, value);
+    }
+
     public void setChargeStart(long seconds, int offset) {
         long local = seconds + (long) offset;
         if (seconds < 0 || local < 0 || local > 0xffffffffL || Math.abs((long) offset) > 86400)
             throw new IllegalArgumentException("Invalid simulation charging time");
         chargeStart = local;
     }
+
+    /** Developer model choice. Keeps every catalogue value: the UI hides or greys controls by decision. */
+    public void setModel(String advertisedPid) {
+        String pid = advertisedPid == null ? "" : advertisedPid;
+        if (!pid.isEmpty() && !pid.matches("[1-9][0-9]{0,4}"))
+            throw new IllegalArgumentException("Invalid simulation model");
+        model = pid;
+    }
+    public String model() { return model; }
 
     public boolean charging() { return charging; }
     public void setCharging(boolean value) { charging = value; }

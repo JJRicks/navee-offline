@@ -745,7 +745,12 @@ public final class StatsScreen implements AppScreen {
     }
     private boolean isKnownDriveMode(String key) {
         ScooterProfiles.Profile profile = service.profiles.active();
-        return key.equals("driving_mode") && profile != null && profile.pid() == 2538;
+        return key.equals("driving_mode") && ModelRegistry.driveModeLabelProduct(profile == null ? null : profile.savedDescriptor()) != 0;
+    }
+    /** UT5 MAX drive-mode names come only from the registry's UT5 MAX layer. */
+    private int driveModeProduct() {
+        ScooterProfiles.Profile profile = service.profiles.active();
+        return ModelRegistry.driveModeLabelProduct(profile == null ? null : profile.savedDescriptor());
     }
     /** Short shared reading name (as on Home); a known UT5 MAX mode is plainly "Drive mode". */
     private String readingLabel(TelemetryHistory.Reading metric) {
@@ -761,7 +766,7 @@ public final class StatsScreen implements AppScreen {
     private boolean raw(TelemetryHistory.Reading metric) {
         if (metric.value == null) return false;
         if (isKnownDriveMode(metric.key) && metric.number != null)
-            return Telemetry.drivingModeLabel(2538, metric.number).endsWith(" (raw)");
+            return Telemetry.drivingModeLabel(driveModeProduct(), metric.number).endsWith(" (raw)");
         return Telemetry.rawReading(metric.label, metric.value);
     }
     /** The value column: a small RAW chip before a monospace value for undecoded fields. */
@@ -807,7 +812,7 @@ public final class StatsScreen implements AppScreen {
     private String display(TelemetryHistory.Reading metric) {
         if (metric.value == null) return "Not reported";
         if (isKnownDriveMode(metric.key) && metric.number != null)
-            return Telemetry.displayValue(metric.key, Telemetry.drivingModeLabel(2538, metric.number), metric.number);
+            return Telemetry.displayValue(metric.key, Telemetry.drivingModeLabel(driveModeProduct(), metric.number), metric.number);
         if (DisplayTemperature.isTemperature(metric.key) && metric.number != null)
             return DisplayTemperature.format(metric.number, preferences.getString("temperature_unit", "c"), 0);
         String units = preferences.getString("units", "mi");

@@ -18,7 +18,7 @@ This is a preliminary forecast for similar riding, not a measurement of physical
 
 The worker checks **every committed sample** in a single streaming pass per finished journal, retaining compact validation state instead of a full sample list. It does not judge quality from the 600-point chart preview. It rejects:
 
-- Active or recovered recordings, gaps, clock changes, and odometer resets.
+- Active or recovered recordings, gaps, clock changes, and odometer resets. One exception: a ride Volt [ended automatically](ride-auto-stop.md) is judged at its last complete reading when its only gap is the final disconnection and that tail is at most 60 seconds. The journal keeps the real gap and stop time.
 - Less than one minute recorded, 30 seconds moving, or 0.2 km traveled.
 - Drops below two battery points, which are dominated by gauge rounding.
 - Speed or battery-sample coverage below 95%.

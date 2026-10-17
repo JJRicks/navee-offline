@@ -13,13 +13,14 @@ storage:
 
 | Data | Purpose |
 | --- | --- |
-| Owner identity, role, scooter address/serial, profile name | Reconnect to your scooter locally |
+| Owner identity, role, scooter address/serial, profile name, and the model ID the scooter advertised (with when it was seen) | Reconnect to your scooter locally and choose which controls its model supports. Backups that include Scooters carry them |
 | Preferences, widget layouts, saved slots, notes, favorites | Restore your chosen interface |
 | Last-seen parameters and connection/command results | Show stale values and explain connection state |
 | Connected history | Draw local historical charts and estimates |
 | Ride readings and optional location, pressure, and motion samples | Analyze a ride you record |
 | Charge samples and a manually selected charger label | Review charging and estimate remaining time |
 | Bounded connection events with timestamps, failure codes and recording state | Explain connection losses without saving credentials or packet contents |
+| Guided test records (setting, before and test values, step outcomes, model prefix, meter firmware) | Keep an interrupted test visible until you review it; at most 20, finished ones removed after 30 days, never in backups |
 
 Connected history is enabled by default. It does not start GPS or phone sensors.
 It has a shared **50 MiB** budget: detailed samples for up to seven days, minute
@@ -72,7 +73,7 @@ including the full-screen map, shares its remembered state with
 **App preferences → Map settings**. The first new enable explains that the
 provider receives your IP address and viewed map area; choose **Enable basemap** or
 **Cancel**. Cancel keeps tiles off. Once you approve, that acknowledgement is
-remembered too. Full app backups include both the choice and acknowledgement.
+remembered too. Backups with App preferences include both, and the restore preview says "Online map: on" when it will be on.
 
 When enabled, the app requests visible map tiles from
 USGS Topo by default, OpenStreetMap if selected, or your chosen HTTPS provider.
@@ -115,16 +116,18 @@ if you do not want them retained there.
 | Export | Sensitive content |
 | --- | --- |
 | Private owner JSON | Plaintext Bluetooth credential, profile name, scooter address and serial |
-| Full `.voltbackup` | Password-encrypted profiles/credentials, settings, dashboards, retained histories, rides, and charge recordings |
-| Dashboard JSON | Layouts, widget options, notes and custom titles; no owner credentials or recorded readings |
+| `.voltbackup` | Password-encrypted; the categories you choose: profiles/credentials, dashboards, settings, rides with routes, charge recordings, retained histories, app-side scooter choices. Unless only App preferences is chosen, it also lists every scooter's name and serial (no credentials) |
+| Dashboard layout JSON (Home → Edit → Layout) | Layouts, widget options, notes and custom titles; no owner credentials or recorded readings |
 | Ride CSV/JSON/GPX | Timestamps and measurements; phone/joined/route exports can include precise locations |
 | Charge JSON | Electrical samples, times, gaps and charger label; excludes owner credentials, names, addresses, PINs and locations |
 | Ordinary diagnostics | Readings, diagnostic payloads and bounded connection events, potentially device serials in readings; excludes owner identity and PIN responses |
+| Compatibility report | Model ID, region and SKU derived from the serial, firmware versions, read outcomes and lengths, status-field presence and setting values, and control decisions; excludes the serial, scooter address, owner identity, PINs, names, times of day, routes and raw payloads. A fresh random report ID is used each time; it is not stored. Guided tests add the setting, its before and test values, step outcomes with times relative to the test, your yes/no answer and whether it was set back |
 
 Exports only go to a destination you choose through the file picker or helper.
-A destination may itself sync to a cloud service. The full backup password is
+A destination may itself sync to a cloud service. The backup password is
 not saved or recoverable. Use a strong password and keep it separately; see
 [the backup format](docs/app-data-backup.md) for technical details and exclusions.
+Older unencrypted `.voltrides` ride backups can still be restored; Volt no longer creates them.
 
 Review files and screenshots before sharing. A redacted diagnostic file can
 still reveal device identifiers, usage times, or other personal context.
