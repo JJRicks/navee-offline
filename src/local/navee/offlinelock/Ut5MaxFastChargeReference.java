@@ -131,6 +131,9 @@ public final class Ut5MaxFastChargeReference {
         return values[index] * (1 - fraction) + values[index + 1] * fraction;
     }
 
+    // Not ChargeTaperMatcher: that locates a stage by nearest voltage within 0.10 V and averages
+    // power-compatible rows. On the calibration's 99% samples it doubles the error (0.197 vs
+    // 0.097 min) and rejects all of them at a 0.2 V offset. Here falling power locates progress.
     private static Double finalTaperRemaining(double watts, double volts) {
         double[] first = FINAL_TAPER[0], last = FINAL_TAPER[FINAL_TAPER.length - 1];
         double expectedVolts, remaining;
