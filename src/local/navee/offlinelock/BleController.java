@@ -418,7 +418,7 @@ public final class BleController {
     public void stopDiscovery(){if(!discovering)return;discovery.interrupt(now());finishDiscovery();notice("Compatibility check stopped");}
     public boolean discovering(){return discovering;}
     /** The running or last check for the active scooter this app session, or null. */
-    public DiscoveryCoordinator discovery(){ScooterProfiles.Profile p=profile();return discovery!=null&&p!=null&&p.id.equals(discoveryProfileId)?discovery:null;}
+    public DiscoveryCoordinator discovery(){ScooterProfiles.Profile p=profile();return discovery!=null&&(p==null?"":p.id).equals(discoveryProfileId)?discovery:null;}
     /** The finished check's sanitized report (fresh report ID per call), or null while running or when there is none. */
     public CompatibilityReport compatibilityReport(String appVersion){
         if(discovering||discovery()==null||discoveryDescriptor==null)return null;

@@ -68,9 +68,11 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                 verifyScooterPage(model[0], model[1]);
                 verifyHome(model[0], model[1]);
                 verifyMore(model[0], model[1]);
+                verifyCompatibility(model[0], model[1]);
             }
             checks.add("Scooter rows show only controls with a known encoding for the simulated model; the UT5 MAX keeps every row");
             checks.add("Limited-model banner, clock row and lock switch follow the resolver; lock and unlock work on every standard model");
+            checks.add("Compatibility check (simulator): reads only, holds every write except the lock, finishes with a preview-only report");
             checks.add("Unmapped Quick access tiles show a muted dash, say \"not on this model\" and stay in the saved layout");
             main(() -> activity.service().ble.setSimulationModel("")); settle();
             require(layouts.equals(layoutSnapshot()), "Saved dashboard layouts changed while switching simulated models");
@@ -266,6 +268,67 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         screenshot(label + "-more-scooters");
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
         checks.add(label + ": More PIN, proximity, Lab and model line follow decisions");
+    }
+
+    /**
+     * More › Compatibility on the simulator: the check holds every write except the lock, changes
+     * no simulated setting, finishes within its bounds and offers the report only as a preview.
+     */
+    private void verifyCompatibility(String pid, String label) throws Exception {
+        main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Compatibility")); settle();
+        main(() -> require(field(more(), "compatibilityPanel") != null && texts(root()).contains("Run check"), label + ": Compatibility panel without Run check"));
+        screenshot(label + "-more-compatibility");
+        final Map<String, Integer> before = new TreeMap<>();
+        main(() -> {
+            BleController ble = activity.service().ble; before.putAll(ble.simulationFeatures());
+            ble.startDiscovery();
+            require(ble.discovering(), label + ": check did not start");
+            for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
+                CapabilityResolver.Decision d = ble.decision(f.key);
+                if (f.key.equals("lock")) require(d.reason != CapabilityResolver.Reason.DISCOVERY_ACTIVE, label + ": lock held by the check");
+                else if (d.support == CapabilityResolver.Support.KNOWN_ENCODING) require(d.reason == CapabilityResolver.Reason.DISCOVERY_ACTIVE, label + ": " + f.key + " not held: " + d);
+            }
+            require(!ble.set("display_units", 0) && !ble.set("display_units", 1), label + ": a setting was admitted during the check");
+            require(ble.decision("clock_sync").reason == CapabilityResolver.Reason.DISCOVERY_ACTIVE || ble.decision("clock_sync").support != CapabilityResolver.Support.KNOWN_ENCODING, label + ": clock not held");
+        });
+        settle(); screenshot(label + "-compatibility-running");
+        long end = SystemClock.uptimeMillis() + 35000;
+        while (SystemClock.uptimeMillis() < end) { final boolean[] running = {true}; main(() -> running[0] = activity.service().ble.discovering()); if (!running[0]) break; SystemClock.sleep(200); }
+        settle();
+        main(() -> {
+            BleController ble = activity.service().ble;
+            require(!ble.discovering() && invoke(ble, "discovery") != null, label + ": check did not finish within 35 s");
+            require(before.equals(new TreeMap<>(ble.simulationFeatures())), label + ": the check changed a simulated setting");
+            String shown = texts(root());
+            require(shown.contains("READS") || shown.contains("Reads"), label + ": no Reads group");
+            require(shown.contains("No response") && shown.contains("bytes"), label + ": read outcomes missing");
+            TextView preview = byText(root(), "Preview report"); require(preview != null, label + ": no Preview report");
+            preview.performClick();
+        });
+        settle();
+        main(() -> {
+            String shown = texts(root());
+            require(shown.contains("Share") && shown.contains("Save file") && shown.contains("Simulated scooter (not real evidence)"), label + ": preview incomplete");
+            Object report = field(field(more(), "compatibilityPanel"), "report");
+            String json = (String)invoke(report, "json");
+            require(json.contains("\"simulated\": true") && !json.contains("SIMULATION") && !json.contains("\"pid\": \"\""), label + ": report content");
+        });
+        screenshot(label + "-compatibility-preview");
+        main(() -> {
+            TextView close = byText(root(), "Close preview"); require(close != null, label + ": no Close preview"); close.performClick();
+            BleController ble = activity.service().ble; ble.startDiscovery(); ble.stopDiscovery();
+            require(!ble.discovering(), label + ": Stop did not end the check");
+        });
+        settle();
+        main(() -> require(texts(root()).contains("Interrupted"), label + ": Stop did not mark reads interrupted"));
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
+        checks.add(label + ": compatibility check holds writes, ends within bounds and previews its report");
+    }
+    private TextView byText(View view, String text) {
+        if (view instanceof TextView && text.contentEquals(((TextView)view).getText()) && view.isShown()) return (TextView)view;
+        if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) { TextView found = byText(((ViewGroup)view).getChildAt(i), text); if (found != null) return found; }
+        return null;
     }
 
     /** Identify disconnects; a recording must refuse it before any Bluetooth work. */
