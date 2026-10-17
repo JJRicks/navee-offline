@@ -61,17 +61,26 @@ final class ReadPolicy {
         return battery&&sign?new int[]{0x72,0x79}:battery?new int[]{0x72}:sign?new int[]{0x79}:new int[0];
     }
 
-    /** A 7-byte read went out. A request that is already outstanding keeps its first time. */
+    /**
+     * A 7-byte read went out. A request that is already outstanding keeps its first time, unless
+     * it has been unanswered for SILENCE_MS: that one counts as a silence and this is a new request.
+     */
     void requested(int cmd,long nowMs){
         if(cls(cmd)==null||cls(cmd)==Cls.PASSIVE)return;
+        tick(nowMs);
         if(cls(cmd)==Cls.PROBE)probed.add(cmd);
         if(!outstanding.containsKey(cmd))outstanding.put(cmd,nowMs);
     }
-    /** Any reply, solicited or not. A nonzero status rejects an optional read or probe for this session. */
-    void responded(int cmd,int status,long nowMs){
+    /**
+     * Any reply, solicited or not; dataLength is the length after the status byte. A nonzero status
+     * rejects an optional read or probe for this session. A status-0 reply with no data is only an
+     * acknowledgement: it ends the wait but does not count as an answer.
+     */
+    void responded(int cmd,int status,int dataLength,long nowMs){
         Cls c=cls(cmd);if(c==null||c==Cls.PASSIVE)return;
         outstanding.remove(cmd);
         if(status!=0){if(c!=Cls.CORE)suppressed.add(cmd);return;}
+        if(dataLength<=0)return;
         answered.add(cmd);silences.remove(cmd);
     }
     /** Counts each request that has been unanswered for SILENCE_MS as one silence. */
@@ -85,6 +94,8 @@ final class ReadPolicy {
             if(n>=SILENCES_TO_SUPPRESS)suppressed.add(cmd);
         }
     }
+    /** The compatibility check had no reply on any attempt: an optional read or probe stops for this session. */
+    void unanswered(int cmd){Cls c=cls(cmd);if(c==Cls.OPTIONAL||c==Cls.PROBE)suppressed.add(cmd);}
     /** Whether this read may be requested now. UT5_MAX: every read in today's arrays. 0x7A: never. */
     boolean allowed(int cmd){
         Cls c=cls(cmd);if(c==null||c==Cls.PASSIVE)return false;

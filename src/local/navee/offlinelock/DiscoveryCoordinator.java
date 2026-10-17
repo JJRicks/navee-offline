@@ -12,7 +12,8 @@ import java.util.List;
  * elapsed-clock milliseconds supplied by the caller.
  */
 final class DiscoveryCoordinator {
-    enum Outcome { PENDING, READ_SUPPORTED, REJECTED, NO_RESPONSE, MALFORMED, INTERRUPTED }
+    /** EMPTY_REPLY: status 0 with no data, an acknowledgement that is not proof the read is supported. */
+    enum Outcome { PENDING, READ_SUPPORTED, REJECTED, NO_RESPONSE, MALFORMED, EMPTY_REPLY, INTERRUPTED }
     /** Every opcode a check may send, in order. Nothing else is reachable. */
     static final int[] ORDER={0x74,0x70,0x73,0x72,0x76,0x7b,0x71,0x75,0x79};
     static final int[] PASSIVE={0x90,0x91,0x92};
@@ -21,7 +22,7 @@ final class DiscoveryCoordinator {
     static final class Read {
         final int cmd; final ReadPolicy.Cls cls;
         int attempts,status=-1,length=-1; long firstMs=-1; boolean late; Outcome outcome=Outcome.PENDING;
-        private long requestedMs=-1;private boolean timedOut;
+        private long requestedMs=-1;
         Read(int cmd,ReadPolicy.Cls cls){this.cmd=cmd;this.cls=cls;}
         boolean resolved(){return outcome!=Outcome.PENDING;}
         @Override public String toString(){return String.format(java.util.Locale.ROOT,"0x%02X %s %s",cmd,cls,outcome);}
@@ -51,7 +52,6 @@ final class DiscoveryCoordinator {
         if(finished(nowMs))return null;
         if(outstanding!=null){
             if(nowMs-outstanding.requestedMs<ATTEMPT_TIMEOUT_MS)return null;
-            outstanding.timedOut=true;
             if(outstanding.attempts>=maxAttempts(outstanding.cls))outstanding.outcome=Outcome.NO_RESPONSE;
             outstanding=null;
         }
@@ -67,7 +67,9 @@ final class DiscoveryCoordinator {
     /**
      * A notification. dataLength is the OEM length after the status byte. Matched by opcode; a
      * reply to a read that was never requested is ignored, a duplicate is counted once, and a reply
-     * after an attempt timed out still proves the read (late = true).
+     * after the current attempt timed out still proves the read (late = true). A reply within a
+     * retry's own timeout is not late. A status-0 reply with no data is EMPTY_REPLY, never
+     * READ_SUPPORTED.
      */
     void onFrame(int cmd,int status,int dataLength,long nowMs){
         for(Read p:passive)if(p.cmd==cmd){
@@ -77,9 +79,9 @@ final class DiscoveryCoordinator {
         Read r=null;for(Read candidate:reads)if(candidate.cmd==cmd){r=candidate;break;}
         if(r==null||r.attempts==0||ended)return;
         if(r.resolved()&&r.outcome!=Outcome.NO_RESPONSE)return;
-        boolean late=r.timedOut||r.outcome==Outcome.NO_RESPONSE;
+        boolean late=outstanding!=r||nowMs-r.requestedMs>=ATTEMPT_TIMEOUT_MS;
         r.status=status&255;r.length=Math.max(0,Math.min(255,dataLength));r.firstMs=nowMs;r.late=late;
-        r.outcome=status!=0?Outcome.REJECTED:dataLength<minimumLength(cmd)?Outcome.MALFORMED:Outcome.READ_SUPPORTED;
+        r.outcome=status!=0?Outcome.REJECTED:dataLength<=0?Outcome.EMPTY_REPLY:dataLength<minimumLength(cmd)?Outcome.MALFORMED:Outcome.READ_SUPPORTED;
         if(outstanding==r)outstanding=null;
     }
 
@@ -104,7 +106,7 @@ final class DiscoveryCoordinator {
             outstanding=null;ended=true;return true;
         }
         if(outstanding!=null&&nowMs-outstanding.requestedMs>=ATTEMPT_TIMEOUT_MS&&outstanding.attempts>=maxAttempts(outstanding.cls)){
-            outstanding.timedOut=true;outstanding.outcome=Outcome.NO_RESPONSE;outstanding=null;
+            outstanding.outcome=Outcome.NO_RESPONSE;outstanding=null;
         }
         for(Read r:reads)if(!r.resolved())return false;
         if(elapsed<PASSIVE_WINDOW_MS)return false;

@@ -53,7 +53,7 @@ final class CompatibilityReport {
     static boolean presenceOffset(int o){return o==0||o==14||o==40||o==41;}
     static final int LAST_OFFSET=42;
     private static final String[] AUTH={"challenge_free","aes","aes_extended","xor","failed"};
-    private static final String[] READ_OUTCOMES={"pending","read_supported","rejected","no_response","malformed","interrupted"};
+    private static final String[] READ_OUTCOMES={"pending","read_supported","rejected","no_response","malformed","empty_reply","interrupted"};
 
     private final Map<String,Object> tree;
     private CompatibilityReport(Map<String,Object> tree){this.tree=tree;}
@@ -253,6 +253,7 @@ final class CompatibilityReport {
             case "read_supported": return "Read supported · "+r.get("length")+" bytes"+late;
             case "rejected": return "Rejected, code "+r.get("status")+late;
             case "malformed": return "Too short · "+r.get("length")+" bytes"+late;
+            case "empty_reply": return "Replied with no data (not proof of support)"+late;
             case "no_response": return "No response ("+r.get("attempts")+(Long.valueOf(1).equals(r.get("attempts"))?" attempt)":" attempts)");
             case "interrupted": return "Interrupted";
             default: return "Pending";
@@ -321,7 +322,7 @@ final class CompatibilityReport {
         Integer cmd=cmd(in.get("cmd"),DiscoveryCoordinator.ORDER);if(cmd==null)return null;
         String outcome=oneOf(in.get("outcome"),READ_OUTCOMES);if(outcome==null)return null;
         Map<String,Object> out=new LinkedHashMap<>();out.put("cmd",hex(cmd));out.put("class",lower(ReadPolicy.cls(cmd)));out.put("outcome",outcome);
-        boolean replied=outcome.equals("read_supported")||outcome.equals("rejected")||outcome.equals("malformed");
+        boolean replied=outcome.equals("read_supported")||outcome.equals("rejected")||outcome.equals("malformed")||outcome.equals("empty_reply");
         if(replied){putInt(out,"status",in.get("status"),0,255);putInt(out,"length",in.get("length"),0,255);}
         putInt(out,"attempts",in.get("attempts"),0,3);
         if(replied)putInt(out,"first_ms",in.get("first_ms"),0,DiscoveryCoordinator.HARD_CAP_MS*2);

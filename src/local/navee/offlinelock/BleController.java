@@ -167,7 +167,7 @@ public final class BleController {
     private final BroadcastReceiver bluetoothReceiver=new BroadcastReceiver(){@Override public void onReceive(Context c,Intent intent){if(simulating())return;if(BluetoothAdapter.ACTION_STATE_CHANGED.equals(intent.getAction())){int value=intent.getIntExtra(BluetoothAdapter.EXTRA_STATE,-1);if(value==BluetoothAdapter.STATE_OFF){if(gatt!=null||wanted||state==State.WAITING)failed(BLUETOOTH_OFF,false,ConnectionEventLog.Reason.ADAPTER_OFF,value);else recordDiagnostic(ConnectionEventLog.Reason.ADAPTER_OFF,value);}else if(value==BluetoothAdapter.STATE_ON&&wanted&&gatt==null&&workAllowed())connectLast();return;}BluetoothDevice device=intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);if(device==null||gatt==null||!device.getAddress().equals(gatt.getDevice().getAddress()))return;int value=intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE,-1);bondCheckedMs=0;if(value==BluetoothDevice.BOND_BONDED)notice("Phone paired. You can now enable proximity unlock.");else if(value==BluetoothDevice.BOND_NONE)notice("Bluetooth pairing is not active.");}};
     private boolean workAllowed(){if(simulating())return false;return visible||recording||context.getSharedPreferences("app_settings",Context.MODE_PRIVATE).getBoolean("background_connection",false)||backgroundDeadlineMs>now();}
     public void visibility(boolean v,boolean r){visibility(v,r,0);}
-    public void visibility(boolean v,boolean r,long deadline){if(simulating()){visible=v;recording=false;backgroundDeadlineMs=0;if(v)tickSimulation();return;}boolean resumed=v&&!visible;visible=v;recording=r;backgroundDeadlineMs=deadline;if(!workAllowed())suspend();else if(resumed&&authenticated)refresh(false);}
+    public void visibility(boolean v,boolean r,long deadline){if(simulating()){visible=v;recording=false;backgroundDeadlineMs=0;if(v)tickSimulation();return;}boolean resumed=v&&!visible,started=r&&!recording;visible=v;recording=r;backgroundDeadlineMs=deadline;if(started&&discovering)stopDiscovery();if(!workAllowed())suspend();else if(resumed&&authenticated)refresh(false);}
     public void connectLast(){if(simulating()){connectSimulation();return;}if(!workAllowed()){suspend();return;}ScooterProfiles.Profile p=profiles.active();if(p==null||!p.configured()){notice(NO_PROFILE);return;}if(gatt!=null&&(state==State.CONNECTING||state==State.AUTHENTICATING||connected())&&profile!=null&&p.id.equals(profile.id))return;wanted=true;retries=0;identifying=false;if(p.mac.isEmpty())scan();else connect(p,p.mac);}
     public void connectDiscovered(ScanResult result){if(simulating()){connectSimulation();return;}if(!workAllowed()){suspend();return;}ScooterProfiles.Profile p=profiles.active();if(p==null||!p.configured()){notice(NO_PROFILE);return;}wanted=true;retries=0;
         // Remember this device's advertised model ID; remember() commits it only after authentication and a serial match.
@@ -301,7 +301,7 @@ public final class BleController {
                 else if(!authenticated){authenticated=true;challengePending=false;if(authVariant.isEmpty())authVariant="challenge_free";event("Owner authenticated locally");message="Connecting…";policy();send(Protocol.frame(0x74,null));send(Protocol.frame(0x70,null));refresh(true);poll(generation);}
             }else if(f.cmd==0x31&&challengePending){if(f.error()!=0){failed("Owner check failed",false,ConnectionEventLog.Reason.AUTHENTICATION_FAILED,f.error());return;}int s=generation;handler.postDelayed(()->{if(s==generation)authenticate();},150);}
             else if(authenticated){
-                if(readPolicy!=null)readPolicy.responded(f.cmd,f.error(),now());
+                if(readPolicy!=null)readPolicy.responded(f.cmd,f.error(),f.data.length-1,now());
                 if(discovering)discovery.onFrame(f.cmd,f.error(),f.data.length-1,now());
                 if(f.cmd!=0x7a&&f.cmd!=0x63)telemetry.accept(f.cmd,f.data,now());if(f.cmd==0x73)sessionFirmware=null;
                 if(f.cmd==0x74&&f.error()==0&&f.data.length>=2){String received=new String(Arrays.copyOfRange(f.data,1,Math.min(18,f.data.length)),StandardCharsets.US_ASCII).replace("\u0000","").trim();if(!received.matches("[A-Za-z][A-Za-z0-9]{16}")){failed("Unrecognised scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}if(!profile.serial.isEmpty()&&!profile.serial.equals(received)){failed("Not the saved scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}serial=received;profile.serial=received;remember();}
@@ -448,6 +448,8 @@ public final class BleController {
         discovering=false;
         discoveryDescriptor=descriptor();discoveryStatus=status();discoveryAuth=simulating()?null:authVariant;
         discoveryDecisions=CapabilityResolver.all(discoveryDescriptor,discoveryStatus,runtime(""));
+        // Normal polling stops asking for what the check found silent on every attempt.
+        if(readPolicy!=null&&!simulating())for(DiscoveryCoordinator.Read r:discovery.reads())if(r.outcome==DiscoveryCoordinator.Outcome.NO_RESPONSE&&r.attempts>=DiscoveryCoordinator.maxAttempts(r.cls))readPolicy.unanswered(r.cmd);
         event("Compatibility check ended");
     }
     private void clearDiscovery(){if(discovering)return;discovery=null;discoveryProfileId=null;discoveryDescriptor=null;discoveryStatus=null;discoveryDecisions=null;discoveryAuth=null;}

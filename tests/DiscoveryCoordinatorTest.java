@@ -66,9 +66,13 @@ public final class DiscoveryCoordinatorTest {
     private static void late() {
         DiscoveryCoordinator d=new DiscoveryCoordinator(T0);
         d.nextRead(T0);check(Integer.valueOf(0x74).equals(d.nextRead(T0+2500)),"Retry after timeout");
-        d.onFrame(0x74,0,17,T0+2600);
+        d.onFrame(0x74,0,17,T0+2550);
         DiscoveryCoordinator.Read r=read(d,0x74);
-        check(r.outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED&&r.late&&r.attempts==2,"Reply after a timeout is supported and late");
+        check(r.outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED&&!r.late&&r.attempts==2,"A prompt reply to a retry is not late");
+        // A reply after the attempt timed out, before the retry, is late.
+        DiscoveryCoordinator l=new DiscoveryCoordinator(T0);
+        l.nextRead(T0);l.onFrame(0x74,0,17,T0+2600);
+        check(read(l,0x74).outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED&&read(l,0x74).late&&read(l,0x74).attempts==1,"Reply after a timeout is supported and late");
         // A probe resolves NO_RESPONSE, then its reply arrives.
         DiscoveryCoordinator p=new DiscoveryCoordinator(T0);
         long t=T0;for(int c:new int[]{0x74,0x70,0x73,0x72,0x76,0x7b}){Integer cmd;while((cmd=p.nextRead(t))==null)t+=50;p.onFrame(cmd,0,cmd==0x70?13:cmd==0x74?17:4,t);}
@@ -103,7 +107,9 @@ public final class DiscoveryCoordinatorTest {
         d.nextRead(T0+300);d.onFrame(0x70,0,12,T0+310);
         check(read(d,0x70).outcome==DiscoveryCoordinator.Outcome.MALFORMED,"Short status reply is malformed");
         d.nextRead(T0+600);d.onFrame(0x73,0,0,T0+610);
-        check(read(d,0x73).outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED&&read(d,0x73).length==0,"Zero length is a reply, not a mapping");
+        check(read(d,0x73).outcome==DiscoveryCoordinator.Outcome.EMPTY_REPLY&&read(d,0x73).length==0&&read(d,0x73).status==0,"Zero length is an ACK, not proof of support");
+        d.nextRead(T0+900);d.onFrame(0x72,0,0,T0+910);
+        check(read(d,0x72).outcome==DiscoveryCoordinator.Outcome.EMPTY_REPLY,"Empty optional reply is not supported");
     }
     private static void interruption() {
         for(int stop=0;stop<=DiscoveryCoordinator.ORDER.length;stop++){

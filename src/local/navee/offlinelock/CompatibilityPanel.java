@@ -130,7 +130,7 @@ final class CompatibilityPanel {
             for(DiscoveryCoordinator.Read r:check.reads())row(reads,CompatibilityReport.hex(r.cmd)+" · "+readName(r.cmd),readValue(r),r.outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED?ui.ok:ui.muted);
             StringBuilder seen=new StringBuilder();
             for(DiscoveryCoordinator.Read p:check.passive())if(p.outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED)seen.append(seen.length()==0?"":", ").append(CompatibilityReport.hex(p.cmd));
-            row(reads,"Reports from the scooter",seen.length()==0?"None seen":seen.toString(),ui.muted);
+            row(reads,"Reports from the scooter",seen.length()==0?"None seen (they may only arrive while riding)":seen.toString(),ui.muted);
         }
         LinearLayout fields=group("Fields");
         if(fields!=null){
@@ -172,6 +172,7 @@ final class CompatibilityPanel {
             case READ_SUPPORTED: return "✓ "+r.length+" bytes"+late;
             case REJECTED: return "Rejected "+r.status;
             case MALFORMED: return "Too short ("+r.length+" bytes)";
+            case EMPTY_REPLY: return "Replied with no data";
             case NO_RESPONSE: return "No response";
             case INTERRUPTED: return "Interrupted";
             default: return "Waiting";
