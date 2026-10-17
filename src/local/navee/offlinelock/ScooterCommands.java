@@ -8,7 +8,8 @@ import java.util.List;
 /**
  * Named, bounded OEM controls. No arbitrary register/opcode console is exposed.
  * Evidence: installed NAVEE 2.1.9 BleHandler and its settings activities.
- * Catalog targets the US UT5 MAX, PID 2538; sibling scooters have different limits.
+ * Option domains and labels in this catalogue are Volt's UT5 MAX (PID 2538) layer.
+ * Other models receive FeatureVariants from ModelRegistry.
  * Sending a control is not confirmation: wait for its response and fresh readback.
  */
 public final class ScooterCommands {
@@ -79,6 +80,9 @@ public final class ScooterCommands {
             if(key.equals("speed_limit")||key.equals("drive_speed_limit"))return (raw&128)==0?0:raw&127;
             return (raw & readbackMask) >>> readbackShift;
         }
+
+        /** Wire selector bytes before the value (0x6e/0x6f/0x81 selector, 0x6d target and sub). */
+        int[] selector() { return prefix.clone(); }
 
         public Long timeReadback(Protocol.Frame frame) {
             if(type!=Type.TIME || frame==null || frame.cmd!=readbackCmd || frame.error()!=0
@@ -187,16 +191,17 @@ public final class ScooterCommands {
         require(feature.allows(value), "Value is outside the OEM feature domain");
         if (key.equals("speed_limit")) {
             require(value == 0 || value >= 8, "Off or 8–32 km/h");
-            return Protocol.frame(feature.cmd, new byte[]{(byte)(value == 0 ? 0 : value | 128)});
+            return WireCommands.enabledCap(feature.cmd,-1,value,value!=0);
         }
         if (key.equals("drive_speed_limit")) {
             require(value == 0 || value >= 5, "Off or 5–20 km/h");
-            return Protocol.frame(feature.cmd,new byte[]{3,(byte)(value == 0 ? 0 : value | 128)});
+            return WireCommands.enabledCap(feature.cmd,3,value,value!=0);
         }
-        byte[] payload = new byte[feature.prefix.length + 1];
-        for (int i=0;i<feature.prefix.length;i++) payload[i]=(byte)feature.prefix[i];
-        payload[payload.length-1]=(byte)value;
-        return Protocol.frame(feature.cmd,payload);
+        int[] selector=feature.prefix;
+        if (selector.length==0) return WireCommands.scalar(feature.cmd,value);
+        if (selector.length==1) return WireCommands.selector(feature.cmd,selector[0],value);
+        require(selector.length==2 && feature.cmd==0x6d,"Feature has no wire encoder");
+        return WireCommands.light(selector[0],selector[1],value);
     }
 
     /** Runtime-gated builder: missing firmware fields cannot be treated as supported controls. */
@@ -236,26 +241,19 @@ public final class ScooterCommands {
         if (key.equals("voice")) {
             require(values.length == 3 && binary(values[0]) && between(values[1],0,100) && binary(values[2]),
                     "Voice needs enabled, volume 0–100, and language 0 (Chinese) / 1 (English)");
-            return Protocol.frame(0x6c,new byte[]{(byte)(values[0] == 0 ? 0 : 128 | values[1]),(byte)values[2]});
+            return WireCommands.voice(values[0]!=0,values[1],values[2]);
         }
         require(values.length == 1,"Scalar feature accepts exactly one parameter");
         return set(key,values[0]);
     }
 
     public static byte[] setChargeStart(long unixSeconds, int timezoneOffsetSeconds) {
-        return timestamp(3,unixSeconds,timezoneOffsetSeconds);
+        return WireCommands.localTime(3,unixSeconds,timezoneOffsetSeconds);
     }
 
     /** The OEM synchronizes this clock after owner authentication. */
     public static byte[] setClock(long unixSeconds, int timezoneOffsetSeconds) {
-        return timestamp(6,unixSeconds,timezoneOffsetSeconds);
-    }
-
-    private static byte[] timestamp(int parameter, long unixSeconds, int offset) {
-        require(between(offset,-18*3600,18*3600),"Timezone offset is invalid");
-        long local = unixSeconds + offset;
-        require(unixSeconds > 0 && local > 0 && local <= 0xffffffffL,"Timestamp must fit OEM's four-byte clock");
-        return Protocol.frame(0x6f,new byte[]{(byte)parameter,(byte)(local>>>24),(byte)(local>>>16),(byte)(local>>>8),(byte)local});
+        return WireCommands.localTime(6,unixSeconds,timezoneOffsetSeconds);
     }
 
     public static int[] diagnosticReads() { return READS.clone(); }

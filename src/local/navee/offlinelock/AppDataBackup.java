@@ -77,9 +77,18 @@ public final class AppDataBackup {
                 for(String field:new String[]{"name","identity","mac","serial"})if(p.has(field)&&!(p.opt(field) instanceof String))throw new IOException("The backup has invalid scooter profile fields.");
                 if(p.has("role")&&(!(p.opt("role") instanceof Number)||(p.optDouble("role",-1)!=0&&p.optDouble("role",-1)!=1)))throw new IOException("The backup has an invalid scooter owner role.");
                 if(p.has("lastConnected")&&!(p.opt("lastConnected") instanceof Number))throw new IOException("The backup has an invalid scooter connection date.");
+                if(!validDescriptorFields(p))throw new IOException("The backup has invalid scooter profile fields.");
                 String identity=p.optString("identity","");if(!identity.isEmpty()&&!identity.matches("(?i)[0-9a-f]{12}"))throw new IOException("The backup has an invalid scooter setup identity.");
             }
         }catch(IOException e){throw e;}catch(Exception e){throw new IOException("The backup has unreadable scooter profiles.",e);}
+    }
+
+    /** Model evidence fields (advertised PID, last-seen firmware, default name). Types and bounds only, so a newer backup is not rejected. */
+    static boolean validDescriptorFields(JSONObject p) {
+        Object pid=p.opt("pid_advertised");if(pid!=null&&!(pid instanceof String&&((String)pid).matches("[0-9]{0,5}")))return false;
+        for(String field:new String[]{"fw_meter","fw_controller","fw_bms","fw_screen","fw_uwb"}){Object v=p.opt(field);if(v!=null&&!(v instanceof String&&((String)v).matches("[\\x20-\\x7e]{0,16}")))return false;}
+        for(String field:new String[]{"pid_advertised_wall","fw_wall"})if(p.has(field)&&!(p.opt(field) instanceof Number))return false;
+        return !p.has("name_default")||p.opt("name_default") instanceof Boolean;
     }
 
     private static final class AndroidStorage implements AppDataArchive.Storage {

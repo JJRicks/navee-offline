@@ -852,7 +852,7 @@ public final class MoreScreen implements AppScreen {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             if (!canEditProfiles()) return;
             String value = name.getText().toString().trim(); if (value.isEmpty()) { name.setError("Enter a scooter name"); return; }
-            p.name = value; service().profiles.update(p); dialog.dismiss(); host.redraw();
+            p.name = value; p.nameDefault = false; service().profiles.update(p); dialog.dismiss(); host.redraw();
         });
     }
     private void backupProfile() {
