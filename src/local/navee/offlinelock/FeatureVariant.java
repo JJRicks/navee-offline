@@ -59,14 +59,18 @@ public final class FeatureVariant {
         if(decode==Decode.UT5_FEATURE)return ScooterCommands.find(feature).timeReadback(s.frame());
         return decode==Decode.BE32?s.be32(offset):null;
     }
-    /** Values offered now: dynamic choices come from the status (UT5 range estimate), else the domain. */
+    /** Values offered now: dynamic choices come from the status (range estimate sets), else the domain. */
     public int[] choices(StatusFields s){
-        if(dynamicChoices&&decode==Decode.UT5_FEATURE){
-            int[] dynamic=ScooterCommands.choiceValues(feature,s==null?null:s.frame());
-            if(values.length==0)return dynamic;
-            int n=0;int[] kept=new int[dynamic.length];for(int v:dynamic)if(contains(values,v))kept[n++]=v;return Arrays.copyOf(kept,n);
+        if(!dynamicChoices)return values.clone();
+        int[] dynamic;
+        if(decode==Decode.UT5_FEATURE)dynamic=ScooterCommands.choiceValues(feature,s==null?null:s.frame());
+        else {
+            // OEM 2.1.9: offset 15 selects the range estimate set; an unknown set offers nothing.
+            Integer set=s==null?null:s.u8(15);
+            dynamic=set==null?new int[0]:set==0?new int[]{0,1}:set==1?new int[]{0,2,3}:set==2?new int[]{4,2,3}:new int[0];
         }
-        return values.clone();
+        if(values.length==0)return dynamic;
+        int n=0;int[] kept=new int[dynamic.length];for(int v:dynamic)if(contains(values,v))kept[n++]=v;return Arrays.copyOf(kept,n);
     }
     public boolean allows(int value){
         if(values.length>0&&!contains(values,value))return false;

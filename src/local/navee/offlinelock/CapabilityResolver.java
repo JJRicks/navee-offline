@@ -42,6 +42,11 @@ public final class CapabilityResolver {
             this.status=status==null?StatusFields.NONE:status;this.choices=choices==null?new int[0]:choices;
         }
         public boolean available(){return support==Support.KNOWN_ENCODING&&reason==Reason.NONE;}
+        /**
+         * Refused only because the scooter is moving, has sent no motion report yet, or (lock) has a
+         * warning. The UI keeps such a control tappable so the tap can say why; admission still refuses.
+         */
+        public boolean blockedByRide(){return support==Support.KNOWN_ENCODING&&(reason==Reason.MOVING||reason==Reason.NO_MOTION_REPORT||reason==Reason.WARNING_ACTIVE);}
         /** Offered values (empty for a slider: use variant.min/max/step). */
         public int[] values(){return choices.clone();}
         public String[] labels(){String[] out=new String[choices.length];for(int i=0;i<choices.length;i++)out[i]=label(choices[i]);return out;}
@@ -113,6 +118,12 @@ public final class CapabilityResolver {
         if(reason==Reason.NONE)return decision;
         ModelRegistry.Rule rule=new ModelRegistry.Rule(decision.support,Reason.NONE,decision.evidence,decision.oemNote,decision.preconditions,decision.variant);
         return new Decision(feature,decision.layer,rule,reason,status,decision.choices);
+    }
+
+    /** The same decision with another reason (MutationGate's request-level rules). */
+    static Decision withReason(Decision d,Reason reason){
+        ModelRegistry.Rule rule=new ModelRegistry.Rule(d.support,Reason.NONE,d.evidence,d.oemNote,d.preconditions,d.variant);
+        return new Decision(d.feature,d.layer,rule,reason,d.status,d.choices);
     }
 
     /** Catalogue order, then "clock_sync". */
