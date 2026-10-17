@@ -103,7 +103,6 @@ public final class MoreScreen implements AppScreen {
     private Row chargeCaptureRow, clearChargeRow, exportChargeRow, chargeHistoryRow;
     private ChargeHistoryDialog chargeHistoryDialog;
     private SegmentedSelector chargeChargerSelector;
-    private ChargeSessionStore.Charger chosenCharger=ChargeSessionStore.Charger.STOCK;
     private android.widget.Toast developerCountdown;
     private int developerTaps;
     private long lastDeveloperTap;
@@ -1662,19 +1661,20 @@ public final class MoreScreen implements AppScreen {
         simulationStatus.setTextColor(ui.orange);
         simulationStatus.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         label("Charge recording");
-        TextView attached = ui.text("Attached charger", 12.5f, false); attached.setTextColor(ui.muted);
+        TextView attached = ui.text("Charger for estimates", 12.5f, false); attached.setTextColor(ui.muted);
         attached.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(6)); cardDestination.addView(attached);
         ScooterService current=service();
-        chosenCharger=current!=null&&current.chargeCharger()!=null?current.chargeCharger():ChargeSessionStore.Charger.STOCK;
-        chargeChargerSelector=new SegmentedSelector(ui,"Attached charger",new String[]{"Stock","High-speed"},choice->{
+        ChargeSessionStore.Charger chosen=current==null?null:current.chargeCharger();
+        chargeChargerSelector=new SegmentedSelector(ui,"Charger for estimates",new String[]{"Auto","Stock","High-speed"},choice->{
             ScooterService s=service();if(s==null||s.isChargeRecording())return;
-            chosenCharger=choice==0?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED;
-            s.setChargeCharger(chosenCharger);refreshDeveloper();
+            s.setChargeCharger(choice==0?null:choice==1?ChargeSessionStore.Charger.STOCK:ChargeSessionStore.Charger.HIGH_SPEED);
+            refreshDeveloper();
         });
-        chargeChargerSelector.setTag("charge-charger-selector");chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
+        chargeChargerSelector.setTag("charge-charger-selector");chargeChargerSelector.select(chosen==null?0:chosen==ChargeSessionStore.Charger.STOCK?1:2,false);
         preferenceSelectors.add(chargeChargerSelector);
         LinearLayout.LayoutParams chargerParams=new LinearLayout.LayoutParams(-1,-2);chargerParams.bottomMargin=ui.dp(12);
         cardDestination.addView(chargeChargerSelector,chargerParams);
+        footnote("Auto recognizes UT5 MAX chargers from live power. If uncertain, Volt uses the current rate; choose a charger to override.");
         // Count qualified evidence without claiming every range is ready at a fixed session count.
         chargeCurve=ui.card();chargeCurve.setTag("charge-learning-status");
         LinearLayout curveHead=row();
@@ -1763,8 +1763,7 @@ public final class MoreScreen implements AppScreen {
         }
         if(chargeCaptureRow!=null){
             ChargeSessionStore.Charger selected=s==null?null:s.chargeCharger();
-            chosenCharger=selected==null?ChargeSessionStore.Charger.STOCK:selected;
-            chargeChargerSelector.select(chosenCharger==ChargeSessionStore.Charger.STOCK?0:1,false);
+            chargeChargerSelector.select(selected==null?0:selected==ChargeSessionStore.Charger.STOCK?1:2,false);
             boolean capturing=s!=null&&s.isChargeRecording();
             String unavailable=s==null?"Connect your scooter first":s.chargeCaptureUnavailable();
             chargeCaptureRow.title.setText(capturing?"Stop charge recording":"Record this charge");
@@ -1789,13 +1788,14 @@ public final class MoreScreen implements AppScreen {
         ScooterProfiles.Profile profile = active();
         if (profile == null) { host.toast("Choose a scooter first."); return; }
         final String profileId = profile.id;
-        final ChargeSessionStore.Charger[] selected = {chosenCharger};
+        ChargeSessionStore.Charger effective = s.effectiveChargeCharger();
+        final ChargeSessionStore.Charger[] selected = {effective == null ? ChargeSessionStore.Charger.STOCK : effective};
         LinearLayout box = dialogBox("", "Saved on phone · stops at 100% · keeps the last 20");
         TextView heading = (TextView) box.getChildAt(0);
         Runnable title = () -> heading.setText("Record with " + (selected[0] == ChargeSessionStore.Charger.STOCK ? "Stock" : "High-speed") + " charger?");
         title.run();
-        // A choice in a confirmation panel is provisional until Start. Cancel must not change
-        // future estimates, and an open panel must never start a different scooter's recording.
+        // Capture labels are explicitly confirmed for learning, independently of the estimate
+        // preference. An open panel must never start a different scooter's recording.
         SegmentedSelector picker = new SegmentedSelector(ui, "Attached charger", new String[]{"Stock", "High-speed"}, choice -> {
             selected[0] = choice == 0 ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED;
             title.run();
@@ -1822,10 +1822,11 @@ public final class MoreScreen implements AppScreen {
         int qualified = s == null ? -1 : s.qualifiedChargeCurves();
         chargeCurveValue.setText(qualified < 0 ? "…" : Integer.toString(qualified));
         chargeCurveValue.setTextColor(qualified > 0 ? ui.accent : ui.muted);
-        String charger = chosenCharger == ChargeSessionStore.Charger.STOCK ? "stock" : "high-speed";
+        ChargeSessionStore.Charger effective = s == null ? null : s.effectiveChargeCharger();
+        String charger = effective == null ? "" : effective == ChargeSessionStore.Charger.STOCK ? "stock " : "high-speed ";
         chargeCurve.setContentDescription(qualified < 0 ? "Saved charge curves loading"
-                : qualified + " qualified " + charger + " charge recordings");
-        chargeCurve.setTooltipText("A completed charge can refine its finishing range. Other ranges need two matching recordings. Estimates depend on coverage and live power; UT5 MAX stock estimates also work without recordings.");
+                : qualified + " qualified " + charger + "charge recordings");
+        chargeCurve.setTooltipText("A completed charge can refine its finishing range. Other ranges need two matching recordings. Estimates depend on coverage and live power; UT5 MAX stock and high-speed estimates also work without recordings.");
     }
     private void setChildrenEnabled(View view,boolean enabled){
         view.setEnabled(enabled);if(view instanceof ViewGroup)for(int i=0;i<((ViewGroup)view).getChildCount();i++)setChildrenEnabled(((ViewGroup)view).getChildAt(i),enabled);

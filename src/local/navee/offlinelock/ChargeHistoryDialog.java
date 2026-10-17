@@ -207,7 +207,7 @@ final class ChargeHistoryDialog {
         return date ? new SimpleDateFormat("MMM d", Locale.getDefault()).format(new Date(wall)) + " " + time : time;
     }
     private static String source(ChargeSessionStore.Source source) {
-        return source == ChargeSessionStore.Source.PERSONAL ? "Personal curve" : source == ChargeSessionStore.Source.STOCK_REFERENCE ? "Stock reference" : source == ChargeSessionStore.Source.CURRENT_RATE ? "Current rate" : "Unavailable";
+        return source == ChargeSessionStore.Source.PERSONAL ? "Personal curve" : source == ChargeSessionStore.Source.STOCK_REFERENCE ? "Stock reference" : source == ChargeSessionStore.Source.FAST_REFERENCE ? "High-speed reference" : source == ChargeSessionStore.Source.CURRENT_RATE ? "Current rate" : "Unavailable";
     }
 
     private final class Panel extends LinearLayout {

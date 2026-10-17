@@ -3,7 +3,7 @@ package local.navee.offlinelock;
 /** Fresh battery-side charging measurements, model defaults and optional personal charge curves. */
 public final class ChargingEstimate {
     /** Bump whenever the prediction algorithm/reference changes; independent of app versions. */
-    public static final String ESTIMATOR_VERSION = "ut5-reference-personal-v2";
+    public static final String ESTIMATOR_VERSION = "ut5-dual-charger-v3";
     public static final double MINIMUM_ETA_CURRENT_A = 0.05;
     /** Short UI label when measured current is too low for a time estimate. */
     public static final String LOW_CURRENT = "Low current";
@@ -14,9 +14,14 @@ public final class ChargingEstimate {
     public static ChargeSessionStore.Estimate recordingSnapshot(Result result) {
         if(result==null)return new ChargeSessionStore.Estimate(ESTIMATOR_VERSION,null,null,null,null,null,0);
         return new ChargeSessionStore.Estimate(ESTIMATOR_VERSION,result.remainingMinutesToFull,result.remainingMinutesToLimit,result.targetPercent,
-                result.learnedToFull?ChargeSessionStore.Source.PERSONAL:result.referenceToFull?ChargeSessionStore.Source.STOCK_REFERENCE:ChargeSessionStore.Source.CURRENT_RATE,
-                result.learnedToLimit?ChargeSessionStore.Source.PERSONAL:result.referenceToLimit?ChargeSessionStore.Source.STOCK_REFERENCE:ChargeSessionStore.Source.CURRENT_RATE,
+                result.learnedToFull?ChargeSessionStore.Source.PERSONAL:result.referenceToFull?referenceSource(result):ChargeSessionStore.Source.CURRENT_RATE,
+                result.learnedToLimit?ChargeSessionStore.Source.PERSONAL:result.referenceToLimit?referenceSource(result):ChargeSessionStore.Source.CURRENT_RATE,
                 result.learnedSessions);
+    }
+
+    private static ChargeSessionStore.Source referenceSource(Result result) {
+        return result.referenceCharger==ChargeSessionStore.Charger.HIGH_SPEED
+                ?ChargeSessionStore.Source.FAST_REFERENCE:ChargeSessionStore.Source.STOCK_REFERENCE;
     }
 
     /**
@@ -44,6 +49,7 @@ public final class ChargingEstimate {
         public final String status, label;
         public final boolean learnedToLimit, learnedToFull;
         public final boolean referenceToLimit, referenceToFull;
+        public final ChargeSessionStore.Charger referenceCharger;
         public final int learnedSessions;
 
         private Result(
@@ -67,9 +73,18 @@ public final class ChargingEstimate {
         private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
                 Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
                 boolean referenceToLimit,boolean referenceToFull) {
+            this(charging,inputWatts,inputAmps,remainingMinutesToLimit,remainingMinutesToFull,targetPercent,label,status,
+                    learnedToLimit,learnedToFull,learnedSessions,referenceToLimit,referenceToFull,
+                    referenceToLimit||referenceToFull?ChargeSessionStore.Charger.STOCK:null);
+        }
+
+        private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
+                Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
+                boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger) {
             this.label = label;
             this.learnedToLimit=learnedToLimit;this.learnedToFull=learnedToFull;this.learnedSessions=learnedSessions;
             this.referenceToLimit=referenceToLimit;this.referenceToFull=referenceToFull;
+            this.referenceCharger=referenceToLimit||referenceToFull?referenceCharger:null;
             this.charging = charging;
             this.inputWatts = inputWatts;
             this.inputAmps = inputAmps;
@@ -147,11 +162,16 @@ public final class ChargingEstimate {
         return forScooter(baseline,soc,ratedAh,productId,selectedCharger,personal,null,null,0,0);
     }
 
-    /** Stateful tolerance is scoped to one authenticated connection and charger preference. */
+    /** The caller supplies a manual or confidently detected family; null remains unknown. */
     public static Result forScooter(Result baseline, Value soc, Value ratedAh, int productId,
             ChargeSessionStore.Charger selectedCharger, ChargeSessionStore.Curve personal,
             StockChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
-        Result prior=withStockReference(baseline,soc,ratedAh,productId,selectedCharger,gate,scope,frameMs,nowMs);
+        if(selectedCharger==null){if(gate!=null)gate.reset();return baseline;}
+        Result prior;
+        if(selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED){
+            if(gate!=null)gate.reset();
+            prior=withFastReference(baseline,soc,ratedAh,productId);
+        }else prior=withStockReference(baseline,soc,ratedAh,productId,selectedCharger,gate,scope,frameMs,nowMs);
         if (personal==null || selectedCharger==null || personal.charger!=selectedCharger) return prior;
         Result learned=withObservedCurve(baseline,soc,personal);
         if (learned==null || !learned.learnedToFull&&!learned.learnedToLimit) return prior;
@@ -159,16 +179,34 @@ public final class ChargingEstimate {
         boolean referenceLimit=!learned.learnedToLimit&&prior.referenceToLimit;
         String status=learned.learnedSessions==1?"Provisional personal estimate from 1 completed charge. "
                 :"Personal estimate from "+learned.learnedSessions+" qualified charges. ";
-        if(referenceFull||referenceLimit)status+="Experimental UT5 MAX stock-charger reference covers the other target. ";
+        if(referenceFull||referenceLimit)status+="Experimental UT5 MAX charger reference covers the other target. ";
         if(!learned.learnedToFull&&!referenceFull)status+="Time to 100% uses the current rate. ";
         if(prior.targetPercent!=null&&!learned.learnedToLimit&&!referenceLimit)status+="Time to the limit uses the current rate. ";
-        status+="Charger selection is manual. Time to displayed 100%; balancing may continue.";
+        status+="Time to displayed 100%; balancing may continue.";
         status+=cutoffNote(prior.targetPercent);
         return new Result(prior.charging,prior.inputWatts,prior.inputAmps,
                 learned.learnedToLimit?learned.remainingMinutesToLimit:prior.remainingMinutesToLimit,
                 learned.learnedToFull?learned.remainingMinutesToFull:prior.remainingMinutesToFull,
                 prior.targetPercent,"From "+learned.learnedSessions+" past charge"+(learned.learnedSessions==1?"":"s"),status,learned.learnedToLimit,learned.learnedToFull,learned.learnedSessions,
-                referenceLimit,referenceFull);
+                referenceLimit,referenceFull,prior.referenceCharger);
+    }
+
+    private static Result withFastReference(Result baseline,Value soc,Value ratedAh,int productId) {
+        if(baseline==null||!baseline.charging||baseline.inputWatts==null||baseline.inputAmps==null
+                ||baseline.remainingMinutesToFull==null||productId!=Ut5MaxStockChargeReference.PRODUCT_ID
+                ||!valid(soc)||!valid(ratedAh))return baseline;
+        Double full=Ut5MaxFastChargeReference.estimate(soc.number,100,ratedAh.number,baseline.inputAmps,baseline.inputWatts);
+        Double limit=baseline.targetPercent==null?null:Ut5MaxFastChargeReference.estimate(
+                soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts);
+        if(full==null&&limit==null)return baseline;
+        String status="Experimental UT5 MAX high-speed reference from one observed charge. ";
+        if(soc.number<72)status+="Bulk time uses rated Ah and live current, followed by the observed taper. ";
+        if(full==null)status+="Time to 100% uses the current rate. ";
+        if(limit==null&&baseline.targetPercent!=null)status+="Time to the limit uses the current rate. ";
+        status+="Time to displayed 100%; balancing may continue."+cutoffNote(baseline.targetPercent);
+        return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
+                limit==null?baseline.remainingMinutesToLimit:limit,full==null?baseline.remainingMinutesToFull:full,
+                baseline.targetPercent,"High-speed reference",status,false,false,0,limit!=null,full!=null,ChargeSessionStore.Charger.HIGH_SPEED);
     }
 
     private static Result withStockReference(Result baseline, Value soc, Value ratedAh, int productId,
@@ -214,7 +252,7 @@ public final class ChargingEstimate {
             String charger=curve.charger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
             String status=(finishing.sessions==1?"Provisional finish estimate from 1 completed ":"Approximate finish estimate from "+finishing.sessions+" completed ")
                     +charger+" charge"+(finishing.sessions==1?"":"s")
-                    +"; matched battery level and charging power. Time to displayed 100%; balancing may continue. Charger selection is manual.";
+                    +"; matched battery level and charging power. Time to displayed 100%; balancing may continue.";
             if(baseline.targetPercent==null)status+=" Cutoff unknown; 100% assumes charging continues.";
             else if(baseline.targetPercent<100)status+=" The 100% time assumes a higher charge limit.";
             if(limit==null&&baseline.targetPercent!=null)status+=" Time to the limit uses the current-rate estimate.";
@@ -228,7 +266,7 @@ public final class ChargingEstimate {
                     :"Saved charges lack consistent power at this battery level. ";
             return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
                     baseline.remainingMinutesToLimit,baseline.remainingMinutesToFull,baseline.targetPercent,
-                    "Charger mismatch · rate estimate",reason+"Charger selection is manual. "+baseline.status);
+                    "Charger mismatch · rate estimate",reason+baseline.status);
         }
         // If a complete trajectory cannot locate this stage safely, its older SOC-only bins
         // must not silently resurrect the same frozen countdown we rejected above.
@@ -242,7 +280,7 @@ public final class ChargingEstimate {
                         +(baseline.targetPercent==null?"Cutoff unknown; 100% assumes charging continues.":baseline.targetPercent<100?"100% assumes a higher cutoff.":""));
         int sessions=full==null?limit.sessions:limit==null?full.sessions:Math.min(full.sessions,limit.sessions);
         String charger=curve.charger==ChargeSessionStore.Charger.STOCK?"stock":"high-speed";
-        String status="Observed average from "+sessions+" "+charger+" charges; live power is compatible at this battery level. Charger selection is manual.";
+        String status="Observed average from "+sessions+" "+charger+" charges; live power is compatible at this battery level.";
         if(full==null)status+=" Full-charge taper is not covered; 100% uses the current-rate estimate.";
         if(limit==null&&baseline.targetPercent!=null)status+=" Time to the limit uses the current-rate estimate.";
         if(baseline.targetPercent==null)status+=" Cutoff unknown; 100% assumes charging continues.";

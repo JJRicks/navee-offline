@@ -13,7 +13,7 @@ public final class ChargeSessionStore {
     private static final int MIN_BINS = 10;
     public enum Charger { STOCK, HIGH_SPEED }
     public enum Stop { STOPPED, COMPLETE, CHARGING_ENDED, DISCONNECTED, PROFILE_CHANGED, READINGS_STOPPED, LIMIT, ERROR, PROCESS_ENDED, INTERRUPTED, RECOVERY_TIMEOUT, CONNECTION_FAILED, BLUETOOTH_OFF, PERMISSION_LOST, IDENTITY_CHANGED }
-    public enum Source { CURRENT_RATE, STOCK_REFERENCE, PERSONAL }
+    public enum Source { CURRENT_RATE, STOCK_REFERENCE, PERSONAL, FAST_REFERENCE }
     /** A prediction made at capture time, never recalculated when a recording is read. */
     public static final class Estimate {
         public final String version;

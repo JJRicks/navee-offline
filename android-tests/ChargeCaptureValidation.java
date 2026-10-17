@@ -48,11 +48,17 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(!service.startChargeRecording(ChargeSessionStore.Charger.STOCK)&&!service.isChargeRecording(),"Disconnected start bypassed guard");
                 require(!store().active()&&files().length==0,"Denied start created a journal");
                 @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
-                choices.get(1).performClick();require(service.chargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,"Charger selection did not persist");
+                require(choices.size()==3,"Developer selector is missing Automatic");
+                choices.get(2).performClick();require(service.chargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,"Charger selection did not persist");
                 require(settings().getString("charge_charger_"+profile,"").equals("HIGH_SPEED"),"Charger choice leaked to a global preference");
                 require(service.setSimulation(true),"Could not enable existing sample preview");service.ble.setSimulationCharging(true);
                 require(!service.startChargeRecording(ChargeSessionStore.Charger.HIGH_SPEED)&&files().length==0,"Simulation created charge data");
+                choices.get(0).performClick();
+                require(service.chargeCharger()==null&&!settings().contains("charge_charger_"+profile),"Automatic did not clear developer override");
+                require(service.effectiveChargeCharger()==null,"Simulation classified an automatic charger");
                 require(service.setSimulation(false),"Could not exit preview");
+                invoke(field(activity,"screen"),"refreshDeveloper",new Class<?>[]{});
+                require(service.chargeCharger()==null,"Developer refresh replaced Automatic with Stock");
             });settle();screenshot("developer");
             // Create only a low-level journal, exactly as the existing phone-recorder fixture does.
             // This tests service policy/Stop plumbing while the physical-start guard above remains enforced.
@@ -62,6 +68,9 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(!service.setSimulation(true),"Simulation interrupted a real journal");
                 service.startRide("must not start");require(!service.isRecording(),"Ride started during charge capture");
                 require(!service.setChargeCharger(ChargeSessionStore.Charger.STOCK),"Charger changed mid-session");
+                require(!service.setChargeCharger(null),"Automatic override changed mid-session");
+                require(service.chargeCharger()==null&&service.effectiveChargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,
+                        "Capture label overwrote Automatic or failed to supply its confirmed charger");
                 Notification notice=(Notification)invoke(service,"notification",new Class<?>[]{});
                 require("Charge recording is active".contentEquals(notice.extras.getCharSequence(Notification.EXTRA_TITLE)),"Notification lost capture state");
                 require(notice.actions!=null&&notice.actions.length==1&&"Stop charge recording".contentEquals(notice.actions[0].title),"Notification lacks Stop capture action");
@@ -91,6 +100,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
             });await(()->!service.isChargeRecording(),"Stop notification did not end capture");
             main(()->{
                 require(service.chargeCaptureStatus().equals("Charge recording saved"),"Notification action did not perform the manual stop path");
+                require(service.chargeCharger()==null&&service.effectiveChargeCharger()==null,"Capture label persisted after recording ended");
                 setField(service,"chargeUpdating",false);
                 seedActive(profile);service.visible(false);
                 require(!service.isChargeRecording(),"Disconnected journal stayed active in background");
@@ -111,6 +121,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
             await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Restarted model did not load");
             main(()->{
                 require(!service.isChargeRecording(),"Capture silently resumed after recreation");
+                require(service.chargeCharger()==null&&!settings().contains("charge_charger_"+profile),"Automatic did not survive service recreation");
                 require(field(service.ble,"gatt")==null&&field(service.ble,"scanner")==null,"Fixture touched real Bluetooth transport");
                 require(!service.isRecording()&&!service.phoneSaving()&&field(service,"phoneRecorder")==null,"Charge fixture started sensors or rides");
             });
@@ -149,11 +160,21 @@ public final class ChargeCaptureValidation extends Instrumentation {
             View selector=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-selector");
             require(selector!=null,"Charge confirmation has no charger choice");
             @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
+            require(choices.size()==2,"Recording labels must stay explicitly Stock or High-speed");
+            require(findText(dialog.getWindow().getDecorView(),"Record with Stock charger?")!=null,"Unknown Automatic capture did not prefill Stock");
             choices.get(1).performClick();
             require(service.chargeCharger()==previous,"Unconfirmed charger choice changed estimates");
             require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Confirmation did not reflect its local choice");
             findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
             require(service.chargeCharger()==previous&&!service.isChargeRecording()&&files().length==0,"Cancelling charge confirmation changed capture state");
+            invoke(more,"refreshDeveloper",new Class<?>[]{});
+            require(service.chargeCharger()==previous,"Capture dismissal changed estimate preference");
+            require(service.setChargeCharger(ChargeSessionStore.Charger.HIGH_SPEED),"Manual capture prefill fixture failed");
+            invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
+            dialog=lastDialog(more);
+            require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Capture did not prefill effective charger");
+            findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
+            require(service.setChargeCharger(previous),"Could not restore capture preference fixture");
 
             invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
             dialog=lastDialog(more);
@@ -174,7 +195,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
         if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView found=findText(group.getChildAt(i),text);if(found!=null)return found;}}
         return null;
     }
-    /** Model defaults work before any user recording, manual charger selection or developer setup. */
+    /** Cold/late Automatic stays uncertain; confirmed choices get model defaults without recordings. */
     private void verifyDefaultChargeEstimate(){
         main(()->{
             require(files().length==0&&service.chargeCharger()==null,"Default estimate fixture already has owner training/setup");
@@ -186,9 +207,16 @@ public final class ChargeCaptureValidation extends Instrumentation {
             Object snapshot=field(service,"chargeSnapshot");
             try{
                 settings().edit().putBoolean("developer_options",false).commit();setField(service,"chargeSnapshot",null);
+                readings.put("battery_percent",new TelemetryHistory.Reading("battery_percent","Battery","Battery","fixture","",95d,1000,true));
+                ChargingEstimate.Result late=service.chargingEstimate(readings);
+                require(!late.referenceToFull&&!late.learnedToFull&&late.remainingMinutesToFull!=null&&service.effectiveChargeCharger()==null,
+                        "Cold late-SOC Automatic guessed a charger instead of using live rate");
+                readings.put("battery_percent",new TelemetryHistory.Reading("battery_percent","Battery","Battery","fixture","",99d,1000,true));
+                require(service.setChargeCharger(ChargeSessionStore.Charger.STOCK),"Could not select Stock reference");
                 ChargingEstimate.Result estimate=service.chargingEstimate(readings);
                 require(estimate.referenceToFull&&estimate.referenceToLimit&&!estimate.learnedToFull&&estimate.learnedSessions==0,
-                        "Fresh UT5 MAX needs recordings, manual selection or developer options for its default estimate");
+                        "Confirmed stock UT5 MAX needs recordings or developer options for its reference estimate");
+                require(estimate.referenceCharger==ChargeSessionStore.Charger.STOCK,"Stock reference lost its family");
                 require(estimate.remainingMinutesToFull>20&&estimate.remainingMinutesToFull<30,"UT5 MAX default missed its long 99% finish");
                 Object dashboard=field(activity,"screen");
                 TextView etaValue=new TextView(activity),stateTag=new TextView(activity);
@@ -211,9 +239,21 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 ChargingEstimate.Result unknown=service.chargingEstimate(readings);
                 require(!unknown.referenceToFull&&!unknown.learnedToFull,"Unknown scooter inherited the UT5 MAX reference");
                 active.serial=serial;
-                settings().edit().putString("charge_charger_"+profile,"HIGH_SPEED").commit();
-                require(!service.chargingEstimate(readings).referenceToFull,"Explicit high-speed charger used stock reference");
-                settings().edit().remove("charge_charger_"+profile).commit();
+                require(service.setChargeCharger(ChargeSessionStore.Charger.HIGH_SPEED),"Could not select High-speed reference");
+                readings.put("battery_percent",new TelemetryHistory.Reading("battery_percent","Battery","Battery","fixture","",50d,1000,true));
+                readings.put("voltage_v",new TelemetryHistory.Reading("voltage_v","Voltage","Battery","fixture","",50d,1000,true));
+                readings.put("current_a",new TelemetryHistory.Reading("current_a","Current","Battery","fixture","",-10d,1000,true));
+                ChargingEstimate.Result fast=service.chargingEstimate(readings);
+                require(fast.referenceToFull&&!fast.learnedToFull&&fast.remainingMinutesToFull!=null&&fast.referenceCharger==ChargeSessionStore.Charger.HIGH_SPEED,
+                        "Confirmed high-speed UT5 MAX has no default reference without recordings");
+                require(ChargingEstimate.recordingSnapshot(fast).fullSource==ChargeSessionStore.Source.FAST_REFERENCE,
+                        "Fast estimate recording lost its source family");
+                active.serial="X9999-SYNTHETIC";
+                require(!service.chargingEstimate(readings).referenceToFull,"Unknown model inherited high-speed UT5 MAX reference");
+                active.serial=serial;
+                require(service.setChargeCharger(null),"Could not return to Automatic");
+                require(service.effectiveChargeCharger()==null&&!service.chargingEstimate(readings).referenceToFull,
+                        "Supplied display readings bypassed authenticated detection");
                 readings.put("current_a",readings.get("current_a").stale());
                 require(service.chargingEstimate(readings).remainingMinutesToFull==null,"Model default bypassed stale-data gate");
                 require(files().length==0&&!service.isChargeRecording(),"Default estimate created a charge recording");
@@ -250,33 +290,42 @@ public final class ChargeCaptureValidation extends Instrumentation {
             invoke(activity,"select",new Class<?>[]{String.class},"controls");
             View row=root().findViewWithTag("estimate-charger-setting");
             require(row!=null&&row.isEnabled(),"Ordinary charger setting missing or requires connection/developer mode");
-            require(((TextView)root().findViewWithTag("estimate-charger-value")).getText().toString().equals("Stock (default)"),"Default stock reference is not explained by its setting");
+            require(((TextView)root().findViewWithTag("estimate-charger-value")).getText().toString().equals("Automatic"),"Default Automatic preference is not shown");
             row.performClick();
         });settle();screenshot("charger-choice");
         main(()->{
-            chooseEstimateCharger(1);
+            chooseEstimateCharger(2);
             require(service.chargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,"Normal-user high-speed selection did not persist");
             require(settings().getString("charge_charger_"+profile,"").equals("HIGH_SPEED"),"Normal charger selection was not per-profile");
             require(!settings().getBoolean("developer_options",false),"Charger setting enabled Developer options");
             root().findViewWithTag("estimate-charger-setting").performClick();chooseEstimateCharger(0);
+            require(service.chargeCharger()==null&&!settings().contains("charge_charger_"+profile),"Normal-user Automatic did not clear the saved override");
+            require(((TextView)root().findViewWithTag("estimate-charger-value")).getText().toString().equals("Automatic"),"Cleared override still appears as manual");
+            root().findViewWithTag("estimate-charger-setting").performClick();chooseEstimateCharger(1);
             require(service.chargeCharger()==ChargeSessionStore.Charger.STOCK,"Normal-user stock selection did not restore preference");
             require(files().length==0&&!service.isChargeRecording()&&service.ble.pending()==null,"Charger preference started capture or sent a scooter command");
             // A sheet opened before a profile switch must not write the new scooter's preference.
             root().findViewWithTag("estimate-charger-setting").performClick();
             service.profiles.create("Charger preference fixture","222222222222",0);
-            chooseEstimateCharger(1);
+            chooseEstimateCharger(2);
             require(service.chargeCharger()==null,"Old charger sheet changed a newly selected scooter");
             service.profiles.select(profile);
             require(service.chargeCharger()==ChargeSessionStore.Charger.STOCK,"Profile switch lost original charger preference");
+            require(service.effectiveChargeCharger()==ChargeSessionStore.Charger.STOCK,"Manual preference is not the effective charger");
             // Low-level synthetic journal only: the ordinary UI obeys the existing capture guard.
             setField(service,"chargeUpdating",true);seedActive(profile);
+            require(service.chargeCharger()==ChargeSessionStore.Charger.STOCK&&service.effectiveChargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,
+                    "Active capture did not use its own confirmed label separately from the saved override");
             invoke(field(activity,"screen"),"refresh",new Class<?>[]{});
             require(!root().findViewWithTag("estimate-charger-setting").isEnabled(),"Normal charger preference remained enabled during capture");
             invoke(activity,"showChargerEstimateChoice",new Class<?>[]{});
             android.app.AlertDialog dialog=(android.app.AlertDialog)field(activity,"controlDialog");
             require(dialog==null||!dialog.isShowing(),"Charger sheet bypassed active-capture guard");
             service.stopChargeRecording();setField(service,"chargeUpdating",false);
-            settings().edit().remove("charge_charger_"+profile).putBoolean("developer_options",true).commit();
+            require(service.chargeCharger()==ChargeSessionStore.Charger.STOCK&&service.effectiveChargeCharger()==ChargeSessionStore.Charger.STOCK,
+                    "Stopping capture lost the saved manual override");
+            require(service.setChargeCharger(null),"Could not reset preference to Automatic");
+            settings().edit().putBoolean("developer_options",true).commit();
         });
         await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Preference guard model reload did not finish");
         AtomicReference<Boolean> cleared=new AtomicReference<>(false);
@@ -290,6 +339,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
         View selector=dialog.getWindow().getDecorView().findViewWithTag("estimate-charger-selector");
         require(selector!=null,"Charger preference choices missing");
         @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
+        require(choices.size()==3,"Normal charger selector is missing Automatic");
         choices.get(index).performClick();
     }
     /** Fault injection stays below the real-start gate: no adapter or GATT is enabled. */
