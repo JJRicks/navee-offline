@@ -89,7 +89,8 @@ final class QuickAccessGrid extends ViewGroup {
                     fittedWidth = -1;
                 }
                 cell.label.setTag(state.isEmpty() ? "" : tileLabel(cell.entry));
-                boolean highlight = index == 0 && live && !editing;
+                // The lead tile's accent fill would make an unmapped control look active; it stays muted.
+                boolean highlight = index == 0 && live && !editing && !unmapped;
                 boolean muted = feature != null && !featureLive;
                 cell.label.setTextColor(highlight ? Ui.withAlpha(ui.onAccent, 220) : ui.muted);
                 cell.value.setTextColor(highlight ? ui.onAccent : muted ? ui.muted : ui.text);
