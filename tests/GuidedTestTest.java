@@ -17,7 +17,7 @@ public final class GuidedTestTest {
     private static final String PROFILE="owner-1";
     public static void main(String[] args) throws Exception {
         eligibility(); gate(); happyPaths(); rejected(); ackWithoutReadback(); readbackUnchanged(); readbackDifferent(); staleAndDuplicates();
-        writeRefused(); disconnectAtEveryPhase(); processDeath(); profileSwitch(); conflicts(); restartZeroWrites(); resume(); preconditions(); vocabulary(); inheritedPolls(); outOfOrderReplies();
+        writeRefused(); disconnectAtEveryPhase(); processDeath(); profileSwitch(); conflicts(); restartZeroWrites(); resume(); preconditions(); vocabulary(); inheritedPolls(); lostPollTimeout(); queuedWriteState(); outOfOrderReplies();
         System.out.println("GuidedTest tests passed: "+assertions+" assertions");
     }
 
@@ -302,6 +302,32 @@ public final class GuidedTestTest {
         check(restore.phase()==GuidedTest.Phase.RESTORE_AWAIT&&restore.wantsRead(),"Mixed restore responses only drain the old requests");
         restore.onReadRequested(0x70,NOW+84);restore.onStatus(with(7,0),NOW+85);
         check(restore.phase()==GuidedTest.Phase.OUTSTANDING&&!j.unresolved().isEmpty(),"Failed actual restore remains outstanding");
+    }
+
+    private static void queuedWriteState(){
+        TestJournal j=new TestJournal(new Memory());
+        GuidedTest t=prepared(j,oem(),"display_units",0,status(data(),SEEN));t.approve(NOW);t.writeNow();
+        check(t.admitsQueuedWrite(with(7,1),NOW+20),"Unchanged baseline admits queued target");
+        check(!t.admitsQueuedWrite(with(7,0),NOW+30)&&t.phase()==GuidedTest.Phase.CONFLICT,"Outside change while target queued is not overwritten");
+        check(!t.admitsQueuedWrite(with(7,1),NOW+40),"Terminal test never revives a queued write");
+        GuidedTest r=prepared(j,oem(),"display_units",0,status(data(),SEEN));sendTarget(r,0x55);r.onStatus(with(7,0),NOW+400);r.ownerEffect(true,NOW+500);r.writeNow();
+        check(r.admitsQueuedWrite(with(7,0),NOW+510),"Unchanged target admits explicit restoration");
+        check(!r.admitsQueuedWrite(with(7,1),NOW+520)&&r.phase()==GuidedTest.Phase.CONFLICT,"A change while restore queued needs a fresh owner review");
+    }
+
+    private static void lostPollTimeout(){
+        TestJournal j=new TestJournal(new Memory());
+        GuidedTest t=new GuidedTest(j,PROFILE,oem(),variant("display_units",oem()),0,NOW,WALL,new Random(901));
+        t.inheritOutstandingReads(1);
+        for(int i=1;i<5;i++){long at=NOW+i*2000;t.onReadRequested(0x70,at);t.onStatus(status(data(),at),at+20);}
+        t.tick(NOW+9999);check(t.phase()==GuidedTest.Phase.PRECHECK,"A short delayed response can still drain");
+        t.tick(NOW+10000);check(t.phase()==GuidedTest.Phase.DONE&&t.nothingWritten()&&t.note().contains("Reconnect"),"Lost earlier poll ends preparation with reconnect guidance");
+        t.onStatus(with(7,1),NOW+10020);check(t.baseline()==null&&!t.approve(NOW+10030)&&t.writeNow()==null,"Late replies cannot revive timed-out preparation");
+        GuidedTest verify=prepared(j,oem(),"display_units",0,status(data(),SEEN));verify.approve(NOW);verify.writeNow();
+        verify.onWriteRefused(NOW+50);verify.onReadRequested(0x70,NOW+100);
+        verify.tick(NOW+10049);check(verify.verifying(),"Unsent write verification keeps its full bounded window");
+        verify.tick(NOW+10050);check(verify.phase()==GuidedTest.Phase.OUTSTANDING&&!j.unresolved().isEmpty(),"Missing verification stays outstanding, never claims restored");
+        verify.onStatus(with(7,1),NOW+10070);check(verify.phase()==GuidedTest.Phase.OUTSTANDING,"A late baseline cannot clear an outstanding verification");
     }
 
     private static void outOfOrderReplies(){

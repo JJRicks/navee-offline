@@ -11,6 +11,9 @@
 - Fix battery-fill clipping, add lock-slider motion trails and a subtle charging glow, and improve narrow-screen map labels and enlarged-text settings.
 - Simplify the homepage and alternate its lock/unlock demo, while retaining the repository link and non-affiliation notice.
 
+- Recheck queued setting changes immediately before transmission, bound stalled guided-test preparation, and preserve outside changes during a test.
+- Fix the homepage compatibility link hit area and add disposable CI workers with isolated retries and bounded cleanup.
+
 ## 1.3.1 — 2026-10-16
 
 - Simplify **Scooter → Range estimate** to **Scooter's estimate** (default, following drive mode) and **Volt's estimate (learned)**. Remove the duplicate App preferences entry; keep existing quick-access shortcuts working offline.

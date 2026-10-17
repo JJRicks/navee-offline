@@ -1,9 +1,10 @@
 # Combined compatibility, backup and charging closeout
 
-Prepared October 17, 2026 for a final independent Claude review. This is a review branch;
-it does not change the release version, repository visibility or deployed applications.
-Shipment is held for the final combined review, which must explicitly cover the outstanding
-#58 charger-estimation work. Claude can satisfy that requirement in this same combined pass.
+Prepared October 17, 2026 for Volt 1.4.0 (versionCode 37). The owner authorized
+fresh independent agent reviews after Claude became unavailable, followed by merging and
+deployment when the findings and checks were complete. Those reviews cover the full batch,
+including #58 and Claude's follow-up charger fixes in #61. Repository visibility stays private;
+this release does not resolve the manufacturer-photo permission hold.
 
 ## Integration boundary
 
@@ -24,6 +25,7 @@ The branch preserves these original PR commits as ancestors:
 | #57 | `5ee7e4a2c99251ed0805882bc14d150a00fb8a11` | Additional OEM-mapped controls |
 | #58 | `f5b9bb1008fc2b7c5dd6a33ea41a43da6e1fdd66` | Automatic charger selection and fast reference |
 | #59 | `e2bc8a01d32fa02e32db8341271e6f4890fb3fda` | Original handoff documentation |
+| #61 | `ae5c992d797eb26f31f7910b7cc52ad3ba5533f1` | Charger continuity, family matching and recording-label fixes |
 
 The #48–57 integration tree was checked against the reference integration preview, then the
 seven documented cross-branch fixes were carried over: `db3ea52`, `38d3e3d`, `c6c21c4`,
@@ -51,7 +53,7 @@ the model-registry UT5 MAX gate to both charger detection and reference-curve se
 | #55 P2 | Start discovery attempts only at transport transmission. Tag queued frames by their discovery owner and remove only that work on stop/expiry. A request cut off before its response window completes is interrupted, not evidence of unsupported firmware. |
 | #56 P2 | Track status reads across the entire connection. A new guided test or explicit restore inherits older requests, drains them, then requests a fresh confirmation. Reordered old replies cannot substitute for that probe. Invalid confirmation replies require another fresh probe. |
 | #59 P3s | Qualify the serial override after excluded-product/transport checks, limit UI parity claims to compared screens, and retain post-review commit exceptions. |
-| Final UI check | Let the charger-estimate setting label wrap fully at enlarged text sizes; its value and meaning remain unchanged. |
+| Final UI check | Stack nonempty setting values below their labels when measured widths do not fit. Preserve two-line headings, separate subtitles and right-side actions; remove the charger-only wrapping workaround. |
 | Handoff nits | Update the old charge-caption assertion and restore the compatibility runner's original emulator display/font/demo settings. |
 
 The owner's final website direction also retains the simpler page while restoring the repository
@@ -62,8 +64,8 @@ The page describes Volt for NAVEE scooters instead of positioning it as UT5 MAX-
 remain model-dependent, and this does not claim every model has been tested on hardware.
 
 Status replies have no request IDs. The guided-test barrier deliberately fails closed if an
-earlier reply never arrives: mutation timeout leaves restoration outstanding; a precheck may
-need cancellation and reconnection. It does not infer confirmation from an unrequested frame.
+earlier reply never arrives: mutation timeout leaves restoration outstanding; preparation or
+verify-only readback ends after a bounded wait with explicit reconnect guidance. It does not infer confirmation from an unrequested frame.
 This is conservative response ordering, not a stronger wire protocol or a hardware guarantee.
 
 ## Owner-directed regional policy (D7 superseded)
@@ -93,11 +95,12 @@ suffix out entirely, with no trailing separator. The existing ride
 rename action stays available afterward. Permission, connection, single-recording, simulation
 and background-recording safeguards stay in place; sensor preferences remain on the Rides page.
 
-## Validation
+## Earlier closeout validation
 
 The broad native regression runs below preceded the localized D7 and immediate-start changes.
 Regional controls, the charger caption and immediate ride start each have targeted follow-up
-runs on their rebuilt app. The pure-suite source is unchanged since its final passing run.
+runs on their rebuilt app. Later independent-review fixes and their reruns are recorded in
+Final independent closeout below; these earlier results remain historical evidence.
 
 - Full pure-Java suite on macOS's Bash 3.2: **58 suites, 260,124 checks/assertions passed** after the regional-policy change.
   Includes archive repair/rollback, hostile archives, model admission, discovery timing,
@@ -150,7 +153,7 @@ dark/default** and **259 at 725×604 dp light/1.4× text**. They verify full cap
 no ellipsis and no overlap with Automatic or High-speed. The wide caption was visually
 inspected; the narrow screenshot scroll request placed it behind the floating navigation,
 so that screenshot is not claimed as visible caption evidence.
-The final immediate-start app SHA-256 is
+The immediate-start follow-up app SHA-256 is
 `2b6f49ce2fcd2ffd136a13b096567dec24d0212e4bf7910539976432d67a17ee`
 (Android code commit `fb51119`), with the focused 118 checks above.
 These are disposable-signed test builds, not release artifacts.
@@ -175,10 +178,13 @@ The historical handoff records earlier site-browser checks and original feature 
 Those are separate evidence, not additional tests performed during this closeout. Build logs,
 screenshots, raw inputs and local signing material remain outside tracked source.
 
-## Remaining release gates and limits
+## Release checks and limits
 
-- Claude must review the final combined head before shipping, including explicit coverage
-  of #58's charger selection and fast reference. This can be one combined pass; no self-approval.
+- The owner replaced the unavailable Claude review with fresh independent agents. App
+  compatibility/backup/lifecycle and charger/UI/site were reviewed separately; CI fixes
+  received another independent pass. Those authorized reviews are complete, including a
+  clean independent review of the final shared settings-row change. Findings and follow-up
+  evidence are recorded below.
 - Fast-charge calibration still comes from one session. Its reported 0.407-minute replay MAE
   is a fit to that session, **not an independent accuracy result**. Another fast charge is useful
   as a holdout; below 16% is modeled. Rated capacity remains the reference.
@@ -186,5 +192,68 @@ screenshots, raw inputs and local signing material remain outside tracked source
   models still need hardware checks. Emulator checks do not establish physical compatibility.
 - Preserve the current private-repository and manufacturer-image caveats. This branch does
   not resolve the public-launch image permission or make private release downloads public.
-- Release metadata, production signing, final deployment and sideload belong to the later
-  authorized shipping step, after the review hold is cleared.
+- Production signing and exact published-asset verification remain separate from emulator
+  validation. The owner reconnected the Pixel and authorized an in-place sideload after verification.
+
+
+## Final independent closeout
+
+Claude's #61 changes are integrated without losing the model gate, ride auto-stop callback,
+or enlarged-text checks from the combined branch. Charger detection now retains compatible
+session evidence across brief interruptions, uses fresh family-specific evidence near taper,
+and keeps explicit capture labels separate from automatic selection and personal-curve scope.
+Both stock and high-speed references share a scoped grace gate; unfamiliar models retain
+live-power fallback. This remains an estimate to displayed 100%, not proof of balancing cutoff.
+
+Fresh independent review additionally found and verified these fixes:
+
+- **Queued writes:** recheck the current capability, motion, recording/test state and encoded
+  coupled fields immediately before transport transmission. Cancel changes whose admission
+  expired while another GATT operation was running; remove cancelled frames from the queue.
+  Guided target/restore writes also compare the current value and related fields with the
+  state the owner approved, preserving external-change conflicts.
+- **Lost status reply:** bound guided preparation and verify-only readback to ten seconds.
+  Never age away the read counter or allow a late pre-write reply to prove restoration.
+- **Homepage link:** place the hero pill above the large heading's overlapping hit area.
+  Real pointer clicks now open the compatibility section in the responsive browser checks.
+- **Enlarged settings rows:** put textual values below their label when intrinsic widths no
+  longer fit side by side, preserving separate subtitles and right-side actions.
+
+The original queued-write flaw was reproduced through the production Bluetooth queue on an
+isolated emulator with a synthetic GATT link. After the fix, the same delay/motion sequence
+sends no target mutation. No radio or physical scooter was used.
+
+New validation supplements, rather than replaces, the earlier matrices above:
+
+- All 58 core suites pass: 271,121 checks/assertions, including 625 guided-test assertions.
+  The final owner-capture guard rerun passes all 11 tests.
+- Capture: 215 assertions per narrow/unfolded case; charger estimates: 340/344 before the
+  final layout-only fix. After that fix, charger estimates/layout pass **348 assertions at
+  344×882 dp dark/default text and 352 at 725×604 dp light/1.4× text**. Checks cover full
+  labels and values, stacked alignment, nonoverlap and Charge start. Independent inspection
+  confirms the wide screenshots; floating navigation obscures the charger row in the small
+  phone screenshots, so those captures are not visual evidence for its narrow layout even
+  though the native geometry assertions pass.
+- Automatic ride end: 66 checks per narrow/unfolded case. Immediate start: 59 checks in
+  each of three narrow/unfolded/enlarged-text cases.
+- Fixed command queue: 63 checks per narrow/unfolded case, including real production queue
+  delay, motion cancellation, ordered confirmation and discovery timing.
+- Full guided-test rerun: **976 assertions plus 40 process-death/recovery assertions** at
+  344×882 dp dark/default text. This final full rerun covers one size; the earlier two-size
+  guided matrix remains separate evidence.
+- Website: 21 built files; independent Chrome checks at 320/360/768/1440 pixels, working
+  pointer navigation, no page errors or horizontal overflow, synchronized lock/unlock demo.
+- CI: reviewed separately in #62. Each job gets a clean disposable worker; expiry/server
+  deletion proceeds even if IP cleanup is unavailable, and new spending waits for cleanup.
+  Per-job labels preserve retry budgets. The private-repository/fork policy is checked before
+  provisioning and registration. Labels route jobs; they are not an authorization boundary.
+
+The final layout test APK SHA-256 is
+`56d94b9246b325f74f8952e4a037f234e921e3faa3a5b1db3dac100f7abfc198`.
+The guided safety/full reruns use
+`3fde3a1da65ecc4dac7ba8563e04990fc110ab273b83144416048a693130ff03`, before the layout-only
+change. Their result files and the final guard log are retained under the private
+`.local/final-charger-validation/` directory, alongside input hashes and synthetic screenshots.
+These are disposable-signed test builds. Separate release verification must record the final
+commit, retained signer, published asset bytes and deployment; no claim is made that every
+earlier matrix used the final APK.

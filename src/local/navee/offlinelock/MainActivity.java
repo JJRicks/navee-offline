@@ -1378,7 +1378,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             clockButton=pill("Sync",()->{if(scooterService!=null){scooterService.ble.syncClock();redraw();}});clockButton.setContentDescription("Sync scooter clock");
             LinearLayout.LayoutParams clockParams=new LinearLayout.LayoutParams(-2,-2);clockParams.leftMargin=design.dp(10);clockLine.line.addView(clockButton,clockParams);
             addRow("Battery",clockLine.card);extras.put(clockLine.card,new String[]{"Battery","sync scooter clock scheduled charging time timezone"});
-            chargerLine=new SettingLine("battery","Charger for estimates",null);chargerLine.name.setMaxLines(Integer.MAX_VALUE);chargerLine.chevron(MainActivity.this::showChargerEstimateChoice);
+            chargerLine=new SettingLine("battery","Charger for estimates",null);chargerLine.chevron(MainActivity.this::showChargerEstimateChoice);
             chargerLine.line.setTag("estimate-charger-setting");chargerLine.value.setTag("estimate-charger-value");
             addRow("Battery",chargerLine.card);extras.put(chargerLine.card,new String[]{"Battery","charger for estimates automatic auto stock high speed charging time remaining"});
             SettingLine security=new SettingLine("shield","PIN & proximity unlock",null);security.chevron(()->openMoreSection("Security"));
@@ -1730,13 +1730,36 @@ public final class MainActivity extends Activity implements ScreenHost {
         final LinearLayout card=column(),line=row(),words=column();
         final TextView name,sub,value;
         SettingLine(String icon,String label,String detail){
-            line.setGravity(Gravity.CENTER_VERTICAL);line.setMinimumHeight(design.dp(60));line.setPadding(0,design.dp(8),0,design.dp(8));
-            name=design.text(label,15,false);name.setMaxLines(2);design.decorate(name,icon);words.addView(name);
+            line.setGravity(Gravity.CENTER_VERTICAL);line.setBaselineAligned(false);line.setMinimumHeight(design.dp(60));line.setPadding(0,design.dp(8),0,design.dp(8));
+            name=design.text(label,15,false);name.setMaxLines(2);design.decorate(name,icon);
+            value=design.text("",14,false);value.setTextColor(design.muted);value.setGravity(Gravity.END);value.setMaxLines(1);
+            value.setEllipsize(android.text.TextUtils.TruncateAt.END);
+            LinearLayout heading=new LinearLayout(MainActivity.this){
+                @Override protected void onMeasure(int widthSpec,int heightSpec){
+                    int available=Math.max(0,MeasureSpec.getSize(widthSpec)-getPaddingLeft()-getPaddingRight());
+                    boolean hasValue=value.getVisibility()!=View.GONE&&value.length()>0;
+                    float titleWidth=android.text.Layout.getDesiredWidth(name.getText(),name.getPaint())+name.getCompoundPaddingLeft()+name.getCompoundPaddingRight();
+                    float valueWidth=android.text.Layout.getDesiredWidth(value.getText(),value.getPaint())+value.getCompoundPaddingLeft()+value.getCompoundPaddingRight();
+                    // The outer row has already reserved room for its switch, swatches,
+                    // status and action. Decide from intrinsic text widths, independent
+                    // of our previous orientation, and measure the chosen layout once.
+                    boolean stack=hasValue&&MeasureSpec.getMode(widthSpec)!=MeasureSpec.UNSPECIFIED
+                            &&Math.ceil(titleWidth)+Math.ceil(valueWidth)+design.dp(10)>available;
+                    setOrientation(stack?VERTICAL:HORIZONTAL);
+                    LinearLayout.LayoutParams np=(LinearLayout.LayoutParams)name.getLayoutParams();
+                    np.width=stack?-1:0;np.weight=stack?0:1;
+                    LinearLayout.LayoutParams vp=(LinearLayout.LayoutParams)value.getLayoutParams();
+                    vp.width=stack?-1:-2;vp.setMarginStart(stack?name.getCompoundPaddingStart():hasValue?design.dp(10):0);
+                    vp.topMargin=stack?design.dp(3):0;vp.resolveLayoutDirection(getLayoutDirection());
+                    int gravity=(stack?Gravity.START:Gravity.END)|Gravity.TOP;if(value.getGravity()!=gravity)value.setGravity(gravity);
+                    super.onMeasure(widthSpec,heightSpec);
+                }
+            };
+            heading.setGravity(Gravity.CENTER_VERTICAL);heading.setBaselineAligned(false);
+            heading.addView(name,new LinearLayout.LayoutParams(0,-2,1));heading.addView(value,new LinearLayout.LayoutParams(-2,-2));
+            words.addView(heading,new LinearLayout.LayoutParams(-1,-2));
             sub=design.caption("");sub.setPaddingRelative(icon==null||icon.isEmpty()?0:design.dp(42),design.dp(3),0,0);words.addView(sub);setSub(detail);
             line.addView(words,new LinearLayout.LayoutParams(0,-2,1));
-            value=design.text("",14,false);value.setTextColor(design.muted);value.setGravity(Gravity.END);value.setMaxLines(1);
-            value.setEllipsize(android.text.TextUtils.TruncateAt.END);value.setMaxWidth(design.dp(124));
-            LinearLayout.LayoutParams vp=new LinearLayout.LayoutParams(-2,-2);vp.leftMargin=design.dp(10);line.addView(value,vp);
             card.addView(line);
         }
         void chevron(Runnable action){

@@ -199,7 +199,7 @@ public final class ChargeEstimateValidation extends Instrumentation {
         ChargeSessionStore.Estimate missing=(ChargeSessionStore.Estimate)invoke(service,"chargeRecordingEstimate",new Class<?>[]{});
         require(missing.remainingMinutesToFull==null&&missing.version.equals(ChargingEstimate.ESTIMATOR_VERSION),"Unavailable estimate was fabricated or unversioned");
     });}
-    /** The large-font, two-column Scooter page must retain the full charger label beside its value. */
+    /** The large-font, two-column Scooter page must retain the full charger label and value. */
     private void verifyChargerCaption()throws Exception{
         main(()->invoke(activity,"select",new Class<?>[]{String.class},"controls"));settle();
         for(ChargeSessionStore.Charger charger:new ChargeSessionStore.Charger[]{null,ChargeSessionStore.Charger.HIGH_SPEED}){
@@ -222,8 +222,25 @@ public final class ChargeEstimateValidation extends Instrumentation {
                     require(layout.getLineLeft(line)>=-.5f&&layout.getLineRight(line)<=layout.getWidth()+.5f,"Charger label exceeds its text width");
                 }
                 int[] a=new int[2],b=new int[2];name.getLocationOnScreen(a);value.getLocationOnScreen(b);
-                require(a[0]+name.getWidth()<=b[0],"Charger label overlaps the selected charger");
+                require(a[0]+name.getWidth()<=b[0]||b[0]+value.getWidth()<=a[0]
+                        ||a[1]+name.getHeight()<=b[1],"Charger label overlaps the selected charger");
+                require(layout.getLineCount()<=2,"Charger label squeezed into broken word fragments");
+                Layout selected=value.getLayout();require(selected!=null&&selected.getLineCount()==1
+                        &&selected.getEllipsisCount(0)==0,"Selected charger value clipped");
+                if(a[1]+name.getHeight()<=b[1])require(b[0]>=a[0]+name.getCompoundPaddingLeft()
+                        &&b[0]+value.getWidth()<=a[0]+name.getWidth(),"Stacked charger value exceeds the label's text column");
                 Rect visible=new Rect();require(name.getGlobalVisibleRect(visible)&&visible.height()==name.getHeight(),"Charger label clipped by its row");
+                boolean checkedStart=false;
+                for(Object control:(Iterable<?>)field(field(activity,"screen"),"rows")){
+                    if(!"charge_start".equals(((ScooterCommands.Feature)field(control,"feature")).key))continue;
+                    TextView start=(TextView)field(control,"name");Layout startLayout=start.getLayout();
+                    require(startLayout!=null&&startLayout.getLineCount()>0,"Charge start label not laid out");
+                    int end=startLayout.getLineCount()-1;
+                    require(startLayout.getLineEnd(end)==start.length()&&startLayout.getEllipsisCount(end)==0
+                            &&startLayout.getLineBottom(end)<=start.getHeight()-start.getCompoundPaddingTop()-start.getCompoundPaddingBottom(),"Charge start label clipped");
+                    checkedStart=true;break;
+                }
+                require(checkedStart,"Charge start row missing");
             });
             screenshot(charger==null?"charger-label-automatic":"charger-label-high-speed");
         }
