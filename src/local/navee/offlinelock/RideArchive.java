@@ -229,14 +229,14 @@ final class RideArchive {
         if(prepared==null||prepared.consumed||!prepared.directory.getName().matches("stage-[a-f0-9-]{36}")||!prepared.directory.getCanonicalFile().getParentFile().equals(storage.work().getCanonicalFile()))throw new IOException("Choose the ride backup again.");regularDirectory(prepared.directory);
     }
     private static void ensureIdle(Storage storage)throws IOException{if(new File(storage.work(),"transaction").exists())throw new IOException("Reopen Volt to finish ride recovery first.");}
-    private static List<String> paths(String id){return Arrays.asList("phone-rides/"+id+"-phone.csv","phone-rides/"+id+"-motion.csv","rides/"+id+".csv");}
+    static List<String> paths(String id){return Arrays.asList("phone-rides/"+id+"-phone.csv","phone-rides/"+id+"-motion.csv","rides/"+id+".csv");}
     static boolean allowed(String path){return path!=null&&(path.matches("rides/"+UUID_PATTERN+"\\.csv")||path.matches("phone-rides/"+UUID_PATTERN+"-(phone|motion)\\.csv"));}
     private static File contained(File root,String path)throws IOException {
         if(!allowed(path))throw new IOException("Invalid ride path.");File file=new File(root,path);
         if(!file.getCanonicalFile().getParentFile().equals(new File(root,path.substring(0,path.indexOf('/'))).getCanonicalFile())||!file.getCanonicalPath().startsWith(root.getCanonicalPath()+File.separator))throw new IOException("Invalid ride path.");
         if(Files.isSymbolicLink(file.toPath())||Files.isSymbolicLink(file.getParentFile().toPath()))throw new IOException("Unexpected ride storage link.");return file;
     }
-    private static void validateText(File file,boolean scooter,boolean motion)throws IOException {
+    static void validateText(File file,boolean scooter,boolean motion)throws IOException {
         regular(file);if(file.length()>MAX_FILE_BYTES)throw new IOException("A ride file is too large.");
         CharsetDecoder decoder=StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT);
         try(Reader in=new BufferedReader(new InputStreamReader(new FileInputStream(file),decoder))) {
@@ -269,13 +269,13 @@ final class RideArchive {
         }catch(IllegalArgumentException failure){throw new IOException("A phone sensor record is invalid.",failure);}
     }
     private static void clock(String value){long parsed=Long.parseLong(value);if(parsed<0||parsed>Long.MAX_VALUE/4)throw new IllegalArgumentException();}
-    private static byte[] digest(File file)throws IOException{MessageDigest hash=sha();try(InputStream in=new FileInputStream(file)){copy(in,new OutputStream(){public void write(int b){}public void write(byte[] b,int o,int n){}},MAX_FILE_BYTES,hash);}return hash.digest();}
+    static byte[] digest(File file)throws IOException{MessageDigest hash=sha();try(InputStream in=new FileInputStream(file)){copy(in,new OutputStream(){public void write(int b){}public void write(byte[] b,int o,int n){}},MAX_FILE_BYTES,hash);}return hash.digest();}
     private static MessageDigest sha(){try{return MessageDigest.getInstance("SHA-256");}catch(NoSuchAlgorithmException e){throw new AssertionError(e);}}
     private static long copy(InputStream in,OutputStream out,long max,MessageDigest hash)throws IOException{byte[] buffer=new byte[65536];long total=0;int n;while((n=in.read(buffer))!=-1){total=add(total,n,max);if(hash!=null)hash.update(buffer,0,n);out.write(buffer,0,n);}return total;}
     private static long add(long a,long b,long max)throws IOException{if(b<0||a>max-b)throw new IOException("Ride backup exceeds its size limit.");return a+b;}
     private static byte[] read(File file,int max)throws IOException{try(InputStream in=new FileInputStream(file);ByteArrayOutputStream out=new ByteArrayOutputStream()){copy(in,out,max,null);return out.toByteArray();}}
     private static String bounded(String value,int max){return value.length()<=max?value:value.substring(0,max);}
-    private static String identity(File file)throws IOException {
+    static String identity(File file)throws IOException {
         Object value=Files.readAttributes(file.toPath(),BasicFileAttributes.class,LinkOption.NOFOLLOW_LINKS).fileKey();
         if(value==null||value.toString().isEmpty()||value.toString().length()>512)throw new IOException("Recording storage does not support safe restore recovery.");
         return value.toString();

@@ -92,6 +92,8 @@ public final class RideStore {
     /** Immutable, unit-explicit values; JSON null means insufficient evidence. */
     public static final class Summary {
         public final String id, scooterId, label, notes, currentDirection, energyInterpretation;
+        /** START record clocks; with the scooter they identify a recording across UUIDs. */
+        public final long startMonotonicMs;
         public final long startWallMs, endWallMs, elapsedMs, electricalCoverageMs,
                 skippedElectricalMs, speedCoverageMs, movingMs, stationaryMs;
         public final long sampleCount, gapCount, clockDiscontinuities, directionChanges;
@@ -115,7 +117,7 @@ public final class RideStore {
         public final boolean automaticStop;
         private Summary(Accumulator a) {
             id = a.id; scooterId = a.scooterId; label = a.label; notes = a.notes;
-            currentDirection = a.direction.name(); startWallMs = a.startWall;
+            currentDirection = a.direction.name(); startWallMs = a.startWall; startMonotonicMs = a.startMono;
             endWallMs = a.lastWall; elapsedMs = a.elapsed;
             electricalCoverageMs = a.electricalMs;
             skippedElectricalMs = Math.max(0, a.elapsed - a.electricalMs);
@@ -525,7 +527,7 @@ public final class RideStore {
         final String id, scooterId;
         String label;
         String notes = "";
-        final long startWall;
+        final long startWall, startMono;
         long lastWall, lastMono, elapsed, electricalMs, speedMs, movingMs, stationaryMs;
         long samples, gaps, clockDiscontinuities, directionChanges, confirmedMs, unconfirmedMs, pointStride = 1;
         long movingElectricalMs, stationaryElectricalMs, unknownMotionElectricalMs;
@@ -543,7 +545,7 @@ public final class RideStore {
         LearnedRangeEstimate.Inspector rangeInspector;
         Accumulator(String id, String scooterId, String label, long wall, long mono) {
             this.id = id; this.scooterId = scooterId; this.label = label;
-            startWall = lastWall = wall; lastMono = mono;
+            startWall = lastWall = wall; lastMono = startMono = mono;
         }
         void breakAnchor() { previousPower = null; previousSpeed = null; }
         void recover() { recovered = true; gaps++; breakAnchor(); }
@@ -696,6 +698,19 @@ public final class RideStore {
         Accumulator parsed = read(source);
         if (parsed == null || !parsed.stopped) throw new IOException("The backup contains an unfinished or unreadable ride.");
         return new Summary(parsed);
+    }
+
+    /** A journal's scooter and START clocks, read from its first records only; null if unreadable.
+     * With the scooter, the two clocks identify one recording even under another UUID. */
+    static final class Start { final String scooterId; final long wallMs, monotonicMs;
+        Start(String scooter, long wall, long mono) { scooterId = scooter; wallMs = wall; monotonicMs = mono; } }
+    static Start start(File source) {
+        try (Reader in = new BufferedReader(new InputStreamReader(new FileInputStream(source), "UTF-8"))) {
+            List<String> record;
+            for (int i = 0; i < 4 && (record = csvRecord(in)) != null; i++)
+                if (acceptedStartRecord(record)) return new Start(record.get(6), Long.parseLong(record.get(3)), Long.parseLong(record.get(4)));
+        } catch (IOException | RuntimeException unreadable) { return null; }
+        return null;
     }
 
     /** The reader ignores unsupported schemas and START records with invalid clocks. */

@@ -550,6 +550,17 @@ public final class DashboardConfig {
         return new LayoutTransfer(parseTransfer(json));
     }
 
+    /** A validated layout file as stored values: {dashboard, columns, slot 1, slot 2, slot 3}
+     * (null for an empty slot), exactly as {@link #importLayouts} would save them. */
+    static String[] transferValues(String json) throws JSONException {
+        JSONObject data = parseTransfer(json);
+        readWidgets(data.getJSONArray("widgets"));
+        String[] result = {data.getJSONArray("widgets").toString(), Integer.toString(data.getInt("columns")), null, null, null};
+        JSONArray slots = data.getJSONArray("slots");
+        for (int i = 0; i < SLOT_COUNT; i++) if (!slots.isNull(i)) result[2 + i] = slots.getJSONObject(i).toString();
+        return result;
+    }
+
     /** Replace all four dashboard definitions together, only after complete validation. */
     public boolean importLayouts(String json) {
         try {

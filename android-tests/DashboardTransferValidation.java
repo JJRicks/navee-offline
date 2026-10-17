@@ -6,6 +6,7 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 
+import local.navee.offlinelock.AppDataBackup;
 import local.navee.offlinelock.DashboardConfig;
 import local.navee.offlinelock.DashboardLayout;
 
@@ -38,6 +39,7 @@ public final class DashboardTransferValidation extends Instrumentation {
             fixture = "dashboard_transfer_validation_" + System.nanoTime();
             prefs = getTargetContext().getSharedPreferences(fixture, Context.MODE_PRIVATE);
             roundTrip();
+            unifiedImport();
             emptyAndExample();
             malformed();
             commitFailure();
@@ -263,6 +265,45 @@ public final class DashboardTransferValidation extends Instrumentation {
         for (int i = 0; i < count; i++) out.append(value);
         return out.toString();
     }
+
+    /** A layout file through Back up & restore, mapped to a chosen scooter in isolated storage. */
+    private void unifiedImport() throws Exception {
+        String prefix = fixture + "_unified_";
+        java.io.File root = new java.io.File(getTargetContext().getCacheDir(), prefix);
+        android.content.ContextWrapper storage = new android.content.ContextWrapper(getTargetContext()) {
+            @Override public android.content.Context getApplicationContext() { return this; }
+            @Override public java.io.File getFilesDir() { return new java.io.File(root, "files"); }
+            @Override public java.io.File getNoBackupFilesDir() { return new java.io.File(root, "no-backup"); }
+            @Override public java.io.File getDatabasePath(String name) { return new java.io.File(root, "databases/" + name); }
+            @Override public SharedPreferences getSharedPreferences(String name, int mode) { return super.getSharedPreferences(prefix + name, mode); }
+        };
+        try {
+            for (String folder : new String[]{"files", "no-backup", "databases"}) new java.io.File(root, folder).mkdirs();
+            SharedPreferences settings = storage.getSharedPreferences("app_settings", 0);
+            require(storage.getSharedPreferences("profiles", 0).edit().putString("items", "[{\"id\":\"chosen\",\"name\":\"Chosen\"},{\"id\":\"other\",\"name\":\"Other\"}]").putString("active", "other").commit(), "Store fixture scooters");
+            DashboardConfig source = new DashboardConfig(settings, "source");
+            source.widgets.clear(); source.widgets.add(new DashboardConfig.Widget("battery")); source.save();
+            require(source.saveSlot(0, "Shared", 0), "Save shared slot");
+            String portable = source.exportLayouts();
+            String other = new DashboardConfig(settings, "other").exportLayouts();
+            settings.edit().putString("dashboard_restore_undo_v1_chosen", "{}").commit();
+            AppDataBackup.PreparedRestore staged = AppDataBackup.stage(storage, new java.io.ByteArrayInputStream(portable.getBytes("UTF-8")), null);
+            require("layout".equals(staged.format) && staged.categories.keySet().equals(java.util.Collections.singleton("dashboards")), "A layout file stages as Dashboards");
+            java.util.List<AppDataBackup.Destination> needed = AppDataBackup.destinations(storage, staged, java.util.Collections.singleton("dashboards"));
+            require(needed.size() == 1 && "other".equals(needed.get(0).suggested), "A layout defaults to the selected scooter");
+            AppDataBackup.Review review = AppDataBackup.review(storage, staged, java.util.Collections.singleton("dashboards"), false, java.util.Collections.singletonMap(needed.get(0).source, "chosen"));
+            require(review.lines.contains("Dashboards: replaces layouts for Chosen"), "Review names the chosen scooter");
+            AppDataBackup.apply(storage, review);
+            sameJson(new JSONObject(portable), new JSONObject(new DashboardConfig(settings, "chosen").exportLayouts()));
+            sameJson(new JSONObject(other), new JSONObject(new DashboardConfig(settings, "other").exportLayouts()));
+            require(!settings.contains("dashboard_restore_undo_v1_chosen") && !AppDataBackup.needsRecovery(storage), "The stale undo is dropped and no staging remains");
+            checks.add("A dashboard layout file restores through Back up & restore to a chosen scooter; the selected scooter's dashboard is untouched");
+        } finally {
+            for (String name : new String[]{"app_settings", "profiles", "scooter", "control_evidence", "onboarding"}) getTargetContext().deleteSharedPreferences(prefix + name);
+            deleteTree(root);
+        }
+    }
+    private static void deleteTree(java.io.File file) { java.io.File[] children = file.listFiles(); if (children != null) for (java.io.File child : children) deleteTree(child); file.delete(); }
 
     private void require(boolean condition, String message) {
         assertions++;

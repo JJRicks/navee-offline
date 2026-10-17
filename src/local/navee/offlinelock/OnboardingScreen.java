@@ -659,7 +659,7 @@ public final class OnboardingScreen implements AppScreen {
         footerLink("I already have an owner file", () -> {
             prefs.edit().putString(KEY_PATH, BACKUP).apply(); go(IMPORT);
         });
-        footerLink("Restore a full app backup", () -> host.fullBackup(true));
+        footerLink("Restore a backup", () -> host.dataBackup(true, null));
     }
 
     /** Welcome: what the app does, as four labelled icons instead of a sentence. */

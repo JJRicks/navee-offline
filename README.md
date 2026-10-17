@@ -38,7 +38,7 @@ First-time capture needs your working NAVEE account and Android debugging access
 ## Good to know
 
 - **Local by default.** Controls and recording work offline. **Basemap** starts off; the switch below a ride map explains provider access before enabling online tiles and remembers your choice. Existing saved choices are kept. [Privacy →](PRIVACY.md)
-- **Keep a backup.** Save your recordings with [Ride backups](docs/ride-backups.md); [full app backups](docs/user-guide.md#back-up-and-restore) also preserve setup and settings. Export before clearing app data, and keep backup files private.
+- **Keep a backup.** [Back up & restore](docs/user-guide.md#back-up-and-restore) saves an encrypted copy of what you choose, from rides alone to setup, settings, rides and history. Export before clearing app data, and keep backup files private.
 - **Estimates have limits.** Range, charging time, usable capacity and phone motion are estimates; reported battery health is not an independent capacity test. [Understanding readings →](docs/recording-reference.md)
 
 ## Go further

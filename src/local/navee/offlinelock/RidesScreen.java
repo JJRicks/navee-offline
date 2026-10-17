@@ -211,15 +211,8 @@ public final class RidesScreen implements AppScreen {
         refresh();
         if (wide) Motion.scrollBeforeDraw(scroll, wideListScroll);
     }
-    private void rideBackups() {
-        LinearLayout box = dialogBody("Ride backups", "Complete recordings, routes and phone sensors");
-        TextView export = ui.button("Back up saved rides", null), restore = ui.secondaryButton("Restore rides", null);
-        box.addView(export); LinearLayout.LayoutParams spacing = new LinearLayout.LayoutParams(-1, -2); spacing.topMargin = ui.dp(10); box.addView(restore, spacing);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Close", null).create();
-        export.setOnClickListener(v -> { dialog.dismiss(); host.rideBackup(false); });
-        restore.setOnClickListener(v -> { dialog.dismiss(); host.rideBackup(true); });
-        show(dialog, DIALOG, null);
-    }
+    /** A shortcut into Back up & restore with only Rides selected. */
+    private void rideBackups() { host.dataBackup(null, BackupRegistry.RIDES); }
     private LinearLayout vertical() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.VERTICAL); return result; }
     private LinearLayout horizontal() { LinearLayout result = new LinearLayout(host.activity()); result.setOrientation(LinearLayout.HORIZONTAL); return result; }
     @Override public View view() { return root; }

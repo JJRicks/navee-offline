@@ -407,22 +407,24 @@ to empty or capacity/health claim. Hills, speed, payload, weather, rounding and
 unobserved battery levels limit accuracy. See docs/validation/learned-range.md.
 
 
-RIDE BACKUP AND RESTORE
+BACK UP AND RESTORE
 
-Rides > Ride backups > Back up saved rides saves complete raw scooter journals
-and any recorded GPS/phone-motion data, names and notes in a .voltrides file.
-This unencrypted ZIP contains private ride data; pairing credentials, app
-settings and charge recordings are excluded. Save it outside Volt and keep it
-private. Encrypted full .voltbackup files are a separate format.
-
-Restore rides previews a merge: identical recordings are skipped and conflicts
-keep the local recording. Known scooter profiles keep their association;
-unknown profiles need an explicit destination scooter, also used for learning.
-After clearing app storage, set up the scooter before restoring ride backups.
-Finish active recordings/pending saves first. Transfers disconnect and pause
-Volt until it closes and reopens, including after cancellation from the transfer
-screen. Reopening recreates the recording stores and estimate models.
-See docs/ride-backups.md and docs/user-guide.md for the steps and recovery limits.
+More > About & permissions > Back up & restore is the single entry. Back up
+lists seven categories with counts (Scooters & setup keys, Dashboards, App
+preferences, Rides, Charges, Readings history, Scooter preferences); any
+subset, or Select all for a complete copy, is saved as a password-encrypted
+.voltbackup. Restore accepts new and older .voltbackup files, .voltrides ride
+backups and dashboard layout files. It previews every change: settings
+categories take the backup's values, scooters/rides/charges are added without
+UUID or same-recording duplicates, history merges with this phone's rows
+winning, and unselected data is unchanged. Unknown scooters map to a local
+scooter, are added with Scooters, or are skipped and listed. A complete file
+can Replace everything (default after Clear storage). Rides > Ride backups opens
+the same screen with Rides preselected; .voltrides files are no longer written.
+Permissions, pairing, pending operations, caches and scooter firmware settings
+are never restored. Transfers disconnect and pause Volt until it closes and
+reopens, including after cancellation. See docs/unified-backup.md,
+docs/app-data-backup.md and docs/user-guide.md.
 
 
 EXPERIMENTAL CAPACITY WIDGET
@@ -545,7 +547,8 @@ A remembered Basemap switch directly below both inline and full-screen maps
 shares its state with App preferences > Map settings. The first new enable
 explains that the provider receives your IP address and viewed area, then asks
 for Enable basemap or Cancel. Approval is remembered; cancellation keeps tiles off.
-Full app backups include the switch choice and acknowledgement. Provider changes
+Backups with App preferences include the choice and acknowledgement; the restore
+preview shows "Online map: on" when it will be on. Provider changes
 alone do not enable tiles. Local routes and recording work with Basemap off.
 USGS Topo is the default provider and supplies U.S. streets/terrain with caching
 and attribution. USGS, OSM and custom

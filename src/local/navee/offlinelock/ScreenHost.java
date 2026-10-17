@@ -9,8 +9,8 @@ public interface ScreenHost {
     void requestRideLocation(Runnable ready);
     void saveText(String name,String mime,String content);
     void saveFile(String name,String mime,File content);
-    default void fullBackup(boolean restore) { }
-    default void rideBackup(boolean restore) { }
+    /** Back up & restore. A null direction first asks Back up or Restore; preselect is a category ID or null. */
+    default void dataBackup(Boolean restore, String preselect) { }
     default void exportDashboardLayouts() { }
     default void importDashboardLayouts() { }
 }
