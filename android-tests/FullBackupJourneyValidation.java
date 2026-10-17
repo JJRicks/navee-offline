@@ -32,6 +32,9 @@ public final class FullBackupJourneyValidation extends Instrumentation {
     private static final String[] PREFS={"app_settings","profiles","scooter","control_evidence","onboarding"};
     private static final char[] PASSWORD="synthetic clear-storage journey".toCharArray();
     private static final String DIGEST="fixture_expected_preferences_digest";
+    // Synthetic, non-empty C1 profile fields: the round trip must keep each exactly, not fall back to defaults.
+    private static final String C1_PID="24431";private static final long C1_PID_WALL=1700000000000L,C1_FW_WALL=1700000000001L;
+    private static final String[] C1_FW={"2.0.1.2","1.4.0.7","3.1","0.9.2","u1"}; // meter, controller, BMS, screen, UWB
     /** Device and pending keys planted before export; a backup never carries them. */
     private static final String[] EXCLUDED={"app_settings/last_page","app_settings/more_away_boot","app_settings/owner_import_applied","app_settings/notification_prompted","onboarding/nearby_asked"};
     private String mode;private int assertions;private Context app;
@@ -86,7 +89,9 @@ public final class FullBackupJourneyValidation extends Instrumentation {
             .putBoolean("developer_options",true).putString("theme","dark").putString("units","mi").putString("temperature_unit","f")
             .putString("time_format","24h").putFloat("text_scale",1.15f).putStringSet("stats_favourites",new LinkedHashSet<>(Arrays.asList("battery_percent","odometer_km"))).commit(),"Store real app preferences");
         ScooterProfiles profiles=new ScooterProfiles(app);ScooterProfiles.Profile owner=profiles.create("Synthetic clear-storage scooter","000000000000",0);
-        owner.serial="fixture-serial";owner.lastConnected=1234567890123L;profiles.update(owner);
+        owner.serial="fixture-serial";owner.lastConnected=1234567890123L;
+        owner.advertisedPid=C1_PID;owner.advertisedPidWall=C1_PID_WALL;owner.nameDefault=true;
+        owner.fwMeter=C1_FW[0];owner.fwController=C1_FW[1];owner.fwBms=C1_FW[2];owner.fwScreen=C1_FW[3];owner.fwUwb=C1_FW[4];owner.fwWall=C1_FW_WALL;profiles.update(owner);
         require(prefs("scooter").edit().putString("identity","000000000000").putInt("role",0).putString("serial","legacy-fixture").commit(),"Store legacy setup preferences");
         require(prefs("control_evidence").edit().putString(owner.id,"{\"headlight\":\"Observed fixture\"}").commit(),"Store cached control evidence");
         require(prefs("onboarding").edit().putBoolean("onboarding_done",true).commit(),"Store onboarding completion");
@@ -156,6 +161,9 @@ public final class FullBackupJourneyValidation extends Instrumentation {
         for(File file:files)require(hashes.getString(relative(file)).equals(hash(Files.readAllBytes(file.toPath()))),"Restored file byte hash differs: "+relative(file));
         String profileId=settings.getString("fixture_profile_id",""),ride=settings.getString("fixture_ride_id","");
         ScooterProfiles profiles=new ScooterProfiles(app);require(profiles.all().size()==1&&profiles.active().id.equals(profileId)&&profiles.active().configured(),"Restored scooter owner setup is not usable by the real profile model");
+        ScooterProfiles.Profile c1=profiles.active();String[] fw={c1.fwMeter,c1.fwController,c1.fwBms,c1.fwScreen,c1.fwUwb};
+        require(C1_PID.equals(c1.advertisedPid)&&c1.advertisedPidWall==C1_PID_WALL&&c1.nameDefault&&Arrays.equals(C1_FW,fw)&&c1.fwWall==C1_FW_WALL,
+            "C1 profile fields changed: pid="+c1.advertisedPid+"@"+c1.advertisedPidWall+" nameDefault="+c1.nameDefault+" fw="+Arrays.toString(fw)+"@"+c1.fwWall);
         DashboardConfig dashboard=new DashboardConfig(settings,profileId);require(settings.getString("fixture_dashboard_export","").equals(dashboard.exportLayouts()),"Paired layouts/options/slots differ after reconstruction");
         require(dashboard.widgets.size()==2&&dashboard.widgets.get(0).maximum==99.5&&dashboard.widgets.get(0).title.equals("Active custom gauge"),"Active widget parameters changed");
         for(int columns=1;columns<=6;columns++)require(dashboard.widgets.get(0).layouts.get(columns).w==columns,"An arbitrary-width layout was lost");
