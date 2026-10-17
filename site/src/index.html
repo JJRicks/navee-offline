@@ -14,7 +14,7 @@
   <meta property="og:site_name" content="Volt">
   <meta property="og:url" content="https://volt.jjricks.com/">
   <meta property="og:title" content="Volt · Total control. Zero cloud.">
-  <meta property="og:description" content="The offline command center for your NAVEE scooter. Lock, tune, track and ride over Bluetooth. No account, no servers, nothing leaves your phone.">
+  <meta property="og:description" content="The offline command center for your NAVEE UT5 MAX. Lock, tune, track and ride over Bluetooth. No account, no servers.">
   <meta property="og:image" content="https://volt.jjricks.com/og.png">
   <meta property="og:image:type" content="image/png">
   <meta property="og:image:width" content="1200">
@@ -22,7 +22,7 @@
   <meta property="og:image:alt" content="The Volt app dashboard on a phone beside a glowing red lightning bolt and the words Total control. Zero cloud.">
   <meta name="twitter:card" content="summary_large_image">
   <meta name="twitter:title" content="Volt · Total control. Zero cloud.">
-  <meta name="twitter:description" content="The offline command center for your NAVEE scooter. Lock, tune, track and ride over Bluetooth. No account, no servers.">
+  <meta name="twitter:description" content="The offline command center for your NAVEE UT5 MAX. Lock, tune, track and ride over Bluetooth. No account, no servers.">
   <meta name="twitter:image" content="https://volt.jjricks.com/og.png">
   <meta name="twitter:image:alt" content="The Volt app dashboard on a phone beside a glowing red lightning bolt.">
 
@@ -47,8 +47,7 @@
     </a>
     <nav class="nav-links" id="nav-links" aria-label="Sections">
       <a href="#features">Features</a>
-      <a href="#rides">Rides</a>
-      <a href="#foldables">Foldables</a>
+      <a href="#setup">Setup</a>
       <a href="#privacy">Privacy</a>
       <a href="#faq">FAQ</a>
     </nav>
@@ -59,21 +58,21 @@
   <main id="main">
     <section class="hero" id="top">
       <div class="hero-copy">
-        <a class="pill reveal" href="#get"><span class="pill-dot"></span> Volt 1.1 · your scooter, your connection <span aria-hidden="true">→</span></a>
+        <a class="pill reveal" href="#compat"><span class="pill-dot"></span> Tested on the US UT5 MAX <span aria-hidden="true">→</span></a>
         <h1 class="reveal">
           <span class="line">Total control.</span>
           <span class="line hot" data-text="Zero cloud.">Zero cloud.</span>
         </h1>
-        <p class="lede reveal">Volt is the independent, offline command center for your NAVEE scooter. Lock and unlock, tune your settings, watch live telemetry and record rides, straight over Bluetooth. <strong>No account. No servers. Nothing leaves your phone.</strong></p>
+        <p class="lede reveal">Volt is an independent Android app for your NAVEE UT5 MAX. Lock and unlock, change settings, watch live readings and record rides, straight over Bluetooth. <strong>No account. Works offline.</strong></p>
         <div class="hero-actions reveal">
           <a class="btn btn-hot" href="#get">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
             Download for Android
           </a>
-          <a class="btn btn-ghost" href="#features">See what it does</a>
+          <a class="btn btn-ghost" href="#setup">How to set up</a>
         </div>
         <ul class="hero-meta reveal" aria-label="At a glance">
-          <li>Android 8.0+</li><li>Works offline</li><li>No sign-up</li><li>Open source</li>
+          <li>Android 8.0+</li><li>Works offline</li><li>No sign-up</li><li>Free</li>
         </ul>
       </div>
 
@@ -92,78 +91,48 @@
       </div>
     </section>
 
-    <div class="marquee" aria-hidden="true">
-      <div class="marquee-track">
-        <span>Offline lock</span><i></i><span>Live telemetry</span><i></i><span>Ride maps</span><i></i><span>Charge estimates</span><i></i><span>Custom dashboards</span><i></i><span>Foldable-ready</span><i></i><span>Haptics</span><i></i><span>Encrypted backups</span><i></i><span>No account</span><i></i>
-        <span>Offline lock</span><i></i><span>Live telemetry</span><i></i><span>Ride maps</span><i></i><span>Charge estimates</span><i></i><span>Custom dashboards</span><i></i><span>Foldable-ready</span><i></i><span>Haptics</span><i></i><span>Encrypted backups</span><i></i><span>No account</span><i></i>
-      </div>
-    </div>
-
     <section class="section" id="features" aria-labelledby="features-title">
       <div class="section-head reveal">
-        <p class="eyebrow">Everything, on tap</p>
+        <p class="eyebrow">What it does</p>
         <h2 id="features-title">Your scooter, <span class="hot">fully unlocked.</span></h2>
-        <p class="sub">The controls, numbers and maps you actually want. Fast, local and beautifully dark.</p>
+        <p class="sub">The controls and numbers you want, fast and local.</p>
       </div>
       <div class="bento">
         <article class="card card-lock reveal spot">
           <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5zM12 15v2"/></svg></div>
           <h3>Lock it. Unlock it. Offline.</h3>
-          <p>A big slide-to-lock switch that talks straight to your scooter with owner authentication. You feel a confirming tap the moment the scooter reports the change.</p>
-          <div class="lock-demo" aria-hidden="true"><span class="lock-knob"><svg viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z"/></svg></span><span class="lock-label">Slide to lock</span></div>
+          <p>A slide-to-lock switch that talks straight to your scooter. No signal needed, and Volt shows the change once the scooter confirms it.</p>
+          <div class="lock-demo" aria-hidden="true">
+            <span class="lock-label lock-label-lock">Slide to lock</span>
+            <span class="lock-label lock-label-unlock">Slide to unlock</span>
+            <span class="lock-knob"><svg class="lock-glyph lock-glyph-open" viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 9.6-2M5 11h14v10H5z"/></svg><svg class="lock-glyph lock-glyph-shut" viewBox="0 0 24 24"><path d="M7 11V8a5 5 0 0 1 10 0v3M5 11h14v10H5z"/></svg></span>
+          </div>
         </article>
-        <article class="card card-charge reveal spot">
-          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M13 2 4 14h7l-1 8 9-12h-7z"/></svg></div>
-          <h3>Charging, decoded</h3>
-          <p>Live charging power, battery temperature and time-to-full or time-to-limit estimates, right on your dashboard.</p>
+        <article class="card card-dash reveal spot">
+          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z"/></svg></div>
+          <h3>A dashboard that's yours</h3>
+          <p>Move and resize widgets so what you check most comes first.</p>
         </article>
         <article class="card card-stats reveal spot">
           <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M3 20h18M6 16l4-5 3 3 5-7"/></svg></div>
-          <h3>Live telemetry, all of it</h3>
-          <p>Battery voltage, current, power, temperatures, health, range and trip stats. Every reading is searchable, with charts and history.</p>
+          <h3>Live readings</h3>
+          <p>Battery, range, power, temperatures and trip stats, with charts and history.</p>
           <img class="card-shot" src="img/phone-stats.webp" width="720" height="1516" loading="lazy" alt="Volt Live Stats: a 78 percent battery gauge with about 24 miles left, battery voltage 50.36 volts and a live battery power chart.">
         </article>
         <article class="card card-tune reveal spot">
           <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M4 6h10M18 6h2M4 12h4M12 12h8M4 18h12M20 18h0"/><circle cx="16" cy="6" r="2"/><circle cx="10" cy="12" r="2"/><circle cx="18" cy="18" r="2"/></svg></div>
           <h3>Dial in your ride</h3>
-          <p>Top speed presets, cruise control, energy recovery, lights, sounds and more, grouped and searchable.</p>
+          <p>Top speed, cruise control, energy recovery, lights and more.</p>
           <img class="card-shot card-shot-tune" src="img/phone-controls.webp" width="720" height="1516" loading="lazy" alt="Volt Scooter controls: a red Top speed card set to 31 mph with 16, 20, 25 and 31 mph presets, plus ride settings like Cruise control and Traction control.">
-        </article>
-        <article class="card card-dash reveal spot">
-          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M3 3h8v8H3zM13 3h8v5h-8zM13 10h8v11h-8zM3 13h8v8H3z"/></svg></div>
-          <h3>A dashboard that's yours</h3>
-          <p>15 widget types. Drag, resize and arrange up to six columns, with separate layouts for folded and unfolded screens.</p>
-        </article>
-        <article class="card card-haptic reveal spot">
-          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M9 4h6v16H9zM5 8v8M19 8v8M2 10v4M22 10v4"/></svg></div>
-          <h3>Feels as good as it looks</h3>
-          <p>Subtle haptics for switches, drags, lock confirmations and connection changes. Turn them off with one switch.</p>
-        </article>
-        <article class="card card-backup reveal spot">
-          <div class="card-icon"><svg viewBox="0 0 24 24"><path d="M12 3 4 6v6c0 5 3.5 8 8 9 4.5-1 8-4 8-9V6zM9 12l2 2 4-4"/></svg></div>
-          <h3>Backups, encrypted</h3>
-          <p>Password-protected full backups of your setup, rides and dashboards, plus portable layouts to share between phones.</p>
         </article>
       </div>
     </section>
 
-    <section class="stats" aria-label="Volt by the numbers">
-      <div class="stat reveal"><b class="count" data-count="0">0</b><span>servers involved</span></div>
-      <div class="stat reveal"><b><span class="count" data-count="90">90</span>+</b><span>live readings</span></div>
-      <div class="stat reveal"><b class="count" data-count="15">15</b><span>widget types</span></div>
-      <div class="stat reveal"><b class="count" data-count="6">6</b><span>dashboard columns</span></div>
-    </section>
-
     <section class="section rides" id="rides" aria-labelledby="rides-title">
       <div class="rides-copy reveal">
-        <p class="eyebrow">Ride recording</p>
+        <p class="eyebrow">Rides and charging</p>
         <h2 id="rides-title">Every ride, <span class="hot">mapped in color.</span></h2>
-        <p class="sub">Record with phone GPS, barometric elevation and motion sensors alongside your scooter's own readings. Paint the route by power, grade, acceleration or elevation, tap any point to inspect it, and compare two rides side by side.</p>
-        <ul class="ticks">
-          <li>Full-screen maps with pinch, pan and route recentering</li>
-          <li>Power, speed and battery graphs with every raw sample</li>
-          <li>Export GPX, CSV or JSON. It's your data</li>
-        </ul>
+        <p class="sub">Record a ride and see the route colored by power or grade. While charging, see live power and time to full.</p>
       </div>
       <div class="route-card reveal" aria-hidden="true">
         <svg class="route" viewBox="0 0 520 420">
@@ -192,8 +161,8 @@
       </div>
       <div class="fold-copy reveal">
         <p class="eyebrow">Built for foldables</p>
-        <h2 id="fold-title">Cover screen to canvas, <span class="hot">without a flicker.</span></h2>
-        <p class="sub">Volt keeps five-column layouts readable on narrow cover screens and opens up on the inner display. Half-fold into book or tabletop posture and nothing reloads, jumps or re-splits.</p>
+        <h2 id="fold-title">Cover screen <span class="hot">to canvas.</span></h2>
+        <p class="sub">Separate layouts for folded and unfolded, and nothing reloads when you open the phone.</p>
       </div>
     </section>
 
@@ -202,26 +171,30 @@
         <div class="shield" aria-hidden="true">
           <svg viewBox="0 0 120 140"><path class="shield-body" d="M60 6 10 24v38c0 34 22 58 50 70 28-12 50-36 50-70V24z"/><path class="shield-bolt" d="M66 34 44 76h16l-4 32 24-44H64z"/></svg>
         </div>
-        <p class="eyebrow">Privacy by design</p>
-        <h2 id="privacy-title">Nothing leaves <span class="hot">your phone.</span></h2>
+        <p class="eyebrow">Privacy</p>
+        <h2 id="privacy-title">Your data stays <span class="hot">on your phone.</span></h2>
         <div class="promises">
-          <div class="promise"><b>No account</b><span>No sign-up, no login and no cloud sync. Volt never asks who you are.</span></div>
-          <div class="promise"><b>No trackers</b><span>No analytics, ads or crash reporters. Nothing reports your rides home.</span></div>
-          <div class="promise"><b>Direct Bluetooth</b><span>Your phone talks straight to your scooter. No relay, no servers in the middle.</span></div>
-          <div class="promise"><b>Optional maps</b><span>The map background is the only feature that goes online, and you can switch it off.</span></div>
+          <div class="promise"><b>No account</b><span>No sign-up, analytics or ads.</span></div>
+          <div class="promise"><b>Direct Bluetooth</b><span>Controls and recording work offline, with no server in the middle.</span></div>
+          <div class="promise"><b>Maps if you want them</b><span>Map backgrounds stay off until you turn them on.</span></div>
+          <div class="promise"><b>You decide what to share</b><span>Exports and backups are files you choose to make and share.</span></div>
         </div>
       </div>
     </section>
 
     <section class="section steps" id="setup" aria-labelledby="setup-title">
       <div class="section-head reveal">
-        <p class="eyebrow">Up and riding in minutes</p>
+        <p class="eyebrow">Setup</p>
         <h2 id="setup-title">Three steps to <span class="hot">liftoff.</span></h2>
+        <p class="sub">You'll need:</p>
+        <ul class="needs" aria-label="You'll need">
+          <li>Android 8.0+ with Bluetooth</li><li>An activated US UT5 MAX</li><li>The NAVEE app, signed in and connecting</li><li>For pairing once: a computer with USB, or Shizuku</li>
+        </ul>
       </div>
       <ol class="step-list">
-        <li class="step reveal"><span class="step-num">01</span><h3>Install Volt</h3><p>Grab the latest signed APK from <a href="https://github.com/JJRicks/navee-offline/releases/latest">GitHub Releases</a> and install it on any Android 8.0+ phone.</p></li>
-        <li class="step reveal"><span class="step-num">02</span><h3>Pair once</h3><p>The private USB setup helper brings your scooter's owner identity into Volt, all locally in your browser. <a href="https://pairscooter.jjricks.com/">Open the setup helper</a>.</p></li>
-        <li class="step reveal"><span class="step-num">03</span><h3>Ride</h3><p>Volt connects over Bluetooth when you open it. Lock, tune and track, no signal required.</p></li>
+        <li class="step reveal"><span class="step-num">01</span><h3>Install</h3><p>Download the APK from <a href="https://github.com/JJRicks/navee-offline/releases/latest">GitHub Releases</a> and open it on your phone.</p></li>
+        <li class="step reveal"><span class="step-num">02</span><h3>Pair once</h3><p>Volt's onboarding helps you copy your scooter's owner key from the NAVEE app. You never enter a password. <a href="https://pairscooter.jjricks.com/">Open the setup helper</a></p></li>
+        <li class="step reveal"><span class="step-num">03</span><h3>Ride</h3><p>Close NAVEE and connect in Volt. After setup, no computer or signal needed.</p></li>
       </ol>
     </section>
 
@@ -229,11 +202,10 @@
       <div class="section-head reveal"><p class="eyebrow">Questions</p><h2 id="faq-title">Good to know.</h2></div>
       <div class="faq-list">
         <details class="reveal"><summary>Is Volt made by NAVEE?</summary><p>No. Volt is an independent project and isn't affiliated with NAVEE or its app vendor.</p></details>
-        <details class="reveal"><summary>Which scooters does it work with?</summary><p>Volt is built for the NAVEE UT5 MAX (US, model 2538) that you already own and have activated. Other models, regions and firmware may behave differently.</p></details>
-        <details class="reveal"><summary>Does Volt need the internet?</summary><p>No. Locking, controls, stats and ride recording all work offline. The optional map background is the only feature that downloads anything.</p></details>
+        <details class="reveal" id="compat"><summary>Which scooters does it work with?</summary><p>Volt is tested on the US NAVEE UT5 MAX (model 2538) that you already own and have activated. Other models, regions and firmware aren't verified and may not work.</p></details>
+        <details class="reveal"><summary>Does Volt need the internet?</summary><p>No. Locking, controls, readings and ride recording work offline. Map backgrounds are optional and only load after you turn them on.</p></details>
         <details class="reveal"><summary>Is there an iPhone version?</summary><p>Not right now. Volt runs on Android 8.0 and newer, including foldables.</p></details>
-        <details class="reveal"><summary>Is Volt open source?</summary><p>Yes. Volt is MIT-licensed and developed in the open on <a href="https://github.com/JJRicks/navee-offline">GitHub</a>. Every release comes with a signed APK and SHA-256 checksums.</p></details>
-        <details class="reveal"><summary>Where is my data stored?</summary><p>On your phone. You can export rides, or make a password-protected backup of everything whenever you like.</p></details>
+        <details class="reveal"><summary>Where is my data stored?</summary><p>On your phone. You can export rides or make a password-protected backup whenever you like.</p></details>
       </div>
     </section>
 
@@ -241,18 +213,18 @@
       <div class="cta-inner reveal">
         <svg class="cta-bolt" viewBox="0 0 108 108" aria-hidden="true"><path class="bolt-edge" d="M66,27 L38,61 L54,61 L49,86 L79,50 L62,50 Z"/><path class="bolt-face" d="M62,24 L34,58 L50,58 L45,83 L75,47 L58,47 Z"/></svg>
         <h2 id="get-title">Ready to <span class="hot">ride electric?</span></h2>
-        <p class="sub">Volt 1.3.1 for Android 8.0 and newer. Free and open source under the MIT license.</p>
+        <p class="sub">Volt 1.3.1 for Android 8.0 and newer. Free, with no account.</p>
         <div class="cta-actions">
           <a class="btn btn-hot btn-big" id="download" href="https://github.com/JJRicks/navee-offline/releases/latest">
             <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M12 3v12m0 0-5-5m5 5 5-5M5 21h14"/></svg>
             Get the latest release
           </a>
-          <a class="btn btn-ghost btn-big" href="https://github.com/JJRicks/navee-offline">
-            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="m8 7-5 5 5 5M16 7l5 5-5 5M14 4l-4 16"/></svg>
-            View the source
+          <a class="btn btn-ghost btn-big" href="https://pairscooter.jjricks.com/">
+            <svg viewBox="0 0 24 24" aria-hidden="true"><path d="M5 4h11l3 3v13H5zM9 10h6M9 14h6M9 18h3"/></svg>
+            Setup helper
           </a>
         </div>
-        <p class="note">Signed APKs and SHA-256 checksums ship with every release. Set up once with the <a href="https://pairscooter.jjricks.com/">owner setup helper</a>.</p>
+        <p class="note">Downloads come from GitHub Releases, with SHA-256 checksums.</p>
       </div>
     </section>
   </main>
@@ -263,7 +235,7 @@
       <span>VOLT</span>
     </div>
     <p>Volt is an independent project and is not affiliated with NAVEE. NAVEE and UT5 MAX are trademarks of their respective owners. Screens show sample data.</p>
-    <p class="footer-links"><a href="https://github.com/JJRicks/navee-offline">Source on GitHub</a><a href="https://pairscooter.jjricks.com/">Setup helper</a><a href="#privacy">Privacy</a><a href="THIRD-PARTY-NOTICES.txt">Licenses</a><a href="https://jjricks.com/">Made by JJRicks</a></p>
+    <p class="footer-links"><a href="https://pairscooter.jjricks.com/">Setup helper</a><a href="#privacy">Privacy</a><a href="THIRD-PARTY-NOTICES.txt">Licenses</a><a href="https://jjricks.com/">Made by JJRicks</a></p>
   </footer>
 </body>
 </html>

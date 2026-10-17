@@ -160,17 +160,6 @@ h1 .hot { filter: drop-shadow(0 0 28px rgba(234, 37, 43, .45)); }
 .chip-ok { color: #4ade80; background: rgba(74, 222, 128, .12); }
 .chip-hot { color: var(--red-hi); background: rgba(234, 37, 43, .16); }
 
-/* Marquee */
-.marquee {
-  overflow: hidden; padding: 20px 0; border-block: 1px solid var(--edge);
-  background: linear-gradient(90deg, rgba(234, 37, 43, .1), transparent 30%, transparent 70%, rgba(234, 37, 43, .1));
-  -webkit-mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-  mask-image: linear-gradient(90deg, transparent, #000 8%, #000 92%, transparent);
-}
-.marquee-track { display: flex; align-items: center; gap: 30px; width: max-content; animation: marquee 46s linear infinite; }
-.marquee span { white-space: nowrap; font-size: clamp(18px, 2.4vw, 30px); font-weight: 700; letter-spacing: .06em; text-transform: uppercase; color: rgba(245, 245, 239, .88); }
-.marquee i { flex: none; width: 10px; height: 10px; background: var(--red); transform: rotate(45deg); box-shadow: 0 0 14px var(--red); }
-
 /* Sections */
 .section { max-width: 1240px; margin: 0 auto; padding: clamp(80px, 11vw, 150px) var(--gutter); }
 .section-head { max-width: 780px; margin: 0 auto 52px; text-align: center; }
@@ -210,31 +199,35 @@ h2 { margin: 0 0 20px; font-weight: 700; font-size: clamp(38px, 5.6vw, 72px); li
 }
 .card-shot-tune { transform: rotate(2.5deg) translateY(12px); }
 .card:hover .card-shot { transform: rotate(0) translateY(0); }
+/* Lock demo: decorative. Knob, glyphs, labels and track tint share one duration and start together, so they stay on one
+   document timeline (even after background-tab throttling). The base styles are the resting "unlocked" state, which is
+   what reduced motion and no-JavaScript visitors see. */
 .lock-demo {
-  position: relative; display: flex; align-items: center; height: 66px; margin-top: 30px; max-width: 460px; border-radius: 999px;
+  --lock-cycle: 6s;
+  position: relative; isolation: isolate; overflow: hidden; height: 66px; margin-top: 30px; max-width: 460px; border-radius: 999px;
   background: linear-gradient(90deg, rgba(234, 37, 43, .4), rgba(234, 37, 43, .08)); border: 1px solid rgba(234, 37, 43, .5);
 }
+.lock-demo::before { content: ""; position: absolute; inset: 0; z-index: -1; opacity: 0; background: linear-gradient(270deg, rgba(234, 37, 43, .4), rgba(234, 37, 43, .08)); }
 .lock-knob {
-  position: absolute; left: 6px; display: grid; place-items: center; width: 54px; height: 54px; border-radius: 50%;
-  background: var(--red); box-shadow: 0 0 26px rgba(234, 37, 43, .9); animation: slide 5s cubic-bezier(.65, 0, .25, 1) infinite;
+  position: absolute; z-index: 1; top: 5px; left: 6px; width: 54px; height: 54px; border-radius: 50%;
+  background: var(--red); box-shadow: 0 0 26px rgba(234, 37, 43, .9);
 }
-.lock-knob svg { width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
-.lock-label { margin: 0 auto; color: #ffb7b1; font-weight: 600; letter-spacing: .05em; }
-
-/* Stats */
-.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: 16px; max-width: 1240px; margin: 0 auto; padding: 0 var(--gutter); }
-.stat { padding: 34px 14px 30px; border-radius: var(--radius); border: 1px solid var(--edge); background: rgba(255, 255, 255, .02); text-align: center; }
-.stat b {
-  display: block; font-size: clamp(48px, 6.4vw, 84px); line-height: 1; font-weight: 700; letter-spacing: -.04em;
-  background: linear-gradient(180deg, #fff 20%, var(--red-soft)); -webkit-background-clip: text; background-clip: text; color: transparent;
+.lock-glyph { position: absolute; inset: 16px; width: 22px; height: 22px; fill: none; stroke: #fff; stroke-width: 2.2; stroke-linecap: round; stroke-linejoin: round; }
+.lock-glyph-shut { opacity: 0; }
+.lock-label {
+  position: absolute; inset: 0; display: flex; align-items: center; justify-content: center; padding: 0 18px 0 66px;
+  overflow: hidden; white-space: nowrap; text-overflow: ellipsis; color: #ffb7b1; font-weight: 600; letter-spacing: .05em;
 }
-.stat > span { display: block; margin-top: 10px; color: var(--muted); font-size: 15px; letter-spacing: .04em; }
+.lock-label-unlock { padding: 0 66px 0 18px; opacity: 0; }
+.js .lock-demo::before { animation: lock-tint var(--lock-cycle) linear infinite; }
+.js .lock-knob { animation: lock-slide var(--lock-cycle) linear infinite; }
+.js .lock-glyph-open { animation: lock-open var(--lock-cycle) linear infinite; }
+.js .lock-glyph-shut { animation: lock-shut var(--lock-cycle) linear infinite; }
+.js .lock-label-lock { animation: lock-label-lock var(--lock-cycle) linear infinite; }
+.js .lock-label-unlock { animation: lock-label-unlock var(--lock-cycle) linear infinite; }
 
 /* Rides */
 .rides { display: grid; grid-template-columns: .95fr 1.05fr; gap: clamp(32px, 6vw, 72px); align-items: center; }
-.ticks { display: grid; gap: 14px; margin: 30px 0 0; padding: 0; list-style: none; }
-.ticks li { position: relative; padding-left: 32px; }
-.ticks li::before { content: ""; position: absolute; left: 0; top: .32em; width: 18px; height: 18px; border-radius: 50%; background: radial-gradient(circle, var(--red-hi) 38%, rgba(234, 37, 43, .2) 42%); }
 .route-card { position: relative; overflow: hidden; border-radius: 30px; border: 1px solid var(--edge); background: #0e0e0f; box-shadow: 0 50px 120px -50px rgba(234, 37, 43, .55); }
 .route { display: block; width: 100%; height: auto; }
 .route-shadow { fill: none; stroke: rgba(234, 37, 43, .3); stroke-width: 20; stroke-linecap: round; filter: blur(8px); stroke-dasharray: 1; stroke-dashoffset: 1; }
@@ -279,6 +272,9 @@ h2 { margin: 0 0 20px; font-weight: 700; font-size: clamp(38px, 5.6vw, 72px); li
 .promise span { color: var(--muted); font-size: 15px; line-height: 1.55; }
 
 /* Steps */
+.steps .sub { margin-top: 8px; }
+.needs { display: flex; flex-wrap: wrap; justify-content: center; gap: 10px; margin: 14px 0 0; padding: 0; list-style: none; }
+.needs li { padding: 8px 16px; border-radius: 18px; border: 1px solid var(--edge); background: rgba(255, 255, 255, .03); color: var(--ink); font-size: 15px; }
 .step-list { position: relative; display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; margin: 0; padding: 0; list-style: none; }
 .step-list::before { content: ""; position: absolute; z-index: -1; top: 62px; left: 12%; right: 12%; height: 1px; background: linear-gradient(90deg, transparent, rgba(234, 37, 43, .7), transparent); }
 .step { position: relative; padding: 30px; border-radius: var(--radius); border: 1px solid var(--edge); background: rgba(14, 14, 15, .9); }
@@ -335,8 +331,18 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
 @keyframes float { 0%, 100% { translate: 0 0; } 50% { translate: 0 -16px; } }
 @keyframes bob { 0%, 100% { translate: 0 0; } 50% { translate: 0 -10px; } }
 @keyframes spin { to { rotate: 360deg; } }
-@keyframes marquee { to { transform: translateX(-50%); } }
-@keyframes slide { 0%, 14% { left: 6px; } 44%, 62% { left: calc(100% - 60px); } 90%, 100% { left: 6px; } }
+/* Lock demo cycle: rest unlocked 0-20%, slide right 20-45%, rest locked 45-70%, slide back 70-95%, rest 95-100%.
+   Labels fade out before the knob moves and back in after it settles, so the knob never crosses visible text. */
+@keyframes lock-slide {
+  0%, 20% { left: 6px; animation-timing-function: cubic-bezier(.65, 0, .25, 1); }
+  45%, 70% { left: calc(100% - 60px); animation-timing-function: cubic-bezier(.65, 0, .25, 1); }
+  95%, 100% { left: 6px; }
+}
+@keyframes lock-open { 0%, 44% { opacity: 1; } 47%, 94% { opacity: 0; } 97%, 100% { opacity: 1; } }
+@keyframes lock-shut { 0%, 44% { opacity: 0; } 47%, 94% { opacity: 1; } 97%, 100% { opacity: 0; } }
+@keyframes lock-tint { 0%, 22% { opacity: 0; } 43%, 72% { opacity: 1; } 93%, 100% { opacity: 0; } }
+@keyframes lock-label-lock { 0%, 17% { opacity: 1; } 21%, 95% { opacity: 0; } 99%, 100% { opacity: 1; } }
+@keyframes lock-label-unlock { 0%, 45% { opacity: 0; } 49%, 67% { opacity: 1; } 71%, 100% { opacity: 0; } }
 @keyframes draw { to { stroke-dashoffset: 0; } }
 @keyframes pulse { 0%, 100% { scale: 1; } 50% { scale: 1.06; } }
 @keyframes zap { 0%, 86%, 100% { opacity: 1; filter: drop-shadow(0 0 44px rgba(234, 37, 43, .9)); } 88% { opacity: .55; } 90% { opacity: 1; filter: drop-shadow(0 0 70px rgba(255, 120, 100, 1)); } 92% { opacity: .7; } }
@@ -350,9 +356,9 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
   .fold-copy { order: -1; text-align: center; }
   .bento { grid-template-columns: repeat(2, 1fr); }
   .card, .card-stats, .card-tune { grid-column: span 1; }
-  .card-lock { grid-column: span 2; }
-  /* Pair the two tall screenshot cards; the short cards fill the rows below. */
-  .card-stats { order: 1; } .card-tune { order: 2; } .card-charge { order: 3; } .card-dash { order: 4; } .card-haptic { order: 5; } .card-backup { order: 6; }
+  .card-lock, .card-dash { grid-column: span 2; }
+  /* Pair the two tall screenshot cards; the short dashboard card follows them. */
+  .card-stats { order: 1; } .card-tune { order: 2; } .card-dash { order: 3; }
   .promises { grid-template-columns: repeat(2, 1fr); }
 }
 @media (max-width: 860px) {
@@ -371,13 +377,13 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
   }
   .js .nav-links.open { opacity: 1; visibility: visible; transform: none; }
   .js .nav-links a { padding: 14px 0; font-size: 18px; border-bottom: 1px solid var(--edge); }
-  .stats { grid-template-columns: repeat(2, 1fr); }
   .step-list { grid-template-columns: 1fr; }
   .step-list::before { display: none; }
 }
 @media (max-width: 640px) {
   .bento { grid-template-columns: 1fr; }
-  .card-lock { grid-column: span 1; }
+  .card-lock, .card-dash { grid-column: span 1; }
+  .lock-label { font-size: 15px; letter-spacing: .03em; }
   .card-shot { width: min(74%, 280px); height: 330px; }
   .promises { grid-template-columns: 1fr; }
   .hero-stage { min-height: 520px; }
@@ -403,5 +409,6 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
   .js .reveal { opacity: 1; transform: none; }
   .route-line, .route-shadow { stroke-dashoffset: 0; }
+  .lock-demo::before, .lock-demo * { animation: none !important; } /* Rest in the unlocked "Slide to lock" state. */
   .btn-hot::after { display: none; }
 }
