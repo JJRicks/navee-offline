@@ -225,7 +225,13 @@ public final class ChargeEstimateValidation extends Instrumentation {
         store().stop(ChargeSessionStore.Stop.STOPPED);tinyId=recordingAt(mono+10800000);
     }
     /** Automatic on a model without detection uses its only learned family; UT5 MAX keeps live detection. */
-    private void verifyRecordedAutomatic(){
+    private void verifyRecordedAutomatic()throws Exception{
+        // One qualified stock bulk recording: twelve one-percent bins over twelve minutes.
+        long wall=1735800000000L,mono=20000000;
+        store().start(profile,ChargeSessionStore.Charger.STOCK,wall,mono);
+        for(int i=0;i<=72;i++)require(store().sample(frame(wall+i*10000L,mono+i*10000L,40+i/6)),"Qualified fixture sample rejected");
+        store().stop(ChargeSessionStore.Stop.STOPPED);
+        File qualified=new File(getTargetContext().getFilesDir(),"charge-recordings/"+recordingAt(mono)+".csv");
         main(()->invoke(service,"refreshChargeCurves",new Class<?>[]{}));
         await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Curve refresh did not finish");
         main(()->{
@@ -239,6 +245,9 @@ public final class ChargeEstimateValidation extends Instrumentation {
                         &&service.qualifiedChargeCurves()>0,"Undetectable model ignored its only learned charger family");
             }finally{active.serial=serial;}
         });
+        require(qualified.delete(),"Qualified fixture cleanup failed");
+        main(()->invoke(service,"refreshChargeCurves",new Class<?>[]{}));
+        await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Curve cleanup refresh did not finish");
     }
     private String recordingAt(long startedMono)throws IOException{for(ChargeSessionStore.HistorySession session:store().recordings(profile))if(session.startedMono==startedMono)return session.id;throw new IllegalStateException("Fixture recording missing");}
     private ChargeSessionStore.Frame frame(long wall,long mono,double soc){return new ChargeSessionStore.Frame(wall,mono,new ChargeSessionStore.Value(1d,mono,0x72),new ChargeSessionStore.Value(soc,mono,0x72),new ChargeSessionStore.Value(52d,mono,0x72),new ChargeSessionStore.Value(-2d,mono,0x72),new ChargeSessionStore.Value(23d,mono,0x72));}
