@@ -16,15 +16,20 @@ public final class CapabilityResolver {
     public enum Reason { NONE, NOT_CONNECTED, STATUS_STALE, FIELD_ABSENT, VALUE_UNKNOWN, NO_CHOICES, BUSY, MOVING, NO_MOTION_REPORT,
         WARNING_ACTIVE, LOCKED, OWNER_ONLY, NEEDS_BOND, NEEDS_PIN, FIRMWARE_UNKNOWN, FIRMWARE_OLD, FULL_PID_NEEDED,
         IDENTITY_CONFLICT, MODEL_NOT_IDENTIFIED, MODEL_NOT_MAPPED, MODEL_EXCLUDED, REGION_RULE,
-        PRODUCT_UNSUPPORTED, TRANSPORT_UNSUPPORTED, DISCOVERY_ACTIVE, TEST_ACTIVE }
+        PRODUCT_UNSUPPORTED, TRANSPORT_UNSUPPORTED, DISCOVERY_ACTIVE, TEST_ACTIVE,
+        NOT_TESTABLE, RECORDING, NEEDS_REAL_SCOOTER, PARKED_UNCONFIRMED, NO_TEST }
     /** Status older than this is stale (BleController.ready() uses the same bound). */
     static final long STATUS_MAX_AGE_MS=7000;
 
     /** Plain data copied from BleController for one evaluation. */
     public static final class Runtime {
         public boolean simulation,ready,busy,stationary,motionSeen,warningActive,owner,bonded,pinEnabledFresh,discovery,test;
-        /** The feature a guided test is exercising; other features report TEST_ACTIVE while test is true. */
+        /** The feature a guided test is exercising. While test is true every ordinary change reports TEST_ACTIVE; only that test's own writes pass. */
         public String testFeature="";
+        /** A ride is being recorded; guided tests do not start or write then. */
+        public boolean recording;
+        /** The owner ticked "Scooter is parked" because no motion report has arrived this session. */
+        public boolean parkedConfirmed;
         public long nowMs;
     }
 
@@ -81,7 +86,7 @@ public final class CapabilityResolver {
         // 3. Runtime.
         Reason reason=Reason.NONE;int[] choices=null;
         if(rt.discovery)reason=Reason.DISCOVERY_ACTIVE;
-        else if(rt.test&&!feature.equals(rt.testFeature))reason=Reason.TEST_ACTIVE;
+        else if(rt.test)reason=Reason.TEST_ACTIVE;
         else if(rt.busy)reason=Reason.BUSY;
         else if(!status.fresh(rt.nowMs,STATUS_MAX_AGE_MS))reason=Reason.STATUS_STALE;
         else {
@@ -119,6 +124,47 @@ public final class CapabilityResolver {
         if(reason==Reason.NONE)return decision;
         ModelRegistry.Rule rule=new ModelRegistry.Rule(decision.support,Reason.NONE,decision.evidence,decision.oemNote,decision.preconditions,decision.variant);
         return new Decision(feature,decision.layer,rule,reason,status,decision.choices);
+    }
+
+    /**
+     * Whether a guided test of this feature may run (and write) now. It uses the guided-test rule
+     * (ModelRegistry.testRule), never the ordinary one, so a SHARED test variant enables no control.
+     * Preconditions: a real connection, fresh status with the field present and inside the domain,
+     * no pending change, no check, no ride recording, the rule's own conditions (unlocked, owner),
+     * and stationary: a motion report showing it parked, or with none this session the owner's tick.
+     */
+    public static Decision decideTest(String feature,DeviceDescriptor d,StatusFields s,Runtime rt){
+        StatusFields status=s==null?StatusFields.NONE:s;
+        ModelRegistry.Resolution r=ModelRegistry.resolve(d);
+        ModelRegistry.Rule rule=ModelRegistry.testRule(feature,d,r,status);
+        if(rule.support!=Support.KNOWN_ENCODING||rule.reason!=Reason.NONE)return new Decision(feature,r.layer,rule,rule.reason,status,null);
+        FeatureVariant v=rule.variant;
+        Reason reason=Reason.NONE;int[] choices=null;
+        if(rt==null||!rt.ready)reason=Reason.NOT_CONNECTED;
+        else if(rt.simulation)reason=Reason.NEEDS_REAL_SCOOTER;
+        else if(rt.discovery)reason=Reason.DISCOVERY_ACTIVE;
+        else if(rt.test&&!feature.equals(rt.testFeature))reason=Reason.TEST_ACTIVE;
+        else if(rt.busy)reason=Reason.BUSY;
+        else if(rt.recording)reason=Reason.RECORDING;
+        else if(!status.fresh(rt.nowMs,STATUS_MAX_AGE_MS))reason=Reason.STATUS_STALE;
+        else {
+            Integer current=v.read(status);
+            if(current==null)reason=Reason.FIELD_ABSENT;
+            else if(!v.allows(current))reason=Reason.VALUE_UNKNOWN;
+            else {choices=v.choices(status);if(choices.length==0)reason=Reason.NO_CHOICES;}
+        }
+        if(reason==Reason.NONE){
+            EnumSet<Precondition> p=EnumSet.copyOf(rule.preconditions);p.remove(Precondition.STATIONARY);p.remove(Precondition.MOTION_REPORT);
+            reason=preconditions(p,status,rt);
+        }
+        if(reason==Reason.NONE&&!rt.stationary)reason=rt.motionSeen?Reason.MOVING:rt.parkedConfirmed?Reason.NONE:Reason.PARKED_UNCONFIRMED;
+        return new Decision(feature,r.layer,rule,reason,status,choices==null?v.choices(status):choices);
+    }
+    /** decideTest plus the value: it must be in the variant domain and, for dynamic choices, offered now. */
+    public static Decision admitTest(String feature,int value,DeviceDescriptor d,StatusFields s,Runtime rt){
+        Decision decision=decideTest(feature,d,s,rt);
+        if(!decision.available()||decision.allows(value))return decision;
+        return withReason(decision,Reason.MODEL_EXCLUDED);
     }
 
     /** The same decision with another reason (MutationGate's request-level rules). */
@@ -170,6 +216,11 @@ public final class CapabilityResolver {
             case PRODUCT_UNSUPPORTED: case TRANSPORT_UNSUPPORTED: return "Not supported";
             case DISCOVERY_ACTIVE: return "Checking compatibility…";
             case TEST_ACTIVE: return "Test in progress";
+            case NOT_TESTABLE: return "Not offered as a test";
+            case RECORDING: return "Stop recording first";
+            case NEEDS_REAL_SCOOTER: return "Needs a real scooter";
+            case PARKED_UNCONFIRMED: return "Confirm the scooter is parked";
+            case NO_TEST: return "No test running";
             default: return "";
         }
     }

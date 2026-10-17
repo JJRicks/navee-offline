@@ -17,10 +17,13 @@ import java.util.Set;
  * screen family (units, range estimate, clock, lights, turn sound, cruise, energy recovery). Every
  * other OEM-group key is "not mapped" until its rows are added. OEM-mapped rows are not tested by
  * Volt on those models. BleController and the UI gate every control on these decisions.
+ *
+ * Version 3 adds the guided-test table (testRule): which settings an owner may try once and set
+ * back. A finished test is report-only evidence; it never enables a control.
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=2;
+    public static final int VERSION=3;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -118,6 +121,15 @@ public final class ModelRegistry {
     static final String[] NO_CRUISE={"2573","2634"};
     /** OEM 2.1.9 hides turn-signal sound for 2573/2634 (and group R) even when it would otherwise show it. */
     static final String[] NO_TURN_SOUND={"2573","2634"};
+
+    /**
+     * Guided tests (C4): reversible, observable, non-riding settings with one byte of exact readback.
+     * PIN, proximity, lock, lock time, every speed control, charging, clock, country, binding,
+     * firmware, weather, composite writes and Lab rows are never tested this way.
+     */
+    static final String[] TESTABLE={"display_units","headlight","turn_sound","auto_sensor","range_algorithm"};
+    /** OEM 2.1.9 sends 0x55 [0|1] for every standard scooter; the only test offered to an unidentified model. Test-only: it maps nothing. */
+    static final FeatureVariant SHARED_UNITS=oem("display_units.shared","display_units",0x55,new int[]{0,1},new String[]{"Miles / mph","Kilometers / km/h"},7,false);
 
     private static FeatureVariant oem(String id,String feature,int cmd,int[] values,String[] labels,int offset,boolean parked){
         int min=values[0],max=values[0];for(int v:values){min=Math.min(min,v);max=Math.max(max,v);}
@@ -236,6 +248,31 @@ public final class ModelRegistry {
             default: return null;
         }
     }
+    /**
+     * The rule for a guided test of this feature: the normal rule on UT5 MAX and OEM groups (so
+     * model, region and firmware refusals still apply), SHARED_UNITS for an unidentified standard
+     * scooter, and NOT_TESTABLE for anything outside TESTABLE or marked Lab.
+     */
+    static Rule testRule(String feature,DeviceDescriptor d,Resolution r,StatusFields s){
+        if(r==null)r=resolve(d);
+        if(!testable(feature))return refused(CapabilityResolver.Support.INCOMPATIBLE,CapabilityResolver.Reason.NOT_TESTABLE);
+        switch(r.layer){
+            case UT5_MAX: case OEM_GROUP: {
+                Rule rule=rule(feature,d,r,s);
+                if(rule.variant!=null&&(rule.variant.lab||!rule.variant.readable))return refused(CapabilityResolver.Support.INCOMPATIBLE,CapabilityResolver.Reason.NOT_TESTABLE);
+                return rule;
+            }
+            case SHARED: {
+                if(r.conflict)return refused(CapabilityResolver.Support.UNKNOWN_MAPPING,CapabilityResolver.Reason.IDENTITY_CONFLICT);
+                if(!feature.equals("display_units"))return rule(feature,d,r,s);
+                return new Rule(CapabilityResolver.Support.KNOWN_ENCODING,CapabilityResolver.Reason.NONE,CapabilityResolver.Evidence.OEM_MAPPED,
+                    "OEM 2.1.9 sends this for every standard scooter",preconditions(SHARED_UNITS),SHARED_UNITS);
+            }
+            default: return rule(feature,d,r,s);
+        }
+    }
+    static boolean testable(String feature){for(String t:TESTABLE)if(t.equals(feature))return true;return false;}
+
     /** OEM 2.1.9's turn-signal sound group: a known PID outside the legacy, M and extra exclusions. */
     static boolean turnSoundGroup(DeviceDescriptor d){return d!=null&&!d.rulePid().isEmpty()&&!any(d,LEGACY_T)&&!any(d,NOT_I_EXTRA)&&!any(d,M);}
     /** Tail light: OEM 2.1.9 hides it with no region or in DE (turn-sound group, 2417, 2422), otherwise with no region or in the ITA bucket. */

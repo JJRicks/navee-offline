@@ -88,7 +88,7 @@ public final class MutationGateTest {
             check(reason(auto,d,s,CapabilityResolverTest.parked())==CapabilityResolver.Reason.MODEL_EXCLUDED,"Range follow refused off the UT5 MAX layer "+d);
         check(reason(new MutationGate.Request(MutationGate.Kind.SET,"cruise_control",1,MutationGate.Origin.AUTOMATIC_RANGE_FOLLOW),ut5,s,CapabilityResolverTest.parked())==CapabilityResolver.Reason.MODEL_EXCLUDED,"Range follow writes only the range estimate");
         for(MutationGate.Origin guided:new MutationGate.Origin[]{MutationGate.Origin.GUIDED_TEST,MutationGate.Origin.GUIDED_RESTORE})
-            check(reason(new MutationGate.Request(MutationGate.Kind.SET,"display_units",1,guided),ut5,s,CapabilityResolverTest.parked())==CapabilityResolver.Reason.TEST_ACTIVE,"No guided writes without a journal "+guided);
+            check(reason(new MutationGate.Request(MutationGate.Kind.SET,"display_units",1,guided),ut5,s,CapabilityResolverTest.parked())==CapabilityResolver.Reason.NO_TEST,"No guided writes without a running test "+guided);
         check(new MutationGate.Request(MutationGate.Kind.SET,"lock",1,null).origin==MutationGate.Origin.USER,"Missing origin is a user request");
     }
 
