@@ -2390,9 +2390,9 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     /** Only the normalized owner setup is staged, never raw Bluetooth capture logs. */
     private void stageOwnerImport(String text)throws Exception{
-        OwnerIdentityParser.Result parsed=OwnerIdentityParser.parse(text);String name="Imported scooter",mac="",serial="";
+        OwnerIdentityParser.Result parsed=OwnerIdentityParser.parse(text);String name=IMPORTED_NAME,mac="",serial="";
         try{JSONObject json=new JSONObject(text);name=json.optString("name",name);mac=json.optString("scooter_address","");serial=json.optString("scooter_serial","");}catch(Exception ignored){}
-        name=name.trim();if(name.isEmpty())name="Imported scooter";if(name.length()>80)name=name.substring(0,80);
+        name=name.trim();if(name.isEmpty())name=IMPORTED_NAME;if(name.length()>80)name=name.substring(0,80);
         if(!mac.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"))mac="";else mac=mac.toUpperCase(Locale.ROOT);if(!serial.matches("[A-Za-z][A-Za-z0-9]{16}"))serial="";
         JSONObject normalized=new JSONObject();normalized.put("format","navee-private-pending-owner-v1");normalized.put("import_id",UUID.randomUUID().toString());normalized.put("owner_identity",parsed.identity);normalized.put("role",parsed.role);normalized.put("name",name);normalized.put("scooter_address",mac);normalized.put("scooter_serial",serial);
         File temporary=new File(getFilesDir(),"pending-owner-import.tmp");try(FileOutputStream out=new FileOutputStream(temporary)){out.write(normalized.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}
@@ -2416,6 +2416,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         try{if(!android.provider.DocumentsContract.deleteDocument(getContentResolver(),uri))return false;pickedOwnerUri=null;return true;}
         catch(Exception unsupported){return false;}
     }
+    /** Name given to an imported profile whose setup file carries none. */
+    static final String IMPORTED_NAME="Imported scooter";
     private File pendingOwnerFile(){return new File(getFilesDir(),"pending-owner-import.json");}
     private void maybeApplyOwnerImport(){
         File pending=pendingOwnerFile();if(destroyed||!resumed||applyingOwnerImport||!pending.isFile())return;
@@ -2426,12 +2428,13 @@ public final class MainActivity extends Activity implements ScreenHost {
             String text=readLimited(in);OwnerIdentityParser.Result parsed=OwnerIdentityParser.parse(text);JSONObject json=new JSONObject(text);String importId=json.getString("import_id");
             if(!"navee-private-pending-owner-v1".equals(json.optString("format"))||!importId.matches("[0-9a-fA-F-]{36}"))throw new IllegalArgumentException("Import failed. Pick file again.");
             if(importId.equals(preferences.getString("owner_import_applied",""))){pending.delete();return;}
-            String name=json.optString("name","Imported scooter"),mac=json.optString("scooter_address",""),serial=json.optString("scooter_serial","");
+            String name=json.optString("name",IMPORTED_NAME),mac=json.optString("scooter_address",""),serial=json.optString("scooter_serial","");
             // A picker return can trigger automatic reconnect. Cancel that session before
             // selecting a profile, after checking recording and pending-command state.
             scooterService.ble.disconnect();
             ScooterProfiles.Profile match=null;for(ScooterProfiles.Profile profile:scooterService.profiles.all())if(profile.identity.equalsIgnoreCase(parsed.identity)&&profile.role==parsed.role&&((!serial.isEmpty()&&serial.equals(profile.serial))||(!mac.isEmpty()&&mac.equalsIgnoreCase(profile.mac))||(profile.mac.isEmpty()&&profile.serial.isEmpty()))){match=profile;break;}
-            if(match==null)match=scooterService.profiles.create(name,parsed.identity,parsed.role);else scooterService.profiles.select(match.id);
+            // Volt's own fallback stays a default name, so a later model name can replace it.
+            if(match==null){match=scooterService.profiles.create(name,parsed.identity,parsed.role);if(name.trim().isEmpty()||IMPORTED_NAME.equals(name.trim()))match.nameDefault=true;}else scooterService.profiles.select(match.id);
             if(!mac.isEmpty())match.mac=mac;if(!serial.isEmpty())match.serial=serial;scooterService.profiles.update(match);
             // Commit the existing profile snapshot before deleting its recovery staging file.
             SharedPreferences profilePrefs=getSharedPreferences("profiles",MODE_PRIVATE);String savedProfiles=profilePrefs.getString("items","[]");if(!profilePrefs.edit().putString("items",savedProfiles).commit())throw new java.io.IOException();

@@ -329,13 +329,13 @@ public final class OnboardingScreen implements AppScreen {
 
     /** Reads only the display name and role of the staged file; the identity is not kept. */
     private String[] pendingSummary() {
-        String name = "Imported scooter"; int role = 0;
+        String name = MainActivity.IMPORTED_NAME; int role = 0;
         try (InputStream in = new FileInputStream(pendingOwnerFile())) {
             byte[] buffer = new byte[8192]; int total = 0, count;
             while (total < buffer.length && (count = in.read(buffer, total, buffer.length - total)) > 0) total += count;
             JSONObject json = new JSONObject(new String(buffer, 0, total, StandardCharsets.UTF_8));
             name = json.optString("name", name).trim(); role = json.optInt("role", 0);
-            if (name.isEmpty()) name = "Imported scooter";
+            if (name.isEmpty()) name = MainActivity.IMPORTED_NAME;
         } catch (Exception ignored) { }
         return new String[] {name, role == 1 ? "shared role" : "owner role"};
     }
