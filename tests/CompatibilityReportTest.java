@@ -16,7 +16,7 @@ public final class CompatibilityReportTest {
     private static final long T0=80000;
     private static final String SERIAL="Q2443ZZ9US7777777",MAC="C0:FF:EE:12:34:56",IDENTITY="A1B2C3D4E5F6",NAME="Alice's scooter";
     public static void main(String[] args) {
-        privacy(); keys(); outcomes(); fields(); device(); tests(); imports(); ids(); authVariants();
+        privacy(); keys(); outcomes(); fields(); device(); tests(); imports(); ids(); authVariants(); oemOnlyControls();
         System.out.println("CompatibilityReport tests passed: "+assertions+" assertions");
     }
 
@@ -39,7 +39,9 @@ public final class CompatibilityReportTest {
         }
         return d;
     }
-    private static CompatibilityReport build(DeviceDescriptor descriptor,Random random){
+    private static CompatibilityReport build(DeviceDescriptor descriptor,Random random){return build(descriptor,random,false);}
+    /** catalogueOnly: the decision list as it was before OEM-only controls were reported (catalogue, then clock_sync). */
+    private static CompatibilityReport build(DeviceDescriptor descriptor,Random random,boolean catalogueOnly){
         ModelRegistry.Resolution r=ModelRegistry.resolve(descriptor);
         StatusFields s=seededStatus(r.layer);
         DiscoveryCoordinator d=finishedCheck();
@@ -54,7 +56,39 @@ public final class CompatibilityReportTest {
             entry("pin","x",4,3,null,null,"not_checked","confirmed"),              // PIN: never reported
             entry("cruise_control","cruise_control.oem",0,1,null,null,"observed","confirmed")); // riding control: never a guided test
         return new CompatibilityReport.Builder("1.3.1",random).device(descriptor,r,"aes").reads(reads,d.passive(),T0).fields(s)
-            .decisions(CapabilityResolver.all(descriptor,s,rt)).tests(tests).build();
+            .decisions(catalogueOnly?catalogueDecisions(descriptor,s,rt):CapabilityResolver.all(descriptor,s,rt)).tests(tests).build();
+    }
+    private static List<CapabilityResolver.Decision> catalogueDecisions(DeviceDescriptor d,StatusFields s,CapabilityResolver.Runtime rt){
+        List<CapabilityResolver.Decision> out=new ArrayList<>();
+        for(ScooterCommands.Feature f:ScooterCommands.catalog())out.add(CapabilityResolver.decide(f.key,d,s,rt));
+        out.add(CapabilityResolver.decide("clock_sync",d,s,rt));return out;
+    }
+    /** Group S reports and imports keep its OEM-only light rows; every other model's report is unchanged byte for byte. */
+    private static void oemOnlyControls() {
+        String[] oem={"ambient_light_mode","logo_light","daytime_light"};
+        CompatibilityReport s=build(fixture(),new Random(30));String j=s.json();
+        for(String key:oem)check(j.contains("\"feature\": \""+key+"\""),"Group S report lists "+key+"\n"+j);
+        check(j.indexOf("\"feature\": \"daytime_light\"")<j.lastIndexOf("\"feature\": \"clock_sync\""),"OEM-only rows come before clock_sync");
+        check(!j.equals(build(fixture(),new Random(30),true).json()),"Group S report gains rows");
+        CompatibilityReport again=CompatibilityReport.parse(j);
+        check(again!=null&&again.json().equals(j),"OEM-only rows survive import");
+        for(String key:oem)check(again.json().contains("\"feature\": \""+key+"\""),"Imported report keeps "+key);
+        check(again.summary().contains("\n  ambient_light_mode: "),"Readable report shows the ambient light row\n"+again.summary());
+        String forged=CompatibilityReport.parse("{\"format\":\"volt-compat-report-v1\",\"decisions\":[{\"feature\":\"logo_light\",\"support\":\"known_encoding\",\"available\":true,\"reason\":\"none\",\"evidence\":\"oem_mapped\"},{\"feature\":\"fog_light\",\"available\":true}]}").json();
+        check(forged.contains("\"feature\": \"logo_light\"")&&!forged.contains("fog_light"),"Import keeps OEM-only keys and still drops unknown ones\n"+forged);
+        // UT5 MAX (every identification), unmapped, unidentified and unsupported models: no OEM-only row, identical report.
+        DeviceDescriptor.Firmware fw=new DeviceDescriptor.Firmware("2.0.3.1","1.1.0","BMS7",null,null,T0);
+        DeviceDescriptor[] others={DeviceDescriptor.of("Q2538ZZ9US7777777","25381",1700000000000L,fw,true,DeviceDescriptor.Transport.STANDARD,0),
+            DeviceDescriptor.of("Q2538ZZ9DE7777777","",0,fw,true,DeviceDescriptor.Transport.STANDARD,0),
+            DeviceDescriptor.of("","25381",1700000000000L,fw,true,DeviceDescriptor.Transport.STANDARD,0),
+            DeviceDescriptor.of("Q2585ZZ9DE7777777","25851",1700000000000L,fw,true,DeviceDescriptor.Transport.STANDARD,0),
+            DeviceDescriptor.of("Q2443ZZ9US7777777","",0,fw,true,DeviceDescriptor.Transport.STANDARD,0),
+            DeviceDescriptor.of("","39991",1700000000000L,fw,true,DeviceDescriptor.Transport.STANDARD,0)};
+        for(DeviceDescriptor d:others){
+            String with=build(d,new Random(31)).json();
+            check(with.equals(build(d,new Random(31),true).json()),"Report unchanged for "+d.serialPid+"/"+d.family());
+            for(String key:oem)check(!with.contains("\"feature\": \""+key+"\""),"No "+key+" row for "+d.serialPid+"/"+d.family());
+        }
     }
     /** A journal entry seeded with a profile ID, test ID and wall times that must never reach a report. */
     static TestJournal.Entry entry(String feature,String variant,int baseline,int target,List<String> outcomes,List<Long> elapsed,String effect,String restoration){

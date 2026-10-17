@@ -179,10 +179,16 @@ public final class CapabilityResolver {
         return new Decision(d.feature,d.layer,rule,reason,d.status,d.choices);
     }
 
-    /** Catalogue order, then "clock_sync". */
+    /**
+     * Catalogue order, then the OEM-only controls this model's registry maps (KNOWN_ENCODING, so
+     * offered whatever the runtime reason), then "clock_sync". OEM-only keys the model does not map
+     * are left out rather than listed as refused: a UT5 MAX, shared or unmapped model has no such
+     * control, and its list (and report) stays exactly what it was.
+     */
     public static List<Decision> all(DeviceDescriptor d,StatusFields s,Runtime rt){
         List<Decision> out=new ArrayList<>();
         for(ScooterCommands.Feature f:ScooterCommands.catalog())out.add(decide(f.key,d,s,rt));
+        for(ScooterCommands.Feature f:ScooterCommands.oemOnly()){Decision decision=decide(f.key,d,s,rt);if(decision.support==Support.KNOWN_ENCODING)out.add(decision);}
         out.add(decide("clock_sync",d,s,rt));
         return out;
     }

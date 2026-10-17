@@ -207,6 +207,20 @@ public final class CapabilityResolverTest {
             if(mapped&&!decision.feature.equals("lock"))check(decision.evidence==CapabilityResolver.Evidence.OEM_MAPPED&&decision.variant.decode==FeatureVariant.Decode.EXACT||decision.feature.equals("clock_sync"),"OEM-mapped evidence, exact readback "+decision.feature);
             if(mapped)check(decision.available(),"Mapped and available on S/US "+decision);
         }
+        // Group S also lists its three OEM-only light controls, after the catalogue and before clock_sync.
+        byte[] lights=data.clone();lights[10]=1;lights[23]=0;lights[24]=2; // ambient on, logo off, daytime follows the headlight
+        List<CapabilityResolver.Decision> sAll=CapabilityResolver.all(sGroup,status(lights,SEEN),parked());
+        String[] oem={"ambient_light_mode","logo_light","daytime_light"};int base=ScooterCommands.catalog().size();
+        check(sAll.size()==base+oem.length+1&&sAll.get(sAll.size()-1).feature.equals("clock_sync"),"Group S: catalogue, OEM-only lights, clock_sync");
+        for(int i=0;i<oem.length;i++){CapabilityResolver.Decision decision=sAll.get(base+i);
+            check(decision.feature.equals(oem[i])&&decision.support==CapabilityResolver.Support.KNOWN_ENCODING&&decision.evidence==CapabilityResolver.Evidence.OEM_MAPPED&&decision.available(),"Group S OEM-only row "+decision);}
+        check(CapabilityResolver.all(sGroup,StatusFields.NONE,null).size()==base+oem.length+1,"Mapped OEM-only rows stay listed while disconnected");
+        // Every other model has no such control and lists none (not even as refused), so its list is unchanged.
+        for(DeviceDescriptor d:new DeviceDescriptor[]{serial("Q2538ZZ9US7777777"),ModelRegistryTest.both("Q2538ZZ9DE7777777","25381"),advertised("25381"),q,m,serial("Q2443ZZ9US7777777"),advertised("39991")}){
+            List<CapabilityResolver.Decision> all=CapabilityResolver.all(d,s,parked());
+            check(all.size()==base+1,"No OEM-only rows for "+d.serialPid+"/"+d.family());
+            for(String key:oem)check(decide(key,d,s,parked()).support!=CapabilityResolver.Support.KNOWN_ENCODING,"Not offered: "+key+" on "+d.serialPid+"/"+d.family());
+        }
         // Units: 0 mph, 1 km at offset 7; never lock-gated.
         CapabilityResolver.Decision units=decide("display_units",sGroup,s,parked());
         check(Arrays.equals(units.values(),new int[]{0,1})&&Integer.valueOf(1).equals(units.current())&&!units.preconditions.contains(CapabilityResolver.Precondition.UNLOCKED),"Units");
