@@ -115,7 +115,7 @@ if you do not want them retained there.
 | Export | Sensitive content |
 | --- | --- |
 | Private owner JSON | Plaintext Bluetooth credential, profile name, scooter address and serial |
-| `.voltbackup` | Password-encrypted; the categories you choose: profiles/credentials, dashboards, settings, rides with routes, charge recordings, retained histories, app-side scooter choices |
+| `.voltbackup` | Password-encrypted; the categories you choose: profiles/credentials, dashboards, settings, rides with routes, charge recordings, retained histories, app-side scooter choices. Unless only App preferences is chosen, it also lists every scooter's name and serial (no credentials) |
 | Dashboard layout JSON (Home → Edit → Layout) | Layouts, widget options, notes and custom titles; no owner credentials or recorded readings |
 | Ride CSV/JSON/GPX | Timestamps and measurements; phone/joined/route exports can include precise locations |
 | Charge JSON | Electrical samples, times, gaps and charger label; excludes owner credentials, names, addresses, PINs and locations |

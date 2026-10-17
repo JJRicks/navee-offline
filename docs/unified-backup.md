@@ -288,11 +288,13 @@ Differences from the first draft:
 - The manifest's scooter table lists every local scooter whenever a scooter-linked category is selected, not only referenced ones, so export reads no journal. It holds names and serials only, inside the encryption.
 - Unreadable ride or charge files found in a backup are kept for Replace everything (1.3.1 copied them byte for byte) but are never merged; the preview counts them as skipped.
 - Each journal of a ride group is validated; an invalid sidecar skips the whole ride in a merge.
-- Staged charge journals take their start time as modification time, because charge pruning keeps the newest 20 by that time. A merge can still bring the total above 20; the charge store prunes the oldest on the next start, as it does today.
+- Staged charge journals take their start time as modification time, because charge pruning keeps the newest 20 by that time. A merge adds only as many charges as fit under that limit (the newest backup charges first), so the next start prunes nothing that was there; the review counts the rest as skipped.
+- Home's no-scooter layout (`dashboard_*_unconfigured*`, written after **Skip setup**) is not a scooter: category counts, destinations and merges ignore it, and only Replace everything restores it.
+- The review names where each mapped scooter's data goes (“Old UT5” → Fold UT5), as the 1.3.x ride restore confirmed.
 - Merge history: rows are added with `INSERT OR IGNORE`, so this phone's row wins on every unique key; `latest` keeps this phone's snapshot, else the newest backup snapshot by its `wall`. Recording session numbers are copied as they are.
 - If a backup scooter is set to **Don't restore** while Scooters is selected, that scooter is not added either.
 - `onboarding` becomes `{onboarding_done: true}` when Scooters is merged and the result has a configured scooter, and in Replace everything when the backup's setup was finished.
-- A low-storage refusal or a "Saved data changed" refusal keeps the reviewed file staged, so the user can retry without choosing it again.
+- A low-storage refusal or a "Saved data changed" refusal keeps the reviewed file staged, so the user can retry without choosing it again. "Saved data changed" reviews again with the same choices (or returns to the category list if they no longer apply); the stale approval is never retried.
 
 ## Emulator journeys
 
