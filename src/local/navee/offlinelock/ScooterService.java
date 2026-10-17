@@ -741,9 +741,11 @@ public final class ScooterService extends Service {
                                     .show();
                         }
                     } else if (wakeLock.isHeld() && !phoneSaving() && !isChargeRecording()) wakeLock.release();
-                    observeRideAutoStop(mono);
+                    // Re-read the clock: a loss seen inside this tick (a failed refresh write) was fed a later time.
+                    long autoNow = SystemClock.elapsedRealtime();
+                    observeRideAutoStop(autoNow);
                     RideAutoStopPolicy autoStop = rideAutoStop;
-                    if (autoStop != null && autoStop.due(mono)) autoStopRide(autoStop);
+                    if (autoStop != null && autoStop.due(autoNow)) autoStopRide(autoStop);
                     if (mono - lastNotification > 5000) {
                         lastNotification = mono;
                         updateNotification();
