@@ -239,12 +239,15 @@ public final class BackupActivity extends Activity {
                 else stageFile(null);});
         }else if(request==SAVE_BACKUP){setBusy("Saving the backup…");
             File ready=exported;
-            submit(()->{try(InputStream in=new FileInputStream(ready);OutputStream out=getContentResolver().openOutputStream(uri,"wt")){
-                if(out==null)throw new IOException();byte[] buffer=new byte[65536];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);out.flush();
-            }catch(Exception failure){show(()->retry("Save failed. Try another place."));return;}
-            // Providers can fail during close(): keep the prepared copy until every resource closed.
-            ready.delete();show(()->{exported=null;done("Backup saved.");});});
+            submit(()->{try{saveExport(ready,getContentResolver().openOutputStream(uri,"wt"));}catch(Exception failure){show(()->retry("Save failed. Try another place."));}});
         }
+    }
+    /** On the worker. Providers can fail during close(): the prepared copy and Save stay until every resource closed. */
+    private void saveExport(File ready,OutputStream destination){
+        try(OutputStream out=destination;InputStream in=new FileInputStream(ready)){
+            if(out==null)throw new IOException();byte[] buffer=new byte[65536];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);out.flush();
+        }catch(Exception failure){show(()->retry("Save failed. Try another place."));return;}
+        ready.delete();show(()->{exported=null;done("Backup saved.");});
     }
     private void askPassword(){
         retry("");if(password==null){password=passwordField("Backup password");content.removeView(password);content.addView(password,content.indexOfChild(status));}

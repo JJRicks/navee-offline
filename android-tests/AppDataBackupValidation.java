@@ -89,9 +89,54 @@ public final class AppDataBackupValidation extends Instrumentation {
             expectFailure(()->AppDataBackup.stage(restored,new ByteArrayInputStream(badDatabase),PASSWORD),"Malformed authenticated SQLite database is rejected");
             require(snapshot(restored).equals(before),"Invalid database never imports preferences");
             checks.add("Malformed history is rejected before any live preference/file mutation");
+            categoryMerge();
+            checks.add("Real SQLite history merge (union, this phone wins, profile remap, integrity) and a preferences-only restore that commits one namespace");
             result.putString("result","PASS");result.putInt("assertions",assertions);result.putStringArrayList("checks",checks);result.putInt("scooter_mutations",0);
             cleanup();finish(0,result);
         }catch(Throwable failure){result.putString("result","FAIL");result.putString("error",failure.getClass().getSimpleName()+": "+failure.getMessage());result.putInt("assertions",assertions);result.putStringArrayList("checks",checks);try{cleanup();}catch(Exception ignored){}finish(1,result);}
+    }
+    /** History-only and preferences-only restores into a phone that already has data. */
+    private void categoryMerge()throws Exception {
+        long now=System.currentTimeMillis();
+        FixtureContext source=context("merge-source"),target=context("merge-target");
+        history(source,"backup-scooter",new long[]{now-60000,now-30000},new double[]{10,11},now-30000);
+        history(target,"phone-scooter",new long[]{now-60000,now-5000},new double[]{50,51},now-5000);
+        require(source.getSharedPreferences("profiles",0).edit().putString("items","[{\"id\":\"backup-scooter\",\"name\":\"Old\",\"serial\":\"SER-1\",\"fw_controller\":\"1\"}]").commit(),"Store source profile");
+        require(target.getSharedPreferences("profiles",0).edit().putString("items","[{\"id\":\"phone-scooter\",\"name\":\"Mine\",\"identity\":\"A1B2C3D4E5F6\",\"role\":0,\"serial\":\"SER-1\"}]").putString("active","phone-scooter").commit(),"Store target profile");
+        require(source.getSharedPreferences("app_settings",0).edit().putString("units","km").putString("theme","light").commit()&&target.getSharedPreferences("app_settings",0).edit().putString("units","mi").putString("last_page","stats").commit(),"Store settings");
+        ByteArrayOutputStream out=new ByteArrayOutputStream();AppDataBackup.write(source,out,PASSWORD,Collections.singleton("history"));
+        Map<String,Map<String,?>> before=snapshot(target);
+        AppDataBackup.PreparedRestore prepared=AppDataBackup.stage(target,new ByteArrayInputStream(out.toByteArray()),PASSWORD);
+        List<AppDataBackup.Destination> needed=AppDataBackup.destinations(target,prepared,Collections.singleton("history"));
+        require(needed.size()==1&&"phone-scooter".equals(needed.get(0).suggested),"Serial match suggests this phone's scooter");
+        AppDataBackup.Review review=AppDataBackup.review(target,prepared,Collections.singleton("history"),false,Collections.singletonMap("backup-scooter","phone-scooter"));
+        require(review.lines.contains("Readings history: adds to 1 scooter"),"History review line");
+        AppDataBackup.apply(target,review);
+        require(snapshot(target).equals(before),"History-only restore leaves every preference unchanged");
+        try(SQLiteDatabase db=SQLiteDatabase.openDatabase(target.getDatabasePath("telemetry-history.db").getPath(),null,SQLiteDatabase.OPEN_READONLY)) {
+            require(db.isDatabaseIntegrityOk(),"Merged history passes integrity_check");
+            Map<Long,Double> values=new HashMap<>();
+            try(Cursor c=db.rawQuery("SELECT d.wall,d.value FROM detail d JOIN profiles p ON p.id=d.pid WHERE p.name='phone-scooter'",null)){while(c.moveToNext())values.put(c.getLong(0),c.getDouble(1));}
+            require(values.size()==3&&values.get(now-60000)==50&&values.get(now-30000)==11&&values.get(now-5000)==51,"Rows union under the mapped scooter and this phone's row wins");
+            try(Cursor c=db.rawQuery("SELECT COUNT(*) FROM profiles WHERE name='backup-scooter'",null)){require(c.moveToFirst()&&c.getInt(0)==0,"History is never attached to an unmapped scooter");}
+            try(Cursor c=db.rawQuery("SELECT data FROM latest WHERE profile='phone-scooter'",null)){require(c.moveToFirst()&&c.getString(0).contains(Long.toString(now-5000)),"This phone's last-seen readings win");}
+        }
+        out.reset();AppDataBackup.write(source,out,PASSWORD,Collections.singleton("preferences"));
+        AppDataBackup.PreparedRestore prefs=AppDataBackup.stage(target,new ByteArrayInputStream(out.toByteArray()),PASSWORD);
+        AppDataBackup.apply(target,AppDataBackup.review(target,prefs,Collections.singleton("preferences"),false,Collections.<String,String>emptyMap()));
+        SharedPreferences settings=target.getSharedPreferences("app_settings",0);
+        require("km".equals(settings.getString("units",""))&&"light".equals(settings.getString("theme",""))&&"stats".equals(settings.getString("last_page",""))&&target.getSharedPreferences("profiles",0).getAll().equals(before.get("profiles")),"Preferences-only restore replaces settings, keeps device keys and scooters");
+        require(!AppDataBackup.needsRecovery(target),"Category restores leave no private data");
+    }
+    private static void history(Context c,String profile,long[] walls,double[] values,long latestWall)throws Exception {
+        try(SQLiteDatabase db=SQLiteDatabase.openOrCreateDatabase(c.getDatabasePath("telemetry-history.db"),null)) {
+            db.execSQL("CREATE TABLE latest(profile TEXT PRIMARY KEY,data TEXT NOT NULL)");db.execSQL("CREATE TABLE profiles(id INTEGER PRIMARY KEY,name TEXT UNIQUE NOT NULL)");db.execSQL("CREATE TABLE keys(id INTEGER PRIMARY KEY,name TEXT UNIQUE NOT NULL)");
+            db.execSQL("CREATE TABLE detail(pid INTEGER,kid INTEGER,wall INTEGER,value REAL,session INTEGER,UNIQUE(pid,kid,wall))");
+            for(String table:new String[]{"minute","daily"})db.execSQL("CREATE TABLE "+table+"(pid INTEGER,kid INTEGER,bucket INTEGER,total REAL,samples INTEGER,last_value REAL,first_wall INTEGER,last_wall INTEGER,first_session INTEGER,last_session INTEGER,gaps INTEGER,UNIQUE(pid,kid,bucket))");
+            db.execSQL("INSERT INTO profiles VALUES(7,?)",new Object[]{profile});db.execSQL("INSERT INTO keys VALUES(3,'battery_percent')");
+            for(int i=0;i<walls.length;i++)db.execSQL("INSERT INTO detail VALUES(7,3,?,?,1)",new Object[]{walls[i],values[i]});
+            db.execSQL("INSERT INTO latest VALUES(?,?)",new Object[]{profile,"{\"wall\":"+latestWall+",\"readings\":{},\"features\":{}}"});db.setVersion(1);
+        }
     }
     private FixtureContext context(String name)throws Exception{FixtureContext c=new FixtureContext(getTargetContext(),new File(directory,name),"backup_validation_"+directory.getName()+"_"+name+"_");fixtures.add(c);return c;}
     private final class FixtureContext extends ContextWrapper {

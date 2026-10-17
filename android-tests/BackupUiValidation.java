@@ -27,13 +27,12 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.BackupActivity;
-import local.navee.offlinelock.RideBackupActivity;
 import local.navee.offlinelock.DataMaintenance;
 import local.navee.offlinelock.MainActivity;
 import local.navee.offlinelock.MoreScreen;
 import local.navee.offlinelock.OnboardingScreen;
 
-/** Disposable fresh emulator only. Exercises consent, discoverability and the paused backup lifecycle. */
+/** Disposable fresh emulator only. Exercises the Back up & restore entry, consent, category list and the paused lifecycle. */
 public final class BackupUiValidation extends Instrumentation {
     private Activity current;
     private int assertions;
@@ -55,14 +54,14 @@ public final class BackupUiValidation extends Instrumentation {
             }
             removeMonitor(monitor);
             MainActivity main=activity;
-            await(()->text(root(main),"Restore a full app backup")!=null,"Welcome backup link missing");
-            onMain(()->clickText(root(main),"Restore a full app backup"));
+            await(()->text(root(main),"Restore a backup")!=null,"Welcome backup link missing");
+            onMain(()->clickText(root(main),"Restore a backup"));
             AlertDialog consent=(AlertDialog)field(main,"controlDialog");
             require(consent!=null&&consent.isShowing(),"Welcome restore did not open consent");
             require(!DataMaintenance.active(),"Opening consent started maintenance");
             onMain(()->consent.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());
             require(!DataMaintenance.active(),"Cancelling consent paused app data");
-            checks.add("Full restore is available directly from welcome without owner setup; cancel leaves app running and data unchanged");
+            checks.add("Restore is available directly from welcome without owner setup; cancel leaves app running and data unchanged");
 
             if(Build.VERSION.SDK_INT>=31){
                 getUiAutomation().grantRuntimePermission(getTargetContext().getPackageName(),android.Manifest.permission.BLUETOOTH_SCAN);
@@ -73,35 +72,44 @@ public final class BackupUiValidation extends Instrumentation {
             onMain(()->{OnboardingScreen.markDone(getTargetContext());main.rebuild();invoke(main,"select",new Class<?>[]{String.class},"more");});
             MoreScreen more=(MoreScreen)field(main,"screen");
             onMain(()->invoke(more,"selectSection",new Class<?>[]{String.class},"App"));
-            require(text(root(main),"Dashboard backups")!=null,"Normal dashboard backup menu missing");
-            onMain(()->clickText(root(main),"Dashboard backups"));
-            @SuppressWarnings("unchecked") List<AlertDialog> dialogs=(List<AlertDialog>)field(more,"dialogs");
-            AlertDialog dashboard=dialogs.get(dialogs.size()-1);
-            require(text(dashboard.getWindow().getDecorView(),"Export dashboards")!=null
-                    &&text(dashboard.getWindow().getDecorView(),"Import dashboards")!=null,"Dashboard transfer actions missing");
-            onMain(dashboard::dismiss);
-            require(root(main).findViewWithTag("developer-full-export")==null,"Full backup exposed outside hidden developer settings");
+            require(text(root(main),"Dashboard backups")==null,"Settings no longer carry a separate dashboard backup");
+            onMain(()->invoke(more,"selectSection",new Class<?>[]{String.class},"About"));
+            await(()->root(main).findViewWithTag("data-backup")!=null,"Back up & restore missing from Your data");
+            require(text(root(main),"Back up & restore")!=null,"Back up & restore label missing");
             onMain(()->{settings().edit().putBoolean("developer_options",true).putString("more_section","Developer").commit();main.rebuild();});
-            await(()->root(main).findViewWithTag("developer-full-export")!=null,"Developer section did not rebuild");
-            require(root(main).findViewWithTag("developer-full-export")!=null
-                    &&root(main).findViewWithTag("developer-full-restore")!=null
-                    &&root(main).findViewWithTag("developer-example-slot")!=null,"Developer backup/example actions missing");
-            checks.add("Normal preferences expose dashboard-only transfer; Developer options contain encrypted full export/restore and explicit slot 3 replacement");
+            await(()->root(main).findViewWithTag("developer-example-slot")!=null,"Developer section did not rebuild");
+            require(root(main).findViewWithTag("developer-full-export")==null&&root(main).findViewWithTag("developer-full-restore")==null,"Developer options no longer duplicate the backup");
+            checks.add("One Back up & restore entry in Your data; no settings dashboard backup and no developer full backup; slot 3 example kept");
 
+            onMain(()->{settings().edit().putString("more_section","About").commit();main.rebuild();});
+            await(()->root(main).findViewWithTag("data-backup")!=null,"Your data did not rebuild");
+            onMain(()->root(main).findViewWithTag("data-backup").performClick());
+            AlertDialog chooser=(AlertDialog)field(main,"controlDialog");
+            require(chooser.isShowing()&&chooser.getWindow().getDecorView().findViewWithTag("data-backup-create")!=null&&chooser.getWindow().getDecorView().findViewWithTag("data-backup-restore")!=null,"Back up and Restore offered");
+            require(!DataMaintenance.active(),"Choosing a direction does not pause data");
             ActivityMonitor backupMonitor=addMonitor(BackupActivity.class.getName(),null,false);
-            onMain(()->root(main).findViewWithTag("developer-full-restore").performClick());
+            onMain(()->chooser.getWindow().getDecorView().findViewWithTag("data-backup-create").performClick());
             AlertDialog full=(AlertDialog)field(main,"controlDialog");
+            require(textContaining(full.getWindow().getDecorView(),"Volt pauses until you reopen it.")!=null,"Consent explains the pause");
             onMain(()->full.getButton(AlertDialog.BUTTON_POSITIVE).performClick());
             Activity opened=waitForMonitorWithTimeout(backupMonitor,10000);
             require(opened instanceof BackupActivity,"Paused backup screen did not open");
             BackupActivity backup=(BackupActivity)opened;current=backup;
-            await(()->root(backup).findViewWithTag("full-restore-choose")!=null,"Restore password form missing");
-            require(DataMaintenance.active(),"Full backup did not enter maintenance");
+            await(()->root(backup).findViewWithTag("backup-create")!=null,"Back up categories missing");
+            require(DataMaintenance.active(),"Back up did not enter maintenance");
+            require(root(backup).findViewWithTag("backup-select-all")!=null,"Select all missing");
+            for(String category:local.navee.offlinelock.AppDataBackup.CATEGORIES){View box=root(backup).findViewWithTag("backup-category-"+category);
+                require(box instanceof android.widget.CheckBox&&box.getMinimumHeight()>=dp(backup,48)&&box.getContentDescription()!=null,"Category row "+category+" is a 48 dp checkbox with a spoken label");}
+            require(!((android.widget.CheckBox)root(backup).findViewWithTag("backup-category-rides")).isEnabled(),"An empty category is disabled");
+            require(textContaining(root(backup),"Permissions and Bluetooth pairing aren't included.")!=null,"Exclusions are stated");
+            render(root(backup),"backup-categories.png");
             EditText secret=(EditText)field(backup,"password");
             require(!secret.isSaveEnabled(),"Password would be copied into saved Activity state");
             require((backup.getWindow().getAttributes().flags&android.view.WindowManager.LayoutParams.FLAG_SECURE)!=0,"Backup screenshot protection missing");
-            onMain(()->root(backup).findViewWithTag("full-restore-choose").performClick());
+            onMain(()->root(backup).findViewWithTag("backup-create").performClick());
             require(secret.getError()!=null&&!Boolean.TRUE.equals(field(backup,"waitingForPicker")),"Empty password opened picker");
+            onMain(()->{((EditText)field(backup,"password")).setText("Synthetic backup UI test");((EditText)field(backup,"repeat")).setText("Different password");root(backup).findViewWithTag("backup-create").performClick();});
+            require(((EditText)field(backup,"repeat")).getError()!=null&&!Boolean.TRUE.equals(field(backup,"waitingForPicker")),"Mismatched passwords opened picker");
             // Exercise the actual encryption-to-save-picker transition. Cancelling the picker
             // must leave Close Volt enabled; otherwise the new busy-state button strands export.
             IntentFilter saves=new IntentFilter(Intent.ACTION_CREATE_DOCUMENT);
@@ -109,12 +117,9 @@ public final class BackupUiValidation extends Instrumentation {
             try{saves.addDataType("application/octet-stream");}catch(IntentFilter.MalformedMimeTypeException impossible){throw new AssertionError(impossible);}
             ActivityMonitor savePicker=addMonitor(saves,new ActivityResult(Activity.RESULT_CANCELED,null),true);
             onMain(()->{
-                setField(backup,"restore",false);
-                ((android.widget.LinearLayout)field(backup,"content")).removeAllViews();
-                invoke(backup,"form",new Class<?>[]{});
                 ((EditText)field(backup,"password")).setText("Synthetic backup UI test");
                 ((EditText)field(backup,"repeat")).setText("Synthetic backup UI test");
-                root(backup).findViewWithTag("full-backup-create").performClick();
+                root(backup).findViewWithTag("backup-create").performClick();
                 require(!((TextView)field(backup,"closeAction")).isEnabled(),"Close Volt stayed enabled while encrypting");
             });
             await(()->savePicker.getHits()>0&&!Boolean.TRUE.equals(field(backup,"waitingForPicker")),"Encrypted backup did not reach the cancelled save picker");
@@ -127,13 +132,12 @@ public final class BackupUiValidation extends Instrumentation {
             Runnable synthetic=()->{workStarted.countDown();try{releaseWork.await(10,TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}};
             onMain(()->invoke(backup,"submit",new Class<?>[]{Runnable.class},synthetic));
             require(workStarted.await(3,TimeUnit.SECONDS),"Synthetic operation did not start");
-            ActivityMonitor wrongMonitor=addMonitor(RideBackupActivity.class.getName(),null,false);
-            onMain(()->backup.startActivity(new Intent(getTargetContext(),RideBackupActivity.class)));
-            RideBackupActivity wrong=(RideBackupActivity)waitForMonitorWithTimeout(wrongMonitor,6000);removeMonitor(wrongMonitor);
-            require(wrong!=null,"Wrong transfer launch was not exercised");
-            await(()->wrong.isFinishing()&&backup.hasWindowFocus(),"Wrong ride-backup Activity did not return to full backup session");
-            require(field(wrong,"action")==null,"Wrong transfer exposed ride controls during full-backup work");
-            require(!Boolean.TRUE.equals(field(backup,"terminal")),"Wrong transfer ended the full-backup session");
+            ActivityMonitor mainMonitor=addMonitor(MainActivity.class.getName(),null,false);
+            onMain(()->backup.startActivity(new Intent(getTargetContext(),MainActivity.class)));
+            Activity repeated=waitForMonitorWithTimeout(mainMonitor,6000);removeMonitor(mainMonitor);
+            require(repeated!=null,"Repeated launch was not exercised");
+            await(()->repeated.isFinishing()&&backup.hasWindowFocus(),"A repeated launch did not return to the backup session");
+            require(!Boolean.TRUE.equals(field(backup,"terminal")),"A repeated launch ended the backup session");
             removeMonitor(backupMonitor);
             backupMonitor=addMonitor(BackupActivity.class.getName(),null,false);
             onMain(backup::recreate);
@@ -141,7 +145,7 @@ public final class BackupUiValidation extends Instrumentation {
             require(replacement instanceof BackupActivity&&replacement!=backup,"Backup recreation failed");
             BackupActivity resumed=(BackupActivity)replacement;current=resumed;
             await(()->text(root(resumed),"Backup session interrupted")!=null,"Recreation did not fence previous session");
-            require(root(resumed).findViewWithTag("full-restore-choose")==null,"Recreated session permits another import");
+            require(root(resumed).findViewWithTag("restore-choose")==null&&root(resumed).findViewWithTag("backup-create")==null,"Recreated session permits another operation");
             await(()->!((android.widget.TextView)field(resumed,"closeAction")).isEnabled(),"Close Volt stayed enabled during active work");
             onMain(()->invoke(resumed,"requestClose",new Class<?>[]{}));
             require(!resumed.isFinishing(),"Close killed an active backup operation");
@@ -171,6 +175,14 @@ public final class BackupUiValidation extends Instrumentation {
     }
     private SharedPreferences settings(){return getTargetContext().getSharedPreferences("app_settings",Context.MODE_PRIVATE);}
     private View root(Activity activity){return activity.getWindow().getDecorView();}
+    private static int dp(Activity activity,float value){return Math.round(value*activity.getResources().getDisplayMetrics().density);}
+    private TextView textContaining(View view,String wanted){if(view instanceof TextView&&((TextView)view).getText().toString().contains(wanted))return(TextView)view;
+        if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView found=textContaining(group.getChildAt(i),wanted);if(found!=null)return found;}}return null;}
+    /** View.draw render for review: normal screenshots honour the screen's privacy flag. */
+    private void render(View view,String name){AtomicReference<Throwable> error=new AtomicReference<>();runOnMainSync(()->{try{
+        android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(view.getWidth(),view.getHeight(),android.graphics.Bitmap.Config.ARGB_8888);view.draw(new android.graphics.Canvas(bitmap));
+        try(java.io.OutputStream out=new java.io.FileOutputStream(new File(getTargetContext().getExternalFilesDir(null),name))){bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG,100,out);}bitmap.recycle();}catch(Throwable e){error.set(e);}});
+        if(error.get()!=null)throw new RuntimeException(error.get());}
     private TextView text(View view,String wanted){if(view instanceof TextView&&wanted.contentEquals(((TextView)view).getText()))return(TextView)view;
         if(view instanceof ViewGroup){ViewGroup group=(ViewGroup)view;for(int i=0;i<group.getChildCount();i++){TextView found=text(group.getChildAt(i),wanted);if(found!=null)return found;}}return null;}
     private void clickText(View root,String wanted){View found=text(root,wanted);require(found!=null,"Missing text "+wanted);while(!found.isClickable()&&found.getParent()instanceof View)found=(View)found.getParent();require(found.performClick(),"Could not click "+wanted);}

@@ -14,7 +14,7 @@ import java.util.*;
 import java.util.function.BooleanSupplier;
 import local.navee.offlinelock.*;
 
-/** Disposable empty emulator only: actual private-storage merge, reopen, consent and picker flow. */
+/** Disposable empty emulator only: actual private-storage merge, reopen, and the unified restore flow for a .voltrides file. */
 public final class RideBackupValidation extends Instrumentation {
     private String theme="dark";private boolean checkReopened;private int assertions;private Activity current;private Class<?> archive,storageType,preparedType,planType;
     @Override public void onCreate(Bundle args){if(args!=null){theme=args.getString("theme","dark");checkReopened="check-reopened-range".equals(args.getString("mode"));}start();}
@@ -61,35 +61,43 @@ public final class RideBackupValidation extends Instrumentation {
         long limit=SystemClock.elapsedRealtime()+10000;while(Boolean.TRUE.equals(field(main,"startupRedirect"))&&SystemClock.elapsedRealtime()<limit){Activity replacement=waitForMonitorWithTimeout(mainMonitor,500);if(replacement instanceof MainActivity){main=(MainActivity)replacement;current=main;}}
         removeMonitor(mainMonitor);final MainActivity activity=main;await(()->activity.service()!=null,"Service did not open");
         onMain(()->callUnchecked(activity,"select",new Class<?>[]{String.class},"rides"));require(root(activity).findViewWithTag("ride-backups-menu")!=null,"Rides exposes backup menu");
-        onMain(()->root(activity).findViewWithTag("ride-backups-menu").performClick());Object screen=field(activity,"screen");@SuppressWarnings("unchecked") List<AlertDialog> dialogs=(List<AlertDialog>)field(screen,"dialogs");AlertDialog menu=dialogs.get(dialogs.size()-1);require(text(menu.getWindow().getDecorView(),"Back up saved rides")!=null&&text(menu.getWindow().getDecorView(),"Restore rides")!=null,"Backup and restore both discoverable");
-        onMain(()->text(menu.getWindow().getDecorView(),"Restore rides").performClick());AlertDialog consent=(AlertDialog)field(activity,"controlDialog");require(consent.isShowing()&&!DataMaintenance.active(),"Consent leaves models active");onMain(()->consent.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());require(!DataMaintenance.active(),"Cancel does not pause data");
-        onMain(()->{try{activity.service().rides.start(profile.id,"Busy test",2000000,100);}catch(IOException e){throw new RuntimeException(e);}activity.rideBackup(false);});AlertDialog busyConsent=(AlertDialog)field(activity,"controlDialog");onMain(()->busyConsent.getButton(AlertDialog.BUTTON_POSITIVE).performClick());require(!DataMaintenance.active(),"Active recording blocks backup maintenance");onMain(()->{try{activity.service().rides.stop(2001000,1100);}catch(IOException e){throw new RuntimeException(e);}});
-        ActivityMonitor transferMonitor=addMonitor(RideBackupActivity.class.getName(),null,false);
-        ActivityMonitor wrongTransfer=addMonitor(BackupActivity.class.getName(),new ActivityResult(Activity.RESULT_CANCELED,null),true);
+        onMain(()->root(activity).findViewWithTag("ride-backups-menu").performClick());AlertDialog menu=(AlertDialog)field(activity,"controlDialog");
+        require(menu.isShowing()&&menu.getWindow().getDecorView().findViewWithTag("data-backup-create")!=null&&menu.getWindow().getDecorView().findViewWithTag("data-backup-restore")!=null,"Ride backups opens Back up and Restore");
+        onMain(()->menu.getWindow().getDecorView().findViewWithTag("data-backup-restore").performClick());AlertDialog consent=(AlertDialog)field(activity,"controlDialog");require(consent.isShowing()&&!DataMaintenance.active(),"Consent leaves models active");onMain(()->consent.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());require(!DataMaintenance.active(),"Cancel does not pause data");
+        onMain(()->{try{activity.service().rides.start(profile.id,"Busy test",2000000,100);}catch(IOException e){throw new RuntimeException(e);}activity.dataBackup(false,"rides");});AlertDialog busyConsent=(AlertDialog)field(activity,"controlDialog");onMain(()->busyConsent.getButton(AlertDialog.BUTTON_POSITIVE).performClick());require(!DataMaintenance.active(),"Active recording blocks backup maintenance");onMain(()->{try{activity.service().rides.stop(2001000,1100);}catch(IOException e){throw new RuntimeException(e);}});
+        ActivityMonitor transferMonitor=addMonitor(BackupActivity.class.getName(),null,false);
         java.util.concurrent.CountDownLatch drainStarted=new java.util.concurrent.CountDownLatch(1),drainRelease=new java.util.concurrent.CountDownLatch(1);
         ((java.util.concurrent.ExecutorService)field(activity.service(),"capacityWorker")).execute(()->{drainStarted.countDown();try{drainRelease.await(30,java.util.concurrent.TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}});
         require(drainStarted.await(3,java.util.concurrent.TimeUnit.SECONDS),"Synthetic writer started");
         MainActivity relaunched;
         try {
-            onMain(()->activity.rideBackup(true));AlertDialog restoreConsent=(AlertDialog)field(activity,"controlDialog");onMain(()->restoreConsent.getButton(AlertDialog.BUTTON_POSITIVE).performClick());
+            onMain(()->activity.dataBackup(true,"rides"));AlertDialog restoreConsent=(AlertDialog)field(activity,"controlDialog");onMain(()->restoreConsent.getButton(AlertDialog.BUTTON_POSITIVE).performClick());
             require(DataMaintenance.active(),"Writer drain installs maintenance immediately");
             relaunched=(MainActivity)launch(activity,MainActivity.class);
             SystemClock.sleep(250);waitForIdleSync();
-            require(wrongTransfer.getHits()==0&&transferMonitor.getHits()==0,"Repeated launcher entry waits for writers instead of exposing either transfer form");
+            require(transferMonitor.getHits()==0,"Repeated launcher entry waits for writers instead of exposing the transfer form");
         } finally {drainRelease.countDown();}
-        Activity opened=waitForMonitorWithTimeout(transferMonitor,10000);require(opened instanceof RideBackupActivity,"Ride restore screen opens after draining writers");RideBackupActivity transfer=(RideBackupActivity)opened;current=transfer;
-        await(relaunched::isFinishing,"Repeated launch did not return to the prepared ride transfer");
-        require(wrongTransfer.getHits()==0,"Ride transfer never opens a full-backup form");removeMonitor(wrongTransfer);
-        require(DataMaintenance.active(),"Restore owns maintenance boundary");require(root(transfer).findViewWithTag("ride-restore-choose")!=null,"Restore chooser visible");
+        Activity opened=waitForMonitorWithTimeout(transferMonitor,10000);require(opened instanceof BackupActivity,"Restore screen opens after draining writers");BackupActivity transfer=(BackupActivity)opened;current=transfer;
+        await(relaunched::isFinishing,"Repeated launch did not return to the prepared transfer");
+        require(DataMaintenance.active(),"Restore owns maintenance boundary");await(()->root(transfer).findViewWithTag("restore-choose")!=null,"Restore chooser visible");
+        require("rides".equals(field(transfer,"preselect")),"Ride backups preselects Rides");
         repeatedLaunchDuringWork(transfer);
         File picked=new File(context.getCacheDir(),"synthetic-picked.voltrides");Files.write(picked.toPath(),bytes.toByteArray());IntentFilter filter=new IntentFilter(Intent.ACTION_OPEN_DOCUMENT);filter.addCategory(Intent.CATEGORY_OPENABLE);filter.addDataType("*/*");ActivityMonitor picker=addMonitor(filter,new ActivityResult(Activity.RESULT_OK,new Intent().setData(Uri.fromFile(picked))),true);
-        onMain(()->root(transfer).findViewWithTag("ride-restore-choose").performClick());await(()->root(transfer).findViewWithTag("ride-restore-review")!=null,"Picked archive did not reach mapping UI");require(picker.getHits()==1,"Used document picker");removeMonitor(picker);
+        onMain(()->root(transfer).findViewWithTag("restore-choose").performClick());await(()->root(transfer).findViewWithTag("restore-next")!=null,"Picked ride file did not reach the category list");require(picker.getHits()==1,"Used document picker");removeMonitor(picker);
+        require(field(transfer,"password")==null,"An unencrypted ride file asks for no password");
+        CheckBox rides=(CheckBox)root(transfer).findViewWithTag("backup-category-rides");require(rides!=null&&rides.isChecked()&&root(transfer).findViewWithTag("restore-replace-all")==null,"A ride file offers Rides only, without Replace everything");
+        onMain(()->root(transfer).findViewWithTag("restore-next").performClick());await(()->root(transfer).findViewWithTag("restore-review")!=null,"Unknown scooter did not reach the destination step");
         onMain(()->render(root(transfer),"ride-backup-mapping.png"));
-        onMain(()->root(transfer).findViewWithTag("ride-restore-review").performClick());require(((TextView)field(transfer,"status")).getText().toString().contains("Choose a destination"),"Unknown profile requires explicit selection");Spinner spinner=find(root(transfer),Spinner.class);require(spinner!=null,"Unknown profile offers scooter selection");onMain(()->spinner.setSelection(1));waitForIdleSync();onMain(()->root(transfer).findViewWithTag("ride-restore-review").performClick());await(()->fieldQuiet(transfer,"confirmation") instanceof AlertDialog&&((AlertDialog)fieldQuiet(transfer,"confirmation")).isShowing(),"Restore review did not appear");AlertDialog review=(AlertDialog)field(transfer,"confirmation");require(textContaining(review.getWindow().getDecorView(),"Nothing here is overwritten.")!=null,"Review explains merge semantics");onMain(()->render(review.getWindow().getDecorView(),"ride-backup-preview.png"));
-        onMain(()->review.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());require(new RideStore(ridesFolder).list().size()==4,"Cancel preserves existing recordings");
-        onMain(()->root(transfer).findViewWithTag("ride-restore-review").performClick());await(()->((AlertDialog)fieldQuiet(transfer,"confirmation")).isShowing(),"Second review did not appear");AlertDialog finish=(AlertDialog)field(transfer,"confirmation");onMain(()->finish.getButton(AlertDialog.BUTTON_POSITIVE).performClick());await(()->Boolean.TRUE.equals(fieldQuiet(transfer,"terminal")),"Restore did not finish");require(((TextView)field(transfer,"status")).getText().toString().contains("0 rides restored"),"Idempotent restore completes without duplication");require(new RideStore(ridesFolder).list().size()==4,"Reopened recordings still retained");picked.delete();
+        Spinner spinner=(Spinner)root(transfer).findViewWithTag("restore-destination");require(spinner!=null&&"Don't restore".equals(spinner.getSelectedItem()),"An unknown scooter defaults to Don't restore");
+        onMain(()->spinner.setSelection(0));waitForIdleSync();onMain(()->root(transfer).findViewWithTag("restore-review").performClick());
+        await(()->root(transfer).findViewWithTag("restore-apply")!=null,"Restore review did not appear");
+        require(textContaining(root(transfer),"Rides: 0 new · 3 already here · 0 kept here")!=null,"Review reports the mapped rides as already here");
+        onMain(()->render(root(transfer),"ride-backup-preview.png"));
+        require(new RideStore(ridesFolder).list().size()==4,"Review changes nothing");
+        onMain(()->root(transfer).findViewWithTag("restore-apply").performClick());await(()->Boolean.TRUE.equals(fieldQuiet(transfer,"terminal")),"Restore did not finish");
+        require(((TextView)field(transfer,"status")).getText().toString().equals("Restored. Reopen Volt."),"Idempotent restore completes");require(new RideStore(ridesFolder).list().size()==4,"No ride duplicated");picked.delete();
         failedDestinationClose(transfer,bytes.toByteArray());
-        result.putString("status","PASS");result.putInt("assertions",assertions);result.putString("summary","Full journal merge/reopen, native file moves and identities, no duplicate mapped rides, consent, busy refusal, document picker, profile mapping and preview/apply");finish(Activity.RESULT_OK,result);
+        result.putString("status","PASS");result.putInt("assertions",assertions);result.putString("summary","Ride journal merge/reopen, native file moves and identities, .voltrides import through Back up & restore with Rides preselected, no duplicate mapped rides, consent, busy refusal, document picker, destination choice, review/apply and save retry");finish(Activity.RESULT_OK,result);
     }catch(Throwable failure){result.putString("status","FAIL");result.putString("error",android.util.Log.getStackTraceString(failure));finish(Activity.RESULT_CANCELED,result);}}
     private Activity launch(Activity from,Class<? extends Activity> type){
         ActivityMonitor monitor=addMonitor(type.getName(),null,false);
@@ -112,27 +120,21 @@ public final class RideBackupValidation extends Instrumentation {
         require(estimate.get().rides==3&&estimate.get().fullRangeKm!=null&&Math.abs(estimate.get().fullRangeKm-40)<.001,"Cold process reanalyses the three full imported journals for the mapped scooter");
         onMain(()->{main.finish();context.stopService(new Intent(context,ScooterService.class));});
     }
-    private void repeatedLaunchDuringWork(RideBackupActivity transfer)throws Exception {
+    private void repeatedLaunchDuringWork(BackupActivity transfer)throws Exception {
         java.util.concurrent.CountDownLatch started=new java.util.concurrent.CountDownLatch(1),release=new java.util.concurrent.CountDownLatch(1);
-        ActivityMonitor wrong=addMonitor(BackupActivity.class.getName(),new ActivityResult(Activity.RESULT_CANCELED,null),true);
         try {
             onMain(()->{callUnchecked(transfer,"setBusy",new Class<?>[]{String.class},"Synthetic in-flight save");callUnchecked(transfer,"submit",new Class<?>[]{Runnable.class},(Runnable)()->{started.countDown();try{release.await(30,java.util.concurrent.TimeUnit.SECONDS);}catch(InterruptedException e){Thread.currentThread().interrupt();}});});
-            require(started.await(3,java.util.concurrent.TimeUnit.SECONDS),"Synthetic ride transfer worker started");
+            require(started.await(3,java.util.concurrent.TimeUnit.SECONDS),"Synthetic transfer worker started");
             MainActivity repeated=(MainActivity)launch(transfer,MainActivity.class);
-            await(()->repeated.isFinishing()&&transfer.hasWindowFocus(),"Repeated launcher did not return to active ride transfer");
-            require(wrong.getHits()==0,"Active ride worker cannot open independent full-backup form");
-            require(!((View)field(transfer,"close")).isEnabled()&&!((View)field(transfer,"action")).isEnabled(),"Existing ride transfer remains busy after relaunch");
-            onMain(()->callUnchecked(transfer,"requestClose",new Class<?>[]{}));require(!transfer.isFinishing(),"Relaunch cannot close the process during ride work");
-            removeMonitor(wrong);
-            BackupActivity crossed=(BackupActivity)launch(transfer,BackupActivity.class);
-            await(()->crossed.isFinishing()&&transfer.hasWindowFocus(),"Wrong full-backup Activity did not return to ride session");
-            require(field(crossed,"password")==null&&!((View)field(transfer,"close")).isEnabled(),"Wrong transfer cannot expose full-backup controls or close active ride work");
-        } finally {release.countDown();removeMonitor(wrong);}
-        await(()->{try{return ((java.util.concurrent.atomic.AtomicInteger)field(transfer,"OPERATIONS")).get()==0;}catch(Exception e){throw new RuntimeException(e);}},"Synthetic ride worker did not finish");
+            await(()->repeated.isFinishing()&&transfer.hasWindowFocus(),"Repeated launcher did not return to the active transfer");
+            require(!((View)field(transfer,"closeAction")).isEnabled()&&!((View)field(transfer,"action")).isEnabled(),"Existing transfer remains busy after relaunch");
+            onMain(()->callUnchecked(transfer,"requestClose",new Class<?>[]{}));require(!transfer.isFinishing(),"Relaunch cannot close the process during work");
+        } finally {release.countDown();}
+        await(()->{try{return ((java.util.concurrent.atomic.AtomicInteger)field(transfer,"OPERATIONS")).get()==0;}catch(Exception e){throw new RuntimeException(e);}},"Synthetic worker did not finish");
         onMain(()->callUnchecked(transfer,"retry",new Class<?>[]{String.class},""));
     }
-    private void failedDestinationClose(RideBackupActivity transfer,byte[] archiveBytes)throws Exception {
-        File ready=new File(getTargetContext().getCacheDir(),"synthetic-export-retry.voltrides");Files.write(ready.toPath(),archiveBytes);
+    private void failedDestinationClose(BackupActivity transfer,byte[] archiveBytes)throws Exception {
+        File ready=new File(getTargetContext().getCacheDir(),"synthetic-export-retry.voltbackup");Files.write(ready.toPath(),archiveBytes);
         onMain(()->{setField(transfer,"terminal",false);setField(transfer,"exported",ready);((View)fieldQuiet(transfer,"action")).setVisibility(View.VISIBLE);callUnchecked(transfer,"setBusy",new Class<?>[]{String.class},"Saving synthetic backup");});
         ByteArrayOutputStream broken=new ByteArrayOutputStream(){@Override public void close()throws IOException{throw new IOException("Injected document close failure");}};
         call(transfer.getClass(),transfer,"saveExport",new Class<?>[]{File.class,OutputStream.class},ready,broken);
@@ -140,7 +142,7 @@ public final class RideBackupValidation extends Instrumentation {
         require(Arrays.equals(archiveBytes,broken.toByteArray()),"Destination writes succeeded before injected close failure");
         require(ready.isFile()&&field(transfer,"exported")==ready,"Failed destination close retains the only prepared archive");
         require(!Boolean.TRUE.equals(field(transfer,"terminal"))&&((View)field(transfer,"action")).isEnabled()&&((View)field(transfer,"action")).getVisibility()==View.VISIBLE,"Close failure leaves retry visible and enabled");
-        require(!((TextView)field(transfer,"status")).getText().toString().equals("Ride backup saved."),"Close failure is not reported as saved");
+        require(!((TextView)field(transfer,"status")).getText().toString().equals("Backup saved."),"Close failure is not reported as saved");
         ByteArrayOutputStream good=new ByteArrayOutputStream();onMain(()->callUnchecked(transfer,"setBusy",new Class<?>[]{String.class},"Retrying synthetic backup"));
         call(transfer.getClass(),transfer,"saveExport",new Class<?>[]{File.class,OutputStream.class},ready,good);
         await(()->Boolean.TRUE.equals(fieldQuiet(transfer,"terminal")),"Successful retry did not complete");
