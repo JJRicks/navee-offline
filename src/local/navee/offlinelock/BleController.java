@@ -475,9 +475,21 @@ public final class BleController {
     public boolean testing(){return test!=null&&!test.terminal();}
     /** The live or just-finished test of the active scooter, or null. */
     public GuidedTest guidedTest(){ScooterProfiles.Profile p=profile();return test!=null&&p!=null&&test.profileId.equals(p.id)?test:null;}
-    /** Unresolved tests of the active scooter (they stay until resolved, across restarts and profile switches). */
-    public List<TestJournal.Entry> unresolvedTests(){ScooterProfiles.Profile p=profile();return p==null?Collections.<TestJournal.Entry>emptyList():testJournal.unresolved(p.id);}
-    public int unresolvedTestsElsewhere(){ScooterProfiles.Profile p=profile();int n=0;for(TestJournal.Entry e:testJournal.unresolved())if(p==null||!e.profileId.equals(p.id))n++;return n;}
+    /**
+     * Unresolved tests of the active scooter (they stay until resolved, across restarts and profile
+     * switches). The running test's own entry is left out until it ends: it is not unfinished yet.
+     */
+    public List<TestJournal.Entry> unresolvedTests(){
+        ScooterProfiles.Profile p=profile();if(p==null)return Collections.<TestJournal.Entry>emptyList();
+        List<TestJournal.Entry> out=testJournal.unresolved(p.id);
+        for(int i=out.size()-1;i>=0;i--)if(liveTest(out.get(i).testId))out.remove(i);
+        return out;
+    }
+    public int unresolvedTestsElsewhere(){ScooterProfiles.Profile p=profile();Set<String> kept=profileIds();int n=0;for(TestJournal.Entry e:testJournal.unresolved())if((p==null||!e.profileId.equals(p.id))&&kept.contains(e.profileId))n++;return n;}
+    /** Unresolved tests whose scooter profile was removed: they can only be dismissed. */
+    public List<TestJournal.Entry> orphanedTests(){Set<String> kept=profileIds();List<TestJournal.Entry> out=new ArrayList<>();for(TestJournal.Entry e:testJournal.unresolved())if(!kept.contains(e.profileId))out.add(e);return out;}
+    private Set<String> profileIds(){Set<String> ids=new HashSet<>();for(ScooterProfiles.Profile p:profiles.all())ids.add(p.id);return ids;}
+    private boolean liveTest(String testId){return test!=null&&!test.terminal()&&testId.equals(test.testId());}
     public boolean testRecordsHealthy(){return testJournal.healthy();}
     /** Whether this feature can be tested now (the guided-test rule, not the ordinary decision). */
     public CapabilityResolver.Decision testDecision(String feature){return CapabilityResolver.decideTest(feature,descriptor(),status(),runtime(feature));}
@@ -515,6 +527,7 @@ public final class BleController {
     /** What an unfinished test needs now; null when it no longer exists. Never writes. */
     public GuidedTest.Review reviewTest(String testId){
         TestJournal.Entry e=testJournal.find(testId);if(e==null)return null;ScooterProfiles.Profile p=profile();
+        if(liveTest(testId))return new GuidedTest.Review(GuidedTest.ReviewState.WAITING,"The test is still running.",null,false);
         FeatureVariant v=CapabilityResolver.decideTest(e.feature,descriptor(),status(),runtime(e.feature)).variant;
         return GuidedTest.review(e,p==null?"":p.id,ready()&&!simulating(),descriptor(),status(),now(),v,testFirmwareConfirmed.contains(testId));
     }
@@ -533,6 +546,7 @@ public final class BleController {
     }
     /** Already back to the baseline by a fresh readback: restoration confirmed with no write. */
     public void markTestRestored(String testId){
+        if(liveTest(testId)){notice("Finish the current test first");return;}
         TestJournal.Entry e=testJournal.find(testId);GuidedTest.Review r=reviewTest(testId);
         if(e==null||r==null||r.state!=GuidedTest.ReviewState.ALREADY_RESTORED){notice(r==null?"Test not found":r.text);return;}
         try{GuidedTest.confirmAlreadyRestored(testJournal,e,System.currentTimeMillis());}catch(IOException|IllegalArgumentException failed){notice("Test records are unavailable");return;}
@@ -542,7 +556,7 @@ public final class BleController {
     public void keepTest(String testId){resolveDeclined(testId,"kept");}
     public void dismissTest(String testId){resolveDeclined(testId,"dismissed");}
     private void resolveDeclined(String testId,String note){
-        if(test!=null&&!test.terminal()&&testId.equals(test.testId())){notice("Finish the current test first");return;}
+        if(liveTest(testId)){notice("Finish the current test first");return;}
         try{testJournal.resolve(testId,TestJournal.DECLINED,note,System.currentTimeMillis());}catch(IOException|IllegalArgumentException failed){notice("Test records are unavailable");return;}
         forgetTest(testId);
     }

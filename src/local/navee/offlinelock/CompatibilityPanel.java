@@ -107,6 +107,7 @@ final class CompatibilityPanel {
         StringBuilder k=new StringBuilder();GuidedTest t=ble.guidedTest();
         if(t!=null)k.append(t.phase()).append(t.outcomes().size()).append(t.note()).append(t.baseline());
         for(TestJournal.Entry e:ble.unresolvedTests()){GuidedTest.Review r=ble.reviewTest(e.testId);k.append('|').append(e.testId).append(e.phase).append(r==null?"":r.state+"/"+r.current+"/"+r.restorable+"/"+ble.testDecision(e.feature).reason);}
+        for(TestJournal.Entry e:ble.orphanedTests())k.append("|orphan").append(e.testId);
         k.append('|').append(ble.unresolvedTestsElsewhere()).append(ble.testParked()).append(ble.testRecordsHealthy());
         if(t==null||t.terminal())for(String f:ModelRegistry.TESTABLE){CapabilityResolver.Decision d=ble.testDecision(f);k.append('|').append(d.reason).append(d.current()).append(java.util.Arrays.toString(d.values()));}
         return k.toString();
@@ -118,6 +119,7 @@ final class CompatibilityPanel {
         for(TestJournal.Entry e:open)unfinished(ble,e);
         int elsewhere=ble.unresolvedTestsElsewhere();
         if(elsewhere>0)root.addView(note(elsewhere==1?"1 unfinished test on another scooter. Select it to review.":elsewhere+" unfinished tests on other scooters. Select one to review."));
+        for(TestJournal.Entry e:ble.orphanedTests())orphaned(ble,e);
         if(!ble.ready()||ble.testing()||!open.isEmpty())return;
         LinearLayout g=group("Try a setting");
         if(g==null)return;
@@ -204,6 +206,16 @@ final class CompatibilityPanel {
         }
         TextView dismiss=ui.secondaryButton("Dismiss · leave as is",()->{ble.dismissTest(e.testId);refresh();});
         dismiss.setContentDescription("Dismiss the unfinished "+label+" test without restoring it");card.addView(dismiss);
+    }
+    /** An unfinished test whose scooter profile was removed: nothing can be checked or set back, only dismissed. */
+    private void orphaned(BleController ble,TestJournal.Entry e){
+        LinearLayout card=ui.card();root.addView(card);
+        String label=ScooterCommands.find(e.feature).label;
+        card.addView(ui.text("Unfinished test · "+label,16,true));
+        if(!e.outcomes.isEmpty()){List<String> texts=new java.util.ArrayList<>();for(String o:e.outcomes)texts.add(GuidedTest.Outcome.describe(o));card.addView(muted(join(texts)));}
+        card.addView(ui.text("Its scooter was forgotten, so Volt can't check this setting or set it back. Check it on the scooter itself.",14,false));
+        TextView dismiss=ui.secondaryButton("Dismiss",()->{ble.dismissTest(e.testId);refresh();});
+        dismiss.setContentDescription("Dismiss the unfinished "+label+" test of a forgotten scooter");card.addView(dismiss);
     }
     private void addRestore(LinearLayout card,BleController ble,TestJournal.Entry e,CapabilityResolver.Decision d,String text){
         TextView b=ui.button(text,()->{ble.restoreTest(e.testId);if(!ble.testing())host.toast(ble.message());refresh();});b.setEnabled(d.available());card.addView(b);
