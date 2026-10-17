@@ -971,13 +971,15 @@ public final class MainActivity extends Activity implements ScreenHost {
         private long requestedAt;
         private float downX,downY,previewX,position;
         private android.animation.ValueAnimator motion;
+        /** Recent thumb positions for a short speed trail; visual only, never the lock value. */
+        private final LockSliderTrail trail=new LockSliderTrail();
         LockControl(){super(MainActivity.this);setMinimumWidth(design.dp(48));setMinimumHeight(design.dp(48));setClickable(true);setFocusable(true);setContentDescription("Electronic lock switch");setOnClickListener(v->apply(!Boolean.TRUE.equals(value)));}
         private void apply(boolean target){if(available&&value!=null&&scooterService!=null&&target!=value){if(scooterService.ble.set("lock",target?1:0))requestedAt=SystemClock.elapsedRealtime();redraw();}}
         void update(Boolean locked,boolean enabled){
             boolean changed=value==null?locked!=null:!value.equals(locked);
             boolean hadState=value!=null;
             if(changed&&hadState&&locked!=null&&requestedAt>0&&SystemClock.elapsedRealtime()-requestedAt<15000){requestedAt=0;Haptics.confirm(this);}
-            value=locked;available=enabled;setEnabled(enabled);
+            value=locked;available=enabled;setEnabled(enabled);if(!enabled)trail.clear();
             if(!enabled&&dragging){dragging=false;setPressed(false);releaseParent();settle(hadState&&locked!=null);}
             else if(changed&&!dragging)settle(hadState&&locked!=null);
             setContentDescription(locked==null?"Electronic lock state unavailable":"Electronic lock, "+(locked?"locked":"unlocked")+". Double-tap or slide to "+(locked?"unlock":"lock"));
@@ -990,13 +992,15 @@ public final class MainActivity extends Activity implements ScreenHost {
         private void settle(boolean animate){
             cancelMotion();
             final float target=Boolean.TRUE.equals(value)?1:0;
-            if(!animate||!resumed||!isAttachedToWindow()||!isShown()||!Ui.motionEnabled()||Math.abs(target-position)<.001f){position=target;invalidate();return;}
+            if(!animate||!resumed||!isAttachedToWindow()||!isShown()||!Ui.motionEnabled()||Math.abs(target-position)<.001f){position=target;trail.clear();invalidate();return;}
             motion=android.animation.ValueAnimator.ofFloat(position,target);
             motion.setDuration(180);motion.setInterpolator(new android.view.animation.PathInterpolator(.2f,0,0,1));
-            motion.addUpdateListener(animation->{position=(Float)animation.getAnimatedValue();invalidate();});
+            motion.addUpdateListener(animation->move((Float)animation.getAnimatedValue()));
             motion.start();
         }
-        void stopMotion(){cancelMotion();dragging=false;setPressed(false);releaseParent();position=Boolean.TRUE.equals(value)?1:0;invalidate();}
+        /** Moves the drawn thumb only; the trail samples it while motion is allowed. */
+        private void move(float next){position=next;if(available&&Ui.motionEnabled())trail.record(next,SystemClock.uptimeMillis());else trail.clear();invalidate();}
+        void stopMotion(){cancelMotion();dragging=false;setPressed(false);releaseParent();position=Boolean.TRUE.equals(value)?1:0;trail.clear();invalidate();}
         @Override protected void onDetachedFromWindow(){stopMotion();super.onDetachedFromWindow();}
         @Override protected void onWindowVisibilityChanged(int visibility){super.onWindowVisibilityChanged(visibility);if(visibility!=VISIBLE)stopMotion();}
         @Override public CharSequence getAccessibilityClassName(){return Switch.class.getName();}
@@ -1004,7 +1008,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         @Override public boolean onTouchEvent(MotionEvent event){
             if(!available)return false;
             if(event.getAction()==MotionEvent.ACTION_DOWN){cancelMotion();downX=event.getX();downY=event.getY();previewX=downX;dragging=false;dragSide=downX>getWidth()/2f;setPressed(true);return true;}
-            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){boolean side=event.getX()>getWidth()/2f;if(side!=dragSide)Haptics.tick(this);dragSide=side;previewX=event.getX();position=sliderGeometry().positionFor(previewX);invalidate();}return true;}
+            if(event.getAction()==MotionEvent.ACTION_MOVE){float delta=event.getX()-downX;if(Math.abs(delta)>ViewConfiguration.get(MainActivity.this).getScaledTouchSlop()&&Math.abs(delta)>Math.abs(event.getY()-downY)){dragging=true;if(getParent()!=null)getParent().requestDisallowInterceptTouchEvent(true);}if(dragging){boolean side=event.getX()>getWidth()/2f;if(side!=dragSide)Haptics.tick(this);dragSide=side;previewX=event.getX();move(sliderGeometry().positionFor(previewX));}return true;}
             if(event.getAction()==MotionEvent.ACTION_UP){boolean dragged=dragging;boolean target=previewX>getWidth()/2f;dragging=false;setPressed(false);releaseParent();if(dragged)apply(target);else performClick();settle(true);return true;}
             if(event.getAction()==MotionEvent.ACTION_CANCEL){dragging=false;setPressed(false);releaseParent();settle(true);return true;}return true;
         }
@@ -1041,7 +1045,23 @@ public final class MainActivity extends Activity implements ScreenHost {
             LockSliderGeometry geometry=sliderGeometry();
             float knob=geometry.radius;
             float cx=geometry.centerFor(position);
-            paint.setColor(!available?design.dim:locked?android.graphics.Color.WHITE:design.accent);canvas.drawCircle(cx,h/2,knob,paint);
+            int thumb=!available?design.dim:locked?android.graphics.Color.WHITE:design.accent;
+            // Speed trail: a few faint, shrinking discs back to where the thumb was a moment ago,
+            // inside the track and under the crisp thumb. It empties within ~60 ms of stopping.
+            if(!trail.isEmpty()&&available&&Ui.motionEnabled()){
+                float lag=cx-geometry.centerFor(trail.tail(SystemClock.uptimeMillis(),position));
+                lag=Math.max(-geometry.diameter*1.5f,Math.min(geometry.diameter*1.5f,lag));
+                if(Math.abs(lag)>.5f){
+                    float strength=Math.min(1,Math.abs(lag)/Math.max(1,geometry.diameter));
+                    int save=canvas.save();canvas.clipRect(track);
+                    // Discs at most ~a third of a radius apart, so a fast thumb blurs instead of stacking visible coins.
+                    int steps=Math.max(5,Math.min(12,(int)Math.ceil(Math.abs(lag)/Math.max(1,knob*.35f))));
+                    for(int i=steps;i>=1;i--){float f=i/(steps+1f);paint.setColor(Ui.withAlpha(thumb,Math.round(56*strength*(1-f)*5f/steps)));canvas.drawCircle(cx-lag*f,h/2,knob*(1-.15f*f),paint);}
+                    canvas.restoreToCount(save);
+                    postInvalidateOnAnimation();
+                }
+            }else if(!trail.isEmpty()&&!Ui.motionEnabled())trail.clear();
+            paint.setColor(thumb);canvas.drawCircle(cx,h/2,knob,paint);
             design.drawIcon(canvas,locked?"lock":"unlock",!available?design.surface:locked?design.bg:design.onAccent,cx,h/2,knob*0.95f);
             // The accessibility label keeps the full tap-or-slide action; the arrow shows the slide direction.
             String label=value==null?"Unavailable":locked?"Unlock":"Lock";
