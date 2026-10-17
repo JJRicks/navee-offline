@@ -1269,7 +1269,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
         private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private final LinearLayout lightsHeader,banner,readOnlyBanner;private TextView identifyAction;private String offeredKeys="";
+        private final LinearLayout lightsHeader,banner,readOnlyBanner;private TextView identifyAction,checkAction;private String offeredKeys="";
         private final View headlightRow,zonesRow,clockSpinner;
         private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
@@ -1302,6 +1302,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             readOnlyBanner.addView(design.icon("lock",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
             TextView readOnlyText=design.text(BleController.LIMITED_MODEL,13,false);LinearLayout.LayoutParams readOnlyWords=new LinearLayout.LayoutParams(0,-2,1);readOnlyWords.leftMargin=design.dp(10);readOnlyWords.rightMargin=design.dp(8);readOnlyBanner.addView(readOnlyText,readOnlyWords);
             identifyAction=pill("Identify",()->{if(scooterService!=null){scooterService.ble.identifyModel();toast(scooterService.ble.message());redraw();}});identifyAction.setContentDescription("Identify scooter model");identifyAction.setTag("scooter-identify-model");readOnlyBanner.addView(identifyAction);
+            checkAction=pill("Check",()->openMoreSection("Compatibility"));checkAction.setContentDescription("Check compatibility");checkAction.setTag("scooter-compatibility-check");
+            LinearLayout.LayoutParams checkSpacing=new LinearLayout.LayoutParams(-2,-2);checkSpacing.leftMargin=design.dp(6);readOnlyBanner.addView(checkAction,checkSpacing);
             readOnlyBanner.setVisibility(View.GONE);view.addView(readOnlyBanner,new LinearLayout.LayoutParams(-1,-2));
             ((LinearLayout.LayoutParams)readOnlyBanner.getLayoutParams()).bottomMargin=design.dp(10);
             // Wide: the banner spans both columns; search, results and top speed lead the left column.
@@ -1440,6 +1442,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             bannerAction.setVisibility(connecting?View.GONE:View.VISIBLE);
             readOnlyBanner.setVisibility(ble!=null&&ble.limitedModel()?View.VISIBLE:View.GONE);
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
+            // One pill at a time keeps the banner readable on narrow screens: Identify first, then Check.
+            checkAction.setVisibility(ble!=null&&!ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // Rows follow the model's decisions; re-filter when the set of mapped controls changes.
             StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(offered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(offered("maximum_speed")?'1':'0');
             if(!offered.toString().equals(offeredKeys)){offeredKeys=offered.toString();applyFilter();}
@@ -1571,6 +1575,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 : section.equals("Lab") ? "Experimental controls"
                 : section.equals("App") ? "App preferences"
                 : section.equals("Scooters") ? "My scooters"
+                : section.equals("Compatibility") ? "Compatibility"
                 : section.equals("Data") ? "Data & history" : "About & permissions";
         LinearLayout body = sheetContent(title, null,
                 () -> { if (self[0] != null) self[0].dismiss(); });

@@ -130,6 +130,13 @@ Every other control stays hidden until mapped. A serial number alone never
 selects an OEM group; Identify reads the advertised model ID. Region rules that
 hide only convenience controls are noted, not applied.
 
+More > Compatibility runs a read-only check (nine known reads, at most 30 s)
+and builds a report for review: model ID, derived region, firmware, read
+outcomes, status-field presence and control decisions, with no serial, address,
+owner key, PIN, names or routes. On models other than the UT5 MAX, optional
+reads that are rejected or silent twice are not requested again that session;
+UT5 MAX polling is unchanged.
+
 PHONE-FREE AND RIDING CHECKS STILL NEEDED
 
 Test your existing handlebar PIN while safely parked. Proximity unlock needs
