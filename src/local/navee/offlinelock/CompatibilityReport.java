@@ -22,22 +22,14 @@ import java.util.Set;
 final class CompatibilityReport {
     static final String FORMAT="volt-compat-report-v1";
 
-    /** One step of a guided test as seen on the wire. */
-    enum StepOutcome { REJECTED, ACK, READBACK_UNCHANGED, READBACK_MATCHED, NO_RESPONSE, INTERRUPTED }
+    /**
+     * Wire outcomes of a guided test step (the docs/03 vocabulary in snake case). "Effect observed"
+     * is the owner's observation and is reported separately, never as packet evidence.
+     */
+    static final String[] TEST_OUTCOMES={"rejected","acknowledged_unconfirmed","readback_unchanged","readback_different","setting_confirmed","restoration_confirmed","interrupted"};
     /** What the owner saw on the scooter itself; never inferred from packets. */
     enum Observation { OBSERVED, NOT_OBSERVED, NOT_CHECKED }
     enum Restoration { CONFIRMED, OUTSTANDING, DECLINED }
-
-    /** A guided test's semantic record (filled by guided tests; none exist yet). */
-    static final class TestEntry {
-        final String feature,variant; final int baseline,target;
-        final List<StepOutcome> outcomes; final List<Long> elapsedMs; final Observation observation; final Restoration restoration;
-        TestEntry(String feature,String variant,int baseline,int target,List<StepOutcome> outcomes,List<Long> elapsedMs,Observation observation,Restoration restoration){
-            this.feature=feature;this.variant=variant;this.baseline=baseline;this.target=target;
-            this.outcomes=outcomes==null?Collections.<StepOutcome>emptyList():outcomes;this.elapsedMs=elapsedMs==null?Collections.<Long>emptyList():elapsedMs;
-            this.observation=observation==null?Observation.NOT_CHECKED:observation;this.restoration=restoration;
-        }
-    }
 
     /** Every key the report may contain, at any depth. */
     static final Set<String> KEYS=Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -47,7 +39,7 @@ final class CompatibilityReport {
         "cmd","class","outcome","status","length","attempts","first_ms","late","seen",
         "offset","name","present","value",
         "feature","support","available","reason","evidence",
-        "variant","baseline","target","packet_evidence","outcomes","elapsed_ms","owner_observation","effect","restoration")));
+        "variant","baseline","target","packet_evidence","outcomes","elapsed_ms","rejected_code","owner_observation","effect","restoration")));
     /** 0x70 offsets whose value may be reported; 0, 14, 40 and 41 are presence only; 27–30 (time of day) never appear. */
     static boolean valueOffset(int o){return o>=1&&o<=13||o>=15&&o<=26||o>=31&&o<=39||o==42;}
     static boolean presenceOffset(int o){return o==0||o==14||o==40||o==41;}
@@ -136,18 +128,26 @@ final class CompatibilityReport {
             raw.put("decisions",out);
             return this;
         }
-        /** Semantic values only; PIN, clock and time features are never reported. */
-        Builder tests(List<TestEntry> entries){
+        /**
+         * Guided tests from the device-local journal, semantic values only: feature, variant,
+         * baseline, target, wire outcomes with times relative to approval, the owner's
+         * observation and the restoration state. No profile, test ID or wall time is copied.
+         */
+        Builder tests(List<TestJournal.Entry> entries){
             List<Object> out=new ArrayList<>();
-            if(entries!=null)for(TestEntry t:entries){
+            if(entries!=null)for(TestJournal.Entry t:entries){
                 Map<String,Object> m=new LinkedHashMap<>();
-                m.put("feature",t.feature);m.put("variant",t.variant);m.put("baseline",(long)t.baseline);m.put("target",(long)t.target);
+                m.put("feature",t.feature);m.put("variant",t.variantId);m.put("baseline",(long)t.baseline);m.put("target",(long)t.target);
                 Map<String,Object> packet=new LinkedHashMap<>();List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>();
-                for(StepOutcome o:t.outcomes)outcomes.add(o==null?null:lower(o));
-                for(Long ms:t.elapsedMs)times.add(ms);
+                for(int i=0;i<t.outcomes.size();i++){
+                    GuidedTest.Outcome o=GuidedTest.Outcome.parse(t.outcomes.get(i));
+                    if(o==null||o==GuidedTest.Outcome.EFFECT_OBSERVED)continue;
+                    outcomes.add(o.reportToken());times.add(i<t.elapsedMs.size()?t.elapsedMs.get(i):null);
+                    if(o==GuidedTest.Outcome.REJECTED&&!packet.containsKey("rejected_code"))packet.put("rejected_code",(long)GuidedTest.Outcome.code(t.outcomes.get(i)));
+                }
                 packet.put("outcomes",outcomes);packet.put("elapsed_ms",times);m.put("packet_evidence",packet);
-                Map<String,Object> owner=new LinkedHashMap<>();owner.put("effect",lower(t.observation));m.put("owner_observation",owner);
-                if(t.restoration!=null)m.put("restoration",lower(t.restoration));
+                Map<String,Object> owner=new LinkedHashMap<>();owner.put("effect",t.effect);m.put("owner_observation",owner);
+                m.put("restoration",t.restoration);
                 out.add(m);
             }
             raw.put("tests",out);
@@ -237,15 +237,29 @@ final class CompatibilityReport {
             for(Object o:tests){Map<String,Object> t=map(o);
                 s.append("  ").append(t.get("feature")).append(' ').append(t.get("baseline")).append(" → ").append(t.get("target")).append('\n');
                 Map<String,Object> p=map(t.get("packet_evidence"));List<Object> steps=p==null?null:list(p.get("outcomes"));
-                s.append("    Packet evidence: ");if(steps==null||steps.isEmpty())s.append("none");else for(int i=0;i<steps.size();i++)s.append(i==0?"":", ").append(String.valueOf(steps.get(i)).replace('_',' '));
+                s.append("    Packet evidence: ");if(steps==null||steps.isEmpty())s.append("none");else for(int i=0;i<steps.size();i++)s.append(i==0?"":", ").append(testText(String.valueOf(steps.get(i)),p.get("rejected_code")));
                 s.append('\n');
-                Map<String,Object> owner=map(t.get("owner_observation"));
-                s.append("    Owner observation: ").append(owner==null?"not checked":str(owner.get("effect"),"not_checked").replace('_',' ')).append('\n');
-                if(t.get("restoration")!=null)s.append("    Restoration: ").append(t.get("restoration")).append('\n');
+                Map<String,Object> owner=map(t.get("owner_observation"));String effect=owner==null?"not_checked":str(owner.get("effect"),"not_checked");
+                s.append("    Owner observation: ").append(effect.equals("observed")?"Effect observed":effect.equals("not_observed")?"Effect not observed":"Not checked").append('\n');
+                String restoration=str(t.get("restoration"),"outstanding");
+                s.append("    Restoration: ").append(restoration.equals("confirmed")?"Restoration confirmed":restoration.equals("declined")?"Declined by the owner (not restored by Volt)":"Outstanding (not confirmed)").append('\n');
             }
         }
         s.append("\nNo serial, MAC, owner key, PIN, names, routes or raw payloads are included.\n");
         return s.toString();
+    }
+    /** docs/03 wording for a test step. */
+    static String testText(String token,Object code){
+        switch(token){
+            case "rejected": return "Rejected, code "+(code instanceof Long?code:"?");
+            case "acknowledged_unconfirmed": return "Acknowledged, unconfirmed";
+            case "readback_unchanged": return "Readback unchanged";
+            case "readback_different": return "Readback different";
+            case "setting_confirmed": return "Setting confirmed";
+            case "restoration_confirmed": return "Restoration confirmed";
+            case "interrupted": return "Interrupted/no response";
+            default: return token.replace('_',' ');
+        }
     }
     static String readText(Map<String,Object> r){
         String outcome=str(r.get("outcome"),"");String late=Boolean.TRUE.equals(r.get("late"))?" (late)":"";
@@ -366,14 +380,16 @@ final class CompatibilityReport {
         Map<String,Object> packet=map(in.get("packet_evidence")),p=new LinkedHashMap<>();
         List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>();
         if(packet!=null){
-            for(Object o:bounded(packet.get("outcomes"),16)){String v=oneOf(o,lowerAll(StepOutcome.values()));if(v!=null)outcomes.add(v);}
-            for(Object o:bounded(packet.get("elapsed_ms"),16)){Long v=integer(o,0,3600000);if(v!=null)times.add(v);}
+            List<Object> steps=bounded(packet.get("outcomes"),16),at=bounded(packet.get("elapsed_ms"),16);
+            for(int i=0;i<steps.size();i++){String v=oneOf(steps.get(i),TEST_OUTCOMES);if(v!=null){outcomes.add(v);times.add(i<at.size()?integer(at.get(i),0,24L*3600*1000):null);}}
+            if(outcomes.contains("rejected"))putInt(p,"rejected_code",packet.get("rejected_code"),0,255);
         }
         p.put("outcomes",outcomes);p.put("elapsed_ms",times);out.put("packet_evidence",p);
         Map<String,Object> owner=map(in.get("owner_observation")),ob=new LinkedHashMap<>();
         String effect=owner==null?null:oneOf(owner.get("effect"),lowerAll(Observation.values()));
         ob.put("effect",effect==null?"not_checked":effect);out.put("owner_observation",ob);
-        put(out,"restoration",oneOf(in.get("restoration"),lowerAll(Restoration.values())));
+        String restoration=oneOf(in.get("restoration"),lowerAll(Restoration.values()));
+        out.put("restoration",restoration==null?"outstanding":restoration); // never upgraded to a success
         return out;
     }
     private static boolean knownFeature(Object key){
@@ -381,12 +397,8 @@ final class CompatibilityReport {
         for(ScooterCommands.Feature f:ScooterCommands.catalog())if(f.key.equals(key))return true;
         return false;
     }
-    /** Guided tests never report PIN, clock, time or bond-dependent values. */
-    private static boolean testable(String key){
-        if(key.equals("clock_sync"))return false;
-        ScooterCommands.Feature f=ScooterCommands.find(key);
-        return !f.sensitive&&f.type!=ScooterCommands.Type.TIME&&!f.requiresBond;
-    }
+    /** Only the guided-test table's features (never PIN, clock, time, speed or bond-dependent values). */
+    private static boolean testable(String key){return ModelRegistry.testable(key);}
 
     // ---- Small helpers --------------------------------------------------------------------
 
