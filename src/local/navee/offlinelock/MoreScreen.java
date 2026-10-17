@@ -67,12 +67,14 @@ public final class MoreScreen implements AppScreen {
     private LinearLayout cardDestination, onboardingCard, sectionMenu, indexView, sectionHeader;
     private View sectionBack;
     private TextView sectionTitle, sectionBackLabel;
-    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About", "Developer"};
+    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Compatibility", "Data", "About", "Developer"};
     private static final String[] SECTION_LABELS = {"App preferences", "My scooters", "PIN & proximity unlock",
-            "Experimental controls", "Data & history", "About & permissions", "Developer options"};
+            "Experimental controls", "Compatibility", "Data & history", "About & permissions", "Developer options"};
     private static final String[] SECTION_TITLES = {"App preferences", "My scooters", "PIN & proximity",
-            "Firmware lab", "Data & history", "About & permissions", "Developer options"};
-    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "history", "info", "lab"};
+            "Firmware lab", "Compatibility", "Data & history", "About & permissions", "Developer options"};
+    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "check", "history", "info", "lab"};
+    /** More › Compatibility: the read-only model check and its report preview. */
+    private CompatibilityPanel compatibilityPanel;
     /** TelemetryHistory's database file; only its size on disk is read here, never its contents. */
     private static final String HISTORY_DATABASE = "telemetry-history.db";
     private final Map<String,LinearLayout> sections = new LinkedHashMap<>();
@@ -158,7 +160,8 @@ public final class MoreScreen implements AppScreen {
         for (int i = 0; i < SECTIONS.length; i++) {
             final String section = SECTIONS[i];
             if (!knownSection(section)) continue;
-            Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i], null, () -> selectSection(section));
+            Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i],
+                    section.equals("Compatibility") ? "Model check & report" : null, () -> selectSection(section));
             // Room for the selected row's red tint to frame its icon in the wide menu.
             if (wide) row.view.setPadding(ui.dp(8), ui.dp(9), ui.dp(8), ui.dp(9));
             menuRows[i] = row;
@@ -193,6 +196,7 @@ public final class MoreScreen implements AppScreen {
             else if (section.equals("Scooters")) profiles();
             else if (section.equals("Security")) security();
             else if (section.equals("Lab")) lab();
+            else if (section.equals("Compatibility")) compatibilityPanel = new CompatibilityPanel(host, cardDestination);
             else if (section.equals("Data")) dataHistory();
             else if (section.equals("Developer")) developerOptions();
             else privacy();
@@ -1927,6 +1931,7 @@ public final class MoreScreen implements AppScreen {
         ScooterService s = service(); if (s == null) return;
         refreshDeveloper();
         if (shownSection().equals("Data")) refreshHistoryStorage();
+        if (compatibilityPanel != null) compatibilityPanel.refresh();
         for (Runnable refresh : valueRefreshers) refresh.run();
         ScooterProfiles.Profile p = active();
         boolean configured = p != null && p.configured();
