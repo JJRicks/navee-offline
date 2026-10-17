@@ -1295,7 +1295,8 @@ public final class RidesScreen implements AppScreen {
         bottom.addView(export);
         return ride;
     }
-    /** Shared controls keep power, grade, acceleration, selection and basemap attribution in both views. */
+    private static final String[] ROUTE_METRICS = {"power", "speed", "grade", "accel", "elevation"};
+    /** Shared controls keep power, speed, grade, acceleration, selection and basemap attribution in both views. */
     private PhoneRide mapPanel(PhoneRideStore.Track track, LinearLayout top, boolean inline, boolean full) {
         // Label-over-value cells like the chart's readout; the last point starts selected so they always show values.
         Flow selection = new Flow(); selection.setPadding(0, ui.dp(2), 0, ui.dp(10));
@@ -1321,10 +1322,12 @@ public final class RidesScreen implements AppScreen {
         mapStatus.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); top.addView(mapStatus);
         map.setStatusListener(message -> { mapStatus.setText(message); mapStatus.setVisibility(message.isEmpty() ? View.GONE : View.VISIBLE); });
         LegendView legend = new LegendView(); legend.show(track, "power");
-        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Grade", "Accel", "Elev."}, choice -> {
-            String key = new String[]{"power", "grade", "accel", "elevation"}[choice]; map.setMetric(key);
+        SegmentedSelector colors = new SegmentedSelector(ui, "Route color", new String[]{"Power", "Speed", "Grade", "Accel", "Elev."}, choice -> {
+            String key = ROUTE_METRICS[choice]; map.setMetric(key);
             legend.show(track, key);
         }); colors.select(0, false);
+        // Five choices stay visible on cover screens and with large text: one row when it fits, otherwise wrapped.
+        colors.useCompactPadding(); colors.setWrapChoices(true);
         if (!track.points.isEmpty()) {
             LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2); colorParams.topMargin = ui.dp(6);
             top.addView(colors, colorParams); top.addView(legend); top.addView(selection);
@@ -1355,11 +1358,12 @@ public final class RidesScreen implements AppScreen {
         return "grade".equals(metric) ? "Grade · blue −12% → gray 0% → orange +12% · gray dashed: missing"
                 : "accel".equals(metric) ? "GPS acceleration · blue −2 → gray 0 → orange +2 m/s² · gray dashed: missing"
                 : "elevation".equals(metric) ? elevationLegend(track)
+                : "speed".equals(metric) ? speedLegend(RouteSpeedScale.of(track.points))
                 : "Power magnitude · blue 0 → yellow 2,000 W · gray: missing";
     }
     private void syncMapControls(PhoneRide ride) {
         String metric = ride.map.metric(); int selected = 0;
-        String[] keys = {"power", "grade", "accel", "elevation"};
+        String[] keys = ROUTE_METRICS;
         for (int i = 0; i < keys.length; i++) if (keys[i].equals(metric)) selected = i;
         ride.colors.select(selected, false); ride.legend.show(ride.track, metric);
     }
@@ -1401,6 +1405,11 @@ public final class RidesScreen implements AppScreen {
         }
         return "Relative elevation · blue " + height(low) + " → yellow " + height(high) + " · gray: missing";
     }
+    private String speedLegend(RouteSpeedScale scale) {
+        if (scale.source == null) return "Speed not recorded · gray dashed: missing";
+        return (RouteSpeedScale.SCOOTER.equals(scale.source) ? "Scooter speed" : "GPS speed") + " · blue 0 → yellow "
+                + RouteSpeedScale.label(scale.topKmh, preferences.getString("units", "mi")) + " or faster · gray dashed: missing";
+    }
     private View mapButton(String glyph, String description, Runnable action) {
         FrameLayout button = new FrameLayout(host.activity());
         int plate = ui.dark ? ui.bg : ui.text, ink = ui.dark ? ui.text : ui.surface;
@@ -1415,7 +1424,7 @@ public final class RidesScreen implements AppScreen {
     /** Route point readings as label-over-value cells; "—" where a reading was not measured. */
     private void pointReadout(Flow readout, PhoneRideStore.Point p) {
         String gps = p.speedMps == null ? "—" : speed(p.speedMps * 3.6);
-        String[] cells = {"Time", duration(p.elapsedMs), "GPS", gps, "Power", dash(quantity(p.powerW, "W", 0)), "Battery", dash(quantity(p.batteryPercent, "%", 0)),
+        String[] cells = {"Time", duration(p.elapsedMs), "GPS", gps, "Scooter", p.scooterSpeedKmh == null ? "—" : speed(p.scooterSpeedKmh), "Power", dash(quantity(p.powerW, "W", 0)), "Battery", dash(quantity(p.batteryPercent, "%", 0)),
                 "Grade", p.gradePercent == null ? "—" : String.format(Locale.US, "≈%+.1f%%", p.gradePercent),
                 "GPS accel", accel(p.gpsAccelerationMps2), "Scooter accel", accel(p.scooterAccelerationMps2)};
         readout.removeAllViews();
@@ -1791,12 +1800,17 @@ public final class RidesScreen implements AppScreen {
     /** Route colour legend: a drawn gradient bar with end labels and a dashed "missing" swatch. */
     private final class LegendView extends View {
         private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-        private String title = ""; private int[] colors = {0, 0}; private String[] labels = {"", ""};
+        private String title = "", shortTitle; private int[] colors = {0, 0}; private String[] labels = {"", ""};
         LegendView() { super(host.activity()); setPadding(ui.dp(4), ui.dp(8), ui.dp(4), ui.dp(8)); setFocusable(true); }
         void show(PhoneRideStore.Track track, String metric) {
             int blue = Color.rgb(0, 114, 178), gray = Color.rgb(226, 226, 226), orange = Color.rgb(213, 94, 0);
-            int low = Color.rgb(35, 73, 155), high = Color.rgb(255, 210, 70);
-            if ("grade".equals(metric)) { title = "Grade"; colors = new int[]{blue, gray, orange}; labels = new String[]{"−12%", "0", "+12%"}; }
+            int low = RouteSpeedScale.LOW, high = RouteSpeedScale.HIGH; shortTitle = null;
+            if ("speed".equals(metric)) {
+                RouteSpeedScale scale = RouteSpeedScale.of(track.points);
+                title = scale.title(); shortTitle = "Speed";
+                colors = scale.source == null ? new int[]{RouteSpeedScale.NO_DATA, RouteSpeedScale.NO_DATA} : new int[]{low, high};
+                labels = scale.source == null ? new String[]{"", ""} : new String[]{"0", RouteSpeedScale.label(scale.topKmh, preferences.getString("units", "mi"))};
+            } else if ("grade".equals(metric)) { title = "Grade"; colors = new int[]{blue, gray, orange}; labels = new String[]{"−12%", "0", "+12%"}; }
             else if ("accel".equals(metric)) { title = "Accel"; colors = new int[]{blue, gray, orange}; labels = new String[]{"−2", "0", "+2 m/s²"}; }
             else if ("elevation".equals(metric)) {
                 Double bottom = null, top = null; for (PhoneRideStore.Point point : track.points) if (point.relativeAltitudeM != null) {
@@ -1820,11 +1834,13 @@ public final class RidesScreen implements AppScreen {
             float left = getPaddingLeft(), right = getWidth() - getPaddingRight();
             float rowCenter = getPaddingTop() + Math.max(line, ui.dp(8)) / 2f, baseline = rowCenter - (metrics.ascent + metrics.descent) / 2f;
             paint.setStyle(Paint.Style.FILL); paint.setColor(ui.muted); paint.setTextAlign(Paint.Align.LEFT);
-            canvas.drawText(title, left, baseline, paint);
             String missing = "missing"; float missingWidth = paint.measureText(missing), dash = ui.dp(18);
-            canvas.drawText(missing, right - missingWidth, baseline, paint);
-            float barLeft = left + Math.max(paint.measureText("Power"), paint.measureText(title)) + ui.dp(10);
             float barRight = right - missingWidth - ui.dp(6) - dash - ui.dp(14);
+            // A long source title gives way to the short one before the bar becomes too narrow to read.
+            String shown = shortTitle != null && barRight - left - paint.measureText(title) - ui.dp(10) < ui.dp(56) ? shortTitle : title;
+            canvas.drawText(shown, left, baseline, paint);
+            canvas.drawText(missing, right - missingWidth, baseline, paint);
+            float barLeft = left + Math.max(paint.measureText("Power"), paint.measureText(shown)) + ui.dp(10);
             paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2)); paint.setColor(Color.rgb(128, 128, 128));
             paint.setPathEffect(new android.graphics.DashPathEffect(new float[]{ui.dp(4), ui.dp(3)}, 0));
             canvas.drawLine(right - missingWidth - ui.dp(6) - dash, rowCenter, right - missingWidth - ui.dp(6), rowCenter, paint);
