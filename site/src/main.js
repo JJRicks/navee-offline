@@ -6,7 +6,7 @@
   const reduceMotion = window.matchMedia('(prefers-reduced-motion: reduce)');
   const canHover = window.matchMedia('(hover: hover) and (pointer: fine)');
 
-  const init = () => { nav(); openLinked(); lockDemo(); reveal(); spotlight(); tilt(); route(); field(); };
+  const init = () => { nav(); lockDemo(); reveal(); spotlight(); tilt(); route(); field(); openLinked(); };
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', init, { once: true });
   else init();
 
@@ -64,13 +64,20 @@
   }
 
   // Opens an FAQ answer when a link (or the address bar) points at it. Without JavaScript the link still scrolls to the question.
+  // A malformed hash (#100%) is treated as no target, and a repeat click on the same link reopens a closed answer.
   function openLinked() {
-    const open = () => {
-      const target = location.hash.length > 1 ? document.getElementById(decodeURIComponent(location.hash.slice(1))) : null;
+    const open = hash => {
+      let id = null;
+      try { id = hash.length > 1 ? decodeURIComponent(hash.slice(1)) : null; } catch (error) { return; }
+      const target = id ? document.getElementById(id) : null;
       if (target && target.tagName === 'DETAILS') target.open = true;
     };
-    open();
-    window.addEventListener('hashchange', open);
+    open(location.hash);
+    window.addEventListener('hashchange', () => open(location.hash));
+    document.addEventListener('click', event => {
+      const link = event.target instanceof Element ? event.target.closest('a[href^="#"]') : null;
+      if (link) open(link.getAttribute('href'));
+    });
   }
 
   // The lock demo is pure CSS with one shared duration. Pinning every part to the same start time keeps knob, glyph and

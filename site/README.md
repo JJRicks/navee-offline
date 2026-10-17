@@ -33,10 +33,10 @@ Rollback:
 
 Volt is an independent project and must not present itself as NAVEE. Keep the non-affiliation notice in the FAQ and footer, and don't use NAVEE logos or branding. Feature claims should match `README.md` and `FEATURES.txt`.
 
-Keep the page short enough to skim: what Volt does, what it's tested on, download, setup, privacy and a short FAQ. Put details (counts, settings lists, implementation notes) in the repository docs and link to them instead.
+Keep the page short enough to skim: what Volt does, what it's tested on, download, setup, privacy and a short FAQ. Put details (counts, settings lists, implementation notes) in the repository docs, not on the page.
 
 - Compatibility: say "tested on the US UT5 MAX". Don't imply that other NAVEE models work until they're verified.
-- Source: the repository is private for now, so don't call Volt open source or promise public source code. Revisit when it goes public (`docs/public-release.md`).
+- Source: the repository is private for now, so don't call Volt open source or promise public source code. Don't link to repository files either; they 404 for visitors. Setup links go to the public helper at <https://pairscooter.jjricks.com/>. Revisit when it goes public (`docs/public-release.md`).
 - Privacy: the Bluetooth core works offline; map backgrounds go online only after the user turns them on; exports and backups are deliberate. Don't say "nothing leaves your phone".
 
 The slide-to-lock demo is decorative (`aria-hidden`). Its knob, glyphs, labels and track tint run on one shared CSS cycle (`--lock-cycle`), started together by `main.js`. With reduced motion or without JavaScript it rests in the unlocked "Slide to lock" state.
