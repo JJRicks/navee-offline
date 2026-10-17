@@ -395,7 +395,7 @@ final class CompatibilityReport {
         return out;
     }
     private static boolean knownFeature(Object key){
-        if(!(key instanceof String))return false;if(key.equals("clock_sync"))return true;
+        if(!(key instanceof String))return false;if(key.equals("clock_sync")||ScooterCommands.oemOnly((String)key))return true;
         for(ScooterCommands.Feature f:ScooterCommands.catalog())if(f.key.equals(key))return true;
         return false;
     }
