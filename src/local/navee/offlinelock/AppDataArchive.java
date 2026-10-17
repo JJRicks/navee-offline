@@ -13,7 +13,9 @@ import java.util.zip.*;
 import javax.crypto.*;
 import javax.crypto.spec.*;
 
-/** Portable archive codec and recoverable replacement, independent of Android APIs. */
+/** Portable archive codec and recoverable replacement, independent of Android APIs. The record
+ * encryption, preference encoding and file helpers are shared with the version 2 category archive
+ * (BackupArchive); this class still reads version 1 files and recovers version 1 transactions. */
 final class AppDataArchive {
     static final String[] PREFERENCES = {"app_settings", "profiles", "scooter", "control_evidence", "onboarding"};
     static final String[] DIRECTORIES = {"rides", "phone-rides", "charge-recordings"};
@@ -21,8 +23,9 @@ final class AppDataArchive {
     static final long MAX_BYTES = 2L * 1024 * 1024 * 1024;
     static final long MAX_FILE_BYTES = 512L * 1024 * 1024;
     static final int MAX_ENTRIES = 50000, MAX_PREFERENCES = 16 * 1024 * 1024;
-    private static final byte[] MAGIC = {'V','O','L','T','B','K','P',1};
-    private static final int ITERATIONS = 210000, BLOCK = 64 * 1024;
+    static final byte[] MAGIC = {'V','O','L','T','B','K','P',1};
+    private static final int ITERATIONS = 210000;
+    static final int BLOCK = 64 * 1024;
     private static final String MANIFEST = "manifest.bin", PREFS = "preferences.bin";
     private static final String UUID_PATTERN = "[a-fA-F0-9]{8}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{4}-[a-fA-F0-9]{12}";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -174,6 +177,8 @@ final class AppDataArchive {
         File transaction=new File(work,"transaction");boolean recovered=false;
         if(transaction.exists()) {
             if(!transaction.isDirectory()||Files.isSymbolicLink(transaction.toPath()))throw new IOException("The restore recovery record is unavailable. Keep app storage intact.");
+            // A version 2 category transaction lists its scope; only BackupTransaction may roll it back.
+            if(new File(transaction,"scope.bin").exists())throw new IOException("The restore recovery record needs this app version's recovery. Keep app storage intact.");
             File state=new File(transaction,"state");
             if(!state.exists())deleteTree(transaction); // Snapshot was incomplete; live data was never touched.
             else {
@@ -231,16 +236,16 @@ final class AppDataArchive {
         if(databaseDirectory.exists())storage.syncDirectory(databaseDirectory);
         storage.syncDirectory(storage.files().getParentFile());
     }
-    private static void checkDatabaseClosed(Storage storage)throws IOException {
+    static void checkDatabaseClosed(Storage storage)throws IOException {
         for(String suffix:new String[]{"-journal","-wal","-shm"}) {
             File file=new File(storage.database().getPath()+suffix);
             if(file.exists()&&file.length()>0)throw new IOException("History is still open. Close recordings and try the backup again.");
         }
     }
-    private static void ensureNoTransaction(Storage storage)throws IOException {
+    static void ensureNoTransaction(Storage storage)throws IOException {
         if(new File(storage.work(),"transaction").exists())throw new IOException("Reopen Volt to finish recovering the previous restore first.");
     }
-    private static boolean isStage(Storage storage,File directory)throws IOException {
+    static boolean isStage(Storage storage,File directory)throws IOException {
         return directory.isDirectory()&&directory.getName().matches("stage-[a-f0-9-]{36}")&&directory.getCanonicalFile().getParentFile().equals(storage.work().getCanonicalFile());
     }
     private static void state(Storage storage,File transaction,String value)throws IOException {
@@ -255,7 +260,7 @@ final class AppDataArchive {
         if(!directory.isDirectory()||Files.isSymbolicLink(directory.toPath()))throw new IOException("Restore storage cannot be synchronized.");
         try(FileChannel channel=FileChannel.open(directory.toPath(),StandardOpenOption.READ)){channel.force(true);}
     }
-    private static void syncDirectories(Storage storage,File directory)throws IOException {
+    static void syncDirectories(Storage storage,File directory)throws IOException {
         if(Files.isSymbolicLink(directory.toPath()))throw new IOException("Unexpected restore storage link.");
         File[] children=directory.listFiles();
         if(children==null)throw new IOException("Restore storage cannot be read.");
@@ -293,12 +298,12 @@ final class AppDataArchive {
             ||name.matches("files/charge-recordings/"+UUID_PATTERN+"\\.(csv|active)")
             ||name.matches("files/phone-rides/[a-zA-Z0-9-]{1,80}-(phone|motion)\\.csv");
     }
-    private static long fileLimit(String name){return name.startsWith("database/")?64L*1024*1024:MAX_FILE_BYTES;}
-    private static File contained(File base,String relative)throws IOException {
+    static long fileLimit(String name){return name.startsWith("database/")?64L*1024*1024:MAX_FILE_BYTES;}
+    static File contained(File base,String relative)throws IOException {
         File file=new File(base,relative);String parent=base.getCanonicalPath()+File.separator;
         if(!file.getCanonicalPath().startsWith(parent))throw new IOException("Invalid archive path.");return file;
     }
-    private static void copyFile(File from,File to,long limit)throws IOException {
+    static void copyFile(File from,File to,long limit)throws IOException {
         if(Files.isSymbolicLink(from.toPath())||!from.isFile())throw new IOException("A restore file is unavailable.");
         mkdir(to.getParentFile());try(InputStream in=new FileInputStream(from);FileOutputStream out=new FileOutputStream(to)){copy(in,out,new byte[BLOCK],limit);out.getFD().sync();}
     }
@@ -308,29 +313,33 @@ final class AppDataArchive {
         if(file.isDirectory()){File[] children=file.listFiles();if(children==null)throw new IOException("Could not read temporary data.");for(File child:children)deleteTree(child);}
         if(!file.delete())throw new IOException("Could not remove temporary data.");
     }
-    private static void mkdir(File directory)throws IOException {
+    static void mkdir(File directory)throws IOException {
         if(!directory.isDirectory()&&!directory.mkdirs())throw new IOException("There is not enough available app storage.");
         if(Files.isSymbolicLink(directory.toPath()))throw new IOException("Unexpected storage link.");
     }
-    private static long copy(InputStream in,OutputStream out,byte[] buffer,long limit)throws IOException {
+    static long copy(InputStream in,OutputStream out,byte[] buffer,long limit)throws IOException {
         long total=0;for(int n;(n=in.read(buffer))!=-1;){if(n==0)continue;total=addBounded(total,n,limit);out.write(buffer,0,n);}return total;
     }
-    private static long addBounded(long current,long amount,long limit)throws IOException {
+    static long addBounded(long current,long amount,long limit)throws IOException {
         if(amount<0||current>limit-amount)throw new IOException("The backup exceeds the supported storage limit.");return current+amount;
     }
-    private static byte[] readBounded(InputStream in,int maximum)throws IOException {
+    static byte[] readBounded(InputStream in,int maximum)throws IOException {
         ByteArrayOutputStream out=new ByteArrayOutputStream();copy(in,out,new byte[8192],maximum);return out.toByteArray();
     }
-    private static byte[] readFile(File file,int maximum)throws IOException {try(InputStream in=new FileInputStream(file)){return readBounded(in,maximum);}}
+    static byte[] readFile(File file,int maximum)throws IOException {try(InputStream in=new FileInputStream(file)){return readBounded(in,maximum);}}
 
     /** Reject known startup/read-path type mismatches before replacing live state. Unknown keys
      * remain portable, preserving preferences added by compatible versions. */
     static void validatePreferenceTypes(Map<String,Map<String,Object>> all)throws IOException { BackupRegistry.validateTypes(all); }
 
-    static byte[] encodePreferences(Map<String,Map<String,Object>> all)throws IOException {
+    static byte[] encodePreferences(Map<String,Map<String,Object>> all)throws IOException {return encodePreferences(all,Arrays.asList(PREFERENCES));}
+    /** The version 1 encoding, limited to the declared namespaces in their fixed order. */
+    static byte[] encodePreferences(Map<String,Map<String,Object>> all,Collection<String> namespaces)throws IOException {
         ByteArrayOutputStream buffer=new ByteArrayOutputStream();DataOutputStream out=new DataOutputStream(buffer);
-        out.writeInt(PREFERENCES.length);
-        for(String name:PREFERENCES) {
+        List<String> declared=new ArrayList<>();for(String name:PREFERENCES)if(namespaces.contains(name))declared.add(name);
+        if(declared.size()!=new HashSet<>(namespaces).size())throw new IOException("Unsupported app preference group.");
+        out.writeInt(declared.size());
+        for(String name:declared) {
             string(out,name);Map<String,Object> values=all.get(name);if(values==null)throw new IOException("Missing app preferences.");
             if(values.size()>20000)throw new IOException("Too many app preferences.");out.writeInt(values.size());
             for(String key:new TreeSet<>(values.keySet())) {
@@ -347,12 +356,17 @@ final class AppDataArchive {
         }
         out.flush();return buffer.toByteArray();
     }
-    static Map<String,Map<String,Object>> decodePreferences(byte[] data)throws IOException {
+    static Map<String,Map<String,Object>> decodePreferences(byte[] data)throws IOException {return decodePreferences(data,false);}
+    /** A subset declares any namespaces in the fixed order, each at most once; otherwise all five. */
+    static Map<String,Map<String,Object>> decodePreferences(byte[] data,boolean subset)throws IOException {
         if(data.length>MAX_PREFERENCES)throw new IOException("App preferences exceed the backup limit.");
         DataInputStream in=new DataInputStream(new ByteArrayInputStream(data));Map<String,Map<String,Object>> result=new LinkedHashMap<>();
-        if(in.readInt()!=PREFERENCES.length)throw new IOException("Unsupported app preference inventory.");
-        for(String expected:PREFERENCES) {
-            if(!expected.equals(string(in,512)))throw new IOException("Unsupported app preference inventory.");
+        int declared=in.readInt();
+        if(subset?declared<0||declared>PREFERENCES.length:declared!=PREFERENCES.length)throw new IOException("Unsupported app preference inventory.");
+        int next=0;
+        for(int n=0;n<declared;n++) {
+            String expected=string(in,512);int index=Arrays.asList(PREFERENCES).indexOf(expected);
+            if(index<next||(!subset&&index!=n))throw new IOException("Unsupported app preference inventory.");next=index+1;
             int count=in.readInt();if(count<0||count>20000)throw new IOException("Invalid preference count.");Map<String,Object> values=new LinkedHashMap<>();
             for(int i=0;i<count;i++) {
                 String key=string(in,2048);if(key.length()>512||values.containsKey(key))throw new IOException("Invalid or duplicate preference key.");
@@ -370,7 +384,7 @@ final class AppDataArchive {
         }
         if(in.read()!=-1)throw new IOException("Unexpected preference payload.");return result;
     }
-    private static void writePreferencesFile(File file,Map<String,Map<String,Object>> prefs)throws IOException {
+    static void writePreferencesFile(File file,Map<String,Map<String,Object>> prefs)throws IOException {
         byte[] bytes=encodePreferences(prefs);try(FileOutputStream out=new FileOutputStream(file)){out.write(bytes);out.getFD().sync();}finally{Arrays.fill(bytes,(byte)0);}
     }
     private static void string(DataOutputStream out,String value)throws IOException {
@@ -383,14 +397,14 @@ final class AppDataArchive {
         catch(Exception e){throw new IOException("Invalid preference text.",e);}
     }
 
-    private static void requirePassword(char[] password)throws IOException {
+    static void requirePassword(char[] password)throws IOException {
         if(password==null||password.length<8||password.length>1024)throw new IOException("Use a backup password of 8 to 1,024 characters.");
     }
-    private static byte[] header() {
+    static byte[] header() {
         byte[] value=new byte[MAGIC.length+16+8];System.arraycopy(MAGIC,0,value,0,MAGIC.length);
         byte[] random=new byte[24];RANDOM.nextBytes(random);System.arraycopy(random,0,value,MAGIC.length,24);return value;
     }
-    private static SecretKey key(char[] password,byte[] header)throws IOException {
+    static SecretKey key(char[] password,byte[] header)throws IOException {
         PBEKeySpec spec=new PBEKeySpec(password,Arrays.copyOfRange(header,MAGIC.length,MAGIC.length+16),ITERATIONS,256);
         byte[] bytes=null;
         try{bytes=SecretKeyFactory.getInstance("PBKDF2WithHmacSHA256").generateSecret(spec).getEncoded();return new SecretKeySpec(bytes,"AES");}
@@ -405,7 +419,7 @@ final class AppDataArchive {
             cipher.updateAAD(ByteBuffer.allocate(8).putInt(index).putInt(length).array());return cipher.doFinal(bytes,0,count);
         }catch(GeneralSecurityException e){throw new IOException(mode==Cipher.DECRYPT_MODE?"The password is incorrect or the backup is damaged.":"The backup could not be encrypted.",e);}
     }
-    private static void decrypt(InputStream input,OutputStream output,char[] password)throws IOException {
+    static void decrypt(InputStream input,OutputStream output,char[] password)throws IOException {
         DataInputStream in=new DataInputStream(input);byte[] header=new byte[MAGIC.length+24];in.readFully(header);
         if(!Arrays.equals(MAGIC,Arrays.copyOf(header,MAGIC.length)))throw new IOException("Choose a Volt encrypted app backup.");
         SecretKey key=key(password,header);long total=0;int index=0;
@@ -417,7 +431,7 @@ final class AppDataArchive {
             total=addBounded(total,plain.length,MAX_BYTES+32L*1024*1024);output.write(plain);Arrays.fill(plain,(byte)0);
         }
     }
-    private static final class RecordOutput extends OutputStream {
+    static final class RecordOutput extends OutputStream {
         final DataOutputStream out;final byte[] header,buffer=new byte[BLOCK];final SecretKey key;int count,index;long total;boolean finished;
         RecordOutput(OutputStream out,byte[] header,SecretKey key){this.out=new DataOutputStream(out);this.header=header;this.key=key;}
         @Override public void write(int b)throws IOException {buffer[count++]=(byte)b;if(count==BLOCK)record();}
