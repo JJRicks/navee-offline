@@ -125,9 +125,11 @@ public final class WireCommandsTest {
     }
 
     private static void allowlistStillApplies() {
-        rejects(()->WireCommands.scalar(0x53,1));          // energy recovery 1 is not admitted
+        rejects(()->WireCommands.scalar(0x53,2));          // energy recovery 2-29 are not admitted (1 is group M's on)
+        rejects(()->WireCommands.scalar(0x53,29));
         rejects(()->WireCommands.selector(0x6f,8,1));      // country config is never sent
-        rejects(()->WireCommands.selector(0x6e,1,60));     // outside the UT5 max-speed set
+        rejects(()->WireCommands.selector(0x6e,1,33));     // outside every OEM max-speed table
+        rejects(()->WireCommands.selector(0x6e,1,71));
         rejects(()->WireCommands.enabledCap(0x6b,-1,33,true));
         rejects(()->WireCommands.light(4,2,5));
         rejects(()->WireCommands.scalar(0x80,0));          // weather is excluded

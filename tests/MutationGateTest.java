@@ -39,7 +39,8 @@ public final class MutationGateTest {
             // C5: charging (S, Q, H) and the Bluetooth lock screen (PIN, bond, proximity) are OEM-mapped; group M reaches neither.
             {both("Q2443ZZ9US7777777","24431"),A,A,A,A,A,A,A,A,A,A,A,A,A,EX},
             {both("Q2585ZZ9DE7777777","25851"),A,A,A,RR,A,A,A,A,A,A,A,A,A,EX},
-            {both("Q2504ZZ9US7777777","25041"),A,A,A,EX,NM,EX,EX,A,NM,NM,NM,NM,NM,EX},
+            // Group M's energy recovery is on/off: the fixture's level 60 reads as unknown there.
+            {both("Q2504ZZ9US7777777","25041"),A,A,A,EX,"VALUE_UNKNOWN",EX,EX,A,NM,NM,NM,NM,NM,EX},
             {advertised("39991"),A,A,NM,NM,NM,NM,NM,NM,NM,NM,NM,NM,NM,EX},
             {serial("Q2443ZZ9US7777777"),A,A,NI,NI,NI,NI,NI,NI,NI,NI,NI,NI,NI,EX},
             {both("Q2547ZZ9US7777777","25381"),A,A,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,IC,EX},

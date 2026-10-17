@@ -254,7 +254,8 @@ public final class CapabilityResolverTest {
             check(Arrays.equals(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9NL7777777",pid),s,parked()).values(),new int[]{0,30,60}),"No High in NL for "+pid);
             check(Arrays.equals(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9NE7777777",pid),s,parked()).values(),new int[]{0,30,60,90}),"NE is not NL for "+pid);
         }
-        check(decide("energy_recovery",m,s,parked()).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"M energy (binary) not mapped yet");
+        // Group M's energy recovery is on/off (C5): a level read back there is unknown.
+        check(decide("energy_recovery",m,s,parked()).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("energy_recovery",m,s,parked()).variant==ModelRegistry.OEM_ENERGY_BINARY,"M energy is binary");
         byte[] offNow=data.clone();offNow[5]=0;
         check(decide("energy_recovery",sGroup,status(offNow,SEEN),parked()).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Off read back on S is outside its domain");
         // Every OEM-group variant encodes the same wire bytes as the shared UT5 MAX encoders.

@@ -16,13 +16,15 @@ import java.util.Set;
  * Version 2 maps the UT5 MAX layer, the shared lock, and for identified OEM groups the OEM home
  * screen family (units, range estimate, clock, lights, turn sound, cruise, energy recovery).
  * Version 3 adds the OEM More-screen toggles and choices (traction control, assists, charging,
- * lock time, overspeed control, prompt tone, dual motor, acceleration, PIN and proximity). Every
+ * lock time, overspeed control, prompt tone, dual motor, acceleration, PIN and proximity).
+ * Version 4 adds the speed family (maximum speed tables, custom speed cap ranges, kick-start
+ * speed, group M's on/off energy recovery) with their riding-region rules. Every
  * other OEM-group key is "not mapped" until its rows are added. OEM-mapped rows are not tested by
  * Volt on those models. BleController and the UI gate every control on these decisions.
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=3;
+    public static final int VERSION=4;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -146,6 +148,43 @@ public final class ModelRegistry {
     static final FeatureVariant OEM_PIN=new FeatureVariant("pin.oem","pin",0x63,new int[0],new int[0],new String[0],"",0,0,1,0,255,0,FeatureVariant.Decode.EXACT,true,true,false,false,false);
     static final FeatureVariant OEM_PROXIMITY=new FeatureVariant("proximity_key.oem","proximity_key",0x61,new int[0],new int[]{0,1},OFF_ON,"",0,1,1,13,1,0,FeatureVariant.Decode.MASKED,true,true,false,false,true);
 
+    // OEM-group variants (C5 batch 2): the speed family. Choices are the official app's per-model tables; never probed.
+    static final FeatureVariant SPEED_25_32=maxSpeed("25_32",25,32);
+    static final FeatureVariant SPEED_25_50=maxSpeed("25_50",25,32,40,50);
+    static final FeatureVariant SPEED_25_50_45=maxSpeed("25_50_45",25,32,45,50);
+    static final FeatureVariant SPEED_25_60=maxSpeed("25_60",25,32,40,50,60);
+    static final FeatureVariant SPEED_25_70=maxSpeed("25_70",25,32,40,50,70);
+    static final FeatureVariant SPEED_25_40_STEP5=maxSpeed("25_40_step5",25,30,35,40);
+    static final FeatureVariant SPEED_25_50_STEP5=maxSpeed("25_50_step5",25,30,35,40,45,50);
+    static final FeatureVariant SPEED_25_65_STEP5=maxSpeed("25_65_step5",25,30,35,40,45,50,55,60,65);
+    static final FeatureVariant SPEED_25_45=maxSpeed("25_45",25,32,40,45);
+    /** Custom speed cap: Off (0) or km/h with the enable bit, readback offset 20 bit 7 + 7-bit km/h. */
+    static final FeatureVariant LIMIT_2782=speedLimit("radio",new int[]{8,15,25,32});
+    static final FeatureVariant LIMIT_8_16=speedLimit("8_16",range(8,16));
+    static final FeatureVariant LIMIT_8_20=speedLimit("8_20",range(8,20));
+    static final FeatureVariant LIMIT_8_25=speedLimit("8_25",range(8,25));
+    static final FeatureVariant LIMIT_8_32=speedLimit("8_32",range(8,32));
+    /** Kick-start speed: 0-5 km/h only in the OEM's USA bucket (not group M); 3-5 elsewhere. */
+    static final FeatureVariant START_0_5=startSpeed("0_5",range(0,5));
+    static final FeatureVariant START_3_5=startSpeed("3_5",range(3,5));
+    /** Group M's energy recovery is on/off (offset 5 == 1), not levels. */
+    static final FeatureVariant OEM_ENERGY_BINARY=oem("energy_recovery.binary","energy_recovery",0x53,new int[]{0,1},OFF_ON,5,true);
+
+    /** Maximum speed: OEM 2.1.9 shows the row only in its USA bucket, for these prefixes plus groups S, Q, H, K, L, B, C, D, O and G. */
+    static final String[] MAX_SPEED_ROW={"2509"};
+    /** OEM 2.1.9 choice tables (km/h) by prefix; anything else in the row gets 25/32/40/45. */
+    static final String[] MAX_25_32={"2611","2753","2612","2643","2754","2701"};
+    static final String[] MAX_25_40_STEP5={"2509","2657","2707","2745"};
+    /** These two need the full model ID: ending in 1 adds 45 and 50. */
+    static final String[] MAX_FIFTH_DIGIT={"2543","2799"};
+    static final String[] MAX_25_65_STEP5={"2449","2800"};
+    /** Custom speed cap: OEM 2.1.9 offers it for these prefixes (range by region) plus 2782 and group M. */
+    static final String[] SPEED_LIMIT_SEVEN={"2573","2634","2611","2753","2612","2643","2754"};
+    /** Kick-start speed: OEM 2.1.9 offers it for these prefixes plus groups S, Q, K, L, B, C, D, O and M. */
+    static final String[] START_SPEED={"2611","2753","2612","2643","2754","2573","2634","2314","2509","2543","2449","2623","2782"};
+    /** ...and for these (plus group G) only when the serial region is known and not DE. */
+    static final String[] START_SPEED_REGIONAL={"2657","2658","2707","2799","2800","2781"};
+
     /** OEM 2.1.9 never shows traction control for these (nor for the legacy group or group M). */
     static final String[] NO_TCS={"2573","2634","2314","2417","2422"};
     /** Long range: OEM 2.1.9 offers it for 2745 and group H, in RU/US or (with the scooter's flag at offset 35) these regions. */
@@ -163,6 +202,17 @@ public final class ModelRegistry {
     /** Eco/Turbo: OEM 2.1.9 offers it for these prefixes plus groups D and O (not group Q). */
     static final String[] ACCELERATION={"2345","2714","2509"};
 
+    private static FeatureVariant maxSpeed(String id,int... kmh){
+        return oemAt("maximum_speed."+id,"maximum_speed",0x6e,new int[]{1},kmh,kmhLabels(kmh,false),25,255,0,true);
+    }
+    private static FeatureVariant speedLimit(String id,int[] kmh){
+        int[] values=new int[kmh.length+1];System.arraycopy(kmh,0,values,1,kmh.length);
+        return new FeatureVariant("speed_limit."+id,"speed_limit",0x6b,new int[0],values,kmhLabels(values,true),"km/h",0,kmh[kmh.length-1],1,
+            20,127,0,FeatureVariant.Decode.CAP7,true,false,false,false,true);
+    }
+    private static FeatureVariant startSpeed(String id,int[] kmh){return oemAt("start_speed."+id,"start_speed",0x6a,new int[0],kmh,kmhLabels(kmh,false),19,255,0,true);}
+    private static int[] range(int from,int to){int[] out=new int[to-from+1];for(int i=0;i<out.length;i++)out[i]=from+i;return out;}
+    private static String[] kmhLabels(int[] kmh,boolean zeroOff){String[] out=new String[kmh.length];for(int i=0;i<kmh.length;i++)out[i]=zeroOff&&kmh[i]==0?"Off":kmh[i]+" km/h";return out;}
     private static FeatureVariant oem(String id,String feature,int cmd,int[] values,String[] labels,int offset,boolean parked){
         return oemAt(id,feature,cmd,new int[0],values,labels,offset,255,0,parked);
     }
@@ -276,7 +326,7 @@ public final class ModelRegistry {
                 return new Rule(rule.support,CapabilityResolver.Reason.REGION_RULE,rule.evidence,rule.oemNote,rule.preconditions,rule.variant);
             }
             case "energy_recovery": {
-                if(m)return null; // binary variant: not mapped yet
+                if(m)return oemMapped(OEM_ENERGY_BINARY,"",true);
                 boolean off=any(d,ENERGY_OFF)||any(d,G)||any(d,H)||any(d,C)||any(d,B)||any(d,O)||any(d,K)||any(d,L);
                 boolean high=!(any(d,ENERGY_NO_HIGH_NL)&&(d.region==null||"NL".equals(d.oemArea())));
                 return oemMapped(off&&high?OEM_ENERGY:high?OEM_ENERGY_NO_OFF:off?OEM_ENERGY_NO_HIGH:OEM_ENERGY_NO_OFF_NO_HIGH,"",true);
@@ -327,8 +377,60 @@ public final class ModelRegistry {
                 // OEM 2.1.9 blocks its Bluetooth lock screen for K and C up to meter firmware 2.0.0.4.
                 return any(d,K)||any(d,C)?firmware(rule,meterAtMost(d,"2.0.0.4")):rule;
             }
+            // C5 batch 2: the speed family. Riding-region rules are enforced.
+            case "maximum_speed": {
+                if(!any(d,MAX_SPEED_ROW)&&!any(d,S)&&!any(d,Q)&&!any(d,H)&&!any(d,K)&&!any(d,L)&&!any(d,B)&&!any(d,C)&&!any(d,D)&&!any(d,O)&&!any(d,G))return excluded();
+                FeatureVariant table=maxSpeedTable(d);
+                if(table==null)return gated(oemMapped(SPEED_25_40_STEP5,"",false),CapabilityResolver.Reason.FULL_PID_NEEDED,CapabilityResolver.Precondition.FULL_PID);
+                Rule rule=oemMapped(table,any(d,"2585")?"OEM 2.1.9 asks before speeds above 32 km/h":"",false);
+                // OEM 2.1.9 blocks maximum speed for K and C below meter firmware 2.0.1.2.
+                if(any(d,K)||any(d,C)){rule=firmware(rule,meterBelow(d,"2.0.1.2"));if(rule.reason!=CapabilityResolver.Reason.NONE)return rule;}
+                // The row exists only in the OEM's USA bucket (its EU + server-location branch fails closed offline).
+                return "USA".equals(d.sku())?rule:gated(new Rule(rule.support,rule.reason,rule.evidence,"OEM 2.1.9 offers this only for US-region models",rule.preconditions,rule.variant),
+                    CapabilityResolver.Reason.REGION_RULE,null);
+            }
+            case "speed_limit": {
+                String area=d.oemArea();
+                if(any(d,"2782"))return oemMapped(LIMIT_2782,"",false);
+                if(any(d,"2506")&&("CN".equals(area)||"US".equals(area)||"RU".equals(area)))return oemMapped(LIMIT_8_20,"",false);
+                if(any(d,SPEED_LIMIT_SEVEN))return oemMapped("EU".equals(area)?LIMIT_8_25:"RU".equals(area)?LIMIT_8_32:LIMIT_8_20,"",false);
+                return m?oemMapped(LIMIT_8_16,"",false):excluded();
+            }
+            case "start_speed": {
+                boolean always=m||any(d,START_SPEED)||any(d,S)||any(d,Q)||any(d,K)||any(d,L)||any(d,B)||any(d,C)||any(d,D)||any(d,O);
+                boolean regional=any(d,G)||any(d,START_SPEED_REGIONAL);
+                if(!always&&!regional)return excluded();
+                Rule rule=oemMapped("USA".equals(d.sku())&&!m?START_0_5:START_3_5,"",false);
+                if(any(d,"2314")){
+                    // OEM 2.1.9 gates 2314 by the fifth digit: 1 below meter 0.0.0.8, 2 below meter 2.0.0.9.
+                    Tri one=endsWith(d,'1');
+                    if(one==Tri.UNKNOWN)return gated(rule,CapabilityResolver.Reason.FULL_PID_NEEDED,CapabilityResolver.Precondition.FULL_PID);
+                    if(one==Tri.YES)return firmware(rule,meterBelow(d,"0.0.0.8"));
+                    if(endsWith(d,'2')==Tri.YES)return firmware(rule,meterBelow(d,"2.0.0.9"));
+                    return rule;
+                }
+                // OEM 2.1.9 blocks it for K and C below meter firmware 2.0.1.2.
+                if(any(d,K)||any(d,C))return firmware(rule,meterBelow(d,"2.0.1.2"));
+                String area=d.oemArea();
+                if(!always&&(area==null||"DE".equals(area)))
+                    return gated(new Rule(rule.support,rule.reason,rule.evidence,"OEM 2.1.9 hides this without a serial region or in DE",rule.preconditions,rule.variant),CapabilityResolver.Reason.REGION_RULE,null);
+                return rule;
+            }
             default: return null;
         }
+    }
+    /** OEM 2.1.9's maximum-speed choices for this model ID, or null when the fifth digit decides and is unknown. */
+    static FeatureVariant maxSpeedTable(DeviceDescriptor d){
+        if(any(d,C)||any(d,B)||any(d,E)||any(d,MAX_25_32))return SPEED_25_32;
+        if(any(d,"2416"))return SPEED_25_50;
+        if(any(d,"2443","2529"))return SPEED_25_50_45;
+        if(any(d,"2547"))return SPEED_25_60;
+        if(any(d,"2585"))return SPEED_25_70;
+        if(any(d,MAX_25_40_STEP5))return SPEED_25_40_STEP5;
+        if(any(d,MAX_FIFTH_DIGIT)){Tri one=endsWith(d,'1');return one==Tri.UNKNOWN?null:one==Tri.YES?SPEED_25_50_STEP5:SPEED_25_40_STEP5;}
+        if(any(d,"2658"))return SPEED_25_50_STEP5;
+        if(any(d,MAX_25_65_STEP5))return SPEED_25_65_STEP5;
+        return SPEED_25_45;
     }
     /** OEM 2.1.9 offers no More screen for the legacy group (nor an empty model ID). */
     private static boolean noMoreScreen(DeviceDescriptor d){return d.rulePid().isEmpty()||any(d,LEGACY_T);}
@@ -418,12 +520,16 @@ public final class ModelRegistry {
      * layer, where the official app asks first; the UT5 MAX keeps today's direct controls.
      */
     private static final String ASKS="The official app asks before this change. Volt has not tested it on this model.";
+    private static final String SHOWS="The official app shows a caution for this change. Volt has not tested it on this model.";
     public static String caution(CapabilityResolver.Decision d,int value){
         if(d==null||d.layer==Layer.UT5_MAX||d.variant==null||d.evidence!=CapabilityResolver.Evidence.OEM_MAPPED)return null;
         switch(d.feature){
             case "traction_control": return value==0?"Turn off traction control? "+ASKS:null;
             case "low_power": return value==0?"Turn off Low Battery Mode? "+ASKS:null;
             case "dual_drive": return value==0?"Switch to single motor? "+ASKS:null;
+            case "energy_recovery": return d.variant==OEM_ENERGY_BINARY&&value==0?"Turn off energy recovery? "+SHOWS:null;
+            case "start_speed": return value<3?"Kick-start speed below 3 km/h. "+SHOWS:null;
+            case "maximum_speed": return value>32&&d.variant==SPEED_25_70?"Above 32 km/h: check the rules where you ride. "+ASKS:null;
             default: return null;
         }
     }

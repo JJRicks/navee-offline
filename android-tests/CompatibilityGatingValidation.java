@@ -142,10 +142,13 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                 // A Lab control on the UT5 MAX has a row only where another model maps it normally (not Lab).
                 boolean ordinary = decision.support == CapabilityResolver.Support.KNOWN_ENCODING && decision.variant != null && !decision.variant.lab
                         && decision.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
-                boolean known = feature.key.equals("range_algorithm") || (feature.experimental ? ordinary : ble.controlOffered(feature.key));
-                if (!feature.experimental) require(known == (feature.key.equals("range_algorithm") || decision.support == CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated models always have identity evidence");
+                // Maximum speed: the UT5 MAX keeps its top speed card; another model's table is an ordinary row.
+                boolean topSpeedRow = feature.key.equals("maximum_speed");
+                boolean oemTable = ble.controlOffered(feature.key) && decision.variant != null && decision.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
+                boolean known = feature.key.equals("range_algorithm") || (feature.experimental ? ordinary : topSpeedRow ? oemTable : ble.controlOffered(feature.key));
+                if (!feature.experimental && !topSpeedRow) require(known == (feature.key.equals("range_algorithm") || decision.support == CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated models always have identity evidence");
                 require((card.getVisibility() == View.VISIBLE) == (known && onPage), label + ": row " + feature.key + " visibility does not follow its decision");
-                if (ut5) require(known != feature.experimental, "UT5 MAX row set changed: " + feature.key);
+                if (ut5) require(known != (feature.experimental || topSpeedRow), "UT5 MAX row set changed: " + feature.key);
                 // "Untested here": every OEM-mapped control on another model, never on the UT5 MAX.
                 String sub = String.valueOf(((TextView)field(field(row, "row"), "sub")).getText());
                 if (ut5 || feature.key.equals("range_algorithm")) require(!sub.contains("Untested here"), label + ": unexpected Untested caption on " + feature.key);
@@ -167,7 +170,10 @@ public final class CompatibilityGatingValidation extends Instrumentation {
             CapabilityResolver.Decision clock = ble.decision("clock_sync");
             require(((View)field(screen, "clockButton")).isEnabled() == (clock.available() || clock.blockedByRide()), label + ": clock row enabled state");
             View topSpeed = (View)field(field(screen, "topSpeed"), "card");
-            require((topSpeed.getVisibility() == View.VISIBLE) == ble.controlOffered("maximum_speed"), label + ": top speed card");
+            CapabilityResolver.Decision speed = ble.decision("maximum_speed");
+            boolean card = ble.controlOffered("maximum_speed") && (speed.variant == null || speed.variant.decode == FeatureVariant.Decode.UT5_FEATURE);
+            require((topSpeed.getVisibility() == View.VISIBLE) == card, label + ": top speed card");
+            if (ut5) require(card, "UT5 MAX lost its top speed card");
             // Identify sends nothing in simulation and says so.
             ble.identifyModel();
             require(ble.message().contains("unavailable in simulation") && ble.state() == BleController.State.READY, label + ": Identify in simulation: " + ble.message());

@@ -343,7 +343,8 @@ public final class ScooterCommands {
         switch(cmd) {
             case 0x51: case 0x52: case 0x54: case 0x55: case 0x57: case 0x5f: case 0x60: case 0x61: case 0x82:
                 return d.length==1 && binary(a);
-            case 0x53: return d.length==1 && (a==0||a==30||a==60||a==90);
+            // 1 is group M's on/off energy recovery (OEM-mapped); the UT5 MAX catalogue still offers only 0/30/60/90.
+            case 0x53: return d.length==1 && (a==0||a==1||a==30||a==60||a==90);
             case 0x56: return d.length==1 && between(a,0,4);
             case 0x58: return d.length==1 && (a==3||a==5);
             case 0x63:
@@ -362,7 +363,8 @@ public final class ScooterCommands {
                 int c=d[2]&255;
                 return (b==0 && binary(c)) || (b==1 && between(c,0,2)) || ((b==2||b==3) && between(c,0,1));
             case 0x6e:
-                return d.length==2 && ((a==1 && (b==25||b==32||b==40||b==50))
+                // Selector 1: the union of the OEM per-model maximum-speed tables; each model offers only its own.
+                return d.length==2 && ((a==1 && (b==25||b==30||b==32||b==35||b==40||b==45||b==50||b==55||b==60||b==65||b==70))
                     || (a==2 && binary(b)) || (a==3 && (b==0 || (b>=128 && between(b&127,5,20)))));
             case 0x6f:
                 if(d.length==5) return (a==3||a==6) && (d[1]!=0||d[2]!=0||d[3]!=0||d[4]!=0);

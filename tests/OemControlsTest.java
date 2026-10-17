@@ -13,6 +13,7 @@ public final class OemControlsTest {
     private static final String A="NONE";
     public static void main(String[] args) throws Exception {
         batch1Tables(); batch1Firmware(); batch1Region(); batch1Fields(); batch1Frames(); batch1Rules();
+        batch2MaximumSpeed(); batch2SpeedLimit(); batch2StartSpeed(); batch2Energy(); batch2Frames();
         System.out.println("OemControls tests passed: "+assertions+" assertions");
     }
 
@@ -268,6 +269,178 @@ public final class OemControlsTest {
         String[][] parkedRows={{"traction_control","25471"},{"low_power","24431"},{"charge_limit","24431"},{"lock_expiry","25851"},{"acceleration","26191"},{"prompt_tone","25851"},{"pin","24431"}};
         for(String[] r:parkedRows)check(CapabilityResolver.decide(r[0],model(r[1]),status(d),rt).reason==CapabilityResolver.Reason.MOVING,"Parked only "+r[0]);
         check(ModelRegistry.VERSION>=3,"Registry version records C5");
+    }
+
+
+    static void values(String key,DeviceDescriptor d,byte[] data,int[] expected){
+        CapabilityResolver.Decision decision=decide(key,d,data);
+        check(Arrays.equals(decision.values(),expected),key+" "+d+" values "+Arrays.toString(decision.values())+" expected "+Arrays.toString(expected));
+    }
+    static int[] ints(int... v){return v;}
+    static int[] span(int from,int to){int[] out=new int[to-from+1];for(int i=0;i<out.length;i++)out[i]=from+i;return out;}
+    static int[] off(int[] kmh){int[] out=new int[kmh.length+1];System.arraycopy(kmh,0,out,1,kmh.length);return out;}
+
+    /** Maximum speed: the OEM table per prefix (never probed), the USA-bucket row rule, K/C firmware and the fifth digit. */
+    private static void batch2MaximumSpeed() {
+        byte[] d=data();d[25]=25; // 25 km/h is in every table
+        Object[][] tables={{"24021",ints(25,32)},{"27041",ints(25,32)},{"24421",ints(25,32)},{"25191",ints(25,32)},{"27011",ints(25,32)},{"24169",ints(25,32,40,50)},
+            {"24431",ints(25,32,45,50)},{"25291",ints(25,32,45,50)},{"25471",ints(25,32,40,50,60)},{"25851",ints(25,32,40,50,70)},{"25091",ints(25,30,35,40)},
+            {"26571",ints(25,30,35,40)},{"27071",ints(25,30,35,40)},{"27451",ints(25,30,35,40)},{"25431",ints(25,30,35,40,45,50)},{"25432",ints(25,30,35,40)},
+            {"27991",ints(25,30,35,40,45,50)},{"27993",ints(25,30,35,40)},{"26581",ints(25,30,35,40,45,50)},{"24491",ints(25,30,35,40,45,50,55,60,65)},
+            {"28001",ints(25,30,35,40,45,50,55,60,65)},{"24411",ints(25,32,40,45)},{"25171",ints(25,32,40,45)},{"25451",ints(25,32,40,45)},{"25661",ints(25,32,40,45)},
+            {"26191",ints(25,32,40,45)},{"26461",ints(25,32,40,45)},{"27141",ints(25,32,40,45)},{"24011",ints(25,32,40,45)}};
+        for(Object[] t:tables){
+            String pid=(String)t[0];int[] expected=(int[])t[1];
+            boolean kc=ModelRegistry.any(model(pid),ModelRegistry.K)||ModelRegistry.any(model(pid),ModelRegistry.C);
+            DeviceDescriptor dev=kc?firmware(pid,"2.0.1.2"):model(pid);
+            check(reason("maximum_speed",dev,d).equals(A),"Maximum speed on "+pid+" "+decide("maximum_speed",dev,d));
+            values("maximum_speed",dev,d,expected);
+            for(int kmh=0;kmh<=80;kmh++){boolean offered=false;for(int v:expected)offered|=v==kmh;check(decide("maximum_speed",dev,d).allows(kmh)==offered,"Only the OEM table "+pid+" "+kmh);}
+        }
+        check(decide("maximum_speed",model("2543"),d).reason==CapabilityResolver.Reason.FULL_PID_NEEDED&&decide("maximum_speed",model("2799"),d).reason==CapabilityResolver.Reason.FULL_PID_NEEDED,"Fifth digit needed");
+        for(String pid:new String[]{"28081","26111","27531","25731","26341","23141","24171","25041","25061","22131","26231","27821"})
+            check(reason("maximum_speed",model(pid),d).equals("MODEL_EXCLUDED"),"No maximum speed row on "+pid);
+        // Riding region rule: only the OEM's USA bucket (US, CN, RU) shows the row.
+        String[][] regions={{"US",A},{"CN",A},{"RU",A},{"EU","REGION_RULE"},{"DE","REGION_RULE"},{"IT","REGION_RULE"},{"NE","REGION_RULE"},{"NL","REGION_RULE"},{"ZZ","REGION_RULE"},{"us","REGION_RULE"}};
+        for(String[] r:regions){CapabilityResolver.Decision x=decide("maximum_speed",model("24431",r[0]),d);
+            check((x.available()?A:x.reason.name()).equals(r[1])&&x.support==CapabilityResolver.Support.KNOWN_ENCODING,"Max speed region "+r[0]+" "+x);}
+        check(decide("maximum_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).reason==CapabilityResolver.Reason.REGION_RULE,"No region: EUR bucket");
+        check(decide("maximum_speed",model("26201","EU"),d).reason==CapabilityResolver.Reason.REGION_RULE,"2620's EU server branch fails closed");
+        // K and C: blocked below meter 2.0.1.2; equal passes; unknown fails closed; lexicographic order.
+        String[][] fw={{"2.0.1.2",A},{"2.0.1.1","FIRMWARE_OLD"},{"2.0.0.9","FIRMWARE_OLD"},{"2.0.2.0",A},{"2.0.10.0",A},{null,"FIRMWARE_UNKNOWN"}};
+        for(String pid:new String[]{"24011","23451","27141","24021","24031","24181","27041"})for(String[] f:fw){
+            CapabilityResolver.Decision x=decide("maximum_speed",firmware(pid,f[0]),d);
+            check((x.available()?A:x.reason.name()).equals(f[1]),"Max speed "+pid+" meter "+f[0]+" "+x);
+        }
+        check(decide("maximum_speed",model("24431"),d).preconditions.contains(CapabilityResolver.Precondition.FIRMWARE_READ)==false,"No firmware gate for S");
+        // Readback offset 25 exact: absent, unknown, a value outside this table.
+        check(decide("maximum_speed",model("24431"),Arrays.copyOf(d,25)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset 25");
+        byte[] zero=d.clone();zero[25]=0;check(decide("maximum_speed",model("24431"),zero).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"0 is the OEM's unset value: unknown, not a speed");
+        byte[] forty=d.clone();forty[25]=40;check(decide("maximum_speed",model("24431"),forty).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("maximum_speed",model("24169"),forty).current()==40,"40 is outside the 2443 table");
+        // 2585 above 32 asks first (the official app's US prompt); other models and lower speeds do not.
+        check(ModelRegistry.caution(decide("maximum_speed",model("25851"),d),40)!=null&&ModelRegistry.caution(decide("maximum_speed",model("25851"),d),32)==null
+            &&ModelRegistry.caution(decide("maximum_speed",model("25471"),d),60)==null&&!decide("maximum_speed",model("25851"),d).oemNote.isEmpty(),"2585 prompt above 32 km/h");
+        // The UT5 MAX keeps its four choices; the wider allowlist never reaches it.
+        CapabilityResolver.Decision ut5=decide("maximum_speed",ModelRegistryTest.serial("Q2538ZZ9US7777777"),d);
+        check(Arrays.equals(ut5.values(),ints(25,32,40,50))&&!ut5.allows(60)&&!ut5.allows(45)&&ut5.variant.id.equals("maximum_speed.ut5"),"UT5 MAX maximum speed unchanged");
+    }
+
+    /** Custom speed cap: per-model ranges (region decides the range, not the row), Off as 0, 7-bit km/h with the enable bit. */
+    private static void batch2SpeedLimit() {
+        byte[] d=data();d[20]=(byte)0x88; // on, 8 km/h: inside every range
+        Object[][] rows={{"27821","US",off(ints(8,15,25,32))},{"27821","DE",off(ints(8,15,25,32))},{"25061","US",off(span(8,20))},{"25061","CN",off(span(8,20))},
+            {"25061","RU",off(span(8,20))},{"25061","DE",off(span(8,16))},{"25041","US",off(span(8,16))},{"25051","RU",off(span(8,16))},
+            {"25731","EU",off(span(8,25))},{"26341","RU",off(span(8,32))},{"26111","DE",off(span(8,20))},{"27531","US",off(span(8,20))},{"26121","eu",off(span(8,20))},
+            {"26431","ZZ",off(span(8,20))},{"27541","EU",off(span(8,25))}};
+        for(Object[] r:rows){DeviceDescriptor dev=model((String)r[0],(String)r[1]);check(reason("speed_limit",dev,d).equals(A),"Speed cap "+r[0]+" "+r[1]);values("speed_limit",dev,d,(int[])r[2]);}
+        check(Arrays.equals(decide("speed_limit",ModelRegistryTest.both("Q2573ZZ9US777777","25731"),d).values(),off(span(8,20))),"No region: 8-20");
+        for(String pid:new String[]{"25471","24431","27811","26231","24011","28081"})check(reason("speed_limit",model(pid),d).equals("MODEL_EXCLUDED"),"No speed cap on "+pid);
+        CapabilityResolver.Decision cap=decide("speed_limit",model("27821"),d);
+        check(cap.current()==8&&cap.label(0).equals("Off")&&cap.allows(0)&&!cap.allows(9)&&!cap.allows(33),"2782 radio choices");
+        byte[] offNow=d.clone();offNow[20]=0x05;check(decide("speed_limit",model("25731","EU"),offNow).current()==0,"Enable bit clear reads as Off");
+        byte[] seven=d.clone();seven[20]=(byte)0x87;check(decide("speed_limit",model("25731","EU"),seven).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"7 km/h is outside every range");
+        byte[] high=d.clone();high[20]=(byte)(0x80|30);
+        check(decide("speed_limit",model("25731","EU"),high).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("speed_limit",model("26341","RU"),high).current()==30,"Range follows region");
+        check(decide("speed_limit",model("25731","EU"),Arrays.copyOf(d,20)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset 20");
+        CapabilityResolver.Decision ut5=decide("speed_limit",ModelRegistryTest.serial("Q2538ZZ9US7777777"),d);
+        check(ut5.variant.lab&&ut5.variant.id.equals("speed_limit.ut5"),"UT5 MAX keeps the Lab cap");
+    }
+
+    /** Kick-start speed: 0-5 only in the USA bucket (not M), else 3-5; regional members need a known region that is not DE; firmware gates. */
+    private static void batch2StartSpeed() {
+        byte[] d=data();d[19]=3;
+        Object[][] rows={{"24431","US",span(0,5)},{"24431","CN",span(0,5)},{"24431","RU",span(0,5)},{"24431","EU",span(3,5)},{"24431","DE",span(3,5)},{"24431","ZZ",span(3,5)},
+            {"25471","US",span(0,5)},{"24411","US",span(0,5)},{"24421","IT",span(3,5)},{"25451","US",span(0,5)},{"26191","NE",span(3,5)},{"26111","US",span(0,5)},
+            {"25731","EU",span(3,5)},{"25091","US",span(0,5)},{"25431","US",span(0,5)},{"24491","DE",span(3,5)},{"26231","US",span(0,5)},{"27821","US",span(0,5)},
+            {"25041","US",span(3,5)},{"25061","RU",span(3,5)},{"27011","US",span(0,5)},{"27451","IT",span(3,5)},{"27811","ZZ",span(3,5)},{"26571","US",span(0,5)},
+            {"26581","EU",span(3,5)},{"27071","UK",span(3,5)},{"27991","US",span(0,5)},{"28001","SE",span(3,5)}};
+        for(Object[] r:rows){DeviceDescriptor dev=model((String)r[0],(String)r[1]);check(reason("start_speed",dev,d).equals(A),"Start speed "+r[0]+" "+r[1]+" "+decide("start_speed",dev,d));values("start_speed",dev,d,(int[])r[2]);}
+        // Regional members: no region or DE hides this riding control.
+        for(String pid:new String[]{"27011","27451","27811","26571","26581","27071","27991","28001"}){
+            check(reason("start_speed",model(pid,"DE"),d).equals("REGION_RULE"),"DE hides start speed on "+pid);
+            DeviceDescriptor invalid=ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9US777777",pid);
+            check(invalid.region==null&&reason("start_speed",invalid,d).equals("REGION_RULE"),"No region hides start speed on "+pid);
+        }
+        check(reason("start_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).equals(A)&&Arrays.equals(decide("start_speed",ModelRegistryTest.both("Q2443ZZ9US777777","24431"),d).values(),span(3,5)),"Unconditional members keep it without a region (3-5)");
+        for(String pid:new String[]{"28081","24171","24221","22131","24361"})check(reason("start_speed",model(pid),d).equals("MODEL_EXCLUDED"),"No start speed on "+pid);
+        // Firmware: K/C below 2.0.1.2; 2314 by fifth digit (1: below 0.0.0.8; 2: below 2.0.0.9; others: none).
+        Object[][] fw={{"24011","2.0.1.2",A},{"24011","2.0.1.1","FIRMWARE_OLD"},{"24011",null,"FIRMWARE_UNKNOWN"},{"24181","2.0.1.3",A},
+            {"23141","0.0.0.8",A},{"23141","0.0.0.7","FIRMWARE_OLD"},{"23141",null,"FIRMWARE_UNKNOWN"},{"23142","2.0.0.9",A},{"23142","2.0.0.8","FIRMWARE_OLD"},
+            {"23142","0.0.0.8","FIRMWARE_OLD"},{"23142",null,"FIRMWARE_UNKNOWN"},{"23143",null,A}};
+        for(Object[] f:fw){CapabilityResolver.Decision x=decide("start_speed",firmware((String)f[0],(String)f[1]),d);
+            check((x.available()?A:x.reason.name()).equals(f[2]),"Start speed "+f[0]+" meter "+f[1]+" "+x);}
+        check(reason("start_speed",model("2314"),d).equals("FULL_PID_NEEDED"),"2314 needs the fifth digit");
+        // Readback offset 19 exact; 0-2 show the official app's caution; 3-5 on a 3-5 model read 0 as unknown.
+        check(decide("start_speed",model("24431"),Arrays.copyOf(d,19)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset 19");
+        byte[] zero=d.clone();zero[19]=0;check(decide("start_speed",model("24431","EU"),zero).reason==CapabilityResolver.Reason.VALUE_UNKNOWN&&decide("start_speed",model("24431"),zero).current()==0,"0 is outside 3-5");
+        byte[] six=d.clone();six[19]=6;check(decide("start_speed",model("24431"),six).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"6 is outside every domain");
+        for(int v=0;v<=5;v++)check((ModelRegistry.caution(decide("start_speed",model("24431"),d),v)!=null)==(v<3),"Caution below 3 km/h: "+v);
+        CapabilityResolver.Decision ut5=decide("start_speed",ModelRegistryTest.serial("Q2538ZZ9DE7777777"),d);
+        check(ut5.variant.id.equals("start_speed.ut5")&&ut5.allows(0)&&ut5.allows(5)&&ModelRegistry.caution(ut5,0)==null,"Every UT5 MAX keeps 0-5 and no prompt");
+    }
+
+    /** Group M's energy recovery: on/off at offset 5 (== 1), unlocked and parked; turning it off shows the official app's caution. */
+    private static void batch2Energy() {
+        byte[] on=data();on[5]=1;byte[] offNow=data();offNow[5]=0;
+        for(String pid:new String[]{"25041","25051","25061"}){
+            CapabilityResolver.Decision x=decide("energy_recovery",model(pid),on);
+            check(x.available()&&x.variant==ModelRegistry.OEM_ENERGY_BINARY&&x.current()==1&&Arrays.equals(x.values(),ints(0,1))&&x.label(1).equals("On"),"M energy on/off "+pid);
+            check(decide("energy_recovery",model(pid),offNow).current()==0&&decide("energy_recovery",model(pid),data()).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Levels read as unknown on "+pid);
+            byte[] locked=on.clone();locked[2]=1;check(decide("energy_recovery",model(pid),locked).reason==CapabilityResolver.Reason.LOCKED,"Needs the scooter unlocked");
+            check(decide("energy_recovery",model(pid),Arrays.copyOf(on,5)).reason==CapabilityResolver.Reason.FIELD_ABSENT,"Truncated before offset 5");
+            check(ModelRegistry.caution(x,0)!=null&&ModelRegistry.caution(x,1)==null,"Off shows a caution");
+        }
+        check(!decide("energy_recovery",model("24431"),on).allows(1)&&!decide("energy_recovery",ModelRegistryTest.serial("Q2538ZZ9US7777777"),on).allows(1),"Only group M offers 1");
+        check(ModelRegistry.caution(decide("energy_recovery",model("25851"),data()),0)==null,"Levels need no caution");
+    }
+
+    /** Frozen bytes for the speed family: every table value, the cap's Off/enable forms, start speeds and M energy. */
+    private static void batch2Frames() throws Exception {
+        String[][] frames={
+            {"0x6e","25","55aa006e02011989fefd"},
+            {"0x6e","30","55aa006e02011e8efefd"},
+            {"0x6e","32","55aa006e02012090fefd"},
+            {"0x6e","35","55aa006e02012393fefd"},
+            {"0x6e","40","55aa006e02012898fefd"},
+            {"0x6e","45","55aa006e02012d9dfefd"},
+            {"0x6e","50","55aa006e020132a2fefd"},
+            {"0x6e","55","55aa006e020137a7fefd"},
+            {"0x6e","60","55aa006e02013cacfefd"},
+            {"0x6e","65","55aa006e020141b1fefd"},
+            {"0x6e","70","55aa006e020146b6fefd"},
+            {"0x6b","0","55aa006b01006bfefd"},
+            {"0x6b","8","55aa006b0188f3fefd"},
+            {"0x6b","15","55aa006b018ffafefd"},
+            {"0x6b","16","55aa006b0190fbfefd"},
+            {"0x6b","20","55aa006b0194fffefd"},
+            {"0x6b","25","55aa006b019904fefd"},
+            {"0x6b","32","55aa006b01a00bfefd"},
+            {"0x6a","0","55aa006a01006afefd"},
+            {"0x6a","1","55aa006a01016bfefd"},
+            {"0x6a","2","55aa006a01026cfefd"},
+            {"0x6a","3","55aa006a01036dfefd"},
+            {"0x6a","4","55aa006a01046efefd"},
+            {"0x6a","5","55aa006a01056ffefd"},
+            {"0x53","0","55aa0053010053fefd"},
+            {"0x53","1","55aa0053010154fefd"},
+        };
+        java.util.Map<String,String> hex=new java.util.HashMap<>();for(String[] f:frames)hex.put(f[0]+"/"+f[1],f[2]);
+        for(String name:new String[]{"SPEED_25_32","SPEED_25_50","SPEED_25_50_45","SPEED_25_60","SPEED_25_70","SPEED_25_40_STEP5","SPEED_25_50_STEP5","SPEED_25_65_STEP5","SPEED_25_45",
+                "LIMIT_2782","LIMIT_8_16","LIMIT_8_20","LIMIT_8_25","LIMIT_8_32","START_0_5","START_3_5","OEM_ENERGY_BINARY"}){
+            FeatureVariant v=(FeatureVariant)ModelRegistry.class.getDeclaredField(name).get(null);
+            for(int value:v.values){
+                String expected=hex.get(String.format("0x%02x",v.cmd)+"/"+value);
+                if(expected!=null)check(Protocol.hex(v.encode(value)).equals(expected),"Frame "+v.id+"="+value);
+                else check(Protocol.hex(v.encode(value)).startsWith(String.format("55aa00%02x",v.cmd)),"Frame shape "+v.id+"="+value);
+                if(ScooterCommands.find(v.feature).allows(value))check(Arrays.equals(v.encode(value),ScooterCommands.set(v.feature,value)),"Same wire as the UT5 MAX "+v.id+"="+value);
+            }
+            for(int value=-1;value<=256;value++)if(!v.allows(value)){boolean refused=false;try{v.encode(value);}catch(IllegalArgumentException expected){refused=true;}check(refused,"Never encoded "+v.id+"="+value);}
+        }
+        int covered=0;for(String[] f:frames)for(String name:new String[]{"SPEED_25_70","SPEED_25_65_STEP5","LIMIT_8_32","START_0_5","OEM_ENERGY_BINARY"}){
+            FeatureVariant v=(FeatureVariant)ModelRegistry.class.getDeclaredField(name).get(null);
+            if(String.format("0x%02x",v.cmd).equals(f[0])&&v.allows(Integer.parseInt(f[1]))){check(Protocol.hex(v.encode(Integer.parseInt(f[1]))).equals(f[2]),"Fixture "+f[0]+" "+f[1]);covered++;}
+        }
+        check(covered>=frames.length,"Every frozen frame is produced by a variant");
     }
 
     static void check(boolean condition,String message){assertions++;if(!condition)throw new AssertionError(message);}

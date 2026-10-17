@@ -1328,9 +1328,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             for(String key:priority)ordered.add(ScooterCommands.find(key));
             for(ScooterCommands.Feature f:ScooterCommands.catalog())if(!java.util.Arrays.asList(priority).contains(f.key))ordered.add(f);
             for(ScooterCommands.Feature f:ordered){
-                // The top speed card replaces maximum_speed; lock, PIN and proximity stay out of this list. Lab
-                // (experimental) controls get a row that shows only where another model maps them normally.
-                if(f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key")||f.key.equals("maximum_speed"))continue;
+                // Lock, PIN and proximity stay out of this list. Lab (experimental) controls get a row that shows only
+                // where another model maps them normally; maximum_speed's row replaces the top speed card the same way.
+                if(f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key"))continue;
                 ControlRow control=new ControlRow(f);rows.add(control);addRow(groupOf(f),control.card);
             }
             // Lights page: a read-only first row says the front headlight is switched on the scooter itself.
@@ -1384,14 +1384,14 @@ public final class MainActivity extends Activity implements ScreenHost {
         private void applyFilter(){
             String needle=normalize(query);boolean searching=!needle.isEmpty();int count=0;
             java.util.HashSet<String> visible=new java.util.HashSet<>();
-            for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=offered(row.feature.key)&&(searching?row.haystack.contains(needle):onPage(group));row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
+            for(ControlRow row:rows){String group=groupOf(row.feature);boolean match=rowOffered(row.feature.key)&&(searching?row.haystack.contains(needle):onPage(group));row.card.setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(group);}}
             boolean zones=false;for(ControlRow row:rows)zones|=(row.feature.key.startsWith("line_")||row.feature.key.startsWith("star_"))&&offered(row.feature.key);
             for(Map.Entry<View,String[]> e:extras.entrySet()){
                 String[] metadata=e.getValue();
                 boolean match=e.getKey()==zonesRow&&(lights||!zones)||e.getKey()==clockLine.card&&!offered("clock_sync")||e.getKey()==headlightRow&&!lights&&!searching?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
                 e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}
             }
-            boolean speed=offered("maximum_speed")&&(searching?TOP_SPEED_WORDS.contains(needle):!lights);
+            boolean speed=topSpeedCard()&&(searching?TOP_SPEED_WORDS.contains(needle):!lights);
             topSpeed.card.setVisibility(speed?View.VISIBLE:View.GONE);if(speed)count++;
             for(Map.Entry<String,LinearLayout> e:sections.entrySet()){
                 e.getValue().setVisibility(visible.contains(e.getKey())?View.VISIBLE:View.GONE);
@@ -1412,6 +1412,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(!key.equals("clock_sync")&&ScooterCommands.find(key).experimental)return ordinaryOemRow(key);
             return ble==null||key.equals("range_algorithm")||ble.controlOffered(key);
         }
+        /** The UT5 MAX top speed card (four fixed choices); another model's maximum speed table is an ordinary row. */
+        private boolean topSpeedCard(){return offered("maximum_speed")&&oemVariant("maximum_speed")==null;}
+        private boolean rowOffered(String key){return key.equals("maximum_speed")?offered(key)&&oemVariant(key)!=null:offered(key);}
         private void clearSearch(){
             if(search.getText().length()>0)search.setText("");search.clearFocus();
             android.view.inputmethod.InputMethodManager keyboard=getSystemService(android.view.inputmethod.InputMethodManager.class);
@@ -1447,7 +1450,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             readOnlyBanner.setVisibility(ble!=null&&ble.limitedModel()?View.VISIBLE:View.GONE);
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // Rows follow the model's decisions; re-filter when the set of mapped controls changes.
-            StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(offered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(offered("maximum_speed")?'1':'0');
+            StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(rowOffered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(topSpeedCard()?'1':'0');
             if(!offered.toString().equals(offeredKeys)){offeredKeys=offered.toString();applyFilter();}
             boolean clockPending=ble!=null&&"clock_sync".equals(ble.pending());
             CapabilityResolver.Decision clockDecision=ble==null?null:ble.decision("clock_sync");
