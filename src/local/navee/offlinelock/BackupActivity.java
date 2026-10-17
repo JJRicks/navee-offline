@@ -235,8 +235,8 @@ public final class BackupActivity extends Activity {
         if(request==PICK_BACKUP){picked=uri;setBusy("Checking the file…");
             submit(()->{int kind;
                 try(InputStream in=getContentResolver().openInputStream(uri)){if(in==null)throw new IOException();byte[] head=new byte[64];int n=0;for(int r;n<head.length&&(r=in.read(head,n,head.length-n))>0;)n+=r;kind=AppDataBackup.sniff(head,n);}
-                catch(Exception failure){show(()->retry("The file could not be opened."));return;}
-                if(kind==AppDataBackup.UNSUPPORTED)show(()->retry("Choose a Volt backup file."));
+                catch(Exception failure){show(()->refuseFile("The file could not be opened."));return;}
+                if(kind==AppDataBackup.UNSUPPORTED)show(()->refuseFile("Choose a Volt backup file."));
                 else if(kind==AppDataBackup.ENCRYPTED)show(this::askPassword);
                 else stageFile(null);});
         }else if(request==SAVE_BACKUP){setBusy("Saving the backup…");
@@ -251,6 +251,8 @@ public final class BackupActivity extends Activity {
         }catch(Exception failure){show(()->retry("Save failed. Try another place."));return;}
         ready.delete();show(()->{exported=null;done("Backup saved.");});
     }
+    /** A file refused before any password: a password step left from an earlier file would blame the password. */
+    private void refuseFile(String message){if(password!=null)restoreForm();retry(message);}
     private void askPassword(){
         retry("");if(password==null){password=passwordField("Backup password");content.removeView(password);content.addView(password,content.indexOfChild(status));}
         password.requestFocus();label(action,"Open backup");action.setTag("restore-open");action.setOnClickListener(v->openEncrypted());
@@ -271,7 +273,7 @@ public final class BackupActivity extends Activity {
             if(in==null)throw new IOException();
             AppDataBackup.PreparedRestore checked=AppDataBackup.stage(this,in,secret);boolean data=AppDataBackup.hasData(this);
             runOnUiThread(()->{if(isDestroyed()||isFinishing()){submit(()->discardQuietly(checked));return;}staged=checked;hasData=data;busy=false;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);restoreCategories();});
-        }catch(Exception failure){show(()->retry(secret!=null?"Wrong password or bad file.":message(failure)));}
+        }catch(Exception failure){show(()->{if(secret!=null)retry("Wrong password or bad file.");else refuseFile(message(failure));});}
         finally{if(secret!=null)Arrays.fill(secret,'\0');}
     }
     private void restoreCategories(){
@@ -294,7 +296,7 @@ public final class BackupActivity extends Activity {
         if(staged.complete){
             replaceAll=new Switch(this);replaceAll.setText("Replace everything on this phone");replaceAll.setTextColor(ui.text);replaceAll.setTextSize(TypedValue.COMPLEX_UNIT_SP,15*textScale);
             replaceAll.setMinHeight(ui.dp(48));ui.styleSwitch(replaceAll);replaceAll.setTag("restore-replace-all");
-            replaceAll.setOnCheckedChangeListener((v,on)->{for(Map.Entry<String,CheckBox> e:boxes.entrySet()){if(on)e.getValue().setChecked(true);e.getValue().setEnabled(!on&&staged.categories.get(e.getKey())>0);}});
+            replaceAll.setOnCheckedChangeListener((v,on)->{for(Map.Entry<String,CheckBox> e:boxes.entrySet()){boolean has=staged.categories.get(e.getKey())>0;if(on||!has)e.getValue().setChecked(on);e.getValue().setEnabled(!on&&has);}});
             LinearLayout.LayoutParams sp=new LinearLayout.LayoutParams(-1,-2);sp.topMargin=ui.dp(12);content.addView(replaceAll,sp);
             // A cleared or new phone gets an exact copy by default; a phone with data merges.
             replaceAll.setChecked(!hasData&&!preselected);

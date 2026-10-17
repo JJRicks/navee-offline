@@ -134,8 +134,15 @@ public final class BackupScenarioValidation extends Instrumentation {
         password(backup); await(() -> text(backup, "Wrong password or bad file.") , "Damaged file was not refused");
         require(view(backup, "restore-choose-again") != null, "No way to choose another file after a bad one");
         shot(backup, "restore-bad-file.png");
-        pick(backup, "restore-choose-again", good); password(backup); await(() -> view(backup, "restore-next") != null, "Category list missing");
-        require(view(backup, "restore-replace-all") != null && !((android.widget.Switch) view(backup, "restore-replace-all")).isChecked(), "A phone with data defaults to Merge");
+        File other = new File(app.getCacheDir(), "picked-notes.txt"); java.nio.file.Files.write(other.toPath(), "not a backup".getBytes("UTF-8"));
+        pick(backup, "restore-choose-again", other); await(() -> text(backup, "Choose a Volt backup file."), "Unsupported file was not refused");
+        require(view(backup, "restore-open") == null && fieldQuiet(backup, "password") == null && view(backup, "restore-choose") != null, "An unsupported file leaves the password step behind");
+        other.delete();
+        pick(backup, "restore-choose", good); password(backup); await(() -> view(backup, "restore-next") != null, "Category list missing");
+        android.widget.Switch replace = (android.widget.Switch) view(backup, "restore-replace-all");
+        require(replace != null && !replace.isChecked(), "A phone with data defaults to Merge");
+        runOnMainSync(() -> { replace.setChecked(true); replace.setChecked(false); }); waitForIdleSync();
+        for (String id : AppDataBackup.CATEGORIES) { android.widget.CheckBox box = (android.widget.CheckBox) view(backup, "backup-category-" + id); require(box == null || box.isEnabled() || !box.isChecked(), "Empty " + id + " stays ticked after Replace is turned off"); }
         shot(backup, "restore-categories.png");
         click(backup, "restore-next"); await(() -> view(backup, "restore-review") != null, "Destination step missing");
         List<android.widget.Spinner> spinners = new ArrayList<>(); spinners(backup.getWindow().getDecorView(), spinners);
