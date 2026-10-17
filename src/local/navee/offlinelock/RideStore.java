@@ -89,6 +89,8 @@ public final class RideStore {
     /** Immutable, unit-explicit values; JSON null means insufficient evidence. */
     public static final class Summary {
         public final String id, scooterId, label, notes, currentDirection, energyInterpretation;
+        /** START record clocks; with the scooter they identify a recording across UUIDs. */
+        public final long startMonotonicMs;
         public final long startWallMs, endWallMs, elapsedMs, electricalCoverageMs,
                 skippedElectricalMs, speedCoverageMs, movingMs, stationaryMs;
         public final long sampleCount, gapCount, clockDiscontinuities, directionChanges;
@@ -109,7 +111,7 @@ public final class RideStore {
         public final String efficiencyStatus;
         private Summary(Accumulator a) {
             id = a.id; scooterId = a.scooterId; label = a.label; notes = a.notes;
-            currentDirection = a.direction.name(); startWallMs = a.startWall;
+            currentDirection = a.direction.name(); startWallMs = a.startWall; startMonotonicMs = a.startMono;
             endWallMs = a.lastWall; elapsedMs = a.elapsed;
             electricalCoverageMs = a.electricalMs;
             skippedElectricalMs = Math.max(0, a.elapsed - a.electricalMs);
@@ -512,7 +514,7 @@ public final class RideStore {
         final String id, scooterId;
         String label;
         String notes = "";
-        final long startWall;
+        final long startWall, startMono;
         long lastWall, lastMono, elapsed, electricalMs, speedMs, movingMs, stationaryMs;
         long samples, gaps, clockDiscontinuities, directionChanges, confirmedMs, unconfirmedMs, pointStride = 1;
         long movingElectricalMs, stationaryElectricalMs, unknownMotionElectricalMs;
@@ -529,7 +531,7 @@ public final class RideStore {
         LearnedRangeEstimate.Inspector rangeInspector;
         Accumulator(String id, String scooterId, String label, long wall, long mono) {
             this.id = id; this.scooterId = scooterId; this.label = label;
-            startWall = lastWall = wall; lastMono = mono;
+            startWall = lastWall = wall; lastMono = startMono = mono;
         }
         void breakAnchor() { previousPower = null; previousSpeed = null; }
         void recover() { recovered = true; gaps++; breakAnchor(); }
