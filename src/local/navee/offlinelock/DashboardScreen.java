@@ -3733,7 +3733,12 @@ public final class DashboardScreen implements AppScreen {
         private final Rect measurementBounds = new Rect();
         private final Paint.FontMetrics measurementMetrics = new Paint.FontMetrics();
         private final Path trackClip = new Path();
+        private final Path fillShape = new Path();
+        private final Path fillBand = new Path();
         private final RectF trackBounds = new RectF();
+        private final Rect digits = new Rect();
+        private final android.text.TextPaint linePaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+        private float shapeW = -1, shapeH = -1, shapeCorner = -1, shapeEdge = -1, shapeTop = -1;
         private double percent = Double.NaN;
         private String detail = "";
         private boolean charging, live = true;
@@ -3803,10 +3808,21 @@ public final class DashboardScreen implements AppScreen {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(track);
             canvas.drawRoundRect(trackBounds, corner, corner, paint);
+            float edge = Math.max(1, ui.dp(1));
+            float top = !Double.isNaN(percent) && percent > 0 ? h - (float) (h * percent / 100) : h;
+            // All interior paint stays inside one silhouette that ends at the border's centre line,
+            // so neither hardware clip antialiasing nor a shallow fill can put a fill pixel outside
+            // the border's outer edge (seen on Samsung when the fill rounded its own corners).
+            if (w != shapeW || h != shapeH || corner != shapeCorner || edge != shapeEdge) {
+                trackBounds.inset(edge / 2, edge / 2);
+                trackClip.reset();
+                float inner = Math.max(0, corner - edge / 2);
+                trackClip.addRoundRect(trackBounds, inner, inner, Path.Direction.CW);
+                trackBounds.set(0, 0, w, h);
+                shapeW = w; shapeH = h; shapeCorner = corner; shapeEdge = edge; shapeTop = -1;
+            }
             // Quiet diagonal texture marks unused capacity even when the track and card
             // have similar brightness. Unknown and last-seen readings remain neutral.
-            trackClip.reset();
-            trackClip.addRoundRect(trackBounds, corner, corner, Path.Direction.CW);
             int saved = canvas.save();
             canvas.clipPath(trackClip);
             paint.setStyle(Paint.Style.STROKE);
@@ -3818,15 +3834,19 @@ public final class DashboardScreen implements AppScreen {
             paint.setStyle(Paint.Style.FILL);
             int fill = !live ? blend(ui.raised, ui.dim, ui.dark ? .45f : .6f)
                     : !Double.isNaN(percent) && percent < 15 && !charging ? ui.orange : ui.accent;
-            float top = h;
-            if (!Double.isNaN(percent) && percent > 0) {
-                top = h - (float) (h * percent / 100);
-                float round = Math.min(corner, (h - top) / 2);
+            if (top < h) {
+                // A square-topped band intersected with the silhouette: the level edge stays
+                // flat and the bottom follows the track's own corners at every height.
+                if (top != shapeTop) {
+                    fillBand.reset();
+                    fillBand.addRect(0, top, w, h, Path.Direction.CW);
+                    if (!fillShape.op(fillBand, trackClip, Path.Op.INTERSECT)) fillShape.set(fillBand);
+                    shapeTop = top;
+                }
                 paint.setColor(fill);
-                canvas.drawRoundRect(new RectF(0, top, w, h), round, round, paint);
+                canvas.drawPath(fillShape, paint);
             }
             // Keep the full-capacity silhouette visible against the surrounding card.
-            float edge = Math.max(1, ui.dp(1));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(edge);
             paint.setColor(knownLive ? blend(track, ui.accent, .6f) : ui.outline);
@@ -3850,7 +3870,6 @@ public final class DashboardScreen implements AppScreen {
             unitSize *= fit;
             lineSize = Math.max(Math.min(lineSize, ui.sp(12) * fit), Math.min(ui.sp(10), lineSize));
             paint.setTextSize(amountSize);
-            Rect digits = new Rect();
             paint.getTextBounds("0", 0, 1, digits);
             float capHeight = digits.height();
             float gap = line.isEmpty() ? 0 : ui.dp(5);
@@ -3876,7 +3895,8 @@ public final class DashboardScreen implements AppScreen {
             if (!line.isEmpty()) {
                 paint.setTypeface(ui.medium());
                 paint.setTextSize(lineSize);
-                String shown = android.text.TextUtils.ellipsize(line, new android.text.TextPaint(paint),
+                linePaint.set(paint);
+                String shown = android.text.TextUtils.ellipsize(line, linePaint,
                         available, android.text.TextUtils.TruncateAt.END).toString();
                 canvas.drawText(shown, pad, baseline + gap + lineHeight * .9f, paint);
             }
