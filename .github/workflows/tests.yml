@@ -2,17 +2,27 @@ name: Core and setup tests
 
 on:
   push:
+    branches: [main]
   pull_request:
+  workflow_dispatch:
+
+concurrency:
+  group: ci-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 
 permissions:
   contents: read
 
 jobs:
   core-tests:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Only trusted same-repository work reaches the disposable private worker.
+    # External/fork contributions keep GitHub-hosted isolation (free when public).
+    runs-on: ${{ fromJSON((github.actor == 'JJRicks' || github.actor == 'ollies5') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('["self-hosted","Linux","X64","volt-ci","volt-run-{0}-{1}"]', github.run_id, github.run_attempt) || '["ubuntu-latest"]') }}
+    timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-java@de7274f081f381c8f8158605e0321c36c376e2e6 # v6.0.1
         with:
           distribution: temurin
@@ -22,13 +32,17 @@ jobs:
           bash tests/run.sh
           python3 tests/owner-capture-guard-test.py
   web-setup:
-    runs-on: ubuntu-latest
-    timeout-minutes: 5
+    # Only trusted same-repository work reaches the disposable private worker.
+    # External/fork contributions keep GitHub-hosted isolation (free when public).
+    runs-on: ${{ fromJSON((github.actor == 'JJRicks' || github.actor == 'ollies5') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('["self-hosted","Linux","X64","volt-ci","volt-run-{0}-{1}"]', github.run_id, github.run_attempt) || '["ubuntu-latest"]') }}
+    timeout-minutes: 10
     defaults:
       run:
         working-directory: setup/web
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
       - uses: actions/setup-node@49933ea5288caeca8642d1e84afbd3f7d6820020 # v4
         with:
           node-version: '20'
