@@ -80,7 +80,10 @@ public final class ChargerDetection {
         else candidateFrames = Math.min(MIN_EVIDENCE_FRAMES, candidateFrames + 1);
         if (relinked) {
             relinked = false;
-            if (soc >= OVERLAP_SOC && evidence != selected) { selected = null; clearContrary(); }
+            // Above stock bulk a swap to stock is never otherwise seen, so a remembered fast
+            // charger needs a frame stock cannot produce.
+            if (soc >= OVERLAP_SOC ? evidence != selected : soc > 85 && selected == ChargeSessionStore.Charger.HIGH_SPEED
+                    && !incompatible(ChargeSessionStore.Charger.STOCK, soc, current, watts)) { selected = null; clearContrary(); }
         }
         if (selected != null) {
             // Each reference rejects frames outside its own envelope, so a charge shaped unlike

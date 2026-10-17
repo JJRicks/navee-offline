@@ -42,8 +42,11 @@ Charging recordings retain their separate five-second capture freshness rule.
   Sustained readings of the other family then select it; otherwise Auto is uncertain.
 - A charger could be swapped while the link is down without charging ever being
   seen off. From 96%, where both families' power overlaps, the first usable frame
-  after a lost link keeps the family only if it is fresh evidence for it; otherwise
-  Auto is uncertain for the rest of the charge. Below 96% the rules above apply.
+  after a lost link keeps the family only if it is fresh evidence for it. From 86%
+  to 95%, where a fast charger is no longer caught in stock bulk, that frame keeps
+  a remembered high-speed charger only above stock power (135 W or 2.5 A). Otherwise
+  Auto is uncertain for the rest of the charge. Stock reconnecting below 96%, and
+  either family at 85% or lower, follows the rules above.
 - A charge first seen near full, or after more than two minutes without fresh
   readings, can therefore leave Auto uncertain; Volt then uses the live rate. An
   override is available; stale readings never become a new prediction.
@@ -110,8 +113,8 @@ still explicitly confirmed by the owner.
 ## Validation
 
 The core suite covers detection at ordinary and slow polling rates, duplicate
-frames, retention across reconnects and unusable frames, the near-full reconnect
-check, charge boundaries, off-reference charge shapes, sustained contrary power, ambiguous late starts, fast-path grace, voltage offsets, model/charger isolation, per-target personal/default precedence,
+frames, retention across reconnects and unusable frames, the near-full and
+late high-speed reconnect checks, charge boundaries, off-reference charge shapes, sustained contrary power, ambiguous late starts, fast-path grace, voltage offsets, model/charger isolation, per-target personal/default precedence,
 saved provenance round trips, fractional targets and full calibration replay.
 Android validation covers the three-option controls, persisted overrides, Auto
 reset, profile isolation, simulation, capture-label isolation (including other

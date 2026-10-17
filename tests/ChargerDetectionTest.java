@@ -259,6 +259,29 @@ public final class ChargerDetectionTest {
         check(observe(d, 50, 50, -10, 7000) == null && observe(d, 50, 50, -10, 9000) == null
                 && observe(d, 50, 50, -10, 11000) == FAST, "Reset clears a pending reconnect");
         check(observe(d, 97, 54.3, -2.21, 13000) == FAST, "No stale reconnect check after reset");
+        // Above the stock bulk window a fast-to-stock swap is otherwise never seen.
+        d = selected(FAST);
+        check(observe(d, 90, 54.2, -3.7, 7000) == FAST, "Fast taper at 90% keeps its family");
+        d.disconnected();
+        check(observe(d, 90, 54.2, -104 / 54.2, 67000) == null, "A swap to stock at 90% drops fast on reconnect");
+        for (int i = 1; i <= 10; i++)
+            check(observe(d, 90 + i * .1, 54.2, -(i % 2 == 0 ? 104 : 116) / 54.2, 67000 + i * 2000) == null,
+                    "Stock power above 85% never re-selects a family");
+        for (double[] row : new double[][]{{86, 54.13, 218.13}, {90, 54.15, 200.94}, {95, 54.23, 144.37}}) {
+            d = selected(FAST);
+            d.disconnected();
+            check(observe(d, row[0], row[1], -row[2] / row[1], 40000) == FAST,
+                    "Fast power stock cannot produce keeps fast on reconnect at " + row[0]);
+        }
+        d = selected(STOCK);
+        check(observe(d, 90, 54, -110 / 54d, 7000) == STOCK, "Stock finish at 90% keeps its family");
+        d.disconnected();
+        check(observe(d, 90, 54, -104 / 54d, 40000) == STOCK && observe(d, 90.5, 54, -116 / 54d, 42000) == STOCK,
+                "A stock reconnect at 90% keeps stock");
+        d = selected(FAST);
+        for (int i = 0; i < 10; i++)
+            check(observe(d, 90, 54.2, -110 / 54.2, 7000 + i * 2000) == FAST,
+                    "Without a disconnect, low power above 85% keeps fast");
     }
 
     public static void main(String[] args) {
