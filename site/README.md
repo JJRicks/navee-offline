@@ -5,7 +5,7 @@ The public homepage at <https://volt.jjricks.com/>. It's a single static page wi
 ## Layout
 
 - `src/` holds the page: `index.html`, `styles.css`, `main.js`, the icons, the link-preview card (`og.png`), the web manifest, `robots.txt` and `sitemap.xml`.
-- `src/img/` holds the app screenshots, exported as WebP. They were captured on an emulator in simulation mode with sample data; the developer-mode banner is cropped out, and the footer says the screens show sample data.
+- `src/img/` holds the app screenshots, exported as WebP. They were captured on an emulator in simulation mode with sample data; the developer-mode banner is omitted, and the footer says the screens show sample data. The two dashboard screenshots show the default layout in Volt 1.4.0.
 - `tools/` holds the templates and script that render `og.png` and the PNG icons with a local Google Chrome: `bash site/tools/render-images.sh`. The rendered files are committed, so a normal build doesn't need Chrome.
 - `nginx/volt-homepage.conf` is the server configuration, with security headers, caching and the ACME webroot.
 
