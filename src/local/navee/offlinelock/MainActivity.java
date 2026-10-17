@@ -1501,6 +1501,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         CapabilityResolver.Decision decision = scooterService.ble.decision(feature.key);
         if (decision.support != CapabilityResolver.Support.KNOWN_ENCODING) { toast(decision.reasonText()); return; }
         if (decision.variant != null && decision.variant.lab) { showQuickMore("Lab", feature); return; }
+        // Another model's region, firmware or full-ID rule refuses it: say why, as its Scooter row does (never on the UT5 MAX).
+        if (decision.reason == CapabilityResolver.Reason.REGION_RULE || decision.reason == CapabilityResolver.Reason.FIRMWARE_UNKNOWN
+                || decision.reason == CapabilityResolver.Reason.FIRMWARE_OLD || decision.reason == CapabilityResolver.Reason.FULL_PID_NEEDED) {
+            toast(decision.reasonText()); return;
+        }
         if (feature.sensitive || feature.key.equals("proximity_key")) {
             showQuickMore("Security", null); return;
         }
@@ -1773,7 +1778,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             row.line.setAlpha(parkedBlocked?.45f:1f);
             if(toggle==null&&!inline){
                 // A long value moves under the label so the row never wraps beside the chevron.
-                boolean wide=feature.type!=ScooterCommands.Type.TIME&&shown.length()>10;value.setText(wide?"":shown);row.setSub(joinNote(wide?shown:rowDetail(feature),note));
+                // Another model's caption joins a long time value under the label too, so neither is squeezed (never on the UT5 MAX).
+                boolean captioned=note!=null&&decision!=null&&decision.layer!=ModelRegistry.Layer.UT5_MAX;
+                boolean wide=(feature.type!=ScooterCommands.Type.TIME||captioned)&&shown.length()>10;value.setText(wide?"":shown);row.setSub(joinNote(wide?shown:rowDetail(feature),note));
             }else if(inline)row.setSub(actual==null?"Not reported":note);
             else row.setSub(joinNote(rowDetail(feature),note));
             if(patternSelector!=null){restorePatternSelection(true);patternSelector.setEnabled(usable);patternSelector.setAlpha(usable?1f:.5f);}
@@ -2300,6 +2307,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             String[] labels=new String[choices.length];boolean compact=choices.length>=2&&choices.length<=5&&!feature.key.equals("range_algorithm");
             for(int i=0;i<choices.length;i++){labels[i]=featureLabel(feature,choices[i]);compact&=labels[i].length()<=18;}
             selector=compact?new SegmentedSelector(design,shortLabel(feature),labels,this::choose):null;
+            // Another model's longer tables (five speeds, five sounds) wrap onto rows instead of scrolling past the edge.
+            if(selector!=null&&oemVariant(feature.key)!=null)selector.setWrapChoices(true);
             if(selector!=null){selector.setTag("scooter-selector-"+feature.key);content.addView(selector,new LinearLayout.LayoutParams(-1,-2));}
             else{
             LinearLayout list=design.groupCard();
