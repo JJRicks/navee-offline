@@ -56,6 +56,12 @@ public final class CapabilityResolver {
         public int[] values(){return choices.clone();}
         public String[] labels(){String[] out=new String[choices.length];for(int i=0;i<choices.length;i++)out[i]=label(choices[i]);return out;}
         public String label(int v){return variant==null?Integer.toString(v):variant.label(v);}
+        /** Another model's variant label (never the UT5 MAX catalogue's), else null; speeds keep the rider's units. */
+        public String oemLabel(int v){
+            if(variant==null||variant.decode==FeatureVariant.Decode.UT5_FEATURE)return null;
+            ScooterCommands.Feature f=ScooterCommands.find(feature);
+            return "km/h".equals(f==null?variant.unit:f.unit)?null:variant.label(v);
+        }
         public boolean allows(int v){
             if(variant==null||!variant.allows(v))return false;
             if(!variant.dynamicChoices)return true;

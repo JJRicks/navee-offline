@@ -38,7 +38,7 @@ for name in BackupRegistryTest BackupTestStore BackupArchiveTest BackupPlanTest 
 # Model compatibility suites (separate block to limit merge conflicts with sibling branches).
 COMPAT_TESTS=(DeviceDescriptor AdvertisedIdentity StatusFields WireCommands ModelRegistry CapabilityResolver MutationGate ReadPolicy DiscoveryCoordinator CompatibilityReport TestJournal GuidedTest)
 for name in "${COMPAT_TESTS[@]}"; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java"); done
-sources+=("$APP_DIR/src/local/navee/offlinelock/FeatureVariant.java")
+sources+=("$APP_DIR/src/local/navee/offlinelock/FeatureVariant.java" "$TEST_DIR/OemControlsTest.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
 for name in Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"
@@ -64,4 +64,4 @@ for name in BackupArchiveTest BackupPlanTest BackupTransactionTest; do
     (cd "$APP_DIR" && java "${backup_tmp[@]}" -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.$name")
 done
 
-for name in "${COMPAT_TESTS[@]}"; do java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"; done
+for name in "${COMPAT_TESTS[@]}" OemControls; do java -cp "$TEST_BUILD_DIR/classes" "local.navee.offlinelock.${name}Test"; done

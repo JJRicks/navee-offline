@@ -29,7 +29,7 @@ public final class BleController {
     /** Short connection states shared by the connection dialog, onboarding and the notification. */
     public static final String NEARBY_NEEDED="Nearby devices permission needed",BLUETOOTH_OFF="Bluetooth off",NO_PROFILE="No scooter set up",
             NOTHING_FOUND="No scooter found",OWNER_REJECTED="Owner identity rejected",LIMITED_MODEL="Limited controls on this model";
-    private ScooterSimulation simulation;private boolean simulationChanging;private String simulationModel="";
+    private ScooterSimulation simulation;private boolean simulationChanging;private String simulationModel="",simulationRegion=null;
     /** Advertised model IDs seen in this scan, by MAC. One is committed to a profile only after authentication and a serial match on that MAC. */
     private final LinkedHashMap<String,AdvertisedIdentity.Result> advertised=new LinkedHashMap<>();
     private AdvertisedIdentity.Result pendingAdvertised;private String pendingAdvertisedMac="";private boolean identifying;
@@ -81,6 +81,9 @@ public final class BleController {
     public boolean simulationCharging(){return simulation!=null&&simulation.charging();}
     /** Developer simulator model: "" (UT5 MAX) or a synthetic advertised ID. Memory only; never reaches a profile. */
     public String simulationModel(){return simulationModel;}
+    /** Developer simulator serial region for another simulated model ("US", "DE", ... or null); memory only, never on the UT5 MAX. */
+    public String simulationRegion(){return simulationRegion;}
+    public void setSimulationRegion(String region){simulationRegion=region!=null&&region.matches("[A-Z]{2}")?region:null;tickSimulation();changed();}
     public void setSimulationModel(String pid){String next=pid==null?"":pid;if(simulation!=null&&!next.equals(simulationModel)){if(discovering)stopDiscovery();clearDiscovery();}simulationModel=next;if(simulation!=null){simulation.setModel(simulationModel);tickSimulation();}changed();}
     public void setSimulationCharging(boolean charging){if(simulation==null)return;simulation.setCharging(charging);tickSimulation();changed();}
     private void connectSimulation(){if(simulation==null)return;state=State.READY;updateSimulation();notice("Simulated connection");}
@@ -125,7 +128,8 @@ public final class BleController {
      */
     public boolean controlOffered(String key){
         CapabilityResolver.Decision d=decision(key);
-        return d.support==CapabilityResolver.Support.KNOWN_ENCODING||!simulating()&&descriptor().pidSource()==DeviceDescriptor.PidSource.NONE;
+        // A profile without identity evidence shows UT5 MAX catalogue rows (unavailable); controls only other models have wait for a mapping.
+        return d.support==CapabilityResolver.Support.KNOWN_ENCODING||!simulating()&&descriptor().pidSource()==DeviceDescriptor.PidSource.NONE&&!ScooterCommands.oemOnly(key);
     }
     /** The decision the UI shows for a control; the same resolver admits every write. */
     public CapabilityResolver.Decision decision(String key){return duringDiscovery(CapabilityResolver.decide(key,descriptor(),status(),runtime(key)));}
@@ -155,7 +159,7 @@ public final class BleController {
      * authentication, so the transport is standard. Every control decision starts here.
      */
     public DeviceDescriptor descriptor(){
-        if(simulating())return DeviceDescriptor.simulated(simulation==null?simulationModel:simulation.model(),0);
+        if(simulating())return DeviceDescriptor.simulated(simulation==null?simulationModel:simulation.model(),0,simulationRegion);
         ScooterProfiles.Profile p=profile();DeviceDescriptor.Firmware fw=sessionFirmware;
         if(fw==null){
             String[] keys={"meter_version","controller_version","battery_version","screen_version","uwb_version"},values=new String[5];long seen=-1;
@@ -165,7 +169,8 @@ public final class BleController {
         if(p==null)return DeviceDescriptor.of("","",0,fw,false,DeviceDescriptor.Transport.STANDARD,0);
         return p.descriptor(fw,connected()&&fw.any(),DeviceDescriptor.Transport.STANDARD);
     }
-    public Integer featureValue(String key){if(simulating())return simulation==null?null:simulation.featureValue(key);try{return ScooterCommands.find(key).readback(statusFrame);}catch(Exception e){return null;}}
+    /** Live value from this session's status. Another model's variant decodes its own field (the UT5 MAX keeps the catalogue decoder). */
+    public Integer featureValue(String key){if(simulating())return simulation==null?null:simulation.featureValue(key);try{ScooterCommands.Feature f=ScooterCommands.find(key);FeatureVariant v=f.sensitive?null:ModelRegistry.variant(key,descriptor(),null,status());if(v!=null&&v.decode!=FeatureVariant.Decode.UT5_FEATURE&&v.readable)return v.read(status());return f.readback(statusFrame);}catch(Exception e){return null;}}
     /** Values this model offers now (UT5 MAX: today's catalogue choices); empty when not mapped. */
     public int[] featureChoices(String key){try{return decision(key).values();}catch(Exception e){return new int[0];}}
     public boolean permissions(){return Build.VERSION.SDK_INT>=31?context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED&&context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED:context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
@@ -381,7 +386,7 @@ public final class BleController {
         if(simulating()){
             if(simulation==null||!ready()){notice("Connect the simulated scooter first.");return false;}
             CapabilityResolver.Decision d=check(request);if(!d.available()){notice(d.reasonText());return false;}
-            try{simulation.set(key,value);updateSimulation();quiet();return true;}
+            try{simulation.set(key,value,d.variant);updateSimulation();quiet();return true;}
             catch(IllegalArgumentException invalid){notice(invalid.getMessage());return false;}
         }
         CapabilityResolver.Decision d=check(request);boolean proximity=request.kind==MutationGate.Kind.PROXIMITY;
@@ -397,8 +402,12 @@ public final class BleController {
             return begin(request,d.variant,value,bytes,null);
         }catch(IllegalArgumentException e){notice(e.getMessage());return false;}}
     public void setChargeStart(long seconds,int offset){MutationGate.Request request=new MutationGate.Request(MutationGate.Kind.CHARGE_START,"charge_start",0,MutationGate.Origin.USER);
-        if(simulating()){if(simulation==null||!ready()){notice("Connect the simulated scooter first.");return;}CapabilityResolver.Decision d=check(request);if(!d.available()){notice(d.reasonText());return;}try{simulation.setChargeStart(seconds,offset);updateSimulation();quiet();}catch(IllegalArgumentException invalid){notice(invalid.getMessage());}return;}
-        if(!gate(request))return;try{begin(request,null,0,ScooterCommands.setChargeStart(seconds,offset),seconds+offset);}catch(IllegalArgumentException e){notice(e.getMessage());}}
+        if(simulating()){if(simulation==null||!ready()){notice("Connect the simulated scooter first.");return;}CapabilityResolver.Decision d=check(request);if(!d.available()){notice(d.reasonText());return;}if(!ModelRegistry.chargeStartAllowed(d.layer,seconds,offset,System.currentTimeMillis()/1000)){notice(WHOLE_HOUR);return;}try{simulation.setChargeStart(seconds,offset);updateSimulation();quiet();}catch(IllegalArgumentException invalid){notice(invalid.getMessage());}return;}
+        CapabilityResolver.Decision d=check(request);if(!d.available()){refused(request,d);return;}
+        // Off the UT5 MAX, a whole local hour within 48 hours (the official app's picker); the UT5 MAX keeps any minute.
+        if(!ModelRegistry.chargeStartAllowed(d.layer,seconds,offset,System.currentTimeMillis()/1000)){notice(WHOLE_HOUR);return;}
+        try{begin(request,null,0,ScooterCommands.setChargeStart(seconds,offset),seconds+offset);}catch(IllegalArgumentException e){notice(e.getMessage());}}
+    static final String WHOLE_HOUR="Choose a whole hour within 48 hours";
     public void syncClock(){MutationGate.Request request=new MutationGate.Request(MutationGate.Kind.CLOCK,"clock_sync",0,MutationGate.Origin.USER);
         if(simulating()){if(!ready()){notice("Connect the simulated scooter first.");return;}CapabilityResolver.Decision d=check(request);if(!d.available()){notice(d.reasonText());return;}quiet();return;}
         if(!gate(request))return;long wall=System.currentTimeMillis();begin(request,null,0,ScooterCommands.setClock(wall/1000,TimeZone.getDefault().getOffset(wall)/1000),null);}

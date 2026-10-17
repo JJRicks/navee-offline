@@ -205,13 +205,23 @@ public final class ScooterCommandsTest {
             rejects(()->Protocol.frame(cmd,new byte[]{1}));
         for(final byte[] payload:new byte[][]{ {0,1},{8,1},{9,1},{4,79},{4,101},{4,81},{3,0,0,0,0},{6,0,0},{1,2},{5,2},{7,2}})
             rejects(()->Protocol.frame(0x6f,payload));
-        for(final byte[] payload:new byte[][]{{1,60},{2,2},{3,(byte)128},{3,(byte)149},{4,1}})
+        for(final byte[] payload:new byte[][]{{1,33},{1,71},{1,24},{1,31},{1,0},{1,75},{2,2},{3,(byte)128},{3,(byte)149},{4,1}})
             rejects(()->Protocol.frame(0x6e,payload));
+        // The 0x6e selector 1 allowlist is the union of the OEM tables; the UT5 MAX choice set is unchanged.
+        for(int kmh:new int[]{25,30,32,35,40,45,50,55,60,65,70})Protocol.frame(0x6e,new byte[]{1,(byte)kmh});
+        for(int kmh:new int[]{30,35,45,55,60,65,70})rejects(()->ScooterCommands.set("maximum_speed",kmh));
+        // Energy recovery 1 is group M's on/off; 2-29 stay refused and the UT5 MAX never offers 1.
+        Protocol.frame(0x53,new byte[]{1});
+        for(int level=2;level<30;level++){final int v=level;rejects(()->Protocol.frame(0x53,new byte[]{(byte)v}));}
+        rejects(()->ScooterCommands.set("energy_recovery",1));
         rejects(()->Protocol.frame(0x63,new byte[]{0,1,1,2,3,4}));
         rejects(()->Protocol.frame(0x63,new byte[]{1,0,1,2,3,4}));
         rejects(()->Protocol.frame(0x6d,new byte[]{4,0,2}));
         rejects(()->Protocol.frame(0x6d,new byte[]{4,1,3}));
-        rejects(()->Protocol.frame(0x6d,new byte[]{5,3,5}));
+        rejects(()->Protocol.frame(0x6d,new byte[]{5,3,6}));
+        rejects(()->Protocol.frame(0x6d,new byte[]{4,2,6}));
+        Protocol.frame(0x6d,new byte[]{5,3,5});Protocol.frame(0x6d,new byte[]{4,2,5}); // 2585's six colours
+        for(String key:new String[]{"line_color","line_boost_color","star_color","star_boost_color"})for(int c=2;c<=5;c++){final int v=c;rejects(()->ScooterCommands.set(key,v));} // UT5 MAX: two colours
         rejects(()->Protocol.frame(0x81,new byte[]{0,1}));
     }
 

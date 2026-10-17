@@ -31,7 +31,8 @@ javac --release 8 -encoding UTF-8 \
     "$SCRIPT_DIR/MotionPolishValidation.java" \
     "$SCRIPT_DIR/RideAutoStopValidation.java" \
     "$SCRIPT_DIR/CompatibilityGatingValidation.java" "$SCRIPT_DIR/Ut5SimulationScreens.java" \
-    "$SCRIPT_DIR/GuidedTestValidation.java"
+    "$SCRIPT_DIR/GuidedTestValidation.java" \
+    "$SCRIPT_DIR/CompatControlsValidation.java"
 jar cf "$TEST_BUILD_DIR/runner.jar" -C "$TEST_BUILD_DIR/classes" .
 "$BUILD_TOOLS/d8" --lib "$ANDROID_JAR" --classpath "$APP_JAR" --min-api 26 \
     --output "$TEST_BUILD_DIR/dex" "$TEST_BUILD_DIR/runner.jar"

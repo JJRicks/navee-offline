@@ -1484,6 +1484,8 @@ public final class MoreScreen implements AppScreen {
         ScooterService s = service(); if (s == null) return "Connect first";
         BleController ble = s.ble; ScooterProfiles.Profile p = active();
         if (!ble.ready()) return "Connect first";
+        // Lab on the UT5 MAX, but an ordinary OEM-mapped control on this model: it lives in Scooter settings.
+        if (oemMapped(ble.decision(feature.key))) return "In Scooter settings for this model";
         Integer current = ble.featureValue(feature.key);
         if (current == null) return "Not reported by firmware";
         if (!feature.allows(current)) return "Unknown value · can't change safely";
@@ -1492,6 +1494,11 @@ public final class MoreScreen implements AppScreen {
                 && decision.reason != CapabilityResolver.Reason.BUSY)) return decision.reasonText();
         if (ble.pending() != null) return "Wait for the current change";
         return null;
+    }
+    /** A known, non-Lab variant from another model's mapping (never the UT5 MAX catalogue). */
+    private static boolean oemMapped(CapabilityResolver.Decision d) {
+        return d.support == CapabilityResolver.Support.KNOWN_ENCODING && d.variant != null && !d.variant.lab
+                && d.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
     }
     void inspectQuickFeature(ScooterCommands.Feature feature) {
         if (!closed && feature != null && feature.experimental) experimental(feature);
@@ -2013,7 +2020,7 @@ public final class MoreScreen implements AppScreen {
                 row.value.setContentDescription(shown + (confirmed ? ", confirmed" : result == null ? ", unverified" : ", " + result));
             }
             CapabilityResolver.Decision decision = s.ble.decision(row.feature.key);
-            boolean inspectable = s.ble.ready() && (decision.available() || decision.blockedByRide()) && !busy && knownBaseline;
+            boolean inspectable = s.ble.ready() && (decision.available() || decision.blockedByRide()) && !busy && knownBaseline && !oemMapped(decision);
             row.action.setEnabled(inspectable);
             // A disabled pill passes its taps to the row, which explains why.
             row.action.setClickable(inspectable);

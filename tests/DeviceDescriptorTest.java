@@ -43,6 +43,8 @@ public final class DeviceDescriptorTest {
         check(stored.size()==2&&"24431".equals(stored.get("pid_advertised"))&&"1000".equals(stored.get("pid_advertised_wall")),"Stored fields are advertised PID and time only");
         DeviceDescriptor sim=DeviceDescriptor.simulated("",0);check(sim.simulated&&sim.serialPid.equals("2538")&&sim.region==null,"Default simulator is serial-like 2538");
         DeviceDescriptor invalid=DeviceDescriptor.simulated("99991",0);check(invalid.rulePid().isEmpty()&&invalid.serialPid.isEmpty(),"An invalid simulated ID is unidentified, not UT5 MAX");
+        check(DeviceDescriptor.simulated("",0,"US").region==null&&DeviceDescriptor.simulated("25851",0,"US").sku().equals("USA")
+            &&DeviceDescriptor.simulated("25851",0,"us").region==null&&DeviceDescriptor.simulated("25851",0,"DE").sku().equals("ITA"),"Simulated region: other models only, two capitals");
         DeviceDescriptor mapped=DeviceDescriptor.simulated("24431",1);check(mapped.rulePid().equals("24431")&&mapped.serialPid.isEmpty()&&mapped.role==1,"Simulated advertised model");
     }
 
