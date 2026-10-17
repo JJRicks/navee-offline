@@ -20,6 +20,7 @@ storage:
 | Ride readings and optional location, pressure, and motion samples | Analyze a ride you record |
 | Charge samples and a manually selected charger label | Review charging and estimate remaining time |
 | Bounded connection events with timestamps, failure codes and recording state | Explain connection losses without saving credentials or packet contents |
+| Guided test records (setting, before and test values, step outcomes, model prefix, meter firmware) | Keep an interrupted test visible until you review it; at most 20, finished ones removed after 30 days, never in backups |
 
 Connected history is enabled by default. It does not start GPS or phone sensors.
 It has a shared **50 MiB** budget: detailed samples for up to seven days, minute
@@ -120,7 +121,7 @@ if you do not want them retained there.
 | Ride CSV/JSON/GPX | Timestamps and measurements; phone/joined/route exports can include precise locations |
 | Charge JSON | Electrical samples, times, gaps and charger label; excludes owner credentials, names, addresses, PINs and locations |
 | Ordinary diagnostics | Readings, diagnostic payloads and bounded connection events, potentially device serials in readings; excludes owner identity and PIN responses |
-| Compatibility report | Model ID, region and SKU derived from the serial, firmware versions, read outcomes and lengths, status-field presence and setting values, and control decisions; excludes the serial, scooter address, owner identity, PINs, names, times of day, routes and raw payloads. A fresh random report ID is used each time; it is not stored |
+| Compatibility report | Model ID, region and SKU derived from the serial, firmware versions, read outcomes and lengths, status-field presence and setting values, and control decisions; excludes the serial, scooter address, owner identity, PINs, names, times of day, routes and raw payloads. A fresh random report ID is used each time; it is not stored. Guided tests add the setting, its before and test values, step outcomes with times relative to the test, your yes/no answer and whether it was set back |
 
 Exports only go to a destination you choose through the file picker or helper.
 A destination may itself sync to a cloud service. The full backup password is

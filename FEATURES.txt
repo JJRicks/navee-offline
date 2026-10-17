@@ -137,6 +137,16 @@ owner key, PIN, names or routes. On models other than the UT5 MAX, optional
 reads that are rejected or silent twice are not requested again that session;
 UT5 MAX polling is unchanged.
 
+The same screen can run one guided, reversible test of dashboard units, tail
+light, turn signal sound, automatic lights or range estimate (units only on an
+unidentified model). Volt reads a fresh baseline, writes the test value only
+after the owner approves it while parked, confirms it by a later readback, asks
+what the owner saw, then writes the baseline back and confirms that. Each write
+is journalled on the phone first; an interrupted test is reported as
+outstanding and is never replayed after a reconnect or restart. Results go in
+the report only (report-only: no control is enabled by a test). Speed, charging,
+lock, PIN, proximity, clock, composite and Lab settings are never tested.
+
 PHONE-FREE AND RIDING CHECKS STILL NEEDED
 
 Test your existing handlebar PIN while safely parked. Proximity unlock needs
