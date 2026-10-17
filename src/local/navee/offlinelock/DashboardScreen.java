@@ -1530,8 +1530,10 @@ public final class DashboardScreen implements AppScreen {
         final Stage stage;
         double level = Double.NaN, limit = 100;
         boolean shown;
-        android.animation.ValueAnimator reveal;
+        android.animation.ValueAnimator reveal, pulse;
         int revealGeneration;
+        /** Glow breathing, 0 = dimmest and narrowest, 1 = the static glow. */
+        float glow = 1;
 
         ChargingHero() {
             super(host.activity());
@@ -1582,6 +1584,35 @@ public final class DashboardScreen implements AppScreen {
             if (getLayoutParams() != null) { getLayoutParams().height = -2; requestLayout(); }
             setAlpha(1); setTranslationY(0);
             setVisibility(shown ? View.VISIBLE : View.GONE);
+            updatePulse();
+        }
+
+        /**
+         * One slow loop for the glow while fresh charging is on screen; anything else (hidden,
+         * editing, stale, backgrounded, detached, closed, reduced motion) leaves the static glow.
+         */
+        void updatePulse() {
+            boolean run = shown && !closed && !editing && Ui.motionEnabled() && stage.onScreen
+                    && photo.getVisibility() == View.VISIBLE && stage.isAttachedToWindow();
+            if (run == (pulse != null)) return;
+            if (!run) {
+                android.animation.ValueAnimator old = pulse;
+                pulse = null; old.cancel();
+                if (glow != 1) { glow = 1; stage.invalidate(); }
+                return;
+            }
+            pulse = android.animation.ValueAnimator.ofFloat(0, 1);
+            pulse.setDuration(3200);
+            pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            pulse.setInterpolator(new android.view.animation.LinearInterpolator());
+            final android.animation.ValueAnimator owner = pulse;
+            pulse.addUpdateListener(a -> {
+                if (owner != pulse) return;
+                if (!Ui.motionEnabled() || closed) { updatePulse(); return; }
+                glow = (float) (.5 + .5 * Math.cos(2 * Math.PI * a.getAnimatedFraction()));
+                stage.invalidate();
+            });
+            pulse.start();
         }
 
         private void showAnimated(boolean show) {
@@ -1647,6 +1678,7 @@ public final class DashboardScreen implements AppScreen {
             if (known && photo.getDrawable() == null) photo.setImageBitmap(scooterPhoto());
             photo.setVisibility(known ? View.VISIBLE : View.GONE);
             stage.setMinimumHeight(ui.dp(known ? 236 : 44));
+            updatePulse();
             String[] timeLabel = chargeTimeLabels(estimate, false);
             ((DashboardCaption) etaLabel).setLabels(timeLabel[0], timeLabel[1], timeLabel[2]);
             showChargeTime(eta, etaTag, estimate);
@@ -1669,6 +1701,11 @@ public final class DashboardScreen implements AppScreen {
         /** Glow and floor line under the photo. */
         private final class Stage extends FrameLayout {
             final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            RadialGradient glowShader;
+            float glowRadius = -1;
+            int glowColor;
+            /** This view, its ancestors and the window are all visible (false while backgrounded or the screen is off). */
+            boolean onScreen;
 
             Stage() {
                 super(host.activity());
@@ -1676,22 +1713,44 @@ public final class DashboardScreen implements AppScreen {
                 setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
             }
 
+            @Override public void onVisibilityAggregated(boolean visible) {
+                super.onVisibilityAggregated(visible);
+                onScreen = visible;
+                updatePulse();
+            }
+
+            @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); updatePulse(); }
+
+            @Override protected void onDetachedFromWindow() {
+                onScreen = false; updatePulse();
+                super.onDetachedFromWindow();
+            }
+
             @Override
             protected void onDraw(Canvas canvas) {
                 float w = getWidth(), floor = getHeight() - ui.dp(18);
                 float left = w * .06f, right = w * .94f;
-                if (photo.getVisibility() == View.VISIBLE) {
+                if (photo.getVisibility() == View.VISIBLE && w > 0) {
                     // A soft red glow on the floor under the wheels.
+                    // While charging it breathes slowly in brightness and width only; its centre,
+                    // height and the floor line stay put. glow == 1 is the static glow.
                     float rx = w * .42f, ry = ui.dp(34);
+                    int color = ui.accent;
+                    if (glowShader == null || rx != glowRadius || color != glowColor) {
+                        glowShader = new RadialGradient(0, 0, rx,
+                                new int[] {Ui.withAlpha(color, ui.dark ? 140 : 90), Ui.withAlpha(color, 0)},
+                                null, Shader.TileMode.CLAMP);
+                        glowRadius = rx; glowColor = color;
+                    }
                     canvas.save();
                     canvas.translate(w / 2, floor);
-                    canvas.scale(1, ry / rx);
+                    canvas.scale(.94f + .06f * glow, ry / rx);
                     paint.setStyle(Paint.Style.FILL);
-                    paint.setShader(new RadialGradient(0, 0, rx,
-                            new int[] {Ui.withAlpha(ui.accent, ui.dark ? 140 : 90), Ui.withAlpha(ui.accent, 0)},
-                            null, Shader.TileMode.CLAMP));
+                    paint.setShader(glowShader);
+                    paint.setAlpha(Math.round(255 * (.72f + .28f * glow)));
                     canvas.drawCircle(0, 0, rx, paint);
                     paint.setShader(null);
+                    paint.setAlpha(255);
                     canvas.restore();
                 }
                 paint.setStyle(Paint.Style.STROKE);
@@ -3733,7 +3792,13 @@ public final class DashboardScreen implements AppScreen {
         private final Rect measurementBounds = new Rect();
         private final Paint.FontMetrics measurementMetrics = new Paint.FontMetrics();
         private final Path trackClip = new Path();
+        private final Path fillShape = new Path();
+        private final Path fillBand = new Path();
         private final RectF trackBounds = new RectF();
+        private final Rect digits = new Rect();
+        private final android.text.TextPaint linePaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
+        private float shapeW = -1, shapeH = -1, shapeCorner = -1, shapeEdge = -1, shapeTop = -1;
+        private boolean shapeClipped;
         private double percent = Double.NaN;
         private String detail = "";
         private boolean charging, live = true;
@@ -3803,10 +3868,22 @@ public final class DashboardScreen implements AppScreen {
             paint.setStyle(Paint.Style.FILL);
             paint.setColor(track);
             canvas.drawRoundRect(trackBounds, corner, corner, paint);
+            float edge = Math.max(1, ui.dp(1));
+            float top = !Double.isNaN(percent) && percent > 0 ? h - (float) (h * percent / 100) : h;
+            // All interior paint stays inside one silhouette that ends at the border's centre line,
+            // so neither hardware clip antialiasing nor a shallow fill can put a fill pixel outside
+            // the border's outer edge (a Samsung report showed fill outside the corners; the old
+            // fill rounded its own, smaller corners).
+            if (w != shapeW || h != shapeH || corner != shapeCorner || edge != shapeEdge) {
+                trackBounds.inset(edge / 2, edge / 2);
+                trackClip.reset();
+                float inner = Math.max(0, corner - edge / 2);
+                trackClip.addRoundRect(trackBounds, inner, inner, Path.Direction.CW);
+                trackBounds.set(0, 0, w, h);
+                shapeW = w; shapeH = h; shapeCorner = corner; shapeEdge = edge; shapeTop = -1;
+            }
             // Quiet diagonal texture marks unused capacity even when the track and card
             // have similar brightness. Unknown and last-seen readings remain neutral.
-            trackClip.reset();
-            trackClip.addRoundRect(trackBounds, corner, corner, Path.Direction.CW);
             int saved = canvas.save();
             canvas.clipPath(trackClip);
             paint.setStyle(Paint.Style.STROKE);
@@ -3818,15 +3895,27 @@ public final class DashboardScreen implements AppScreen {
             paint.setStyle(Paint.Style.FILL);
             int fill = !live ? blend(ui.raised, ui.dim, ui.dark ? .45f : .6f)
                     : !Double.isNaN(percent) && percent < 15 && !charging ? ui.orange : ui.accent;
-            float top = h;
-            if (!Double.isNaN(percent) && percent > 0) {
-                top = h - (float) (h * percent / 100);
-                float round = Math.min(corner, (h - top) / 2);
+            if (top < h) {
+                // A square-topped band intersected with the silhouette: the level edge stays
+                // flat and the bottom follows the track's own corners at every height.
+                if (top != shapeTop) {
+                    fillBand.reset();
+                    fillBand.addRect(0, top, w, h, Path.Direction.CW);
+                    shapeClipped = fillShape.op(fillBand, trackClip, Path.Op.INTERSECT);
+                    if (!shapeClipped) fillShape.set(fillBand);
+                    shapeTop = top;
+                }
                 paint.setColor(fill);
-                canvas.drawRoundRect(new RectF(0, top, w, h), round, round, paint);
+                // If path ops reject a degenerate band, the canvas clip still keeps it inside.
+                if (shapeClipped) canvas.drawPath(fillShape, paint);
+                else {
+                    saved = canvas.save();
+                    canvas.clipPath(trackClip);
+                    canvas.drawPath(fillShape, paint);
+                    canvas.restoreToCount(saved);
+                }
             }
             // Keep the full-capacity silhouette visible against the surrounding card.
-            float edge = Math.max(1, ui.dp(1));
             paint.setStyle(Paint.Style.STROKE);
             paint.setStrokeWidth(edge);
             paint.setColor(knownLive ? blend(track, ui.accent, .6f) : ui.outline);
@@ -3850,7 +3939,6 @@ public final class DashboardScreen implements AppScreen {
             unitSize *= fit;
             lineSize = Math.max(Math.min(lineSize, ui.sp(12) * fit), Math.min(ui.sp(10), lineSize));
             paint.setTextSize(amountSize);
-            Rect digits = new Rect();
             paint.getTextBounds("0", 0, 1, digits);
             float capHeight = digits.height();
             float gap = line.isEmpty() ? 0 : ui.dp(5);
@@ -3876,7 +3964,8 @@ public final class DashboardScreen implements AppScreen {
             if (!line.isEmpty()) {
                 paint.setTypeface(ui.medium());
                 paint.setTextSize(lineSize);
-                String shown = android.text.TextUtils.ellipsize(line, new android.text.TextPaint(paint),
+                linePaint.set(paint);
+                String shown = android.text.TextUtils.ellipsize(line, linePaint,
                         available, android.text.TextUtils.TruncateAt.END).toString();
                 canvas.drawText(shown, pad, baseline + gap + lineHeight * .9f, paint);
             }
