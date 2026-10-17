@@ -3798,6 +3798,7 @@ public final class DashboardScreen implements AppScreen {
         private final Rect digits = new Rect();
         private final android.text.TextPaint linePaint = new android.text.TextPaint(Paint.ANTI_ALIAS_FLAG);
         private float shapeW = -1, shapeH = -1, shapeCorner = -1, shapeEdge = -1, shapeTop = -1;
+        private boolean shapeClipped;
         private double percent = Double.NaN;
         private String detail = "";
         private boolean charging, live = true;
@@ -3871,7 +3872,8 @@ public final class DashboardScreen implements AppScreen {
             float top = !Double.isNaN(percent) && percent > 0 ? h - (float) (h * percent / 100) : h;
             // All interior paint stays inside one silhouette that ends at the border's centre line,
             // so neither hardware clip antialiasing nor a shallow fill can put a fill pixel outside
-            // the border's outer edge (seen on Samsung when the fill rounded its own corners).
+            // the border's outer edge (a Samsung report showed fill outside the corners; the old
+            // fill rounded its own, smaller corners).
             if (w != shapeW || h != shapeH || corner != shapeCorner || edge != shapeEdge) {
                 trackBounds.inset(edge / 2, edge / 2);
                 trackClip.reset();
@@ -3899,11 +3901,19 @@ public final class DashboardScreen implements AppScreen {
                 if (top != shapeTop) {
                     fillBand.reset();
                     fillBand.addRect(0, top, w, h, Path.Direction.CW);
-                    if (!fillShape.op(fillBand, trackClip, Path.Op.INTERSECT)) fillShape.set(fillBand);
+                    shapeClipped = fillShape.op(fillBand, trackClip, Path.Op.INTERSECT);
+                    if (!shapeClipped) fillShape.set(fillBand);
                     shapeTop = top;
                 }
                 paint.setColor(fill);
-                canvas.drawPath(fillShape, paint);
+                // If path ops reject a degenerate band, the canvas clip still keeps it inside.
+                if (shapeClipped) canvas.drawPath(fillShape, paint);
+                else {
+                    saved = canvas.save();
+                    canvas.clipPath(trackClip);
+                    canvas.drawPath(fillShape, paint);
+                    canvas.restoreToCount(saved);
+                }
             }
             // Keep the full-capacity silhouette visible against the surrounding card.
             paint.setStyle(Paint.Style.STROKE);
