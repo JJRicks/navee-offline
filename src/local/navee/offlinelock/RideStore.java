@@ -36,6 +36,9 @@ public final class RideStore {
     public static final int MAX_TREND_POINTS = 600;
     public static final double MIN_EFFICIENCY_DISTANCE_KM = 0.2;
     public static final double MIN_EFFICIENCY_COVERAGE = 0.8;
+    /** STOP details token for a ride Volt ended after a parked Bluetooth loss. An empty value means
+     *  the rider stopped it; Volt 1.3.1 and earlier ignore the column, so old builds still load it. */
+    public static final String STOP_AUTO_PARKED = "AUTO_PARKED_DISCONNECT";
     private static final int MAX_METRICS = 160;
     private static final String HEADER = "schema_version,event,recorded_utc,wall_ms,monotonic_ms,frame,key,numeric,text,unit,source_command,sensor_updated_monotonic_ms,sensor_age_ms,current_direction,details\n";
 
@@ -107,6 +110,9 @@ public final class RideStore {
                 unknownMotionElectricalCoverageMs;
         public final Double movingThroughputWh, stationaryThroughputWh, unknownMotionThroughputWh;
         public final String efficiencyStatus;
+        /** Null while recording; "" for a rider's stop (and every older journal); otherwise a STOP token. */
+        public final String stopReason;
+        public final boolean automaticStop;
         private Summary(Accumulator a) {
             id = a.id; scooterId = a.scooterId; label = a.label; notes = a.notes;
             currentDirection = a.direction.name(); startWallMs = a.startWall;
@@ -117,6 +123,7 @@ public final class RideStore {
             stationaryMs = a.stationaryMs; sampleCount = a.samples;
             gapCount = a.gaps; clockDiscontinuities = a.clockDiscontinuities; directionChanges = a.directionChanges;
             active = !a.stopped; recovered = a.recovered; odometerReset = a.odometerReset;
+            stopReason = a.stopped ? a.stopReason : null; automaticStop = STOP_AUTO_PARKED.equals(stopReason);
             confirmedDirectionCoverageMs = a.confirmedMs;
             unconfirmedDirectionCoverageMs = a.unconfirmedMs;
             movingElectricalCoverageMs = a.movingElectricalMs;
@@ -204,6 +211,7 @@ public final class RideStore {
             m.put("throughputWhPerKm", throughputWhPerKm); m.put("throughputWhPerMile", throughputWhPerMile);
             m.put("netWhPerKm", netWhPerKm); m.put("netWhPerMile", netWhPerMile);
             m.put("efficiencyStatus", efficiencyStatus);
+            m.put("stopReason", stopReason == null ? null : automaticStop ? "automatic_parked_disconnect" : stopReason.isEmpty() ? "rider" : stopReason);
             return Collections.unmodifiableMap(m);
         }
         public String toJson() { return json(fields()); }
@@ -314,9 +322,14 @@ public final class RideStore {
     }
 
     public synchronized Summary stop(long wallMillis, long monotonicMillis) throws IOException {
+        return stop(wallMillis, monotonicMillis, "");
+    }
+    /** Stops at the given (current) time; the reason never moves the end or adds samples. */
+    public synchronized Summary stop(long wallMillis, long monotonicMillis, String reason) throws IOException {
         if (active == null) return null;
-        append(file(active.id), row("STOP", wallMillis, monotonicMillis, "", "", "", "", "", "", "", "", "", ""));
-        active.stop(wallMillis, monotonicMillis);
+        String details = STOP_AUTO_PARKED.equals(reason) ? STOP_AUTO_PARKED : "";
+        append(file(active.id), row("STOP", wallMillis, monotonicMillis, "", "", "", "", "", "", "", "", "", details));
+        active.stop(wallMillis, monotonicMillis); active.stopReason = details;
         Summary result = new Summary(active); active = null; return result;
     }
 
@@ -517,6 +530,7 @@ public final class RideStore {
         long samples, gaps, clockDiscontinuities, directionChanges, confirmedMs, unconfirmedMs, pointStride = 1;
         long movingElectricalMs, stationaryElectricalMs, unknownMotionElectricalMs;
         boolean stopped, recovered, odometerReset;
+        String stopReason = "";
         CurrentDirection direction = CurrentDirection.UNCONFIRMED;
         Double startSoc, endSoc, startVoltage, minVoltage, maxVoltage, minTemperature, maxTemperature;
         Double startOdo, endOdo, maxSpeed, peakPower, maxCurrent;
@@ -668,7 +682,7 @@ public final class RideStore {
                         } else if ("GAP".equals(event)) { a.gap(wall, mono); pending = null; }
                         else if ("HEARTBEAT".equals(event)) { a.heartbeat(wall, mono); pending = null; }
                         else if ("RECOVER".equals(event)) { a.recover(); pending = null; }
-                        else if ("STOP".equals(event)) { a.stop(wall, mono); pending = null; }
+                        else if ("STOP".equals(event)) { a.stop(wall, mono); a.stopReason = trim(r.get(14), 80); pending = null; }
                         else if ("NOTE".equals(event)) a.notes = r.get(14);
                         else if ("DIRECTION".equals(event)) { CurrentDirection changed = direction(r.get(13)); if (changed != a.direction && a.samples > 0) a.directionChanges++; a.direction = changed; a.breakAnchor(); }
                     }
