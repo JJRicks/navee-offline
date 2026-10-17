@@ -14,7 +14,7 @@
 | Readings history | `telemetry-history.db`: last-seen readings, detail and minute/daily rollups |
 | Scooter preferences | Per-scooter range source, range-follows-mode, charger choice and the dormant command cache. App-side only. |
 
-Never included: Android permission grants, battery optimization exemptions, notification settings, Bluetooth bonds, USB debugging authorization and Shizuku access (Android owns them); window, tab and boot-session state; pending owner imports, exports and onboarding progress; the owner-capture cleanup journal; transfer staging and journals; connection diagnostics; map tile and export caches; learned range, capacity and charge-curve results (recomputed after reopening); and the scooter's own firmware settings. A restore never reads, clears or replaces this phone's cleanup journal or pending documents.
+Never included: Android permission grants, battery optimization exemptions, notification settings, Bluetooth bonds, USB debugging authorization and Shizuku access (Android owns them); window, tab and boot-session state; pending owner imports, exports and onboarding progress; the owner-capture cleanup journal; transfer staging and journals; connection diagnostics; guided setting test records (kept on this phone); map tile and export caches; learned range, capacity and charge-curve results (recomputed after reopening); and the scooter's own firmware settings. A restore never reads, clears or replaces this phone's cleanup journal or pending documents.
 
 Every backup is encrypted, so the password is required even for a rides-only file. Losing the password makes the file unusable.
 

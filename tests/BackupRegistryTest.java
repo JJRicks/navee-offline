@@ -69,6 +69,7 @@ public final class BackupRegistryTest {
         for(String key:"text_scale background_connection keep_screen_awake poll_interval_ms map_basemap_enabled map_basemap_explained".split(" "))check(BackupRegistry.PREFERENCES.equals(BackupRegistry.category("app_settings",key)),"device-sensitive and map choices stay in App preferences: "+key);
         check(BackupRegistry.SCOOTER_PREFERENCES.equals(BackupRegistry.category("control_evidence","p")),"control evidence travels with Scooter preferences");
         check(BackupRegistry.RIDES.equals(BackupRegistry.root("files/rides"))&&BackupRegistry.HISTORY.equals(BackupRegistry.root("databases/telemetry-history.db"))&&BackupRegistry.root("files/pending-export-123")==null&&BackupRegistry.root("cache/map-tiles")==null,"storage roots are classified");
+        check(BackupRegistry.root("no_backup/compat-tests")==null&&BackupRegistry.root("no_backup/compat-tests.tmp")==null,"guided-test records stay device-local (D4)");
         checks++;try{BackupRegistry.root("files/surprise");throw new AssertionError("unclassified root accepted");}catch(IllegalArgumentException expected){}
     }
 
