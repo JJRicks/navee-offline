@@ -4,7 +4,8 @@ package local.navee.offlinelock;
  * Session-local inference for the two observed UT5 MAX chargers. This is a prediction hint, not a
  * charger ID or a training label. Call only with fresh, paired electrical readings; the caller
  * owns freshness. A confident family is remembered for one profile's physical charge, across
- * reconnects and isolated unusable frames. Nothing is persisted.
+ * reconnects and isolated unusable frames, except where a swap while disconnected is
+ * indistinguishable. Nothing is persisted.
  */
 public final class ChargerDetection {
     // Battery polling is user-configurable up to ten seconds. A longer gap restarts an evidence
@@ -12,13 +13,14 @@ public final class ChargerDetection {
     public static final long MAX_CONTINUITY_GAP_MS = 15000, RETAIN_MS = 120000;
     public static final long MIN_EVIDENCE_MS = 4000;
     public static final int MIN_EVIDENCE_FRAMES = 3;
-    // The references' own admitted-estimate grace; outside it the remembered curve cannot apply.
-    private static final double CONTRARY_TOLERANCE = .20;
+    // From here both families' power overlaps, so a reconnect cannot confirm the old charger.
+    static final double OVERLAP_SOC = 96;
 
     private String profile;
     private ChargeSessionStore.Charger selected, candidate;
     private long lastFrame, lastNow, lastValid, candidateStarted, contraryStarted;
     private int candidateFrames, contraryFrames;
+    private boolean relinked;
     private double lastSoc = Double.NaN;
 
     /** Clears inference at a scooter, charging-state or manual-selection boundary. */
@@ -27,9 +29,13 @@ public final class ChargerDetection {
         selected = null;
         lastFrame = lastNow = lastValid = 0;
         lastSoc = Double.NaN;
+        relinked = false;
         clearCandidate();
         clearContrary();
     }
+
+    /** The link dropped; the charger may have been swapped before the next usable frame. */
+    public void disconnected() { relinked = true; }
 
     /** Null unless this profile's charge produced confident evidence within RETAIN_MS. */
     public ChargeSessionStore.Charger selected(String profile, long nowMs) {
@@ -72,10 +78,15 @@ public final class ChargerDetection {
         else if (candidate != evidence) { candidate = evidence; candidateStarted = frameMs; candidateFrames = 1; }
         // Saturate because repeated high-rate samples need not grow this counter forever.
         else candidateFrames = Math.min(MIN_EVIDENCE_FRAMES, candidateFrames + 1);
+        if (relinked) {
+            relinked = false;
+            if (soc >= OVERLAP_SOC && evidence != selected) { selected = null; clearContrary(); }
+        }
         if (selected != null) {
-            // Near full both families overlap, and each reference rejects an incompatible frame
-            // itself. Forget the family only after a sustained run outside its own envelope.
-            if (soc >= 100 || compatible(selected, soc, watts)) { clearContrary(); return selected; }
+            // Each reference rejects frames outside its own envelope, so a charge shaped unlike
+            // the references keeps its family. Forget it only on a sustained run its charger
+            // cannot produce.
+            if (!incompatible(selected, soc, current, watts)) { clearContrary(); return selected; }
             if (contraryFrames == 0) contraryStarted = frameMs;
             contraryFrames = Math.min(MIN_EVIDENCE_FRAMES, contraryFrames + 1);
             if (contraryFrames < MIN_EVIDENCE_FRAMES || frameMs - contraryStarted < MIN_EVIDENCE_MS) return selected;
@@ -89,15 +100,6 @@ public final class ChargerDetection {
         return selected;
     }
 
-    /**
-     * Automatic for a model this detector cannot read: the one family with qualified personal
-     * recordings, as a v1.3.1 recording used to set the preference. Both or neither stays unknown.
-     */
-    public static ChargeSessionStore.Charger fromRecordings(int productId, int stockSessions, int fastSessions) {
-        if (productId == Ut5MaxStockChargeReference.PRODUCT_ID || (stockSessions > 0) == (fastSessions > 0)) return null;
-        return stockSessions > 0 ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED;
-    }
-
     private static ChargeSessionStore.Charger evidence(double soc, double current, double watts) {
         // Recorded stock sessions reach about 121 W / 2.25 A. The extra margin prevents normal
         // stock variation selecting fast. A fast charger is still identifiable well into taper.
@@ -109,10 +111,10 @@ public final class ChargerDetection {
         return null;
     }
 
-    private static boolean compatible(ChargeSessionStore.Charger family, double soc, double watts) {
-        return family == ChargeSessionStore.Charger.HIGH_SPEED
-                ? Ut5MaxFastChargeReference.powerCompatible(soc, watts, CONTRARY_TOLERANCE)
-                : Ut5MaxStockChargeReference.powerCompatible(soc, watts, CONTRARY_TOLERANCE);
+    /** A stock charger cannot reach fast power; a fast one is not in low bulk before its taper. */
+    private static boolean incompatible(ChargeSessionStore.Charger family, double soc, double current, double watts) {
+        return family == ChargeSessionStore.Charger.STOCK ? watts > 135 || current > 2.5
+                : soc <= 85 && (watts <= 150 || current < 2.8);
     }
 
     private void clearCandidate() { candidate = null; candidateStarted = 0; candidateFrames = 0; }

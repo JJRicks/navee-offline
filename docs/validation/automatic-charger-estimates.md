@@ -5,8 +5,8 @@
 `ut5-dual-charger-v3` adds a provisional high-speed default and a runtime charger
 classifier. Neither requires the owner to make recordings. It changes predictions
 only and sends no scooter commands. PID 2538 selects these UT5 MAX defaults; other
-models retain the live-rate fallback, with compatible personal curves still
-available (see below).
+models retain the live-rate fallback under Auto; an explicit Stock or High-speed
+choice still applies that family's personal curves.
 
 The per-scooter estimate selector is Auto / Stock / High-speed. An absent preference
 means Auto; an existing explicit Stock or High-speed choice is preserved. Changing
@@ -14,11 +14,8 @@ the preference does not discard runtime classification, which describes the
 physical charger. Simulation never supplies automatic evidence and clears it. Its
 manually selected reference preview remains available.
 
-On a model the classifier cannot read, Auto uses the one family with qualified
-personal recordings for that scooter. In v1.3.1 each recording set the saved
-preference to its label; recordings no longer do, so this keeps those curves
-in use. With recordings for both families, or none, Auto keeps the live rate.
-The UT5 MAX always relies on live classification instead.
+Capture labels never drive Auto. A preference saved by a v1.3.1 recording is an
+explicit choice and is preserved; new recordings do not change it.
 
 ## Selection and continuity
 
@@ -36,11 +33,17 @@ Charging recordings retain their separate five-second capture freshness rule.
 - A confident selection is remembered per scooter profile for the current physical
   charge: through the falling-current taper, across reconnects and transport
   changes, and across isolated unpaired, zero-current, implausible or late frames.
-- It is dropped only by readings outside that family's own reference power
-  envelope (at its 20% grace tolerance) for three frames over four seconds, by
-  charging reported off, a battery-level drop of a point or more, a model or
-  profile change, or two minutes without a usable frame. Sustained readings of the
-  other family then select it; otherwise Auto is uncertain.
+  A charge shaped unlike the references keeps its family; the references reject
+  frames outside their own envelopes themselves.
+- It is dropped by readings that family's charger cannot produce (stock above
+  135 W or 2.5 A; fast at or below 85% with at most 150 W or under 2.8 A) for three
+  frames over four seconds, by charging reported off, a battery-level drop of a
+  point or more, a model or profile change, or two minutes without a usable frame.
+  Sustained readings of the other family then select it; otherwise Auto is uncertain.
+- A charger could be swapped while the link is down without charging ever being
+  seen off. From 96%, where both families' power overlaps, the first usable frame
+  after a lost link keeps the family only if it is fresh evidence for it; otherwise
+  Auto is uncertain for the rest of the charge. Below 96% the rules above apply.
 - A charge first seen near full, or after more than two minutes without fresh
   readings, can therefore leave Auto uncertain; Volt then uses the live rate. An
   override is available; stale readings never become a new prediction.
@@ -93,7 +96,7 @@ Stock / High-speed label. It pre-selects only an explicit preference; under Auto
 nothing is pre-selected and Start waits for a choice. That label temporarily
 selects active capture estimates without changing the owner's saved Auto/manual
 preference. The settings row names the family in effect and why (recording
-label, detected, or from recordings); the developer card counts only that
+label, which must be stopped to change, or detected); the developer card counts only that
 family's curves, or says none apply until the charger is known.
 
 Saved predictions carry estimator version `ut5-dual-charger-v3` and per-target
@@ -107,10 +110,11 @@ still explicitly confirmed by the owner.
 ## Validation
 
 The core suite covers detection at ordinary and slow polling rates, duplicate
-frames, retention across reconnects and unusable frames, charge boundaries,
-sustained contrary power, ambiguous late starts, fast-path grace, voltage offsets, model/charger isolation, per-target personal/default precedence,
+frames, retention across reconnects and unusable frames, the near-full reconnect
+check, charge boundaries, off-reference charge shapes, sustained contrary power, ambiguous late starts, fast-path grace, voltage offsets, model/charger isolation, per-target personal/default precedence,
 saved provenance round trips, fractional targets and full calibration replay.
 Android validation covers the three-option controls, persisted overrides, Auto
-reset, profile isolation, simulation, capture-label isolation and default source
-selection. No live scooter commands or physical charging tests are required by
+reset, profile isolation, simulation, capture-label isolation (including other
+models' Auto), the service keeping a detected family across a lost link, and
+default source selection. No live scooter commands or physical charging tests are required by
 these suites.

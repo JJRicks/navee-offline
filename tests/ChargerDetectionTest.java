@@ -220,13 +220,45 @@ public final class ChargerDetectionTest {
         check(observe(d, 50, 50, -10, 5000) == null, "An unusable frame restarts acquisition evidence");
     }
 
-    /** Undetectable models still use learned curves when only one family has any. */
-    private static void recordings() {
-        check(ChargerDetection.fromRecordings(1234, 2, 0) == STOCK, "Only stock recordings resolve Auto to stock");
-        check(ChargerDetection.fromRecordings(-1, 0, 1) == FAST, "Only high-speed recordings resolve Auto to high-speed");
-        check(ChargerDetection.fromRecordings(1234, 1, 1) == null, "Both families remain ambiguous");
-        check(ChargerDetection.fromRecordings(1234, 0, 0) == null, "No recordings keep the live rate");
-        check(ChargerDetection.fromRecordings(2538, 2, 0) == null, "UT5 MAX relies on live detection, not past labels");
+    /** A charge shaped unlike the one calibration session keeps its family while its charger fits. */
+    private static void offReferenceShapes() {
+        ChargerDetection d = selected(FAST);
+        for (int i = 0; i < 20; i++)
+            check(observe(d, 77, 54, -4.4, 7000 + i * 2000) == FAST, "Early fast taper below the reference keeps fast");
+        d = selected(STOCK);
+        for (int i = 0; i < 10; i++)
+            check(observe(d, 93, 54, -1.6, 7000 + i * 2000) == STOCK, "Low stock finish above 85% keeps stock");
+        d = selected(STOCK);
+        for (int i = 0; i < 10; i++)
+            check(observe(d, 60, 48, -1.5, 7000 + i * 2000) == STOCK, "Low stock bulk power keeps stock");
+    }
+
+    /** Near full a reconnect cannot tell a swapped charger apart, so it needs fresh agreement. */
+    private static void reconnects() {
+        ChargerDetection d = selected(FAST);
+        check(observe(d, 97, 54.3, -2.21, 7000) == FAST, "Fast taper keeps its family while connected");
+        d.disconnected();
+        check(observe(d, 97, 54.2, -104 / 54.2, 67000) == null, "A near-full reconnect drops the old family");
+        for (int i = 1; i <= 10; i++)
+            check(observe(d, 97, 54.2, -(i % 2 == 0 ? 104 : 116) / 54.2, 67000 + i * 2000) == null,
+                    "Overlapping power never re-selects a family");
+        d = selected(FAST);
+        d.disconnected();
+        check(observe(d, 96, 54.2, -3.0, 40000) == FAST, "Fresh fast power after reconnect keeps fast");
+        d = selected(FAST);
+        d.disconnected();
+        check(observe(d, 80, 54.1, -4.6, 40000) == FAST, "A bulk reconnect keeps the family");
+        check(observe(d, 97, 54.3, -2.21, 42000) == FAST, "The reconnect check applies only once");
+        d = selected(FAST);
+        d.disconnected();
+        check(d.observe(SCOPE, 2538, true, 97d, null, null, 40000, 40000) == FAST, "An unusable frame defers the check");
+        check(observe(d, 97, 54.3, -2.21, 42000) == null, "The next usable near-full frame applies it");
+        d = selected(FAST);
+        d.disconnected();
+        d.reset();
+        check(observe(d, 50, 50, -10, 7000) == null && observe(d, 50, 50, -10, 9000) == null
+                && observe(d, 50, 50, -10, 11000) == FAST, "Reset clears a pending reconnect");
+        check(observe(d, 97, 54.3, -2.21, 13000) == FAST, "No stale reconnect check after reset");
     }
 
     public static void main(String[] args) {
@@ -235,7 +267,8 @@ public final class ChargerDetectionTest {
         switchesAndGaps();
         sameCharge();
         invalidity();
-        recordings();
+        offReferenceShapes();
+        reconnects();
         System.out.println("ChargerDetectionTest: " + checks + " checks passed");
     }
 }

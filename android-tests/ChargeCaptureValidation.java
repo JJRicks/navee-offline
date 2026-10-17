@@ -335,7 +335,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
             invoke(field(activity,"screen"),"refresh",new Class<?>[]{});
             require(!root().findViewWithTag("estimate-charger-setting").isEnabled(),"Normal charger preference remained enabled during capture");
             require("High-speed".contentEquals(((TextView)root().findViewWithTag("estimate-charger-value")).getText())
-                    &&findText(root(),"Recording label")!=null,"Charger row hid the recording label driving estimates");
+                    &&findText(root(),"Recording label · stop to change")!=null,"Charger row hid the recording label or how to change it");
             View chargerRow=root().findViewWithTag("estimate-charger-setting");
             int y=0;View child=chargerRow;
             while(child.getParent() instanceof View&&!(child.getParent() instanceof android.widget.ScrollView)){y+=child.getTop();child=(View)child.getParent();}

@@ -42,7 +42,7 @@ public final class ChargeEstimateValidation extends Instrumentation {
             activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(()->activity.service()!=null,"Service missing");service=activity.service();
             await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Charge model load did not finish");
-            verifyServiceSnapshot();seedRecordings();verifyAsyncHistory();verifyRecordedAutomatic();
+            verifyServiceSnapshot();seedRecordings();verifyAsyncHistory();verifyRecordingsStayLabels();verifyDetectionWiring();
             main(()->{invoke(activity,"select",new Class<?>[]{String.class},"more");invoke(field(activity,"screen"),"selectSection",new Class<?>[]{String.class},"Developer");});settle();
             main(()->{View row=root().findViewWithTag("charge-history-action");require(row!=null&&row.isEnabled(),"Charge history unavailable offline");row.performClick();});
             await(()->dialog()!=null&&dialog().getWindow().getDecorView().findViewWithTag("charge-history-session:"+completeId)!=null,"History did not load");
@@ -224,8 +224,8 @@ public final class ChargeEstimateValidation extends Instrumentation {
         require(store().sample(frame(wall+10800000,mono+10800000,99),new ChargeSessionStore.Estimate("tiny-fixture",Double.MIN_VALUE,null,100d,ChargeSessionStore.Source.CURRENT_RATE,null,0)),"Tiny sample rejected");
         store().stop(ChargeSessionStore.Stop.STOPPED);tinyId=recordingAt(mono+10800000);
     }
-    /** Automatic on a model without detection uses its only learned family; UT5 MAX keeps live detection. */
-    private void verifyRecordedAutomatic()throws Exception{
+    /** Capture labels never drive Automatic: every model keeps the live rate without detection. */
+    private void verifyRecordingsStayLabels()throws Exception{
         // One qualified stock bulk recording: twelve one-percent bins over twelve minutes.
         long wall=1735800000000L,mono=20000000;
         store().start(profile,ChargeSessionStore.Charger.STOCK,wall,mono);
@@ -241,14 +241,31 @@ public final class ChargeEstimateValidation extends Instrumentation {
                 require(service.effectiveChargeCharger()==null&&service.chargerBasis()==ScooterService.ChargerBasis.UNKNOWN&&service.qualifiedChargeCurves()==0,
                         "UT5 MAX Automatic used past labels instead of live detection");
                 active.serial="X9999-SYNTHETIC";
-                require(service.effectiveChargeCharger()==ChargeSessionStore.Charger.STOCK&&service.chargerBasis()==ScooterService.ChargerBasis.RECORDINGS
-                        &&service.qualifiedChargeCurves()>0,"Undetectable model ignored its only learned charger family");
+                require(service.effectiveChargeCharger()==null&&service.chargerBasis()==ScooterService.ChargerBasis.UNKNOWN&&service.qualifiedChargeCurves()==0,
+                        "Undetectable model's Automatic used capture labels instead of the live rate");
             }finally{active.serial=serial;}
         });
         require(qualified.delete(),"Qualified fixture cleanup failed");
         main(()->invoke(service,"refreshChargeCurves",new Class<?>[]{}));
         await(()->!Boolean.TRUE.equals(field(service,"chargeModelLoading")),"Curve cleanup refresh did not finish");
     }
+    /** The service keeps a detected family across a lost link and flags the reconnect check. */
+    private void verifyDetectionWiring(){main(()->{
+        ChargerDetection detection=(ChargerDetection)field(service,"chargerDetection");
+        ScooterProfiles.Profile active=service.profiles.active();long now=SystemClock.elapsedRealtime();
+        try{
+            for(long ago=4000;ago>=0;ago-=2000)detection.observe(active.id,active.pid(),true,50d,50d,-10d,now-ago,now-ago);
+            require(service.chargerBasis()==ScooterService.ChargerBasis.DETECTED&&service.effectiveChargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,
+                    "Service ignored the detector's confident family");
+            require(service.ble.currentTransportSerial().isEmpty(),"Fixture has a live link");
+            invoke(service,"changed",new Class<?>[]{});
+            require(service.chargerBasis()==ScooterService.ChargerBasis.DETECTED&&service.effectiveChargeCharger()==ChargeSessionStore.Charger.HIGH_SPEED,
+                    "A lost link discarded the detected family");
+            require(Boolean.TRUE.equals(field(detection,"relinked")),"A lost link was not noted for the reconnect check");
+            require(service.chargeCharger()==null,"Detection wrote the charger preference");
+        }finally{detection.reset();}
+        require(service.chargerBasis()==ScooterService.ChargerBasis.UNKNOWN,"Detection fixture leaked");
+    });}
     private String recordingAt(long startedMono)throws IOException{for(ChargeSessionStore.HistorySession session:store().recordings(profile))if(session.startedMono==startedMono)return session.id;throw new IllegalStateException("Fixture recording missing");}
     private ChargeSessionStore.Frame frame(long wall,long mono,double soc){return new ChargeSessionStore.Frame(wall,mono,new ChargeSessionStore.Value(1d,mono,0x72),new ChargeSessionStore.Value(soc,mono,0x72),new ChargeSessionStore.Value(52d,mono,0x72),new ChargeSessionStore.Value(-2d,mono,0x72),new ChargeSessionStore.Value(23d,mono,0x72));}
     private void verifyAsyncHistory(){

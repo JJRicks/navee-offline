@@ -240,20 +240,18 @@ public final class ScooterService extends Service {
         try{return ChargeSessionStore.Charger.valueOf(settings.getString(chargerKey(),""));}catch(IllegalArgumentException invalid){return null;}
     }
     /** Why a charger family drives estimates, in precedence order. */
-    public enum ChargerBasis{RECORDING,MANUAL,DETECTED,RECORDINGS,UNKNOWN}
+    public enum ChargerBasis{RECORDING,MANUAL,DETECTED,UNKNOWN}
     /** A recording's manually confirmed label is temporary and never changes the preference. */
     public ChargerBasis chargerBasis(){
         if(isChargeRecording()&&activeProfileId().equals(chargeStore.profile()))return ChargerBasis.RECORDING;
         if(chargeCharger()!=null)return ChargerBasis.MANUAL;
-        if(detectedCharger()!=null)return ChargerBasis.DETECTED;
-        return recordedCharger()!=null?ChargerBasis.RECORDINGS:ChargerBasis.UNKNOWN;
+        return detectedCharger()!=null?ChargerBasis.DETECTED:ChargerBasis.UNKNOWN;
     }
     public ChargeSessionStore.Charger effectiveChargeCharger(){
         switch(chargerBasis()){
             case RECORDING:return chargeStore.charger();
             case MANUAL:return chargeCharger();
             case DETECTED:return detectedCharger();
-            case RECORDINGS:return recordedCharger();
             default:return null;
         }
     }
@@ -261,13 +259,6 @@ public final class ScooterService extends Service {
     private ChargeSessionStore.Charger detectedCharger(){
         ScooterProfiles.Profile profile=profiles==null?null:profiles.active();
         return destroyed||simulating()||profile==null?null:chargerDetection.selected(profile.id,SystemClock.elapsedRealtime());
-    }
-    /** Automatic for models without detection: the only family this scooter has learned. */
-    private ChargeSessionStore.Charger recordedCharger(){
-        ScooterProfiles.Profile profile=profiles==null?null:profiles.active();
-        if(destroyed||simulating()||profile==null||chargeSnapshot==null)return null;
-        return ChargerDetection.fromRecordings(profile.pid(),qualifiedSessions(ChargeSessionStore.Charger.STOCK),
-                qualifiedSessions(ChargeSessionStore.Charger.HIGH_SPEED));
     }
     private int qualifiedSessions(ChargeSessionStore.Charger charger){
         ChargeSessionStore.Curve curve=chargeSnapshot==null?null:chargeSnapshot.curves.get(ChargeSessionStore.key(activeProfileId(),charger));
@@ -496,10 +487,12 @@ public final class ScooterService extends Service {
     /**
      * Observe real electrical frames once per update, even when no widget is open. A disconnect
      * or unusable frame leaves the remembered family to expire by age; renders only read it.
+     * A lost link is noted so a near-full reconnect cannot keep a possibly swapped charger.
      */
     private void updateChargerDetection(){
         ScooterProfiles.Profile profile=profiles==null?null:profiles.active();
         if(destroyed||simulating()||profile==null){chargerDetection.reset();return;}
+        if(ble!=null&&ble.currentTransportSerial().isEmpty())chargerDetection.disconnected();
         if(ble==null||!ble.ready()||ble.profile()==null||!profile.id.equals(ble.profile().id))return;
         long now=SystemClock.elapsedRealtime();
         ChargeSessionStore.Frame frame=chargeFrame(now,System.currentTimeMillis());
