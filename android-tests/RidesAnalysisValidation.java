@@ -33,6 +33,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(activity.service() != null, "Service ready"); main(this::verifyBoundedHatching); mapPreferences(); seed();
             main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen) field(activity, "screen"); }); settle();
             verifyRideNaming();
+            if (args.getString("start_only", "false").equals("true")) { result.putString("result", "PASS"); return; }
             main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
             main(() -> { View options = root(); check(find(options, SegmentedSelector.class) != null, "Phone placement uses sliding selector"); text(options, "Mounted").performClick(); check(activity.service().settings.getString("phone_placement", "").equals("mounted"), "Placement saves immediately"); text(options, "Pocket").performClick(); ((AlertDialog)((List<?>)field(screen, "dialogs")).get(0)).dismiss(); });
             if (context.getResources().getConfiguration().screenWidthDp < 650) main(() -> invoke(screen, "showDetails", new Class[]{String.class}, id));
@@ -94,7 +95,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             verifySpeedRide();
             check(!activity.service().ble.connected() && !activity.service().isRecording(), "No scooter connection or active recording");
             result.putString("result", "PASS");
-        } catch (Throwable error) { result.putString("result", "FAIL"); result.putString("error", error.toString()); try { screenshot("failure"); } catch (Throwable ignored) {} }
+        } catch (Throwable error) { result.putString("result", "FAIL"); result.putString("error", android.util.Log.getStackTraceString(error)); try { screenshot("failure"); } catch (Throwable ignored) {} }
         finally {
             result.putInt("checks", checks); result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
             if (activity != null) main(() -> { activity.finish(); ScooterService.setUiVisible(false); getTargetContext().stopService(new Intent(getTargetContext(), ScooterService.class)); });
@@ -102,26 +103,110 @@ public final class RidesAnalysisValidation extends Instrumentation {
         }
     }
     void verifyRideNaming() throws Exception {
-        // Open the actual naming dialog below the BLE guard; this fixture never starts a ride.
-        main(() -> { activity.service().settings.edit().putString("last_ride_label", "Evening campus loop").commit(); invoke(screen, "showRideNameDialog", new Class[0]); }); settle();
-        AlertDialog dialog = (AlertDialog)((List<?>)field(screen, "dialogs")).get(0);
-        EditText name = (EditText)find(dialog.getWindow().getDecorView(), EditText.class);
-        check(name.hasFocus() && name.hasWindowFocus(), "Ride name owns keyboard focus immediately");
-        check(name.getSelectionStart() == 0 && name.getSelectionEnd() == name.length(), "Previous ride name is fully selected");
-        check((dialog.getWindow().getAttributes().softInputMode & WindowManager.LayoutParams.SOFT_INPUT_MASK_STATE)
-                == WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE, "Naming dialog asks Android to show the keyboard");
-        long until = SystemClock.uptimeMillis() + 5000;
-        while (Build.VERSION.SDK_INT >= 30 && !name.getRootWindowInsets().isVisible(WindowInsets.Type.ime()) && SystemClock.uptimeMillis() < until) settle();
-        check(Build.VERSION.SDK_INT < 30 || name.getRootWindowInsets().isVisible(WindowInsets.Type.ime()), "Naming keyboard is visible without another tap");
-        screenshot("ride-name-keyboard");
-        main(() -> text(dialog.getWindow().getDecorView(), "Cancel").performClick()); settle();
-        check(!dialog.isShowing() && !name.isAttachedToWindow() && !activity.service().isRecording(), "Cancel releases the editor without recording");
-        main(() -> { invoke(screen, "showRideNameDialog", new Class[0]); ((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss(); }); settle();
-        check(((List<?>)field(screen,"dialogs")).isEmpty(), "Immediate dismissal leaves no pending naming dialog");
-        main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
-        View next = root();
-        check(find(next, EditText.class) == null && (Build.VERSION.SDK_INT < 30 || !next.getRootWindowInsets().isVisible(WindowInsets.Type.ime())), "A dismissed naming request cannot reopen the keyboard over the next dialog");
-        main(() -> ((AlertDialog)((List<?>)field(screen,"dialogs")).get(0)).dismiss()); settle();
+        ScooterService service = activity.service(); SharedPreferences settings = service.settings;
+        Locale locale = Locale.getDefault(); TimeZone zone = TimeZone.getDefault();
+        String oldFormat = settings.getString("time_format", "system");
+        try {
+            Locale.setDefault(Locale.US); TimeZone.setDefault(TimeZone.getTimeZone("America/Boise"));
+            Calendar instant = Calendar.getInstance(TimeZone.getTimeZone("UTC")); instant.clear(); instant.set(2026, Calendar.OCTOBER, 18, 1, 5);
+            long wall = instant.getTimeInMillis();
+            settings.edit().putString("time_format", "24h").commit();
+            check(DisplayTime.rideName(activity, settings, wall, "SPORT").equals("Oct 17, 2026 - 19:05 - SPORT"), "Default name uses local date with year and the selected 24-hour clock");
+            check(DisplayTime.rideName(activity, settings, wall, "").equals("Oct 17, 2026 - 19:05"), "Unavailable mode is omitted without a trailing separator");
+            check(DisplayTime.rideName(activity, settings, wall, null).equals("Oct 17, 2026 - 19:05"), "Null mode is also omitted");
+            settings.edit().putString("time_format", "12h").commit();
+            check(DisplayTime.rideName(activity, settings, wall, "ECO").replace('\u202f', ' ').replace('\u00a0', ' ').equals("Oct 17, 2026 - 7:05 PM - ECO"), "Default name respects the selected 12-hour clock");
+            settings.edit().putString("time_format", "system").commit();
+            String systemName = DisplayTime.rideName(activity, settings, wall, "WALK");
+            check(android.text.format.DateFormat.is24HourFormat(activity) ? systemName.contains("19:05") : systemName.contains("7:05"), "System clock preference follows Android");
+        } finally { Locale.setDefault(locale); TimeZone.setDefault(zone); settings.edit().putString("time_format", oldFormat).commit(); }
+        boolean gps = settings.getBoolean("phone_gps", true), motion = settings.getBoolean("phone_motion", true), developer = settings.getBoolean("developer_options", false);
+        settings.edit().putBoolean("phone_gps", false).putBoolean("phone_motion", false).putString("last_ride_label", "Old manually named ride").commit();
+        List<String> created = new ArrayList<>(); ScooterProfiles.Profile profile = service.profiles.active();
+        String serial = profile.serial, pid = profile.advertisedPid;
+        try {
+            main(() -> { screen.beginRecording(); check(!service.isRecording(), "Home record still requires a ready connection"); });
+            main(() -> {
+                syntheticReady(profile); profile.serial = "S2538SYNTHETIC"; profile.advertisedPid = "2538";
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime());
+                screen.refresh(); TextView record = (TextView)field(screen, "recordButton");
+                check(record.isEnabled(), "Real Rides Record action is enabled on the synthetic ready connection"); record.performClick();
+                check(service.isRecording(), "One Record tap starts capture immediately");
+                RideStore.Summary started = service.rides.activeSummary(); created.add(started.id);
+                check(started.label.endsWith(" - SPORT") && !started.label.contains("Old manually"), "Actual journal uses fresh model-aware mode instead of the previous manual label");
+                check(started.label.equals(DisplayTime.rideName(activity, settings, started.startWallMs, "SPORT")), "Actual journal gets its date and time at capture start");
+                check(((List<?>)field(screen, "dialogs")).isEmpty() && find(screen.view(), EditText.class) == null, "Record opens no pre-start naming dialog or text editor");
+                screen.beginRecording(); check(started.id.equals(service.rides.activeId()), "Repeated Home Record leaves the existing recording intact");
+            }); settle(); screenshot("immediate-ride-recording");
+            main(() -> service.stopRide()); awaitPhoneSave();
+            final String first = created.get(0);
+            main(() -> invoke(screen, "showDetails", new Class[]{String.class}, first)); settle();
+            main(() -> { View rename = byDescription(root(), "Rename ride"); check(rename != null, "Autogenerated ride retains its rename pencil"); rename.performClick(); }); settle();
+            AlertDialog rename = (AlertDialog)((List<?>)field(screen, "dialogs")).get(((List<?>)field(screen, "dialogs")).size() - 1);
+            main(() -> { EditText input = (EditText)find(rename.getWindow().getDecorView(), EditText.class); check(input.getText().toString().endsWith(" - SPORT"), "Rename starts with the generated name"); input.setText("Morning campus ride"); rename.getButton(AlertDialog.BUTTON_POSITIVE).performClick(); }); settle();
+            check(service.rides.get(first).label.equals("Morning campus ride"), "Renaming the new ride persists to its journal"); screenshot("renamed-immediate-ride");
+            main(() -> {
+                for (Object dialog : new ArrayList<>((List<?>)field(screen, "dialogs"))) ((AlertDialog)dialog).dismiss();
+                setField(service.ble, "statusMs", SystemClock.elapsedRealtime());
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 2}, SystemClock.elapsedRealtime());
+                invoke(activity, "select", new Class[]{String.class}, "home");
+                DashboardScreen home = (DashboardScreen)field(activity, "screen");
+                ((DashboardScreen.Actions)field(home, "actions")).startRide(); screen = (RidesScreen)field(activity, "screen");
+                check(service.isRecording() && service.rides.activeSummary().label.endsWith(" - ECO"), "Actual dashboard callback starts immediately with the newly reported mode");
+                created.add(service.rides.activeId()); check(((List<?>)field(screen, "dialogs")).isEmpty(), "Dashboard start has no extra naming step");
+                service.stopRide();
+            }); awaitPhoneSave();
+            main(() -> {
+                setField(service.ble, "statusMs", SystemClock.elapsedRealtime());
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 11}, SystemClock.elapsedRealtime());
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).endsWith(" - WALK"), "Known walking mode gets its actual label");
+                profile.serial = "S9999SYNTHETIC"; profile.advertisedPid = "9999";
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime());
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).endsWith(" - Mode 3 (raw)"), "Another scooter never inherits the UT5 mode meanings");
+                service.ble.telemetry.clear(); // The parser deliberately rejects out-of-order samples.
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime() - 8000);
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Stale mode is not presented as current");
+                service.ble.telemetry.clear();
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime() + 8000);
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Future-dated mode is not treated as fresh");
+                service.ble.telemetry.clear();
+                service.ble.telemetry.accept(0x70, new byte[]{0, 0, 3}, SystemClock.elapsedRealtime());
+                setField(service.ble, "profile", new ScooterProfiles.Profile("other", "Other", "000000000000", 0, "", "S2538SYNTHETIC", 0));
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Another connected profile cannot provide the new ride's mode");
+                setField(service.ble, "profile", profile); service.ble.telemetry.clear();
+                check(((String)invoke(screen, "defaultRideName", new Class[0])).split(" - ", -1).length == 2, "Missing mode is omitted without a placeholder or trailing separator");
+                setField(service, "phoneSavingCount", 1); screen.beginRecording(); check(!service.isRecording(), "Pending sensor save still blocks a new ride"); setField(service, "phoneSavingCount", 0);
+                setField(service.ble, "gatt", null); service.ble.disconnect();
+                settings.edit().putBoolean("developer_options", true).commit(); check(service.setSimulation(true), "Developer simulation fixture enabled"); screen.beginRecording(); check(!service.isRecording() && service.simulating(), "Home cannot start a simulated ride or silently exit simulation");
+                service.setSimulation(false); screen = (RidesScreen)field(activity, "screen");
+            });
+        } finally {
+            main(() -> { if (service.isRecording()) service.stopRide(); setField(service.ble, "gatt", null); service.ble.disconnect(); profile.serial = serial; profile.advertisedPid = pid; });
+            awaitPhoneSave();
+            for (String ride : created) { service.rides.delete(ride); service.phoneRides.delete(ride); }
+            settings.edit().putBoolean("phone_gps", gps).putBoolean("phone_motion", motion).putBoolean("developer_options", developer).remove("last_ride_label").commit();
+            main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen)field(activity, "screen"); if (activity.getResources().getConfiguration().screenWidthDp >= 650) invoke(screen, "showDetails", new Class[]{String.class}, id); }); settle();
+        }
+        check(!service.ble.connected() && !service.isRecording(), "Immediate-start fixture leaves no connection or capture running");
+    }
+    /** Ready-state fixture only: Bluetooth stays disabled, with no writer, poll or remote GATT service. */
+    void syntheticReady(ScooterProfiles.Profile profile) {
+        try {
+            Class<?> unsafe = Class.forName("sun.misc.Unsafe"); Field singleton = unsafe.getDeclaredField("theUnsafe"); singleton.setAccessible(true);
+            BluetoothGatt dummy = (BluetoothGatt)unsafe.getMethod("allocateInstance", Class.class).invoke(singleton.get(null), BluetoothGatt.class);
+            BluetoothAdapter adapter = getTargetContext().getSystemService(BluetoothManager.class).getAdapter();
+            setField(dummy, "mDevice", adapter.getRemoteDevice("02:00:00:00:00:01"));
+            BleController ble = activity.service().ble;
+            setField(ble, "profile", profile); setField(ble, "gatt", dummy); setField(ble, "writer", null);
+            setField(ble, "serial", "S2538SYNTHETIC"); setField(ble, "authenticated", true); setField(ble, "wanted", false);
+            setField(ble, "statusMs", SystemClock.elapsedRealtime()); setField(ble, "state", BleController.State.READY);
+            check(ble.ready(), "Synthetic connection is ready without any Bluetooth writer");
+        } catch (Exception e) { throw new IllegalStateException("Synthetic ready state unavailable", e); }
+    }
+    void awaitPhoneSave() {
+        long until = SystemClock.uptimeMillis() + 8000;
+        while (activity.service().phoneSaving() && SystemClock.uptimeMillis() < until) settle();
+        check(!activity.service().phoneSaving(), "Phone sensor journal finished saving");
     }
     void verifyExpandedMap(View sourceRoot) throws Exception {
         RouteMapView inline = (RouteMapView)find(sourceRoot, RouteMapView.class);

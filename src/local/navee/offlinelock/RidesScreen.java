@@ -33,11 +33,7 @@ import android.view.Gravity;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
-import android.view.WindowManager;
-import android.view.ViewTreeObserver;
 import android.view.accessibility.AccessibilityNodeInfo;
-import android.view.inputmethod.EditorInfo;
-import android.view.inputmethod.InputMethodManager;
 import android.widget.CheckBox;
 import android.widget.EditText;
 import android.widget.FrameLayout;
@@ -260,60 +256,31 @@ public final class RidesScreen implements AppScreen {
         if (service.phoneSaving()) { host.toast("Finishing the previous ride…"); return; }
         if (service.rides == null) { host.toast("Ride storage is unavailable."); return; }
         if (!service.ble.ready()) { host.toast("Connect first"); return; }
-        showRideNameDialog();
-    }
-    private void showRideNameDialog() {
-        EditText label = input("Sport + Boost, evening hills…"); label.setText(preferences.getString("last_ride_label", "Sport + Boost"));
-        label.setImeOptions(EditorInfo.IME_ACTION_DONE); label.setSelectAllOnFocus(true);
-        LinearLayout box = dialogBody("Name this ride", null);
-        box.addView(label);
-        // Phone sensors on one line with the active sensors beneath it, then the privacy fact.
-        LinearLayout sensors = ui.groupCard(); sensors.setBackground(ui.shape(ui.bg, 14, ui.outline));
-        LinearLayout.LayoutParams sensorsParams = new LinearLayout.LayoutParams(-1, -2); sensorsParams.topMargin = ui.dp(10);
-        Row[] sensorRow = new Row[1];
-        sensorRow[0] = navRow("sensors", "Phone sensors", sensorSummary(), "", () -> phoneOptions(() -> sensorRow[0].update(sensorSummary(), null)));
-        sensors.addView(sensorRow[0].view); box.addView(sensors, sensorsParams);
-        LinearLayout privacy = horizontal(); privacy.setGravity(Gravity.CENTER_VERTICAL); privacy.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0);
-        privacy.addView(ui.icon("lock", 13, ui.muted), new LinearLayout.LayoutParams(ui.dp(13), ui.dp(13)));
-        TextView stays = ui.caption("Stays on this phone"); stays.setPadding(ui.dp(6), 0, 0, 0); privacy.addView(stays);
-        box.addView(privacy);
-        TextView cancel = ui.secondaryButton("Cancel", null), start = ui.button("Start", null);
-        start.setContentDescription("Start recording");
-        LinearLayout buttons = pair(cancel, start); ((LinearLayout.LayoutParams) buttons.getLayoutParams()).topMargin = ui.dp(12);
-        box.addView(buttons);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
-        cancel.setOnClickListener(v -> dialog.dismiss());
-        start.setOnClickListener(v -> {
-            String name = label.getText().toString().trim(); if (name.isEmpty()) name = "Ride";
-            preferences.edit().putString("last_ride_label", name).apply(); final String rideName = name;
-            dialog.dismiss();
-            Runnable begin = () -> { if (!closed && !host.activity().isDestroyed() && !service.isRecording()) { service.startRide(rideName); if (service.isRecording()) Haptics.confirm(scroll); refresh(); } };
-            if (preferences.getBoolean("phone_gps", true)) host.requestRideLocation(begin); else begin.run();
-        });
-        label.setOnEditorActionListener((v, action, event) -> { if (action == EditorInfo.IME_ACTION_DONE) { start.performClick(); return true; } return false; });
-        // Request the keyboard only after this dialog owns the focused window. A queued request
-        // must not reopen it after Cancel, a tab change, or an activity rebuild.
-        ViewTreeObserver.OnWindowFocusChangeListener keyboard = new ViewTreeObserver.OnWindowFocusChangeListener() {
-            @Override public void onWindowFocusChanged(boolean focused) {
-                if (!focused) return;
-                if (label.getViewTreeObserver().isAlive()) label.getViewTreeObserver().removeOnWindowFocusChangeListener(this);
-                label.post(() -> {
-                    if (closed || !dialog.isShowing() || host.activity().isFinishing() || host.activity().isDestroyed()
-                            || !label.isAttachedToWindow() || !label.hasWindowFocus()) return;
-                    label.requestFocus(); label.selectAll();
-                    InputMethodManager input = host.activity().getSystemService(InputMethodManager.class);
-                    if (input != null) input.showSoftInput(label, InputMethodManager.SHOW_IMPLICIT);
-                });
-            }
+        // Keep permission handling ahead of capture; name the ride at its actual start,
+        // since the permission prompt can stay open for an arbitrary amount of time.
+        Runnable begin = () -> {
+            if (closed || host.activity().isDestroyed() || service.isRecording()) return;
+            service.startRide(defaultRideName());
+            if (service.isRecording()) Haptics.confirm(scroll);
+            refresh();
         };
-        label.getViewTreeObserver().addOnWindowFocusChangeListener(keyboard);
-        label.requestFocus(); label.selectAll();
-        if (dialog.getWindow() != null) dialog.getWindow().setSoftInputMode(
-                WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE | WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
-        show(dialog, DIALOG, () -> {
-            if (label.getViewTreeObserver().isAlive()) label.getViewTreeObserver().removeOnWindowFocusChangeListener(keyboard);
-        });
-        if (label.hasWindowFocus()) keyboard.onWindowFocusChanged(true);
+        if (preferences.getBoolean("phone_gps", true)) host.requestRideLocation(begin);
+        else begin.run();
+    }
+    private String defaultRideName() {
+        String mode = "";
+        long now = android.os.SystemClock.elapsedRealtime();
+        ScooterProfiles.Profile active = service.profiles.active(), bound = service.ble.profile();
+        if (service.ble.ready() && !service.simulating() && active != null && bound != null && active.id.equals(bound.id)) {
+            for (Telemetry.Metric reading : service.ble.telemetry.metrics()) {
+                if (!reading.key.equals("driving_mode") || reading.numericValue == null
+                        || reading.updatedMs <= 0 || reading.updatedMs > now || now - reading.updatedMs > 7000) continue;
+                String label = Telemetry.drivingModeLabel(ModelRegistry.driveModeLabelProduct(service.ble.descriptor()), reading.numericValue);
+                if (!label.equals("—")) mode = label.endsWith(" (raw)") ? "Mode " + label : label;
+                break;
+            }
+        }
+        return DisplayTime.rideName(host.activity(), preferences, System.currentTimeMillis(), mode);
     }
     private EditText input(String hint) {
         EditText input = new EditText(host.activity()); input.setSingleLine(true); input.setHint(hint);

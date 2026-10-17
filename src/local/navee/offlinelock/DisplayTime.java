@@ -25,6 +25,12 @@ public final class DisplayTime {
         return wall <= 0 ? "" : format("yMMMd", wall) + " · " + clock(context, settings, wall);
     }
 
+    /** A readable local date (including year), preferred clock, and the mode at ride start. */
+    public static String rideName(Context context, SharedPreferences settings, long wall, String mode) {
+        return format("yMMMd", wall) + " - " + clock(context, settings, wall)
+                + (mode == null || mode.isEmpty() ? "" : " - " + mode);
+    }
+
     /** Today needs only a clock; other local calendar days use a compact 05 MAR prefix. */
     public static String recent(Context context, SharedPreferences settings, long wall, long now) {
         if (wall <= 0) return "";
