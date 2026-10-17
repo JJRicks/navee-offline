@@ -167,6 +167,14 @@ public final class ChargeCaptureValidation extends Instrumentation {
             View start=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-start");
             require(findText(dialog.getWindow().getDecorView(),"Which charger is attached?")!=null&&!choices.get(0).isSelected()&&!choices.get(1).isSelected()
                     &&start!=null&&!start.isEnabled(),"Automatic capture pre-selected a training label");
+        });
+        settle();try{screenshot("capture-unselected");}catch(Exception e){throw new IllegalStateException(e);}
+        main(()->{
+            MoreScreen more=(MoreScreen)field(activity,"screen");
+            ChargeSessionStore.Charger previous=service.chargeCharger();
+            android.app.AlertDialog dialog=lastDialog(more);
+            @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-selector"),"track"),"choices");
+            View start=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-start");
             choices.get(1).performClick();
             require(start.isEnabled(),"An explicit capture choice did not enable Start");
             require(service.chargeCharger()==previous,"Unconfirmed charger choice changed estimates");
@@ -327,7 +335,14 @@ public final class ChargeCaptureValidation extends Instrumentation {
             invoke(field(activity,"screen"),"refresh",new Class<?>[]{});
             require(!root().findViewWithTag("estimate-charger-setting").isEnabled(),"Normal charger preference remained enabled during capture");
             require("High-speed".contentEquals(((TextView)root().findViewWithTag("estimate-charger-value")).getText())
-                    &&findText(root(),"Recording label · stop recording to change")!=null,"Charger row hid the recording label driving estimates");
+                    &&findText(root(),"Recording label")!=null,"Charger row hid the recording label driving estimates");
+            View chargerRow=root().findViewWithTag("estimate-charger-setting");
+            int y=0;View child=chargerRow;
+            while(child.getParent() instanceof View&&!(child.getParent() instanceof android.widget.ScrollView)){y+=child.getTop();child=(View)child.getParent();}
+            if(child.getParent() instanceof android.widget.ScrollView)((android.widget.ScrollView)child.getParent()).scrollTo(0,Math.max(0,y+child.getTop()-activity.ui().dp(160)));
+        });
+        settle();screenshot("charger-row-recording");
+        main(()->{
             invoke(activity,"showChargerEstimateChoice",new Class<?>[]{});
             android.app.AlertDialog dialog=(android.app.AlertDialog)field(activity,"controlDialog");
             require(dialog==null||!dialog.isShowing(),"Charger sheet bypassed active-capture guard");

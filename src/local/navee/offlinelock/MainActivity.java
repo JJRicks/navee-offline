@@ -1420,9 +1420,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             ChargeSessionStore.Charger effective=scooterService==null?null:scooterService.effectiveChargeCharger();
             String family=effective==ChargeSessionStore.Charger.HIGH_SPEED?"High-speed":"Stock";
             chargerLine.value.setText(effective==null?"Automatic":basis==ScooterService.ChargerBasis.DETECTED||basis==ScooterService.ChargerBasis.RECORDINGS?"Auto · "+family:family);
-            chargerLine.setSub(basis==ScooterService.ChargerBasis.RECORDING?"Recording label · stop recording to change"
-                    :basis==ScooterService.ChargerBasis.DETECTED?"Detected from charging power"
-                    :basis==ScooterService.ChargerBasis.RECORDINGS?"From your charge recordings"
+            chargerLine.setSub(basis==ScooterService.ChargerBasis.RECORDING?"Recording label"
+                    :basis==ScooterService.ChargerBasis.DETECTED?"Detected from power"
+                    :basis==ScooterService.ChargerBasis.RECORDINGS?"From your recordings"
                     :scooterService!=null&&scooterService.isChargeRecording()?"Stop charge recording to change":null);
             if(choiceSheet!=null)choiceSheet.refresh();
         }
