@@ -98,7 +98,7 @@ public final class MoreScreen implements AppScreen {
     /** Developer simulator models: "" is the UT5 MAX simulator; the others are synthetic advertised IDs. */
     private static final String[] SIMULATION_MODELS = {"", "24431", "39991"};
     private static final String[] SIMULATION_MODEL_NAMES = {"UT5 MAX", "Mapped model (synthetic 24431)", "Unknown model (synthetic 39991)"};
-    private TextView simulationStatus, chargeCaptureStatus, chargeCurveValue;
+    private TextView simulationStatus, chargeCaptureStatus, chargeCurveValue, chargeCurveScope;
     private LinearLayout chargeCurve;
     private Row chargeCaptureRow, clearChargeRow, exportChargeRow, chargeHistoryRow;
     private ChargeHistoryDialog chargeHistoryDialog;
@@ -1681,6 +1681,8 @@ public final class MoreScreen implements AppScreen {
         TextView curveTitle=ui.text("Saved charge curves",14,false);curveHead.addView(curveTitle,new LinearLayout.LayoutParams(0,-2,1));
         chargeCurveValue=ui.text("",14,true);curveHead.addView(chargeCurveValue);
         chargeCurve.addView(curveHead);
+        chargeCurveScope=ui.text("",12.5f,false);chargeCurveScope.setTextColor(ui.muted);chargeCurveScope.setTag("charge-learning-scope");
+        chargeCurve.addView(chargeCurveScope);
         cardDestination.addView(chargeCurve);
         LinearLayout capture=group();
         chargeCaptureRow=row(capture,"battery","Record this charge",null,()->{
@@ -1788,24 +1790,29 @@ public final class MoreScreen implements AppScreen {
         ScooterProfiles.Profile profile = active();
         if (profile == null) { host.toast("Choose a scooter first."); return; }
         final String profileId = profile.id;
-        ChargeSessionStore.Charger effective = s.effectiveChargeCharger();
-        final ChargeSessionStore.Charger[] selected = {effective == null ? ChargeSessionStore.Charger.STOCK : effective};
+        // Capture labels train curves, so only an explicit preference is pre-selected; an
+        // Automatic guess must never become a label in one tap. An open panel must never start
+        // a different scooter's recording.
+        final ChargeSessionStore.Charger[] selected = {s.chargeCharger()};
         LinearLayout box = dialogBox("", "Saved on phone · stops at 100% · keeps the last 20");
         TextView heading = (TextView) box.getChildAt(0);
-        Runnable title = () -> heading.setText("Record with " + (selected[0] == ChargeSessionStore.Charger.STOCK ? "Stock" : "High-speed") + " charger?");
-        title.run();
-        // Capture labels are explicitly confirmed for learning, independently of the estimate
-        // preference. An open panel must never start a different scooter's recording.
+        final TextView[] start = new TextView[1];
+        Runnable title = () -> {
+            heading.setText(selected[0] == null ? "Which charger is attached?"
+                    : "Record with " + (selected[0] == ChargeSessionStore.Charger.STOCK ? "Stock" : "High-speed") + " charger?");
+            if (start[0] != null) { start[0].setEnabled(selected[0] != null); start[0].setAlpha(selected[0] != null ? 1f : .5f); }
+        };
         SegmentedSelector picker = new SegmentedSelector(ui, "Attached charger", new String[]{"Stock", "High-speed"}, choice -> {
             selected[0] = choice == 0 ? ChargeSessionStore.Charger.STOCK : ChargeSessionStore.Charger.HIGH_SPEED;
             title.run();
         });
         picker.setTag("charge-confirmation-selector");
-        picker.select(selected[0] == ChargeSessionStore.Charger.STOCK ? 0 : 1, false);
+        picker.select(selected[0] == null ? -1 : selected[0] == ChargeSessionStore.Charger.STOCK ? 0 : 1, false);
         LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-1, -2); pp.topMargin = ui.dp(6); pp.bottomMargin = ui.dp(6);
         box.addView(picker, pp);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
-        dialogButtons(box, "Cancel", dialog::dismiss, "Start recording", () -> {
+        start[0] = dialogButtons(box, "Cancel", dialog::dismiss, "Start recording", () -> {
+            if (selected[0] == null) return;
             dialog.dismiss();
             ScooterProfiles.Profile current = active();
             if (closed || service() != s || current == null || !profileId.equals(current.id)) {
@@ -1813,19 +1820,24 @@ public final class MoreScreen implements AppScreen {
             }
             if (!s.startChargeRecording(selected[0])) host.toast(s.chargeCaptureStatus());
             refreshDeveloper();
-        });
+        })[1];
+        start[0].setTag("charge-confirmation-start");
+        title.run();
         show(dialog, picker::finishMotion);
     }
     /** One completed finish can be useful; broad ranges can need more evidence. */
     private void refreshChargeCurve(ScooterService s) {
         if (chargeCurve == null) return;
         int qualified = s == null ? -1 : s.qualifiedChargeCurves();
-        chargeCurveValue.setText(qualified < 0 ? "…" : Integer.toString(qualified));
-        chargeCurveValue.setTextColor(qualified > 0 ? ui.accent : ui.muted);
+        // Count only the family estimates use; while Automatic is undecided, none applies.
         ChargeSessionStore.Charger effective = s == null ? null : s.effectiveChargeCharger();
-        String charger = effective == null ? "" : effective == ChargeSessionStore.Charger.STOCK ? "stock " : "high-speed ";
-        chargeCurve.setContentDescription(qualified < 0 ? "Saved charge curves loading"
-                : qualified + " qualified " + charger + "charge recordings");
+        String scope = qualified < 0 ? "" : effective == null ? "Not applied until the charger is known"
+                : effective == ChargeSessionStore.Charger.STOCK ? "Stock charges" : "High-speed charges";
+        chargeCurveValue.setText(qualified < 0 ? "…" : effective == null ? "—" : Integer.toString(qualified));
+        chargeCurveValue.setTextColor(qualified > 0 ? ui.accent : ui.muted);
+        chargeCurveScope.setText(scope);chargeCurveScope.setVisibility(scope.isEmpty() ? View.GONE : View.VISIBLE);
+        chargeCurve.setContentDescription(qualified < 0 ? "Saved charge curves loading" : effective == null ? "Saved charge curves not applied until the charger is known"
+                : qualified + " qualified " + (effective == ChargeSessionStore.Charger.STOCK ? "stock" : "high-speed") + " charge recordings");
         chargeCurve.setTooltipText("A completed charge can refine its finishing range. Other ranges need two matching recordings. Estimates depend on coverage and live power; UT5 MAX stock and high-speed estimates also work without recordings.");
     }
     private void setChildrenEnabled(View view,boolean enabled){

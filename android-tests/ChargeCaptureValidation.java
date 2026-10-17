@@ -59,6 +59,9 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(service.setSimulation(false),"Could not exit preview");
                 invoke(field(activity,"screen"),"refreshDeveloper",new Class<?>[]{});
                 require(service.chargeCharger()==null,"Developer refresh replaced Automatic with Stock");
+                View curves=root().findViewWithTag("charge-learning-status");
+                require(curves!=null&&String.valueOf(curves.getContentDescription()).contains("not applied until the charger is known")
+                        &&findText(curves,"Not applied until the charger is known")!=null,"Undecided Automatic claimed saved curves apply");
             });settle();screenshot("developer");
             // Create only a low-level journal, exactly as the existing phone-recorder fixture does.
             // This tests service policy/Stop plumbing while the physical-start guard above remains enforced.
@@ -161,8 +164,19 @@ public final class ChargeCaptureValidation extends Instrumentation {
             require(selector!=null,"Charge confirmation has no charger choice");
             @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(selector,"track"),"choices");
             require(choices.size()==2,"Recording labels must stay explicitly Stock or High-speed");
-            require(findText(dialog.getWindow().getDecorView(),"Record with Stock charger?")!=null,"Unknown Automatic capture did not prefill Stock");
+            View start=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-start");
+            require(findText(dialog.getWindow().getDecorView(),"Which charger is attached?")!=null&&!choices.get(0).isSelected()&&!choices.get(1).isSelected()
+                    &&start!=null&&!start.isEnabled(),"Automatic capture pre-selected a training label");
+        });
+        settle();try{screenshot("capture-unselected");}catch(Exception e){throw new IllegalStateException(e);}
+        main(()->{
+            MoreScreen more=(MoreScreen)field(activity,"screen");
+            ChargeSessionStore.Charger previous=service.chargeCharger();
+            android.app.AlertDialog dialog=lastDialog(more);
+            @SuppressWarnings("unchecked") List<TextView> choices=(List<TextView>)field(field(dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-selector"),"track"),"choices");
+            View start=dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-start");
             choices.get(1).performClick();
+            require(start.isEnabled(),"An explicit capture choice did not enable Start");
             require(service.chargeCharger()==previous,"Unconfirmed charger choice changed estimates");
             require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Confirmation did not reflect its local choice");
             findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
@@ -172,12 +186,14 @@ public final class ChargeCaptureValidation extends Instrumentation {
             require(service.setChargeCharger(ChargeSessionStore.Charger.HIGH_SPEED),"Manual capture prefill fixture failed");
             invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
             dialog=lastDialog(more);
-            require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Capture did not prefill effective charger");
+            require(findText(dialog.getWindow().getDecorView(),"Record with High-speed charger?")!=null,"Capture did not prefill the explicit preference");
             findText(dialog.getWindow().getDecorView(),"Cancel").performClick();
             require(service.setChargeCharger(previous),"Could not restore capture preference fixture");
 
             invoke(more,"recordChargeDialog",new Class<?>[]{ScooterService.class},service);
             dialog=lastDialog(more);
+            @SuppressWarnings("unchecked") List<TextView> consent=(List<TextView>)field(field(dialog.getWindow().getDecorView().findViewWithTag("charge-confirmation-selector"),"track"),"choices");
+            consent.get(0).performClick();
             ScooterProfiles.Profile second=service.profiles.create("Consent target fixture","222222222222",0);
             findText(dialog.getWindow().getDecorView(),"Start recording").performClick();
             require(service.chargeCharger()==null&&!service.isChargeRecording()&&files().length==0,"Stale charge consent affected a different scooter");
@@ -266,7 +282,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
     /** The real service must discard temporary power tolerance at lifecycle boundaries. */
     private void verifyReferenceLifecycle(){
         main(()->{
-            StockChargeReferenceGate gate=(StockChargeReferenceGate)field(service,"stockChargeReferenceGate");
+            ChargeReferenceGate gate=(ChargeReferenceGate)field(service,"chargeReferenceGate");
             require(gate.accepts("fixture",95,95,100,100),"Reference gate fixture did not enter");
             invoke(service,"changed",new Class<?>[]{});
             require(!gate.accepts("fixture",95,94.5,101,101),"Disconnected service retained reference grace without a widget refresh");
@@ -318,6 +334,15 @@ public final class ChargeCaptureValidation extends Instrumentation {
                     "Active capture did not use its own confirmed label separately from the saved override");
             invoke(field(activity,"screen"),"refresh",new Class<?>[]{});
             require(!root().findViewWithTag("estimate-charger-setting").isEnabled(),"Normal charger preference remained enabled during capture");
+            require("High-speed".contentEquals(((TextView)root().findViewWithTag("estimate-charger-value")).getText())
+                    &&findText(root(),"Recording label · stop to change")!=null,"Charger row hid the recording label or how to change it");
+            View chargerRow=root().findViewWithTag("estimate-charger-setting");
+            int y=0;View child=chargerRow;
+            while(child.getParent() instanceof View&&!(child.getParent() instanceof android.widget.ScrollView)){y+=child.getTop();child=(View)child.getParent();}
+            if(child.getParent() instanceof android.widget.ScrollView)((android.widget.ScrollView)child.getParent()).scrollTo(0,Math.max(0,y+child.getTop()-activity.ui().dp(160)));
+        });
+        settle();screenshot("charger-row-recording");
+        main(()->{
             invoke(activity,"showChargerEstimateChoice",new Class<?>[]{});
             android.app.AlertDialog dialog=(android.app.AlertDialog)field(activity,"controlDialog");
             require(dialog==null||!dialog.isShowing(),"Charger sheet bypassed active-capture guard");

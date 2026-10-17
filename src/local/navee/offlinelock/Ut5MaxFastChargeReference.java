@@ -17,9 +17,13 @@ package local.navee.offlinelock;
  * the long 99% plateau, where SOC alone cannot produce a useful countdown.
  */
 public final class Ut5MaxFastChargeReference {
-    public static final int PRODUCT_ID = 2538;
+    public static final int PRODUCT_ID = Ut5MaxStockChargeReference.PRODUCT_ID;
     private static final int FIRST_TAPER_SOC = 72;
-    private static final double TOLERANCE = .15;
+    private static final double TOLERANCE = .15, GRACE_TOLERANCE = .20;
+    // One session's voltages, widened for a fixed pack/sensor offset of up to about 0.3 V.
+    // Below the taper the window opens by 0.25 V per percent, roughly twice the observed bulk
+    // slope, so acceptance has no step at 72%. Power, not voltage, rejects a stock charger.
+    private static final double VOLT_TOLERANCE = .35, BULK_VOLT_SLOPE = .25;
     // Minutes from first arrival at each displayed SOC (72 through 100) to displayed 100%.
     private static final double[] REMAINING = {
         38.35527, 37.51730, 36.51087, 35.33795, 34.16495, 32.82483, 31.48192,
@@ -72,11 +76,18 @@ public final class Ut5MaxFastChargeReference {
 
     /** Null means unsupported/incompatible evidence; preserve the caller's live estimate. */
     public static Double estimate(double soc, double target, double ratedAh, double amps, double watts) {
+        return estimate(soc, target, ratedAh, amps, watts, false);
+    }
+
+    /** Wider bounds are only for an already admitted, fresh runtime estimate's brief grace. */
+    static Double estimate(double soc, double target, double ratedAh, double amps, double watts, boolean edgeGrace) {
         if (!finiteRange(soc, 0, 100) || !finiteRange(target, 0, 100) || target <= soc
-                || !Double.isFinite(ratedAh) || ratedAh <= 0
-                || !Double.isFinite(amps) || amps < .1 || !powerCompatible(soc, watts, TOLERANCE)) return null;
-        double volts = watts / amps;
-        if (!finiteRange(volts, 40, 56)) return null;
+                || !Double.isFinite(ratedAh) || ratedAh <= 0 || !Double.isFinite(amps) || amps < .1
+                || !powerCompatible(soc, watts, edgeGrace ? GRACE_TOLERANCE : TOLERANCE)) return null;
+        double volts = watts / amps, taperSoc = Math.max(soc, FIRST_TAPER_SOC);
+        double widen = VOLT_TOLERANCE + (taperSoc - soc) * BULK_VOLT_SLOPE;
+        if (!finiteRange(volts, Math.max(40, envelope(LOW_VOLTS, taperSoc) - widen),
+                Math.min(56, envelope(HIGH_VOLTS, taperSoc) + widen))) return null;
         if (soc < FIRST_TAPER_SOC) {
             // The wattage envelope alone cannot identify a 10 A charger at arbitrary voltage.
             if (!finiteRange(amps, 8.5, 11.6)) return null;
@@ -86,8 +97,6 @@ public final class Ut5MaxFastChargeReference {
                     ? REMAINING[0] - boundaryRemaining(target) : 0;
             return finiteEstimate(bulkMinutes + tailMinutes);
         }
-        double lowVolts = envelope(LOW_VOLTS, soc), highVolts = envelope(HIGH_VOLTS, soc);
-        if (volts < lowVolts - .15 || volts > highVolts + .15) return null;
         double currentRemaining = boundaryRemaining(soc);
         if (soc >= 99) {
             Double byPower = finalTaperRemaining(watts, volts);
@@ -122,6 +131,9 @@ public final class Ut5MaxFastChargeReference {
         return values[index] * (1 - fraction) + values[index + 1] * fraction;
     }
 
+    // Not ChargeTaperMatcher: that locates a stage by nearest voltage within 0.10 V and averages
+    // power-compatible rows. On the calibration's 99% samples it doubles the error (0.197 vs
+    // 0.097 min) and rejects all of them at a 0.2 V offset. Here falling power locates progress.
     private static Double finalTaperRemaining(double watts, double volts) {
         double[] first = FINAL_TAPER[0], last = FINAL_TAPER[FINAL_TAPER.length - 1];
         double expectedVolts, remaining;
@@ -135,7 +147,7 @@ public final class Ut5MaxFastChargeReference {
             expectedVolts = early[1] + fraction * (late[1] - early[1]);
             remaining = early[2] + fraction * (late[2] - early[2]);
         }
-        return Math.abs(volts - expectedVolts) > .15 ? null : remaining;
+        return Math.abs(volts - expectedVolts) > VOLT_TOLERANCE ? null : remaining;
     }
 
     private static Double finiteEstimate(double value) {

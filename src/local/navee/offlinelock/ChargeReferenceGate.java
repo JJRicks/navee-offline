@@ -1,7 +1,10 @@
 package local.navee.offlinelock;
 
-/** Runtime-only tolerance for short power fluctuations; never caches readings or an ETA. */
-public final class StockChargeReferenceGate {
+/**
+ * Runtime-only tolerance for short power fluctuations in either UT5 MAX reference; never caches
+ * readings or an ETA. The context must name the charger family, so grace never crosses families.
+ */
+public final class ChargeReferenceGate {
     private String scope;
     private long lastFrame, lastNow, outsideSince;
     private int outsideFrames;
@@ -13,16 +16,21 @@ public final class StockChargeReferenceGate {
      * frame cannot exhaust the allowance. Callers must reset on loss of fresh charging data.
      */
     public boolean accepts(String context, double soc, double watts, long frameMs, long nowMs) {
+        return accepts(context, ChargeSessionStore.Charger.STOCK, soc, watts, frameMs, nowMs);
+    }
+
+    public boolean accepts(String context, ChargeSessionStore.Charger family, double soc, double watts,
+            long frameMs, long nowMs) {
         if (context == null || context.isEmpty() || frameMs <= 0 || nowMs <= 0) {
             reset(); return false;
         }
         if (!context.equals(scope) || frameMs < lastFrame || nowMs < lastNow) reset();
         boolean newFrame = frameMs != lastFrame;
         scope = context; lastFrame = frameMs; lastNow = nowMs;
-        if (Ut5MaxStockChargeReference.powerCompatible(soc, watts, .15)) {
+        if (compatible(family, soc, watts, .15)) {
             applied = true; outsideFrames = 0; outsideSince = 0; return true;
         }
-        if (!applied || !Ut5MaxStockChargeReference.powerCompatible(soc, watts, .20)) {
+        if (!applied || !compatible(family, soc, watts, .20)) {
             applied = false; outsideFrames = 0; outsideSince = 0; return false;
         }
         if (outsideFrames == 0) { outsideSince = nowMs; outsideFrames = 1; }
@@ -31,6 +39,12 @@ public final class StockChargeReferenceGate {
             applied = false; outsideFrames = 0; outsideSince = 0; return false;
         }
         return true;
+    }
+
+    private static boolean compatible(ChargeSessionStore.Charger family, double soc, double watts, double tolerance) {
+        return family == ChargeSessionStore.Charger.HIGH_SPEED
+                ? Ut5MaxFastChargeReference.powerCompatible(soc, watts, tolerance)
+                : Ut5MaxStockChargeReference.powerCompatible(soc, watts, tolerance);
     }
 
     public void reset() {
