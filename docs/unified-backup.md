@@ -1,6 +1,6 @@
 # Unified backup and restore (design)
 
-Status: implemented on top of Volt 1.3.1 (`d3d61e8`); the decisions on the earlier open questions are recorded under [Decisions](#decisions), and differences from the first draft under [Implementation notes](#implementation-notes). Emulator journeys still need a run on disposable emulators. The storage it covers is listed in [App storage inventory](app-storage-inventory.md).
+Status: implemented on top of Volt 1.3.1 (`d3d61e8`); the decisions on the earlier open questions are recorded under [Decisions](#decisions), and differences from the first draft under [Implementation notes](#implementation-notes). The [emulator journeys](#emulator-journeys) ran and passed on disposable emulators emulator-5560 and emulator-5558. A physical phone is still needed for the restore flow on real owner data, the system file picker with cloud providers, and the restore screens seen directly rather than as in-process renders. The storage it covers is listed in [App storage inventory](app-storage-inventory.md).
 
 ## Goal
 
@@ -312,4 +312,4 @@ Disposable emulators only (`ranchu`/`goldfish`/`sdk_gphone`), Bluetooth off, nev
 
 3. `python3 android-tests/run-backup-scenario.py … --render` seeds a synthetic source phone (two scooters, 3 rides, 15 charges), writes complete, single-category, truncated and corrupted `.voltbackup` files, seeds a target phone (another scooter, 12 charges) and renders the restore screens at both default cases: a refused damaged file with **Choose another file**, the category list (Merge by default), the two-scooter destination step and the merge review with the 20-charge limit line. FLAG_SECURE keeps these screens out of screenshots, so the renders are drawn in-process. Without `--render` it leaves the files in `Download/volt-scenario/` for driving the system picker by hand, and `--inspect` reports scooters, rides, charges and settings afterwards.
 
-Inspect the mapping, preview, category and restore renders. Physical-phone restore has not been exercised.
+All three runners passed on emulator-5560 and emulator-5558: every `run-backups.py` journey, both `run-ride-backups.py` cases plus the cold reopen, and `run-backup-scenario.py --render` at both sizes. Inspect the mapping, preview, category and restore renders. Physical-phone restore has not been exercised: real owner data, cloud document providers in the system picker, and the screens seen directly (FLAG_SECURE) still need a phone. Power loss during a restore is not simulated.
