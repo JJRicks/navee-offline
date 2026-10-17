@@ -87,7 +87,8 @@ public final class CapabilityResolver {
         else {
             Integer current=v.readable?v.read(status):null;
             if(v.readable&&current==null)reason=Reason.FIELD_ABSENT;
-            else if(current!=null&&!v.allows(current))reason=Reason.VALUE_UNKNOWN;
+            // UT5 MAX keeps today's rule: only Lab rows refuse an out-of-domain readback (e.g. a 0 sentinel), so the owner can set a valid value.
+            else if(current!=null&&!v.allows(current)&&(r.layer!=ModelRegistry.Layer.UT5_MAX||v.lab))reason=Reason.VALUE_UNKNOWN;
             else {choices=v.choices(status);if(v.dynamicChoices&&choices.length==0)reason=Reason.NO_CHOICES;}
         }
         // 4. Preconditions.

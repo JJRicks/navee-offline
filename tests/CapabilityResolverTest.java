@@ -106,7 +106,11 @@ public final class CapabilityResolverTest {
         byte[] unknown=full();unknown[20]=(byte)0x85;
         check(decide("speed_limit",ut5,status(unknown,SEEN),parked()).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Lab rule: unknown value can't change safely");
         unknown=full();unknown[25]=0;
-        check(decide("maximum_speed",ut5,status(unknown,SEEN),parked()).reasonText().equals("Unknown value · can't change safely"),"Value outside the domain");
+        CapabilityResolver.Decision sentinel=decide("maximum_speed",ut5,status(unknown,SEEN),parked());
+        check(sentinel.available()&&Integer.valueOf(0).equals(sentinel.current()),"UT5 MAX: an out-of-domain readback (0) stays changeable, as before");
+        check(CapabilityResolver.admit("maximum_speed",32,ut5,status(unknown,SEEN),parked()).available(),"UT5 MAX: a valid value is admitted over the sentinel");
+        check(CapabilityResolver.admit("maximum_speed",0,ut5,status(unknown,SEEN),parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"UT5 MAX: the sentinel itself is never written");
+        check(decide("maximum_speed",serial("Q2601ZZ9US7777777"),status(unknown,SEEN),parked()).available()==false,"Non-UT5 stays read-only");
         byte[] noChoices=full();noChoices[15]=3;
         check(decide("range_algorithm",ut5,status(noChoices,SEEN),parked()).reason==CapabilityResolver.Reason.NO_CHOICES,"No dynamic choices");
         check(decide("cruise_control",ut5,StatusFields.of(StatusFieldsTest.notification(0x70,1,full()),SEEN),parked()).reason==CapabilityResolver.Reason.STATUS_STALE,"A rejected status is never fresh");
