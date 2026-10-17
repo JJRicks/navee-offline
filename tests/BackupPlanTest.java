@@ -26,8 +26,41 @@ public final class BackupPlanTest {
             freshInstall(root, source);
             chargeLimit(root);
             noScooterLayout(root, source);
-            System.out.println("BackupPlanTest: " + checks + " checks passed (profile resolution, merge rules, UUID and clock duplicates, shared destinations, fresh install, charge limit, no-scooter layout)");
+            modelEvidence(root);
+            System.out.println("BackupPlanTest: " + checks + " checks passed (profile resolution, merge rules, UUID and clock duplicates, shared destinations, fresh install, charge limit, no-scooter layout, model evidence fields)");
         } finally { AppDataArchive.deleteTree(root); }
+    }
+
+    /** The compatibility registry's profile fields (advertised PID, firmware, default name) survive
+     * a merge and an exact restore unchanged, and a backup with values outside their bounds is refused. */
+    private static void modelEvidence(File root) throws Exception {
+        String d = "d0000000-0000-4000-8000-00000000000d";
+        String evidence = "\"pid_advertised\":\"24431\",\"pid_advertised_wall\":1760000000000,\"name_default\":true,\"fw_meter\":\"2.0.3.1\",\"fw_controller\":\"1.0.4\",\"fw_bms\":\"0.9\",\"fw_screen\":\"\",\"fw_uwb\":\"\",\"fw_wall\":1760000000001";
+        String item = "{\"id\":\"" + d + "\",\"name\":\"NAVEE 24431\",\"identity\":\"ABCDEF012345\",\"role\":0,\"mac\":\"02:00:00:00:00:0D\",\"serial\":\"SERIAL-D\",\"lastConnected\":5," + evidence + ",\"fw_future\":\"kept\"}";
+        BackupTestStore source = new BackupTestStore(new File(root, "evidence-source"));
+        source.put("profiles", "items", "[" + item + "]"); source.put("profiles", "active", d); source.put("onboarding", "onboarding_done", true);
+        check(BackupArchive.profiles(source.preferences()).get(0).raw.equals(item), "the source profile carries every model evidence field");
+        BackupTestStore phone = BackupArchiveTest.phone(new File(root, "evidence-merge"));
+        phone.restore(source.export(set(BackupRegistry.SCOOTERS)), set(BackupRegistry.SCOOTERS), false, null);
+        BackupProfiles.Profile merged = BackupProfiles.find(BackupArchive.profiles(phone.preferences()), d);
+        check(merged != null && merged.raw.equals(item), "a merged scooter keeps its advertised PID, firmware, default-name flag and newer fields exactly");
+        Map<String, Object> fields = BackupJson.object(BackupJson.parse(merged.raw, BackupProfiles.MAX_DEPTH));
+        check("24431".equals(fields.get("pid_advertised")) && Long.valueOf(1760000000000L).equals(fields.get("pid_advertised_wall")) && Boolean.TRUE.equals(fields.get("name_default"))
+                && "2.0.3.1".equals(fields.get("fw_meter")) && Long.valueOf(1760000000001L).equals(fields.get("fw_wall")), "model evidence values read back after a merge");
+        BackupTestStore exact = new BackupTestStore(new File(root, "evidence-exact"));
+        exact.restore(source.export(BackupTestStore.all()), BackupTestStore.all(), true, null);
+        check(("[" + item + "]").equals(exact.preferences().get("profiles").get("items")), "Replace everything restores the profile list byte for byte");
+        String[][] hostile = {{"\"pid_advertised\":\"24431\"", "\"pid_advertised\":\"2443X\""}, {"\"pid_advertised\":\"24431\"", "\"pid_advertised\":24431"},
+            {"\"fw_meter\":\"2.0.3.1\"", "\"fw_meter\":\"2.0.3.1-0123456789\""}, {"\"fw_bms\":\"0.9\"", "\"fw_bms\":\"0.\\u00e9\""}, {"\"fw_bms\":\"0.9\"", "\"fw_bms\":null"},
+            {"\"pid_advertised_wall\":1760000000000", "\"pid_advertised_wall\":\"soon\""}, {"\"fw_wall\":1760000000001", "\"fw_wall\":true"}, {"\"name_default\":true", "\"name_default\":\"yes\""}};
+        int n = 0;
+        for (String[] change : hostile) {
+            BackupTestStore bad = new BackupTestStore(new File(root, "evidence-bad-" + n++));
+            bad.put("profiles", "items", "[" + item.replace(change[0], change[1]) + "]");
+            byte[] bytes = bad.export(set(BackupRegistry.SCOOTERS));
+            BackupTestStore target = new BackupTestStore(new File(root, "evidence-target-" + n));
+            rejects(() -> target.stage(bytes), "a backup profile with " + change[1] + " is refused");
+        }
     }
 
     private static void resolution(File root, byte[] complete) throws Exception {

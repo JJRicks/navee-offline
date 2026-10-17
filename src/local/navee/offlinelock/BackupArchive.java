@@ -377,7 +377,7 @@ final class BackupArchive {
         for (String name : preferences.keySet()) if (!BackupRegistry.namespace(name)) throw new IOException("The backup has an unsupported preference group.");
         BackupRegistry.validateTypes(prefs);
         Object items = prefs.get("profiles").get("items");
-        List<BackupProfiles.Profile> profiles = BackupProfiles.parse(items);
+        List<BackupProfiles.Profile> profiles = BackupProfiles.parse(items, true);
         if (items != null) storage.validateProfiles((String) items);
         LinkedHashMap<String, Source> sources = new LinkedHashMap<>();
         if (table != null) sources.putAll(table);
