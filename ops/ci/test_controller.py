@@ -3,6 +3,7 @@
 import copy
 import json
 from pathlib import Path
+import re
 import subprocess
 import tempfile
 import unittest
@@ -19,9 +20,10 @@ def run_record(run_id=10, attempt=1):
             "triggering_actor": {"login": "JJRicks"}, "pull_requests": []}
 
 
-def job_record(job_id=100, run_id=10, attempt=1):
-    return {"id": job_id, "status": "queued", "runner_id": None,
-            "labels": sorted(ci.BASE_LABELS | {"ARM64", f"volt-run-{run_id}-{attempt}"})}
+def job_record(job_id=100, run_id=10, attempt=1, name="core-tests"):
+    return {"id": job_id, "name": name, "status": "queued", "runner_id": None,
+            "labels": sorted(ci.BASE_LABELS | {"ARM64", f"volt-run-{run_id}-{attempt}",
+                                               ci.JOB_LABELS[name]})}
 
 
 class FakeGithub:
@@ -31,6 +33,8 @@ class FakeGithub:
         self.runners = {}
         self.calls = []
         self.private = True
+        self.fork_policy = {"run_workflows_from_fork_pull_requests": False}
+        self.fail_fork_policy = False
         self.fail_get = False
         self.fail_delete = False
         self.fail_register = False
@@ -57,6 +61,10 @@ class FakeGithub:
         root = f"/repos/{ci.REPOSITORY}"
         if path == root:
             return {"id": 123, "full_name": ci.REPOSITORY, "private": self.private}
+        if path == root + "/actions/permissions/fork-pr-workflows-private-repos":
+            if self.fail_fork_policy:
+                raise ci.ApiError("github", "GET", path, 403)
+            return copy.deepcopy(self.fork_policy)
         if path == root + "/actions/runs":
             return self.page([r for r in self.runs.values() if r["status"] == query["status"][0]],
                              query, "workflow_runs")
@@ -106,6 +114,9 @@ class FakeCloud:
         self.fail_delete = False
         self.pending_delete = False
         self.fail_inventory = False
+        self.fail_ip_inventory = False
+        self.fail_ip_get = False
+        self.fail_ip_delete = False
         self.next_id = 500
         self.image = {"type": "snapshot", "status": "available", "architecture": "arm",
                       "labels": {ci.OWNER_LABEL: "173ec832-d089-46a7-ac9a-264b165f9146", ci.ROLE_LABEL: "image"}}
@@ -117,7 +128,7 @@ class FakeCloud:
         if path == "/images/1":
             return {"image": copy.deepcopy(self.image)}
         if path in ("/servers", "/primary_ips"):
-            if self.fail_inventory:
+            if self.fail_inventory or (path == "/primary_ips" and self.fail_ip_inventory):
                 raise ci.ApiError("hetzner", "GET", path, 503)
             field = path[1:]
             values = self.servers.values() if field == "servers" else self.ips.values()
@@ -128,6 +139,8 @@ class FakeCloud:
             return {field: copy.deepcopy(items[(page - 1) * 100:page * 100]),
                     "meta": {"pagination": {"next_page": page + 1 if len(items) > page * 100 else None}}}
         if path.startswith("/primary_ips/"):
+            if self.fail_ip_get:
+                raise ci.ApiError("hetzner", "GET", path, 503)
             identity = int(path.rsplit("/", 1)[1])
             if identity not in self.ips:
                 raise ci.ApiError("hetzner", "GET", path, 404)
@@ -158,7 +171,7 @@ class FakeCloud:
 
     def delete(self, path):
         self.calls.append(("DELETE", path))
-        if self.fail_delete:
+        if self.fail_delete or (path.startswith("/primary_ips/") and self.fail_ip_delete):
             raise ci.ApiError("hetzner", "DELETE", path, 503)
         identity = int(path.rsplit("/", 1)[1])
         if path.startswith("/servers/"):
@@ -265,13 +278,22 @@ class ControllerTests(unittest.TestCase):
         jit_call = next(call for call in self.gh.calls if call[0] == "POST")
         self.assertIn("ARM64", jit_call[2]["labels"])
 
-    def test_actual_assignment_can_be_other_job(self):
-        self.running([job_record(100), job_record(101)])
+    def test_exhausted_job_cannot_receive_sibling_worker(self):
+        core, web = job_record(100), job_record(101, name="web-setup")
+        self.controller.state["attempts"]["10:1:100"] = 2
+        self.running([core, web])
         active = self.controller.state["active"]
+        self.assertEqual(active["job_id"], 101)
+        registration = next(call[2] for call in self.gh.calls if call[0] == "POST")
+        runner_labels = set(registration["labels"])
+        # GitHub schedules when every requested label is on the runner. The
+        # exhausted core job must not match a runner provisioned for web setup.
+        self.assertFalse(set(core["labels"]).issubset(runner_labels))
+        self.assertTrue(set(web["labels"]).issubset(runner_labels))
         self.gh.job_lists[(10, 1)][1].update(status="in_progress", runner_id=active["runner_id"])
         self.controller.tick()
         self.assertEqual(active["assigned_job_id"], 101)
-        self.assertEqual(self.controller.state["attempts"]["10:1:100"], 0)
+        self.assertEqual(self.controller.state["attempts"]["10:1:100"], 2)
         self.assertEqual(self.controller.state["attempts"]["10:1:101"], 1)
         self.assertEqual(len(self.cloud.servers), 1)
         self.gh.job_lists[(10, 1)][1]["status"] = "completed"
@@ -279,8 +301,32 @@ class ControllerTests(unittest.TestCase):
         self.controller.tick()
         self.now += 61
         self.controller.tick()
-        self.assertEqual(self.controller.state["active"]["job_id"], 100)
-        self.assertEqual(len(self.posts()), 2)
+        self.assertIsNone(self.controller.state["active"])
+        self.assertEqual(len(self.posts()), 1)
+
+    def test_unexpected_assignment_deletes_without_refunding_budget(self):
+        self.running([job_record(100), job_record(101, name="web-setup")])
+        active = self.controller.state["active"]
+        self.gh.job_lists[(10, 1)][1].update(status="in_progress", runner_id=active["runner_id"])
+        self.controller.tick()
+        self.assertFalse(self.cloud.servers)
+        self.assertEqual(active["cleanup_reason"], "unexpected_job_assignment")
+        self.assertEqual(self.controller.state["attempts"], {"10:1:100": 1})
+
+    def test_duplicate_job_names_never_register_shared_labels(self):
+        self.gh.queued(jobs=[job_record(100), job_record(101)])
+        self.controller.tick()
+        self.assertFalse(self.posts())
+
+    def test_workflow_requests_the_controller_job_labels(self):
+        workflow = (Path(__file__).resolve().parents[2] / ci.WORKFLOW).read_text()
+        blocks = dict(re.findall(r"^  ([\w-]+):\n(.*?)(?=^  [\w-]+:|\Z)", workflow, re.M | re.S))
+        for name in ci.JOB_LABELS:
+            with self.subTest(job=name):
+                expression = re.search(r"format\('([^']+)', github.run_id, github.run_attempt\)", blocks[name])
+                self.assertIsNotNone(expression)
+                requested = json.loads(expression.group(1).format(10, 1))
+                self.assertEqual(set(requested), set(self.controller.labels(10, 1, name)))
 
     def test_trusted_same_repo_pr_needs_no_extra_api_scope(self):
         run = run_record()
@@ -348,10 +394,40 @@ class ControllerTests(unittest.TestCase):
         self.controller.tick()
         self.assertFalse(self.posts())
 
+    def test_fork_workflow_policy_must_be_explicitly_disabled(self):
+        self.gh.queued()
+        for policy in ({"run_workflows_from_fork_pull_requests": True}, {},
+                       {"run_workflows_from_fork_pull_requests": None},
+                       {"run_workflows_from_fork_pull_requests": 0}):
+            with self.subTest(policy=policy):
+                self.gh.fork_policy = policy
+                self.controller.tick()
+                self.assertFalse(self.posts())
+        self.gh.fail_fork_policy = True
+        with self.assertRaises(ci.ApiError):
+            self.controller.tick()
+        self.assertFalse(self.posts())
+
+    def test_fork_policy_rechecked_before_create_and_registration(self):
+        self.gh.queued()
+        candidate = self.controller.eligible()[0]
+        self.gh.fork_policy["run_workflows_from_fork_pull_requests"] = True
+        self.controller.launch(candidate)
+        self.assertFalse(self.posts())
+        self.gh.fork_policy["run_workflows_from_fork_pull_requests"] = False
+        self.controller.launch(candidate)
+        self.gh.fork_policy["run_workflows_from_fork_pull_requests"] = True
+        self.controller.tick()
+        self.assertFalse(self.cloud.servers)
+        self.assertFalse(self.worker.started)
+        self.assertFalse(any(call[0] == "POST" for call in self.gh.calls))
+
     def test_labels_must_match_exact_run_and_attempt(self):
         for labels in (["ubuntu-latest"], list(ci.BASE_LABELS),
-                       list(ci.BASE_LABELS | {"ARM64", "volt-run-10-2"}),
-                       list(ci.BASE_LABELS | {"ARM64", "volt-run-10-1", "other"})):
+                       list(ci.BASE_LABELS | {"ARM64", "volt-run-10-2", "volt-job-core-tests"}),
+                       list(ci.BASE_LABELS | {"ARM64", "volt-run-10-1"}),
+                       list(ci.BASE_LABELS | {"ARM64", "volt-run-10-1", "volt-job-web-setup"}),
+                       list(ci.BASE_LABELS | {"ARM64", "volt-run-10-1", "volt-job-core-tests", "other"})):
             with self.subTest(labels=labels):
                 job = job_record()
                 job["labels"] = labels
@@ -440,6 +516,63 @@ class ControllerTests(unittest.TestCase):
         self.gh.fail_get = True
         self.controller.tick()
         self.assertFalse(self.cloud.servers)
+
+    def test_ip_failures_allow_server_cleanup_but_block_replacement(self):
+        for failure in ("fail_ip_inventory", "fail_ip_get", "fail_ip_delete"):
+            for reason in ("expired", "off", "deleting"):
+                with self.subTest(failure=failure, reason=reason), tempfile.TemporaryDirectory() as directory:
+                    config = {**self.config, "state_dir": directory}
+                    github, cloud, worker = FakeGithub(), FakeCloud(), FakeWorker()
+                    now = [1000]
+                    controller = ci.Controller(config, github, cloud, ci.Store(directory), worker, lambda: now[0])
+                    github.queued()
+                    controller.tick()
+                    controller.tick()
+                    active = controller.state["active"]
+                    self.assertEqual(active["phase"], "running")
+                    server_id = active["server_id"]
+                    # An unrelated, owned orphan IP can also fail deletion.
+                    cloud.ips[2000] = {"id": 2000, "assignee_id": None, "auto_delete": False,
+                        "labels": {ci.OWNER_LABEL: config["deployment_id"], ci.ROLE_LABEL: "worker"}}
+                    setattr(cloud, failure, True)
+                    if reason == "expired":
+                        now[0] += 1801
+                    elif reason == "off":
+                        cloud.servers[server_id]["status"] = "off"
+                    else:
+                        active["phase"] = "deleting"
+                        controller.save()
+                        controller = ci.Controller(config, github, cloud, ci.Store(directory), worker, lambda: now[0])
+                    controller.tick()
+                    self.assertNotIn(server_id, cloud.servers)
+                    self.assertIn(("DELETE", f"/servers/{server_id}"), cloud.calls)
+                    self.assertFalse(github.runners)
+                    controller.tick()
+                    self.assertIsNone(controller.state["active"])
+                    now[0] += 61
+                    controller.tick()
+                    self.assertEqual(sum(call[0] == "POST" for call in cloud.calls), 1)
+                    # Pending cleanup must survive restart and resume before a
+                    # fresh worker is allowed to incur another server charge.
+                    controller = ci.Controller(config, github, cloud, ci.Store(directory), worker, lambda: now[0])
+                    controller.tick()
+                    self.assertFalse(cloud.servers)
+                    setattr(cloud, failure, False)
+                    controller.tick()
+                    self.assertEqual(sum(call[0] == "POST" for call in cloud.calls), 2)
+                    self.assertNotIn(2000, cloud.ips)
+
+    def test_pending_assigned_ip_blocks_new_worker_until_reconciled(self):
+        self.cloud.next_id = 501
+        self.controller.state["pending_ips"]["1500"] = {"server_id": 500, "worker": "volt-ci-old"}
+        self.cloud.ips[1500] = {"id": 1500, "assignee_id": 500, "labels": {}, "auto_delete": False}
+        self.gh.queued()
+        self.controller.tick()
+        self.assertFalse(self.posts())
+        self.cloud.ips[1500]["assignee_id"] = None
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 1)
+        self.assertNotIn(1500, self.cloud.ips)
 
     def test_orphan_owned_resources_deleted_unrelated_untouched(self):
         own = self.config["deployment_id"]
@@ -530,7 +663,7 @@ class ControllerTests(unittest.TestCase):
         self.gh.queued(bad, [job_record(99, 9)])
         ignored = job_record(100)
         ignored["labels"] = ["ubuntu-latest"]
-        self.gh.queued(run_record(), [ignored, job_record(101)])
+        self.gh.queued(run_record(), [ignored, job_record(101, name="web-setup")])
         self.controller.tick()
         self.assertEqual(self.controller.state["active"]["job_id"], 101)
         self.assertTrue(any("page=2" in call[1] for call in self.gh.calls))

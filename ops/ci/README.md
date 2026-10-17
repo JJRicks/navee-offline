@@ -22,9 +22,17 @@ the clean snapshot remains in the Hetzner project.
 - Each worker gets a fresh SSH host key through cloud-init. SSH requires that
   exact key. The worker firewall permits SSH only from the controller.
 - Queue selection checks repository, workflow, actor, run attempt and same-repo
-  PR provenance. A unique per-run label isolates registration to that run.
-  Fork/untrusted jobs use GitHub-hosted runners instead. Public-repository
-  operation is also disabled in the controller until deliberately configured.
+  PR provenance. Run and job labels route each worker to its intended queued job
+  and keep retry budgets separate. **Labels are not an authorization boundary**:
+  a workflow requesting only `self-hosted` can match any of these workers.
+- The worker policy requires a private repository with only the trusted
+  maintainers able to change workflows, and fork PR workflows disabled. The
+  controller checks the private-repository fork setting before provisioning and
+  registration, and pauses if it is enabled, missing or unreadable. The existing
+  Actions/Admin token scopes cover this read. Private fork PRs therefore do not
+  automatically run CI. The workflow's GitHub-hosted fallback does not replace
+  these repository controls. Public operation remains disabled pending a
+  separate runner-policy review; keep `allow_public_repository` false.
 - One worker maximum, bounded attempts and launch rates, and a 30-minute maximum
   lifetime limit costs. Each worker also powers itself off after job exit or a
   boot timeout. **Power-off alone is still billable**; the controller must delete
@@ -32,8 +40,11 @@ the clean snapshot remains in the Hetzner project.
   worker through Hetzner before resuming.
 - Pushes, manual dispatches and same-repository PRs by the two configured
   maintainers are eligible. Only this repository's `tests.yml` workflow and
-  exact run-attempt labels are accepted. The default limits are two attempts
-  per job, 12 worker launches per hour and 60 per day.
+  exact run-attempt and job labels are accepted. The job names `core-tests` and
+  `web-setup` must remain unique and match their labels. The default limits are
+  two attempts per job, 12 worker launches per hour and 60 per day. IP cleanup
+  failures block new workers while still allowing expired or stopped servers
+  to be deleted.
 
 ## Clean image
 
@@ -75,6 +86,11 @@ Check `systemctl status volt-ci-controller` and
 `journalctl -u volt-ci-controller` for sanitized lifecycle events. A stopped
 controller cannot wake new workers. Before planned controller downtime, let the
 active job finish and confirm Hetzner has no remaining worker.
+
+Deploy controller changes that introduce new job labels before running the
+matching workflow revision. Drain existing workers first. Queued runs using old
+labels need a new run of the updated workflow; they are not eligible for the new
+controller.
 
 ## Validation and cost
 

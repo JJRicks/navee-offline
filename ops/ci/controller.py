@@ -24,6 +24,7 @@ import uuid
 REPOSITORY = "JJRicks/navee-offline"
 WORKFLOW = ".github/workflows/tests.yml"
 BASE_LABELS = {"self-hosted", "Linux", "volt-ci"}
+JOB_LABELS = {"core-tests": "volt-job-core-tests", "web-setup": "volt-job-web-setup"}
 OWNER_LABEL = "volt-ci-deployment"
 WORKER_LABEL = "volt-ci-worker"
 ROLE_LABEL = "volt-ci-role"
@@ -289,8 +290,9 @@ class Controller:
         labels = item.get("labels", {})
         return labels.get(OWNER_LABEL) == self.owner and labels.get(ROLE_LABEL) == "worker"
 
-    def labels(self, run_id, attempt):
-        return sorted(BASE_LABELS | {self.config["runner_arch"], f"volt-run-{run_id}-{attempt}"})
+    def labels(self, run_id, attempt, job_name):
+        return sorted(BASE_LABELS | {self.config["runner_arch"], f"volt-run-{run_id}-{attempt}",
+                                    JOB_LABELS[job_name]})
 
     def resource_list(self, resource):
         selector = urllib.parse.quote(f"{OWNER_LABEL}={self.owner}", safe="")
@@ -376,12 +378,6 @@ class Controller:
         if len(matches) > 1:
             raise ValueError("Ambiguous owned server name")
         current = matches[0] if matches else None
-        for server in servers:
-            if server is not current:
-                self.delete_server(server)
-        for address in self.resource_list("primary_ips"):
-            self.clean_ip(address)
-        self.reconcile_addresses()
         if active and current:
             self.remember_address(current)
             if active.get("server_id") and active["server_id"] != current["id"]:
@@ -394,7 +390,25 @@ class Controller:
             if active["phase"] == "creating":
                 active["phase"] = "booting"
             self.save()
-        return current, bool(servers and not current)
+        cleanup_pending = False
+        for server in servers:
+            if server is not current:
+                cleanup_pending = True
+                try:
+                    self.delete_server(server)
+                except ApiError as error:
+                    log("orphan_cleanup_deferred", server_id=server["id"], status=error.status)
+        try:
+            for address in self.resource_list("primary_ips"):
+                self.clean_ip(address)
+            self.reconcile_addresses()
+        except ApiError as error:
+            # An IP endpoint outage must not prevent the active server's expiry,
+            # power-off or interrupted-deletion handling in tick(). It still
+            # blocks replacement spending until reconciliation succeeds.
+            cleanup_pending = True
+            log("ip_cleanup_deferred", status=error.status)
+        return current, cleanup_pending or bool(self.state["pending_ips"])
 
     def cleanup(self, reason, server=None):
         active = self.state["active"]
@@ -408,13 +422,8 @@ class Controller:
         if server:
             self.delete_server(server)
         cloud_absent = server is None
-        if active.get("ip_id"):
-            try:
-                address = self.cloud.get(f"/primary_ips/{active['ip_id']}")["primary_ip"]
-                self.clean_ip(address)
-            except ApiError as error:
-                if error.status != 404:
-                    raise
+        # Address ownership is persisted before deletion. Reconcile addresses on
+        # the next poll so their API cannot hold up server or runner cleanup.
         runner_gone = True
         try:
             if active.get("runner_id"):
@@ -485,12 +494,32 @@ class Controller:
     def budget_key(self, run_id, attempt, job_id):
         return f"{run_id}:{attempt}:{job_id}"
 
-    def eligible(self):
+    def repository_policy_allows_runner(self):
         repo = self.gh.get(self.root)
         if repo.get("full_name") != REPOSITORY:
-            return []
+            return False
         if repo.get("private") is not True and not self.config["allow_public_repository"]:
             log("public_repository_paused")
+            return False
+        if repo.get("private") is True:
+            policy = self.gh.get(f"{self.root}/actions/permissions/fork-pr-workflows-private-repos")
+            if policy.get("run_workflows_from_fork_pull_requests") is not False:
+                log("fork_workflows_policy_paused")
+                return False
+        return True
+
+    def queued_jobs(self, run_id, attempt):
+        jobs = self.jobs(run_id, attempt)
+        for job in jobs:
+            name = job.get("name")
+            if (name not in JOB_LABELS or job.get("status") != "queued" or not numeric(job.get("id"))
+                    or sum(other.get("name") == name for other in jobs) != 1
+                    or set(job.get("labels", [])) != set(self.labels(run_id, attempt, name))):
+                continue
+            yield job
+
+    def eligible(self):
+        if not self.repository_policy_allows_runner():
             return []
         runs = {}
         for status in ("queued", "in_progress"):
@@ -500,24 +529,22 @@ class Controller:
         for run in sorted(runs.values(), key=lambda r: r["id"]):
             if not self.allowed_run(run):
                 continue
-            for job in self.jobs(run["id"], run["run_attempt"]):
-                if (job.get("status") != "queued" or not numeric(job.get("id"))
-                        or set(job.get("labels", [])) != set(self.labels(run["id"], run["run_attempt"]))):
-                    continue
+            for job in self.queued_jobs(run["id"], run["run_attempt"]):
                 key = self.budget_key(run["id"], run["run_attempt"], job["id"])
                 if self.state["attempts"].get(key, 0) >= self.config["max_attempts_per_job"]:
                     continue
                 candidates.append({"run_id": run["id"], "attempt": run["run_attempt"],
-                                   "job_id": job["id"], "budget_key": key})
+                                   "job_id": job["id"], "job_name": job["name"], "budget_key": key})
         return candidates
 
     def still_queued(self, candidate):
+        if not self.repository_policy_allows_runner():
+            return False
         run = self.gh.get(f"{self.root}/actions/runs/{candidate['run_id']}")
         if not self.allowed_run(run) or run["run_attempt"] != candidate["attempt"]:
             return False
-        return any(job.get("id") == candidate["job_id"] and job.get("status") == "queued"
-                   and set(job.get("labels", [])) == set(self.labels(candidate["run_id"], candidate["attempt"]))
-                   for job in self.jobs(candidate["run_id"], candidate["attempt"]))
+        return any(job["id"] == candidate["job_id"] and job["name"] == candidate.get("job_name")
+                   for job in self.queued_jobs(candidate["run_id"], candidate["attempt"]))
 
     def launch(self, candidate):
         # Last-minute state/attempt validation is deliberately separate from the
@@ -603,7 +630,8 @@ class Controller:
         try:
             jit = self.gh.post(f"{self.root}/actions/runners/generate-jitconfig", {
                 "name": active["name"], "runner_group_id": 1,
-                "labels": self.labels(active["run_id"], active["attempt"]), "work_folder": "_work"})
+                "labels": self.labels(active["run_id"], active["attempt"], active["job_name"]),
+                "work_folder": "_work"})
         except ApiError:
             self.cleanup("jit_registration_failed", server)
             return
@@ -629,16 +657,11 @@ class Controller:
         assigned = [job for job in jobs if job.get("runner_id") == active.get("runner_id")]
         if assigned:
             job = assigned[0]
+            if len(assigned) != 1 or job["id"] != active["job_id"]:
+                self.cleanup("unexpected_job_assignment", server)
+                return
             if not active.get("assigned_job_id"):
                 active["assigned_job_id"] = job["id"]
-                # Either job in this exact run may win assignment. Charge its
-                # attempt budget, not the candidate whose queue entry woke us.
-                actual_key = self.budget_key(active["run_id"], active["attempt"], job["id"])
-                if actual_key != active["budget_key"]:
-                    old = active["budget_key"]
-                    self.state["attempts"][old] = max(0, self.state["attempts"].get(old, 1) - 1)
-                    self.state["attempts"][actual_key] = self.state["attempts"].get(actual_key, 0) + 1
-                    active["budget_key"] = actual_key
                 self.save()
             if job.get("status") == "completed":
                 self.cleanup("job_completed", server)
@@ -647,7 +670,7 @@ class Controller:
 
     def tick(self):
         now = self.clock()
-        server, orphan_cleanup = self.reconcile()
+        server, cleanup_pending = self.reconcile()
         active = self.state["active"]
         if active:
             age = now - active["created_at"]
@@ -678,8 +701,8 @@ class Controller:
             elif active["phase"] == "running":
                 self.observe_running(active, server)
             return
-        # Wait for asynchronous orphan deletion to disappear from inventory.
-        if orphan_cleanup or now < self.state["next_launch_at"]:
+        # Wait for complete server/IP reconciliation before any new spending.
+        if cleanup_pending or now < self.state["next_launch_at"]:
             return
         candidates = self.eligible()
         if candidates:
