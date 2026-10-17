@@ -2291,26 +2291,22 @@ public final class MainActivity extends Activity implements ScreenHost {
                     rebuild();toast(restored?"Dashboards imported.":"The dashboards could not be imported.");
                 }).create();controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
-    @Override public void fullBackup(boolean restore){
+    @Override public void dataBackup(Boolean restore,String preselect){
         if(enteringMaintenance||destroyed)return;
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(restore?"Restore all app data?":"Back up all app data?")
-                .setMessage((restore?"You’ll review the backup before anything is replaced."
-                    :"Everything incl. setup keys, password-protected.")
-                    +" Volt pauses until you reopen it.")
-                .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->beginFullBackup(restore)).create();
+        if(restore==null){
+            LinearLayout box=new LinearLayout(dialogContext());box.setOrientation(LinearLayout.VERTICAL);box.setPadding(design.dp(22),design.dp(18),design.dp(22),design.dp(4));
+            TextView backUp=design.button("Back up",null),restoreButton=design.secondaryButton("Restore",null);
+            backUp.setTag("data-backup-create");restoreButton.setTag("data-backup-restore");box.addView(backUp);box.addView(restoreButton);
+            AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(preselect!=null&&preselect.equals("rides")?"Ride backups":"Back up & restore").setView(box).setNegativeButton("Cancel",null).create();
+            backUp.setOnClickListener(v->{dialog.dismiss();dataBackup(false,preselect);});restoreButton.setOnClickListener(v->{dialog.dismiss();dataBackup(true,preselect);});
+            controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_NEGATIVE);return;
+        }
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(restore?"Restore?":"Back up?")
+                .setMessage((restore?"You’ll review before anything changes. ":"")+"Volt pauses until you reopen it.")
+                .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->beginBackup(restore,preselect)).create();
         controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
-    @Override public void rideBackup(boolean restore){
-        if(enteringMaintenance||destroyed)return;
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(restore?"Restore saved rides?":"Back up saved rides?")
-                .setMessage((restore?"You’ll review the file and destination scooters before any rides are added. Existing rides are kept."
-                    :"Saves complete rides, routes, phone sensors, names and notes. The file includes locations and is not encrypted. It contains no pairing keys.")
-                    +" Volt pauses until you close and reopen it.")
-                .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->beginBackup(restore,true)).create();
-        controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
-    }
-    private void beginFullBackup(boolean restore){beginBackup(restore,false);}
-    private void beginBackup(boolean restore,boolean ridesOnly){
+    private void beginBackup(boolean restore,String preselect){
         if(enteringMaintenance||destroyed)return;
         if(binding&&!bound){toast("Still opening. Try again.");return;}
         if(!preparingExports.isEmpty()||documents.contains("path")||applyingOwnerImport||pendingOwnerFile().exists()||new File(getFilesDir(),"pending-owner-import.tmp").exists()){
@@ -2330,12 +2326,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         TextView wait=design.text("Preparing your app data…",20,true);wait.setGravity(Gravity.CENTER);wait.setBackgroundColor(design.bg);setContentView(wait);
         java.util.function.Consumer<String> prepared=error->{
             if(!DataMaintenance.active())DataMaintenance.enter();
-            Intent transfer=new Intent(this,ridesOnly?RideBackupActivity.class:BackupActivity.class).putExtra("restore",restore);
-            if(ridesOnly&&scooterService!=null){
-                ArrayList<String> ids=new ArrayList<>(),names=new ArrayList<>();
-                for(ScooterProfiles.Profile profile:scooterService.profiles.all()){ids.add(profile.id);names.add(profile.name);}
-                transfer.putStringArrayListExtra("profile_ids",ids).putStringArrayListExtra("profile_names",names);
-            }
+            Intent transfer=new Intent(this,BackupActivity.class).putExtra("restore",restore);
+            if(preselect!=null)transfer.putExtra("preselect",preselect);
             if(error!=null)transfer.putExtra("preparation_error",error);
             DataMaintenance.preparedTransfer(transfer);
             startActivity(transfer);stopService(new Intent(this,ScooterService.class));finish();

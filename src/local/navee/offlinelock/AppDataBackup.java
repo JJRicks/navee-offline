@@ -64,6 +64,10 @@ public final class AppDataBackup {
         for(String category:new String[]{BackupRegistry.SCOOTERS,BackupRegistry.RIDES,BackupRegistry.CHARGES,BackupRegistry.HISTORY})if(counts.get(category)[0]>0)return true;
         return false;
     }
+    /** This phone's scooters as ID → name, in their saved order. */
+    public static Map<String,String> localScooters(Context context)throws IOException {
+        Map<String,String> result=new LinkedHashMap<>();for(BackupProfiles.Profile p:BackupArchive.profiles(new AndroidStorage(context).preferences()))result.put(p.id,p.name);return result;
+    }
     /** A complete backup of every category. */
     public static synchronized void write(Context context,OutputStream destination,char[] password)throws IOException {write(context,destination,password,CATEGORIES);}
     public static synchronized void write(Context context,OutputStream destination,char[] password,Collection<String> categories)throws IOException {
