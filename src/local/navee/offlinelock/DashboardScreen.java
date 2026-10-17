@@ -1530,8 +1530,10 @@ public final class DashboardScreen implements AppScreen {
         final Stage stage;
         double level = Double.NaN, limit = 100;
         boolean shown;
-        android.animation.ValueAnimator reveal;
+        android.animation.ValueAnimator reveal, pulse;
         int revealGeneration;
+        /** Glow breathing, 0 = dimmest and narrowest, 1 = the static glow. */
+        float glow = 1;
 
         ChargingHero() {
             super(host.activity());
@@ -1582,6 +1584,35 @@ public final class DashboardScreen implements AppScreen {
             if (getLayoutParams() != null) { getLayoutParams().height = -2; requestLayout(); }
             setAlpha(1); setTranslationY(0);
             setVisibility(shown ? View.VISIBLE : View.GONE);
+            updatePulse();
+        }
+
+        /**
+         * One slow loop for the glow while fresh charging is on screen; anything else (hidden,
+         * editing, stale, backgrounded, detached, closed, reduced motion) leaves the static glow.
+         */
+        void updatePulse() {
+            boolean run = shown && !closed && !editing && Ui.motionEnabled() && stage.onScreen
+                    && photo.getVisibility() == View.VISIBLE && stage.isAttachedToWindow();
+            if (run == (pulse != null)) return;
+            if (!run) {
+                android.animation.ValueAnimator old = pulse;
+                pulse = null; old.cancel();
+                if (glow != 1) { glow = 1; stage.invalidate(); }
+                return;
+            }
+            pulse = android.animation.ValueAnimator.ofFloat(0, 1);
+            pulse.setDuration(3200);
+            pulse.setRepeatCount(android.animation.ValueAnimator.INFINITE);
+            pulse.setInterpolator(new android.view.animation.LinearInterpolator());
+            final android.animation.ValueAnimator owner = pulse;
+            pulse.addUpdateListener(a -> {
+                if (owner != pulse) return;
+                if (!Ui.motionEnabled() || closed) { updatePulse(); return; }
+                glow = (float) (.5 + .5 * Math.cos(2 * Math.PI * a.getAnimatedFraction()));
+                stage.invalidate();
+            });
+            pulse.start();
         }
 
         private void showAnimated(boolean show) {
@@ -1647,6 +1678,7 @@ public final class DashboardScreen implements AppScreen {
             if (known && photo.getDrawable() == null) photo.setImageBitmap(scooterPhoto());
             photo.setVisibility(known ? View.VISIBLE : View.GONE);
             stage.setMinimumHeight(ui.dp(known ? 236 : 44));
+            updatePulse();
             String[] timeLabel = chargeTimeLabels(estimate, false);
             ((DashboardCaption) etaLabel).setLabels(timeLabel[0], timeLabel[1], timeLabel[2]);
             showChargeTime(eta, etaTag, estimate);
@@ -1669,6 +1701,11 @@ public final class DashboardScreen implements AppScreen {
         /** Glow and floor line under the photo. */
         private final class Stage extends FrameLayout {
             final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
+            RadialGradient glowShader;
+            float glowRadius = -1;
+            int glowColor;
+            /** This view, its ancestors and the window are all visible (false while backgrounded or the screen is off). */
+            boolean onScreen;
 
             Stage() {
                 super(host.activity());
@@ -1676,22 +1713,44 @@ public final class DashboardScreen implements AppScreen {
                 setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_YES);
             }
 
+            @Override public void onVisibilityAggregated(boolean visible) {
+                super.onVisibilityAggregated(visible);
+                onScreen = visible;
+                updatePulse();
+            }
+
+            @Override protected void onAttachedToWindow() { super.onAttachedToWindow(); updatePulse(); }
+
+            @Override protected void onDetachedFromWindow() {
+                onScreen = false; updatePulse();
+                super.onDetachedFromWindow();
+            }
+
             @Override
             protected void onDraw(Canvas canvas) {
                 float w = getWidth(), floor = getHeight() - ui.dp(18);
                 float left = w * .06f, right = w * .94f;
-                if (photo.getVisibility() == View.VISIBLE) {
+                if (photo.getVisibility() == View.VISIBLE && w > 0) {
                     // A soft red glow on the floor under the wheels.
+                    // While charging it breathes slowly in brightness and width only; its centre,
+                    // height and the floor line stay put. glow == 1 is the static glow.
                     float rx = w * .42f, ry = ui.dp(34);
+                    int color = ui.accent;
+                    if (glowShader == null || rx != glowRadius || color != glowColor) {
+                        glowShader = new RadialGradient(0, 0, rx,
+                                new int[] {Ui.withAlpha(color, ui.dark ? 140 : 90), Ui.withAlpha(color, 0)},
+                                null, Shader.TileMode.CLAMP);
+                        glowRadius = rx; glowColor = color;
+                    }
                     canvas.save();
                     canvas.translate(w / 2, floor);
-                    canvas.scale(1, ry / rx);
+                    canvas.scale(.94f + .06f * glow, ry / rx);
                     paint.setStyle(Paint.Style.FILL);
-                    paint.setShader(new RadialGradient(0, 0, rx,
-                            new int[] {Ui.withAlpha(ui.accent, ui.dark ? 140 : 90), Ui.withAlpha(ui.accent, 0)},
-                            null, Shader.TileMode.CLAMP));
+                    paint.setShader(glowShader);
+                    paint.setAlpha(Math.round(255 * (.72f + .28f * glow)));
                     canvas.drawCircle(0, 0, rx, paint);
                     paint.setShader(null);
+                    paint.setAlpha(255);
                     canvas.restore();
                 }
                 paint.setStyle(Paint.Style.STROKE);
