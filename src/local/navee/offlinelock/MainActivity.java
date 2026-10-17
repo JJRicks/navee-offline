@@ -1054,7 +1054,9 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(Math.abs(lag)>.5f){
                     float strength=Math.min(1,Math.abs(lag)/Math.max(1,geometry.diameter));
                     int save=canvas.save();canvas.clipRect(track);
-                    for(int i=5;i>=1;i--){float f=i/6f;paint.setColor(Ui.withAlpha(thumb,Math.round(56*strength*(1-f))));canvas.drawCircle(cx-lag*f,h/2,knob*(1-.15f*f),paint);}
+                    // Discs at most ~a third of a radius apart, so a fast thumb blurs instead of stacking visible coins.
+                    int steps=Math.max(5,Math.min(12,(int)Math.ceil(Math.abs(lag)/Math.max(1,knob*.35f))));
+                    for(int i=steps;i>=1;i--){float f=i/(steps+1f);paint.setColor(Ui.withAlpha(thumb,Math.round(56*strength*(1-f)*5f/steps)));canvas.drawCircle(cx-lag*f,h/2,knob*(1-.15f*f),paint);}
                     canvas.restoreToCount(save);
                     postInvalidateOnAnimation();
                 }
