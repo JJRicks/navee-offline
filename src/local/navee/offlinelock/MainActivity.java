@@ -1249,7 +1249,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
         private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private final LinearLayout lightsHeader,banner,readOnlyBanner,testBanner;private TextView identifyAction,checkAction,testBannerText;private String offeredKeys="";
+        private final LinearLayout lightsHeader,banner,readOnlyBanner,testBanner;private TextView identifyAction,checkAction,testBannerText,testReviewAction;private String offeredKeys="";
         private final View headlightRow,zonesRow,clockSpinner;
         private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
@@ -1291,7 +1291,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             testBanner.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?36:22),16,Ui.withAlpha(design.accent,design.dark?100:80)));
             testBanner.addView(design.icon("lab",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
             testBannerText=design.text("Unfinished test",13,false);LinearLayout.LayoutParams testWords=new LinearLayout.LayoutParams(0,-2,1);testWords.leftMargin=design.dp(10);testWords.rightMargin=design.dp(8);testBanner.addView(testBannerText,testWords);
-            TextView reviewAction=pill("Review",()->openMoreSection("Compatibility"));reviewAction.setContentDescription("Review unfinished test");reviewAction.setTag("scooter-review-test");testBanner.addView(reviewAction);
+            testReviewAction=pill("Review",()->openMoreSection("Compatibility"));testReviewAction.setContentDescription("Review unfinished test");testReviewAction.setTag("scooter-review-test");testBanner.addView(testReviewAction);
             testBanner.setVisibility(View.GONE);view.addView(testBanner,new LinearLayout.LayoutParams(-1,-2));
             ((LinearLayout.LayoutParams)testBanner.getLayoutParams()).bottomMargin=design.dp(10);
             // Wide: the banner spans both columns; search, results and top speed lead the left column.
@@ -1432,7 +1432,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             java.util.List<TestJournal.Entry> unfinished=ble==null?java.util.Collections.<TestJournal.Entry>emptyList():ble.unresolvedTests();
             boolean recordsLost=ble!=null&&!ble.testRecordsHealthy();
             testBanner.setVisibility(unfinished.isEmpty()&&!recordsLost?View.GONE:View.VISIBLE);
-            if(recordsLost||!unfinished.isEmpty()){String text=recordsLost?"Test records unavailable":"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"");if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);}
+            if(recordsLost||!unfinished.isEmpty()){String text=recordsLost?"Test records unavailable":"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"");if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);testReviewAction.setContentDescription(recordsLost?"Review test records":"Review unfinished test");}
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // One pill at a time keeps the banner readable on narrow screens: Identify first, then Check.
             checkAction.setVisibility(ble!=null&&!ble.modelUnidentified()?View.VISIBLE:View.GONE);
