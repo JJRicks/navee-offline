@@ -8,7 +8,7 @@ public final class CapabilityResolverTest {
     private static int assertions;
     private static final long SEEN=100000,NOW=SEEN+1000;
     public static void main(String[] args) {
-        goldenUt5(); unknownModels(); unsupported(); presence(); runtime(); lockContract(); roles(); admission(); simulation(); copy();
+        goldenUt5(); unknownModels(); unsupported(); presence(); runtime(); lockContract(); roles(); admission(); simulation(); copy(); oemHomeScreen();
         System.out.println("CapabilityResolver tests passed: "+assertions+" assertions");
     }
 
@@ -65,8 +65,8 @@ public final class CapabilityResolverTest {
 
     private static void unknownModels() {
         StatusFields s=status(full(),SEEN);
-        DeviceDescriptor[] models={serial("Q2443ZZ9US7777777"),advertised("39991"),advertised("24431"),ModelRegistryTest.both("Q2547ZZ9US7777777","25381"),serial("")};
-        CapabilityResolver.Reason[] reasons={CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED,CapabilityResolver.Reason.MODEL_NOT_MAPPED,CapabilityResolver.Reason.MODEL_NOT_MAPPED,
+        DeviceDescriptor[] models={serial("Q2443ZZ9US7777777"),advertised("39991"),ModelRegistryTest.both("Q2547ZZ9US7777777","25381"),serial("")};
+        CapabilityResolver.Reason[] reasons={CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED,CapabilityResolver.Reason.MODEL_NOT_MAPPED,
             CapabilityResolver.Reason.IDENTITY_CONFLICT,CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED};
         for(int m=0;m<models.length;m++)for(CapabilityResolver.Decision decision:CapabilityResolver.all(models[m],s,parked())){
             if(decision.feature.equals("lock")){
@@ -106,7 +106,11 @@ public final class CapabilityResolverTest {
         byte[] unknown=full();unknown[20]=(byte)0x85;
         check(decide("speed_limit",ut5,status(unknown,SEEN),parked()).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Lab rule: unknown value can't change safely");
         unknown=full();unknown[25]=0;
-        check(decide("maximum_speed",ut5,status(unknown,SEEN),parked()).reasonText().equals("Unknown value · can't change safely"),"Value outside the domain");
+        CapabilityResolver.Decision sentinel=decide("maximum_speed",ut5,status(unknown,SEEN),parked());
+        check(sentinel.available()&&Integer.valueOf(0).equals(sentinel.current()),"UT5 MAX: an out-of-domain readback (0) stays changeable, as before");
+        check(CapabilityResolver.admit("maximum_speed",32,ut5,status(unknown,SEEN),parked()).available(),"UT5 MAX: a valid value is admitted over the sentinel");
+        check(CapabilityResolver.admit("maximum_speed",0,ut5,status(unknown,SEEN),parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"UT5 MAX: the sentinel itself is never written");
+        check(decide("maximum_speed",serial("Q2601ZZ9US7777777"),status(unknown,SEEN),parked()).available()==false,"Non-UT5 stays read-only");
         byte[] noChoices=full();noChoices[15]=3;
         check(decide("range_algorithm",ut5,status(noChoices,SEEN),parked()).reason==CapabilityResolver.Reason.NO_CHOICES,"No dynamic choices");
         check(decide("cruise_control",ut5,StatusFields.of(StatusFieldsTest.notification(0x70,1,full()),SEEN),parked()).reason==CapabilityResolver.Reason.STATUS_STALE,"A rejected status is never fresh");
@@ -186,6 +190,79 @@ public final class CapabilityResolverTest {
             {"REGION_RULE","Not offered for this region"},{"DISCOVERY_ACTIVE","Checking compatibility…"},{"TEST_ACTIVE","Test in progress"},{"NO_CHOICES","No choices reported"},{"NONE",""}};
         for(String[] t:texts)check(CapabilityResolver.text(CapabilityResolver.Reason.valueOf(t[0])).equals(t[1]),"Reason copy "+t[0]);
         for(CapabilityResolver.Reason r:CapabilityResolver.Reason.values())check(r==CapabilityResolver.Reason.NONE||!CapabilityResolver.text(r).isEmpty(),"Every reason has copy "+r);
+    }
+
+    /** The OEM home-screen family (registry version 2) for identified OEM groups, row by row. */
+    private static void oemHomeScreen() {
+        byte[] data=full();data[2]=0;data[35]=0;StatusFields s=status(data,SEEN);
+        DeviceDescriptor sGroup=ModelRegistryTest.both("Q2443ZZ9US7777777","24431"),q=ModelRegistryTest.both("Q2585ZZ9DE7777777","25851"),m=ModelRegistryTest.both("Q2504ZZ9US7777777","25041");
+        String[] home={"lock","display_units","range_algorithm","clock_sync","headlight","auto_sensor","turn_sound","cruise_control","energy_recovery"};
+        for(CapabilityResolver.Decision decision:CapabilityResolver.all(sGroup,s,parked())){
+            boolean mapped=Arrays.asList(home).contains(decision.feature);
+            check(mapped?decision.support==CapabilityResolver.Support.KNOWN_ENCODING:decision.support==CapabilityResolver.Support.UNKNOWN_MAPPING&&decision.reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM group S "+decision);
+            if(mapped&&!decision.feature.equals("lock"))check(decision.evidence==CapabilityResolver.Evidence.OEM_MAPPED&&decision.variant.decode==FeatureVariant.Decode.EXACT||decision.feature.equals("clock_sync"),"OEM-mapped evidence, exact readback "+decision.feature);
+            if(mapped)check(decision.available(),"Mapped and available on S/US "+decision);
+        }
+        // Units: 0 mph, 1 km at offset 7; never lock-gated.
+        CapabilityResolver.Decision units=decide("display_units",sGroup,s,parked());
+        check(Arrays.equals(units.values(),new int[]{0,1})&&Integer.valueOf(1).equals(units.current())&&!units.preconditions.contains(CapabilityResolver.Precondition.UNLOCKED),"Units");
+        check(Arrays.equals(units.variant.encode(1),ScooterCommands.set("display_units",1)),"Units bytes are the shared wire encoding");
+        byte[] locked=data.clone();locked[2]=1;StatusFields lockedStatus=status(locked,SEEN);
+        check(decide("display_units",sGroup,lockedStatus,parked()).available()&&decide("headlight",sGroup,lockedStatus,parked()).reason==CapabilityResolver.Reason.LOCKED
+            &&decide("cruise_control",sGroup,lockedStatus,parked()).reason==CapabilityResolver.Reason.LOCKED&&decide("energy_recovery",sGroup,lockedStatus,parked()).reason==CapabilityResolver.Reason.LOCKED,"Tiles need the scooter unlocked");
+        check(decide("headlight",serial("Q2538ZZ9US7777777"),lockedStatus,parked()).available(),"The UT5 MAX keeps today's rules (no unlock gate)");
+        // Range estimate sets from offset 15.
+        int[][] sets={{0},{0,2,3},{4,2,3}};
+        for(int set=0;set<3;set++){byte[] r=data.clone();r[15]=(byte)set;r[6]=0;
+            check(Arrays.equals(decide("range_algorithm",sGroup,status(r,SEEN),parked()).values(),sets[set]),"Range set "+set);}
+        byte[] personal=data.clone();personal[15]=0;personal[6]=0;
+        for(String pid:new String[]{"22131","23321","27011","27451"})check(Arrays.equals(decide("range_algorithm",advertised(pid),status(personal,SEEN),parked()).values(),new int[]{0,1}),"Actual riding in set 0 for "+pid);
+        byte[] none=data.clone();none[15]=3;check(decide("range_algorithm",sGroup,status(none,SEEN),parked()).reason==CapabilityResolver.Reason.NO_CHOICES,"Unknown range set offers nothing");
+        // Clock: manual, no readback, not parked off the UT5 MAX.
+        CapabilityResolver.Runtime moving=parked();moving.stationary=false;
+        check(decide("clock_sync",sGroup,s,moving).available()&&decide("clock_sync",sGroup,s,parked()).current()==null,"OEM clock");
+        // Tail light: all except M; region hiding deferred with a note.
+        check(decide("headlight",m,s,parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED&&decide("headlight",m,s,parked()).support==CapabilityResolver.Support.INCOMPATIBLE,"No tail light on M");
+        check(decide("headlight",q,s,parked()).available()&&!decide("headlight",q,s,parked()).oemNote.isEmpty()&&decide("headlight",sGroup,s,parked()).oemNote.isEmpty(),"Tail light DE note, shown");
+        check(!decide("headlight",ModelRegistryTest.both("Q2213ZZ9IT7777777","22131"),s,parked()).oemNote.isEmpty()&&decide("headlight",ModelRegistryTest.both("Q2443ZZ9IT7777777","24431"),s,parked()).oemNote.isEmpty(),"Tail light ITA rule outside the turn-sound group");
+        // Automatic lights: all except M, 2332, 2417, 2422.
+        for(String pid:new String[]{"23321","24171","24221","25051"})check(decide("auto_sensor",advertised(pid),s,parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"No automatic lights on "+pid);
+        check(decide("auto_sensor",advertised("24021"),s,parked()).available(),"Automatic lights on C");
+        // Turn sound: the OEM's turn-sound group except 2573, 2634 and R.
+        for(String pid:new String[]{"22131","23141","25731","26341","26231","27811","27821","25061","24171"})check(decide("turn_sound",advertised(pid),s,parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"No turn sound on "+pid);
+        check(decide("turn_sound",sGroup,s,parked()).available()&&!decide("turn_sound",q,s,parked()).oemNote.isEmpty(),"Turn sound, DE note");
+        // Cruise: not M/2573/2634; SKU USA, or a known region with offset 35 == 1, else the region rule.
+        for(String pid:new String[]{"25041","25731","26341"})check(decide("cruise_control",advertised(pid),s,parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"No cruise on "+pid);
+        CapabilityResolver.Decision eur=decide("cruise_control",q,s,parked());
+        check(eur.reason==CapabilityResolver.Reason.REGION_RULE&&eur.support==CapabilityResolver.Support.KNOWN_ENCODING&&eur.reasonText().equals("Not offered for this region")&&!eur.oemNote.isEmpty(),"EUR cruise without the flag");
+        check(decide("cruise_control",q,status(Arrays.copyOf(data,35),SEEN),parked()).reason==CapabilityResolver.Reason.REGION_RULE,"Offset 35 absent is not a flag");
+        byte[] flagged=data.clone();flagged[35]=1;
+        check(decide("cruise_control",q,status(flagged,SEEN),parked()).available(),"Cruise with offset 35 == 1");
+        check(decide("cruise_control",advertised("25851"),status(flagged,SEEN),parked()).reason==CapabilityResolver.Reason.REGION_RULE,"No region: the flag cannot help");
+        check(decide("cruise_control",ModelRegistryTest.both("Q2620ZZ9EU7777777","26201"),s,parked()).reason==CapabilityResolver.Reason.REGION_RULE,"2620 EU server branch fails closed");
+        check(decide("cruise_control",sGroup,s,moving).reason==CapabilityResolver.Reason.MOVING,"Cruise needs the scooter parked");
+        // Energy recovery: levels, Off only for the OEM list, no High for four prefixes in NL or without a region; M not mapped yet.
+        check(Arrays.equals(decide("energy_recovery",q,s,parked()).values(),new int[]{0,30,60,90}),"2585 offers Off");
+        CapabilityResolver.Decision noOff=decide("energy_recovery",sGroup,s,parked());
+        check(Arrays.equals(noOff.values(),new int[]{30,60,90})&&noOff.variant.id.equals("energy_recovery.levels_no_off")&&!noOff.allows(0),"S has no Off");
+        for(String pid:new String[]{"27011","25431","24021","24421","26191","23451","24411","26111","25451","27821"})
+            check(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9US7777777",pid),s,parked()).allows(0),"Off for "+pid);
+        for(String pid:new String[]{"27141","27041","23451","24031"}){
+            check(Arrays.equals(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9NL7777777",pid),s,parked()).values(),new int[]{0,30,60}),"No High in NL for "+pid);
+            check(Arrays.equals(decide("energy_recovery",ModelRegistryTest.both("Q"+pid.substring(0,4)+"ZZ9NE7777777",pid),s,parked()).values(),new int[]{0,30,60,90}),"NE is not NL for "+pid);
+        }
+        check(decide("energy_recovery",m,s,parked()).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"M energy (binary) not mapped yet");
+        byte[] offNow=data.clone();offNow[5]=0;
+        check(decide("energy_recovery",sGroup,status(offNow,SEEN),parked()).reason==CapabilityResolver.Reason.VALUE_UNKNOWN,"Off read back on S is outside its domain");
+        // Every OEM-group variant encodes the same wire bytes as the shared UT5 MAX encoders.
+        for(String key:new String[]{"display_units","headlight","auto_sensor","turn_sound","cruise_control","energy_recovery","range_algorithm"}){
+            FeatureVariant v=decide(key,q,status(flagged,SEEN),parked()).variant;
+            for(int value:v.values)check(Arrays.equals(v.encode(value),ScooterCommands.set(key,value)),"Same wire bytes "+key+"="+value);
+        }
+        // Serial-only and unknown-advertised models stay limited to the shared lock.
+        check(decide("display_units",serial("Q2443ZZ9US7777777"),s,parked()).reason==CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED
+            &&decide("display_units",advertised("39991"),s,parked()).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"Shared layer: no units before a guided test");
+        check(CapabilityResolver.all(serial("Q2538ZZ9US7777777"),s,parked()).size()==ScooterCommands.catalog().size()+1,"Catalogue unchanged");
     }
 
     private static void check(boolean condition,String message){assertions++;if(!condition)throw new AssertionError(message);}

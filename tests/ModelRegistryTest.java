@@ -119,7 +119,9 @@ public final class ModelRegistryTest {
         check(!ModelRegistry.rule("maximum_speed",serial("Q2538ZZ9us7777777"),null,null).oemNote.isEmpty(),"Lowercase US region is not the OEM's USA bucket");
         ModelRegistry.Rule lock=ModelRegistry.rule("lock",advertised("39991"),null,null);
         check(lock.support==CapabilityResolver.Support.KNOWN_ENCODING&&lock.evidence==CapabilityResolver.Evidence.SHARED_CONTRACT&&lock.variant==ModelRegistry.SHARED_LOCK,"Shared lock contract");
-        check(ModelRegistry.rule("display_units",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM group rows arrive later");
+        check(ModelRegistry.rule("display_units",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
+            &&ModelRegistry.rule("charge_limit",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM home-screen rows only (version 2)");
+        check(ModelRegistry.VERSION==2,"Registry version records the OEM home-screen rows");
         check(ModelRegistry.rule("display_units",both("Q2547ZZ9US7777777","25381"),null,null).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict reason");
         boolean unknownKey=false;try{ModelRegistry.rule("not_a_feature",us,null,null);}catch(IllegalArgumentException expected){unknownKey=true;}
         check(unknownKey,"Unknown keys are rejected");
