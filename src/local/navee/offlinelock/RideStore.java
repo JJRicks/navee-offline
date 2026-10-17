@@ -686,6 +686,19 @@ public final class RideStore {
         return new Summary(parsed);
     }
 
+    /** A journal's scooter and START clocks, read from its first records only; null if unreadable.
+     * With the scooter, the two clocks identify one recording even under another UUID. */
+    static final class Start { final String scooterId; final long wallMs, monotonicMs;
+        Start(String scooter, long wall, long mono) { scooterId = scooter; wallMs = wall; monotonicMs = mono; } }
+    static Start start(File source) {
+        try (Reader in = new BufferedReader(new InputStreamReader(new FileInputStream(source), "UTF-8"))) {
+            List<String> record;
+            for (int i = 0; i < 4 && (record = csvRecord(in)) != null; i++)
+                if (acceptedStartRecord(record)) return new Start(record.get(6), Long.parseLong(record.get(3)), Long.parseLong(record.get(4)));
+        } catch (IOException | RuntimeException unreadable) { return null; }
+        return null;
+    }
+
     /** The reader ignores unsupported schemas and START records with invalid clocks. */
     private static boolean acceptedStartRecord(List<String> record) {
         if (record.size() != 15 || !"1".equals(record.get(0)) || !"START".equals(record.get(1))) return false;

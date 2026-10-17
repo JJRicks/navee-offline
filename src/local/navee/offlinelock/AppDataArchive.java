@@ -101,7 +101,7 @@ final class AppDataArchive {
         }
     }
 
-    private static Prepared extract(Storage storage,File archive,File data)throws IOException {
+    static Prepared extract(Storage storage,File archive,File data)throws IOException {
         Set<String> seen=new HashSet<>();long total=0,created=0,expectedBytes=0;int count=0,expectedCount=0;
         Map<String,Map<String,Object>> prefs=null;
         try(ZipInputStream zip=new ZipInputStream(new BufferedInputStream(new FileInputStream(archive)))) {
