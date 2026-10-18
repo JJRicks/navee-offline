@@ -83,11 +83,11 @@ public final class RouteMapView extends View {
         setContentDescription("Ride route map");
     }
 
-    /** Preselects the route's last point so its readings show before any tap. */
-    void selectLast() {
-        if (selected >= 0 || points.isEmpty()) return;
-        selected = points.size() - 1;
-        if (selection != null) selection.accept(points.get(selected));
+    /** Selection exists only while the user is inspecting the route. */
+    void clearSelection() {
+        if (selected < 0) return;
+        selected = -1;
+        if (selection != null) selection.accept(null);
         invalidate();
     }
 
@@ -99,7 +99,7 @@ public final class RouteMapView extends View {
         metric = other.metric; selected = other.selected;
         preserveViewportOnFirstSize = getWidth() == 0 || getHeight() == 0;
         generation++;
-        if (selected >= 0 && selected < points.size() && selection != null) selection.accept(points.get(selected));
+        if (selection != null) selection.accept(selected >= 0 && selected < points.size() ? points.get(selected) : null);
         invalidate();
     }
 
@@ -628,18 +628,8 @@ public final class RouteMapView extends View {
         }
         if (action == MotionEvent.ACTION_UP) {
             if (!multiplePointers && !dragged && Math.hypot(event.getX()-downX, event.getY()-downY) <= touchSlop) {
-                double best = Double.MAX_VALUE;
-                for (int i = 0; i < points.size(); i++) {
-                    double d =
-                            Math.hypot(
-                                    screenX(points.get(i)) - event.getX(),
-                                    screenY(points.get(i)) - event.getY());
-                    if (d < best) {
-                        best = d;
-                        selected = i;
-                    }
-                }
-                if (selected >= 0 && selection != null) selection.accept(points.get(selected));
+                selected = hitRoute(event.getX(), event.getY());
+                if (selection != null) selection.accept(selected >= 0 ? points.get(selected) : null);
                 performClick();
                 invalidate();
             }
@@ -651,6 +641,28 @@ public final class RouteMapView extends View {
             return true;
         }
         return true;
+    }
+
+    /** Hit the drawn line, not an arbitrarily distant GPS fix; gaps never form selectable bridges. */
+    private int hitRoute(float tapX, float tapY) {
+        double best = ui.dp(18); int hit = -1;
+        for (int i = 1; i < points.size(); i++) {
+            PhoneRideStore.Point a = points.get(i - 1), b = points.get(i);
+            if (b.gapBefore || b.segment != a.segment) continue;
+            double ax = screenX(a), ay = screenY(a), bx = screenX(b), by = screenY(b);
+            double vx = bx - ax, vy = by - ay, lengthSquared = vx * vx + vy * vy;
+            double fraction = lengthSquared == 0 ? 0 : Math.max(0, Math.min(1,
+                    ((tapX - ax) * vx + (tapY - ay) * vy) / lengthSquared));
+            double distance = Math.hypot(tapX - ax - fraction * vx, tapY - ay - fraction * vy);
+            if (distance <= best) { best = distance; hit = fraction <= .5 ? i - 1 : i; }
+        }
+        // Start/end markers are visible even on a single-fix route or beside a GPS gap.
+        for (int i : new int[]{0, points.size() - 1}) {
+            if (i < 0 || i >= points.size()) continue;
+            double distance = Math.hypot(screenX(points.get(i)) - tapX, screenY(points.get(i)) - tapY);
+            if (distance <= best) { best = distance; hit = i; }
+        }
+        return hit;
     }
 
     /** Seed a new finger set without interpreting a finger arriving/leaving as map movement. */

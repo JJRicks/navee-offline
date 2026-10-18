@@ -171,6 +171,15 @@ final class QuickAccessGrid extends ViewGroup {
         boolean highlighted, toggle;
         Cell(QuickAccessActions.Entry entry) {
             super(host.activity()); this.entry = entry; toggle = entry.directToggle();
+            // Keep the fill, pressed ripple and clipping on the same rounded boundary.
+            // Narrow rows must not depend on a device-specific RippleDrawable outline
+            // when their pressed/selected state or dimensions change.
+            setOutlineProvider(new ViewOutlineProvider() {
+                @Override public void getOutline(View view, android.graphics.Outline outline) {
+                    outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), ui.dp(cornerRadius()));
+                }
+            });
+            setClipToOutline(true);
             if (tiles) {
                 setTag("setting-tile:" + entry.id);
                 setOrientation(HORIZONTAL); setGravity(Gravity.CENTER_VERTICAL);
@@ -222,17 +231,21 @@ final class QuickAccessGrid extends ViewGroup {
             icon.requestLayout();
         }
         void updateBackground() {
+            float radius = cornerRadius();
             if (tiles) {
                 // White on accentDeep stays above 4.5:1 in both themes.
                 int fill = highlighted ? ui.accentDeep : isSelected() ? blendAccent() : editing ? ui.raised : ui.surface;
                 setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(highlighted ? ui.onAccent : ui.accent, 40)),
-                        ui.shape(fill, 20, isSelected() && !highlighted ? Ui.withAlpha(ui.accent, 100) : 0), null));
+                        ui.shape(fill, radius, isSelected() && !highlighted ? Ui.withAlpha(ui.accent, 100) : 0),
+                        ui.shape(android.graphics.Color.WHITE, radius, 0)));
                 return;
             }
             setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 40)),
-                    ui.shape(isSelected() ? Ui.withAlpha(ui.accent, 35) : ui.raised, 12,
-                            isSelected() ? Ui.withAlpha(ui.accent, 100) : 0), null));
+                    ui.shape(isSelected() ? Ui.withAlpha(ui.accent, 35) : ui.raised, radius,
+                            isSelected() ? Ui.withAlpha(ui.accent, 100) : 0),
+                    ui.shape(android.graphics.Color.WHITE, radius, 0)));
         }
+        private float cornerRadius() { return tiles ? 20 : 12; }
         int blendAccent() {
             float a = ui.dark ? .14f : .08f;
             int from = ui.surface, to = ui.accent;

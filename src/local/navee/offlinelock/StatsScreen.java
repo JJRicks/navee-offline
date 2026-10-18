@@ -506,7 +506,8 @@ public final class StatsScreen implements AppScreen {
         refreshDevices(readings); refreshEvents();
     }
     private void refreshOverview(Map<String, TelemetryHistory.Reading> readings) {
-        TelemetryHistory.Reading soc = readings.get("battery_percent"), range = readings.get("remaining_range_km");
+        TelemetryHistory.Reading soc = readings.get("battery_percent"),
+                range = service.dashboardReadings().get("remaining_range_km");
         batteryRing.set(soc == null ? null : soc.number, soc == null || soc.value == null ? "No reading"
                 : soc.live ? "" : "Last seen", false);
         batteryRing.setLive(soc != null && soc.live);
@@ -754,6 +755,10 @@ public final class StatsScreen implements AppScreen {
     }
     /** Short shared reading name (as on Home); a known UT5 MAX mode is plainly "Drive mode". */
     private String readingLabel(TelemetryHistory.Reading metric) {
+        // Readings and their favourites expose the scooter report, independent of the
+        // selected current forecast shown above. Name that source rather than implying
+        // this raw observation is Volt's learned estimate.
+        if (metric.key.equals("remaining_range_km")) return "Scooter range";
         return isKnownDriveMode(metric.key) ? "Drive mode" : ScooterReadingLabels.label(metric.key, metric.label);
     }
     /**

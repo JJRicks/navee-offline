@@ -1,3 +1,29 @@
+VOLT 1.4.2 — CONTROLS, RANGE AND RIDE MAP POLISH (versionCode 39)
+October 18, 2026
+
+- All core suites and 11 owner-capture guard tests pass. The application and
+  separate native validation runner build, sign and align successfully.
+- Native preference checks pass 1,614 assertions, including switch opacity,
+  contrast in both themes, thumb bounds in both layout directions, touch/drag
+  behavior, and a transparent lightning-bolt notification silhouette.
+- Quick access checks pass at 344x882 and 725x604 dp, covering small two-item
+  layouts, matched fill/ripple/outline corners, menus and existing actions.
+- Learned-range checks pass 264 assertions each at compact/dark/default text
+  and expanded/light/140% text: both range sources, km/mi/dual, current-value
+  widget types, Stats summary and preservation of raw range chart history.
+- Ride analysis passes 458 compact and 466 expanded checks, covering
+  near-line hits, sparse segments, GPS gaps, blank-map
+  and outside-map dismissal, controls below the readout, fullscreen state,
+  pan/pinch, and battery drop/zero/gain/missing data. Test fixtures scroll
+  controls into view before real-coordinate taps and close their own dialogs.
+- Two fresh independent internal reviewers found no actionable issues in the
+  final production changes. All tests use synthetic data on disposable Android
+  emulators with Bluetooth disabled; no physical scooter commands are sent.
+- The Samsung-specific corner issue still needs confirmation on hardware.
+  Native test APK metadata precedes the 1.4.2 release bump; production sources
+  and artwork are unchanged. Release signing, downloaded-asset checks and
+  final GitHub checks are separate release steps. The owner will self-install.
+
 VOLT 1.4.1 — INDEPENDENT FOLDED/UNFOLDED DASHBOARDS (versionCode 38)
 October 18, 2026
 

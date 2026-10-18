@@ -75,6 +75,7 @@ public final class DeveloperSettingsValidation extends Instrumentation {
             main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
             verifyBrandAndLocationSettings(); checks.add("Installed app and About use Volt; Location opens this app's public Android settings intent without launching or changing system settings");
             verifySelectors(); checks.add("Rounded preference tracks retain readable labels, 48dp targets, radio semantics, selected indication and existing preference keys");
+            verifyControlArtwork(); checks.add("On/off switch tracks remain opaque and contrast against both themes; notification artwork is a transparent bolt silhouette");
             verifyFeedbackSwitches(); checks.add("Switch thumb drags count like taps: Haptic feedback saves a swipe and keeps it through a redraw; one click in the dragged direction, none for a cancelled drag or code");
             verifyDeveloperGate(); checks.add("Developer options stay hidden and reject direct access until seven version taps");
             if (!"preferences".equals(arguments.getString("mode", "all"))) {
@@ -106,6 +107,83 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         BluetoothManager manager = getTargetContext().getSystemService(BluetoothManager.class);
         BluetoothAdapter adapter = manager == null ? null : manager.getAdapter();
         require(adapter == null || !adapter.isEnabled(), "Bluetooth must be disabled before validation");
+    }
+    private void verifyControlArtwork() {
+        main(() -> {
+            for (boolean dark : new boolean[]{true, false}) {
+                Ui design = new Ui(activity, dark, 1);
+                Switch toggle = new Switch(activity); design.styleSwitch(toggle);
+                toggle.setShowText(false); toggle.setMinimumHeight(design.dp(48));
+                for (boolean on : new boolean[]{false, true}) {
+                    toggle.setChecked(on); toggle.jumpDrawablesToCurrentState();
+                    android.graphics.drawable.Drawable track = toggle.getTrackDrawable();
+                    android.graphics.Bitmap rendered = android.graphics.Bitmap.createBitmap(108, 60, android.graphics.Bitmap.Config.ARGB_8888);
+                    track.setBounds(0, 0, 108, 60); track.draw(new android.graphics.Canvas(rendered));
+                    int fill = rendered.getPixel(54, 30);
+                    require(android.graphics.Color.alpha(fill) == 255, "Switch track is translucent");
+                    for (int background : new int[]{design.bg, design.surface, design.raised})
+                        require(contrast(fill, background) >= 3, "Switch track blends into its surface");
+                    require(contrast(fill, android.graphics.Color.WHITE) >= 3, "Switch thumb blends into track");
+                    if (on) require(fill == design.accent, "On switch lost Volt red");
+                    rendered.recycle();
+                    for (boolean rtl : new boolean[]{false, true}) verifySwitchGeometry(toggle, design, on, rtl);
+                }
+            }
+            int id = activity.getResources().getIdentifier("ic_volt_notification", "drawable", activity.getPackageName());
+            require(id != 0, "Missing notification bolt");
+            android.graphics.drawable.Drawable icon = activity.getDrawable(id);
+            android.graphics.Bitmap rendered = android.graphics.Bitmap.createBitmap(64, 64, android.graphics.Bitmap.Config.ARGB_8888);
+            icon.setBounds(0, 0, 64, 64); icon.draw(new android.graphics.Canvas(rendered));
+            int opaque = 0;
+            for (int y = 0; y < 64; y++) for (int x = 0; x < 64; x++) {
+                int pixel = rendered.getPixel(x, y), alpha = android.graphics.Color.alpha(pixel);
+                if (alpha > 0) require((pixel & 0xffffff) == 0xffffff, "Notification uses colored artwork");
+                if (alpha == 255) opaque++;
+                if (x == 0 || y == 0 || x == 63 || y == 63)
+                    require(alpha == 0, "Notification has an opaque rectangular background");
+            }
+            require(opaque > 400 && opaque < 2000, "Notification silhouette is empty or a solid square");
+            rendered.recycle();
+        });
+    }
+    private void verifySwitchGeometry(Switch toggle, Ui design, boolean on, boolean rtl) {
+        toggle.setLayoutParams(new ViewGroup.LayoutParams(design.dp(120), design.dp(48)));
+        toggle.setLayoutDirection(rtl ? View.LAYOUT_DIRECTION_RTL : View.LAYOUT_DIRECTION_LTR);
+        toggle.setBackgroundColor(design.raised); toggle.jumpDrawablesToCurrentState();
+        int width = design.dp(120), height = design.dp(48);
+        toggle.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+        toggle.layout(0, 0, width, height);
+        android.graphics.Bitmap rendered = android.graphics.Bitmap.createBitmap(width, height, android.graphics.Bitmap.Config.ARGB_8888);
+        toggle.draw(new android.graphics.Canvas(rendered));
+        Rect track = toggle.getTrackDrawable().getBounds(), white = new Rect(width, height, 0, 0);
+        for (int y = 0; y < height; y++) for (int x = 0; x < width; x++) {
+            if (rendered.getPixel(x, y) != android.graphics.Color.WHITE) continue;
+            white.left = Math.min(white.left, x); white.top = Math.min(white.top, y);
+            white.right = Math.max(white.right, x + 1); white.bottom = Math.max(white.bottom, y + 1);
+        }
+        require(!white.isEmpty() && white.width() >= design.dp(22), "Switch thumb missing or undersized");
+        require(track.contains(white), "Switch thumb exceeds track bounds at an endpoint");
+        require((white.exactCenterX() > track.exactCenterX()) == (on != rtl), "Switch thumb is on the wrong side");
+        try {
+            File folder = new File(getTargetContext().getExternalFilesDir(null), "developer-validation");
+            require(folder.isDirectory() || folder.mkdirs(), "Cannot save switch rendering");
+            try (FileOutputStream out = new FileOutputStream(new File(folder,
+                    "switch-" + (design.dark ? "dark" : "light") + "-" + on + "-rtl" + rtl + ".png"))) {
+                rendered.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out);
+            }
+        } catch (java.io.IOException error) { throw new IllegalStateException(error); }
+        finally { rendered.recycle(); }
+    }
+    private double contrast(int a, int b) {
+        double x = luminance(a), y = luminance(b);
+        return (Math.max(x, y) + .05) / (Math.min(x, y) + .05);
+    }
+    private double luminance(int color) {
+        double result = 0; double[] weights = {.2126, .7152, .0722};
+        int[] channels = {android.graphics.Color.red(color), android.graphics.Color.green(color), android.graphics.Color.blue(color)};
+        for (int i = 0; i < 3; i++) { double value = channels[i] / 255d; result += weights[i] * (value <= .04045 ? value / 12.92 : Math.pow((value + .055) / 1.055, 2.4)); }
+        return result;
     }
     private void seed() {
         AtomicReference<TelemetryHistory> history = new AtomicReference<>(); AtomicReference<TelemetryHistory.Snapshot> saved = new AtomicReference<>();

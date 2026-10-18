@@ -1,5 +1,5 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
-Current version: 1.4.1 (versionCode 38)
+Current version: 1.4.2 (versionCode 39)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -17,7 +17,15 @@ or sponsored by NAVEE.
 That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
 
-NEW IN 1.4.1
+NEW IN 1.4.2
+
+- Higher-contrast native switches in both themes and a bolt notification icon.
+- Matching Quick access / Setting tiles fill, ripple and clipping boundaries.
+- Deliberate near-route map inspection, dismissed by tapping elsewhere.
+- Current range widgets and the Stats summary respect the selected estimate.
+- Ride overviews show battery drop, with a gain labelled when appropriate.
+
+PREVIOUSLY IN 1.4.1
 
 - Folded and unfolded screens keep independent dashboard positions and sizes,
   even when both use five columns. Saved slots, imports, backups and Undo/Redo
@@ -512,8 +520,10 @@ it does not show a detailed evidence block. An unavailable learned estimate or
 missing battery level leaves the scooter's estimate; a stale battery level
 produces a stale estimate.
 
-Applies to Scooter overview, Your scooter and Battery overview. Generic reading
-widgets, gauges, charts, Live Stats and raw exports keep the reported range.
+Applies to every current-range dashboard widget, including generic readings and
+gauges, and the Live Stats overview range headline. Explicit Scooter range
+readings/favourites, recorded charts and raw exports keep the reported source;
+charts never mix a learned live value into previously recorded scooter values.
 Choosing Volt's estimate changes local display only; choosing Scooter's estimate
 enables guarded drive-mode following.
 This is a preliminary estimate for similar riding, with no guaranteed distance

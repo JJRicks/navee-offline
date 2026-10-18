@@ -265,7 +265,11 @@ final class StatsCharts {
         }
     }
     /** The short shared name (as on Home and Readings); charts keep "(raw)" since they have no chip. */
-    private String label(String key) { TelemetryHistory.Reading r = catalog.get(key); return r == null ? key : ScooterReadingLabels.label(key, r.label); }
+    private String label(String key) {
+        if (key.equals("remaining_range_km")) return "Scooter range";
+        TelemetryHistory.Reading r = catalog.get(key);
+        return r == null ? key : ScooterReadingLabels.label(key, r.label);
+    }
     /** Indeterminate arc for loading states; still (a fixed arc) when animations are off. */
     static final class Spinner extends android.graphics.drawable.Drawable {
         private final Ui ui; private final boolean boxed;

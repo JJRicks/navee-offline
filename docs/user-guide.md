@@ -175,7 +175,7 @@ Learning needs at least **three usable rides, 20 battery percentage points consu
 
 When a learned estimate or the battery level is unavailable, the widgets use the scooter's estimate. A last-known battery level keeps the resulting estimate grey and historical.
 
-The choice applies to **Scooter overview**, **Your scooter** and **Battery overview**. Live Stats, generic reading widgets, gauges, charts and exported telemetry retain the scooter's reported range. Choosing **Volt's estimate (learned)** changes the local display only; selecting **Scooter's estimate** enables the guarded drive-mode following described above.
+The choice applies to every current-range dashboard widget, including reading tiles and gauges, and the range headline in **Live Stats → Overview**. Readings and favourites explicitly named **Scooter range**, recorded charts and exported telemetry retain the scooter's reported range. Charts keep their original source throughout the recording. Choosing **Volt's estimate (learned)** changes the local display only; selecting **Scooter's estimate** enables the guarded drive-mode following described above.
 
 Volt divides the accepted rides' total distance by their total battery-percentage drop, then applies that rate to the displayed battery level. Treat the result as a **preliminary estimate for similar riding**, not a guaranteed distance to empty or a capacity/health measurement. Hills, speed, payload, weather and battery-gauge rounding can change actual range; battery levels absent from your recordings are extrapolated. [Calculation, screening rules and validation](validation/learned-range.md).
 

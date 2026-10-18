@@ -730,8 +730,10 @@ public final class DashboardScreen implements AppScreen {
         refreshHeader(current, readings);
         chargingHero.refresh(readings);
         Map<String, TelemetryHistory.Reading> forecast = service == null ? readings : service.dashboardReadings();
-        for (Tile tile : tiles) tile.refresh(tile.widget.type.equals("scooter") || tile.widget.type.equals("battery")
-                || tile.widget.type.equals("overview") ? forecast : readings);
+        // Every current-value widget follows the chosen range source. Recorded trends keep
+        // the scooter's observations; substituting just their live tail would mix two series.
+        for (Tile tile : tiles) tile.refresh(tile.widget.type.equals("live") || tile.widget.type.equals("history")
+                ? readings : forecast);
         grid.updateEditorMotion();
     }
 
@@ -937,6 +939,7 @@ public final class DashboardScreen implements AppScreen {
     }
 
     private String label(String key) {
+        if (key.equals("remaining_range_km")) return "Estimated remaining range";
         if (key.equals("driving_mode")) return "Drive mode";
         for (Telemetry.Metric m : new Telemetry().metrics())
             if (m.key.equals(key)) return m.label.replace(" (signed)", "");
@@ -3769,11 +3772,12 @@ public final class DashboardScreen implements AppScreen {
             boolean frozen = widget.type.equals("live") && !wasLive && !points.isEmpty();
             chart.set(points, chartUnit(key, values), frozen ? ui.dim : color(widget), "No saved readings yet");
             if (!widget.type.equals("health")) {
-                String metricLabel = label(key);
+                boolean reportedRange = key.equals("remaining_range_km");
+                String metricLabel = reportedRange ? "Scooter's estimated remaining range" : label(key);
                 String window = windowName(widget.windowMs);
-                boolean named = widget.title.equalsIgnoreCase(metricLabel);
-                String normal = (named ? "" : ScooterReadingLabels.label(key, metricLabel) + " · ") + window;
-                String compact = (named ? "" : ScooterReadingLabels.compact(key, metricLabel) + " · ") + window;
+                boolean named = !reportedRange && widget.title.equalsIgnoreCase(metricLabel);
+                String normal = (named ? "" : (reportedRange ? "Scooter range" : ScooterReadingLabels.label(key, metricLabel)) + " · ") + window;
+                String compact = (named ? "" : (reportedRange ? "Scooter range" : ScooterReadingLabels.compact(key, metricLabel)) + " · ") + window;
                 ((DashboardCaption) subtitle).setLabels(metricLabel + " · " + window, normal, compact);
             }
         }
@@ -4976,6 +4980,7 @@ public final class DashboardScreen implements AppScreen {
                     () -> quickOptions(widget)), "grid");
         if (lockType(widget.type)) {
             Switch disconnect = new Haptics.FeedbackSwitch(dialogContext);
+            ui.styleSwitch(disconnect);
             disconnect.setText("Show Disconnect button");
             disconnect.setTextColor(ui.text);
             disconnect.setTextSize(14 * ui.textScale);

@@ -14,6 +14,7 @@ import android.graphics.drawable.Drawable;
 import android.graphics.drawable.InsetDrawable;
 import android.graphics.drawable.GradientDrawable;
 import android.graphics.drawable.LayerDrawable;
+import android.graphics.drawable.RippleDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
@@ -98,6 +99,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 verifyGaugeContent();
                 check("270-degree gauges keep live/dual/unknown/stale/long readings and endpoint labels inside narrow/wide and short/tall cards");
             } else if (mode.equals("quick")) {
+                verifyQuickCorners();
                 verifyQuickAccess();
             } else if (mode.equals("motion")) {
                 verifyEditorMotion();
@@ -1350,6 +1352,66 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         check("Scheduled charging shortcut shows the stored time in the selected 12/24-hour format and exposes it accessibly");
     }
 
+    /** Both shortcut presentations retain one corner boundary through states and narrow resizes. */
+    private void verifyQuickCorners() throws Exception {
+        for (String type : new String[]{"quick", "shortcuts"}) {
+            DashboardConfig.Widget widget = new DashboardConfig.Widget(type);
+            widget.quickActions.clear();
+            widget.quickActions.addAll(Arrays.asList("feature:traction_control", "feature:timed_charging"));
+            main(() -> {
+                dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(widget);
+                invoke(dashboard(), "render");
+            }); settleMotion();
+            main(() -> {
+                View card = (View)tileById(widget.id);
+                ViewGroup shortcuts = card.findViewWithTag(type.equals("quick") ? "quick-access-grid" : "setting-tiles");
+                require(shortcuts != null && shortcuts.getChildCount() == 2, "Missing two-shortcut corner fixture");
+                for (int width : new int[]{120, 176, 310}) {
+                    measureCard(card, activity.ui().dp(width), activity.ui().dp(118));
+                    for (int index = 0; index < shortcuts.getChildCount(); index++) {
+                        View button = shortcuts.getChildAt(index);
+                        for (boolean selected : new boolean[]{false, true}) {
+                            button.setSelected(selected); invoke(button, "updateBackground");
+                            for (boolean pressed : new boolean[]{false, true}) {
+                                button.setPressed(pressed); button.jumpDrawablesToCurrentState();
+                                assertShortcutCorners(button);
+                            }
+                        }
+                        button.setPressed(false); button.setSelected(false); invoke(button, "updateBackground");
+                    }
+                    saveCardBitmap(card, "shortcut-corners-" + type + "-" + width);
+                }
+            });
+        }
+        check("Two-item Quick access and Setting tiles keep matching fill, ripple and clipping corners at 120/176/310dp through pressed/selected states");
+    }
+    private void assertShortcutCorners(View button) {
+        require(button.getClipToOutline(), "Shortcut content is not clipped to its card");
+        android.graphics.Outline outline = new android.graphics.Outline();
+        button.getOutlineProvider().getOutline(button, outline);
+        Rect bounds = new Rect();
+        require(outline.getRect(bounds) && bounds.equals(new Rect(0, 0, button.getWidth(), button.getHeight())),
+                "Shortcut clip does not follow its current size");
+        require(button.getBackground() instanceof RippleDrawable, "Shortcut lost its touch feedback");
+        RippleDrawable ripple = (RippleDrawable)button.getBackground();
+        Drawable mask = ripple.findDrawableByLayerId(android.R.id.mask);
+        require(mask instanceof GradientDrawable, "Shortcut ripple relies on an implicit OEM mask");
+        GradientDrawable fill = (GradientDrawable)ripple.getDrawable(0);
+        require(Math.abs(fill.getCornerRadius() - outline.getRadius()) < .01f
+                        && Math.abs(((GradientDrawable)mask).getCornerRadius() - outline.getRadius()) < .01f,
+                "Shortcut fill, ripple and clip corners disagree");
+        Bitmap paintedMask = Bitmap.createBitmap(button.getWidth(), button.getHeight(), Bitmap.Config.ARGB_8888);
+        try {
+            mask.setBounds(0, 0, button.getWidth(), button.getHeight());
+            mask.draw(new android.graphics.Canvas(paintedMask));
+            int lastX = paintedMask.getWidth() - 1, lastY = paintedMask.getHeight() - 1;
+            require((paintedMask.getPixel(0, 0) >>> 24) == 0 && (paintedMask.getPixel(lastX, 0) >>> 24) == 0
+                            && (paintedMask.getPixel(0, lastY) >>> 24) == 0 && (paintedMask.getPixel(lastX, lastY) >>> 24) == 0,
+                    "Shortcut press mask paints outside a rounded corner");
+            require((paintedMask.getPixel(lastX / 2, lastY / 2) >>> 24) == 255,
+                    "Shortcut press mask lost its middle");
+        } finally { paintedMask.recycle(); }
+    }
     private void verifyQuickAccess() throws Exception {
         DashboardConfig.Widget widget = new DashboardConfig.Widget("quick");
         main(() -> { dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(widget); dashboardConfig().save(); invoke(dashboard(), "render"); });
@@ -1910,7 +1972,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                         + " card=" + card.getWidth() + "x" + card.getHeight());
             }
             List<?> scooterStats = (List<?>)field(tile("scooter"), "scooterStats");
-            String[] spokenNames = {"Total odometer", "Scooter's estimated remaining range", "Drive mode"};
+            String[] spokenNames = {"Total odometer", "Estimated remaining range", "Drive mode"};
             for (int index = 0; index < scooterStats.size(); index++) {
                 Object value = scooterStats.get(index);
                 LinearLayout item = (LinearLayout)value;

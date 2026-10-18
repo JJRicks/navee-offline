@@ -35,12 +35,16 @@ public final class RidesAnalysisValidation extends Instrumentation {
             verifyRideNaming();
             if (args.getString("start_only", "false").equals("true")) { result.putString("result", "PASS"); return; }
             main(() -> invoke(screen, "phoneOptions", new Class[0])); settle();
-            main(() -> { View options = root(); check(find(options, SegmentedSelector.class) != null, "Phone placement uses sliding selector"); text(options, "Mounted").performClick(); check(activity.service().settings.getString("phone_placement", "").equals("mounted"), "Placement saves immediately"); text(options, "Pocket").performClick(); ((AlertDialog)((List<?>)field(screen, "dialogs")).get(0)).dismiss(); });
+            AlertDialog optionsDialog = (AlertDialog)((List<?>)field(screen, "dialogs")).get(((List<?>)field(screen, "dialogs")).size() - 1);
+            main(() -> { View options = optionsDialog.getWindow().getDecorView(); check(text(options, "Phone sensors") != null, "Phone options test targets its own sheet"); check(find(options, SegmentedSelector.class) != null, "Phone placement uses sliding selector"); text(options, "Mounted").performClick(); check(activity.service().settings.getString("phone_placement", "").equals("mounted"), "Placement saves immediately"); text(options, "Pocket").performClick(); optionsDialog.dismiss(); });
+            settle(); check(!optionsDialog.isShowing(), "Phone options sheet closed before reading the ride");
             if (context.getResources().getConfiguration().screenWidthDp < 650) main(() -> invoke(screen, "showDetails", new Class[]{String.class}, id));
             settle();
             check(text(screen.view(), "Energy direction") == null, "Redundant current-direction selection removed");
             View root = root(); check(find(root, RideChartView.class) != null, "Unified chart exists");
             check(find(root, RouteMapView.class) != null, "Map at top of same overview");
+            verifyBatteryDrop(root);
+            verifyMapSelection(root);
             main(() -> { RouteMapView map = (RouteMapView)find(root, RouteMapView.class); byDescription(root, "Route color: Speed").performClick(); check("speed".equals(field(map, "metric")), "Speed overlay selects route speed");
                 Object scale = field(map, "speedScale"); check("scooter".equals(field(scale, "source")) && (double)field(scale, "topKmh") == 25, "Speed overlay uses fresh scooter speed on a stable ride scale");
                 check(byDescription(root, "Route color: Speed").isSelected(), "Speed choice shows selected"); }); settle(); screenshot("speed-route");
@@ -185,7 +189,13 @@ public final class RidesAnalysisValidation extends Instrumentation {
             awaitPhoneSave();
             for (String ride : created) { service.rides.delete(ride); service.phoneRides.delete(ride); }
             settings.edit().putBoolean("phone_gps", gps).putBoolean("phone_motion", motion).putBoolean("developer_options", developer).remove("last_ride_label").commit();
-            main(() -> { invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen)field(activity, "screen"); if (activity.getResources().getConfiguration().screenWidthDp >= 650) invoke(screen, "showDetails", new Class[]{String.class}, id); }); settle();
+            main(() -> {
+                for (Object dialog : new ArrayList<>((List<?>)field(screen, "dialogs"))) ((AlertDialog)dialog).dismiss();
+                invoke(activity, "select", new Class[]{String.class}, "rides"); screen = (RidesScreen)field(activity, "screen");
+                // Expanded layouts use their real detail pane; opening a compact-only dialog here
+                // left an extra window under the next Phone sensors sheet.
+                if (activity.getResources().getConfiguration().screenWidthDp >= 650) invoke(screen, "selectRide", new Class[]{String.class}, id);
+            }); settle();
         }
         check(!service.ble.connected() && !service.isRecording(), "Immediate-start fixture leaves no connection or capture running");
     }
@@ -215,9 +225,9 @@ public final class RidesAnalysisValidation extends Instrumentation {
         main(() -> {
             text(sourceRoot,"Grade").performClick(); inline.zoomBy(1);
             preselected[0] = (int)field(inline,"selected");
-            long now = SystemClock.uptimeMillis(); float x = inline.getWidth()/2f, y = inline.getHeight()/2f;
-            touch(inline,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(inline,now,30,MotionEvent.ACTION_UP,new float[]{x,y});
         }); settle();
+        List<PhoneRideStore.Point> route = (List<PhoneRideStore.Point>)field(inline, "points");
+        tapPoint(inline, route.get(route.size() / 2)); settle();
         double originalZoom = (double)field(inline,"zoom"), originalCenter = (double)field(inline,"centerX");
         int originalPoint = (int)field(inline,"selected");
         check(originalPoint >= 0 && originalPoint != preselected[0], "Inline map tap selected the tapped point before expanding");
@@ -232,6 +242,10 @@ public final class RidesAnalysisValidation extends Instrumentation {
                 "Expanding preserves zoom and center instead of fitting the route");
         check("grade".equals(field(map,"metric")) && (int)field(map,"selected") == originalPoint, "Expansion preserves route colors and selected point");
         check(byDescription(full,"Route color: Grade").isSelected() && byDescription(full,"Expand route map") == null, "Expanded overlay selector matches and cannot recursively expand");
+        main(() -> tapThroughRoot(full, text(full, "Route")));
+        check((int)field(map,"selected") == -1 && byDescription(full, "Selected route measurements").getVisibility() == View.GONE,
+                "Tapping the fullscreen heading dismisses route measurements");
+        tapPoint(map, route.get(route.size() / 2));
         main(() -> {
             float x=map.getWidth()/2f,y=map.getHeight()/2f,span=activity.ui().dp(24); long now=SystemClock.uptimeMillis();
             touch(map,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y});
@@ -264,6 +278,95 @@ public final class RidesAnalysisValidation extends Instrumentation {
         }); settle();
         check(!expanded.isShowing() && (boolean)field(second,"closed"),"Removing the source route dismisses expansion and closes its tile work");
         main(() -> text(sourceRoot,"Power").performClick()); settle();
+    }
+    void verifyBatteryDrop(View root) throws Exception {
+        check(byDescription(root, "Battery drop, 6 percentage points") != null && text(root, "6%") != null,
+                "Ride overview shows the six-point battery drop, not the final battery level");
+        RideStore fixture = new RideStore(new File(getTargetContext().getCacheDir(), "battery-drop-validation"));
+        Double[][] cases = {{80d, 77d}, {80d, 80d}, {80d, 82d}, {null, null}};
+        String[] expected = {"3%", "0%", "2%", "Not measured"};
+        for (int c = 0; c < cases.length; c++) {
+            String rideId = fixture.start("fixture", "Battery summary", 100000, 1000);
+            for (int i = 0; i < 2; i++) {
+                Map<String, RideStore.Sample> sample = new LinkedHashMap<>();
+                if (cases[c][i] != null) sample.put("battery_percent", new RideStore.Sample(cases[c][i], 1000 + i * 1000));
+                fixture.sample(100000 + i * 1000, 1000 + i * 1000, sample);
+            }
+            fixture.stop(102000, 3000); RideStore.Summary summary = fixture.get(rideId); final int scenario = c;
+            main(() -> check(expected[scenario].equals(invoke(screen, "battery", new Class[]{RideStore.Summary.class}, summary)),
+                    "Battery overview handles drop, zero, gain and missing data: " + scenario));
+        }
+    }
+    void verifyMapSelection(View root) throws Exception {
+        RouteMapView map = (RouteMapView)find(root, RouteMapView.class);
+        View readout = byDescription(root, "Selected route measurements");
+        check((int)field(map, "selected") == -1 && readout.getVisibility() == View.GONE,
+                "Route overview starts without an unsolicited final-point reading");
+        List<PhoneRideStore.Point> points = (List<PhoneRideStore.Point>)field(map, "points");
+        tapPoint(map, points.get(points.size() / 2)); settle();
+        check((int)field(map, "selected") >= 0 && readout.getVisibility() == View.VISIBLE, "Tapping the route opens measured readings");
+        main(() -> { View grade = text(root, "Grade"); grade.requestRectangleOnScreen(new android.graphics.Rect(0, 0, grade.getWidth(), grade.getHeight()), true); }); settle();
+        main(() -> tapThroughRoot(root, text(root, "Grade"))); settle();
+        check((int)field(map, "selected") == -1 && readout.getVisibility() == View.GONE,
+                "Outside-map tap dismisses measurements without consuming the color control");
+        check("grade".equals(field(map, "metric")), "The tapped color control still responds normally");
+        tapPoint(map, points.get(points.size() / 2)); settle();
+        Object panel = ancestor(find(root, RideChartView.class), "ChartPanel");
+        CheckBox lowerControl = (CheckBox)((ViewGroup)field(panel, "choices")).getChildAt(0);
+        boolean checked = lowerControl.isChecked();
+        main(() -> lowerControl.requestRectangleOnScreen(new android.graphics.Rect(0, 0, lowerControl.getWidth(), lowerControl.getHeight()), true)); settle();
+        check((int)field(map, "selected") >= 0, "Page scrolling alone does not dismiss inspection");
+        main(() -> tapThroughRoot(root, lowerControl)); settle();
+        check(lowerControl.isChecked() != checked && (int)field(map, "selected") == -1,
+                "A control below the readout receives its tap before collapsing measurement rows");
+        main(() -> { lowerControl.performClick(); map.requestRectangleOnScreen(new android.graphics.Rect(0, 0, map.getWidth(), map.getHeight()), true); }); settle();
+        // A deliberately sparse, long line proves hits use segments rather than only recorded vertices.
+        PhoneRideStore.Track track = activity.service().phoneRides.loadSnapshot(id);
+        main(() -> {
+            AtomicReference<PhoneRideStore.Point> selected = new AtomicReference<>();
+            RouteMapView sparse = new RouteMapView(activity.ui(), track, "https://example.invalid/{z}/{x}/{y}.png", selected::set);
+            PhoneRideStore.Point a = track.points.get(0), b = track.points.get(track.points.size() - 1);
+            setField(sparse, "points", Arrays.asList(a, b));
+            int width = activity.ui().dp(400), height = activity.ui().dp(300);
+            sparse.measure(View.MeasureSpec.makeMeasureSpec(width, View.MeasureSpec.EXACTLY), View.MeasureSpec.makeMeasureSpec(height, View.MeasureSpec.EXACTLY));
+            sparse.layout(0, 0, width, height); invoke(sparse, "fit", new Class[0]);
+            float ax = (float)invoke(sparse,"screenX",new Class[]{PhoneRideStore.Point.class},a), ay = (float)invoke(sparse,"screenY",new Class[]{PhoneRideStore.Point.class},a);
+            float bx = (float)invoke(sparse,"screenX",new Class[]{PhoneRideStore.Point.class},b), by = (float)invoke(sparse,"screenY",new Class[]{PhoneRideStore.Point.class},b);
+            float x = (ax + bx) / 2, y = (ay + by) / 2;
+            float length = (float)Math.hypot(bx - ax, by - ay), nx = -(by - ay) / length, ny = (bx - ax) / length;
+            long now = SystemClock.uptimeMillis();
+            touch(sparse,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(sparse,now,30,MotionEvent.ACTION_UP,new float[]{x,y});
+            check(selected.get() != null, "A tap midway between sparse fixes hits the visible route segment");
+            x += nx * activity.ui().dp(12); y += ny * activity.ui().dp(12);
+            touch(sparse,now+100,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(sparse,now+100,30,MotionEvent.ACTION_UP,new float[]{x,y});
+            check(selected.get() != null, "A near-line tap has a forgiving twelve-dp hit target");
+            x += nx * activity.ui().dp(30); y += ny * activity.ui().dp(30);
+            touch(sparse,now+200,0,MotionEvent.ACTION_DOWN,new float[]{x,y}); touch(sparse,now+200,30,MotionEvent.ACTION_UP,new float[]{x,y});
+            check(selected.get() == null && (int)field(sparse, "selected") == -1, "Blank map taps clear the selection instead of snapping to a distant fix");
+            x = (ax + bx) / 2; y = (ay + by) / 2;
+            setField(b, "gapBefore", true);
+            check((int)invoke(sparse, "hitRoute", new Class[]{float.class,float.class},x,y) == -1, "GPS gaps do not form selectable invisible bridges");
+            setField(b, "gapBefore", false); setField(b, "segment", a.segment + 1);
+            check((int)invoke(sparse, "hitRoute", new Class[]{float.class,float.class},x,y) == -1, "Separate route segments do not create selectable bridges");
+            setField(sparse, "points", Collections.singletonList(a)); invoke(sparse, "fit", new Class[0]);
+            check((int)invoke(sparse, "hitRoute", new Class[]{float.class,float.class},width/2f,height/2f) == 0, "A lone visible start/end marker stays selectable");
+            sparse.close();
+        });
+    }
+    /** Dispatch in real window coordinates so outside-map handling sees the same raw position as Android. */
+    void tapThroughRoot(View root, View target) {
+        check(target != null, "Outside-map touch target exists");
+        int[] origin = new int[2], at = new int[2]; root.getLocationOnScreen(origin); target.getLocationOnScreen(at);
+        float x = at[0] + target.getWidth()/2f, y = at[1] + target.getHeight()/2f; long now = SystemClock.uptimeMillis();
+        android.graphics.Rect visible = new android.graphics.Rect(); int[] windowOrigin = new int[2];
+        target.getRootView().getLocationOnScreen(windowOrigin);
+        check(target.getGlobalVisibleRect(visible), "Outside-map target is visible before injection"); visible.offset(windowOrigin[0], windowOrigin[1]);
+        check(visible.contains((int)x, (int)y), "Outside-map target center is inside the visible viewport before injection");
+        for (int action : new int[]{MotionEvent.ACTION_DOWN, MotionEvent.ACTION_UP}) {
+            MotionEvent event = MotionEvent.obtain(now, now + (action == MotionEvent.ACTION_UP ? 30 : 0), action, x, y, 0);
+            event.offsetLocation(-origin[0], -origin[1]);
+            try { root.dispatchTouchEvent(event); } finally { event.recycle(); }
+        }
     }
     void awaitFull(Object panel) {
         long until = SystemClock.uptimeMillis() + 15000;
