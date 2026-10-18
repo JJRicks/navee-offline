@@ -234,6 +234,7 @@ h2 { margin: 0 0 20px; font-weight: 700; font-size: clamp(38px, 5.6vw, 72px); li
 .route-shadow { fill: none; stroke: rgba(234, 37, 43, .3); stroke-width: 20; stroke-linecap: round; filter: blur(8px); stroke-dasharray: 1; stroke-dashoffset: 1; }
 .route-line { fill: none; stroke: url(#route-grad); stroke-width: 7; stroke-linecap: round; stroke-dasharray: 1; stroke-dashoffset: 1; }
 .route-card.in .route-line, .route-card.in .route-shadow { animation: draw 2.6s cubic-bezier(.6, .1, .2, 1) .2s forwards; }
+.route-card.path-drawn .route-line, .route-card.path-drawn .route-shadow { animation: none; stroke-dashoffset: 0; }
 .route-end { fill: #0e0e0f; stroke: var(--ink); stroke-width: 2.5; }
 .route-tag { fill: var(--ink); font: 700 11px Saira, sans-serif; text-anchor: middle; }
 .route-dot { fill: #fff; stroke: var(--red); stroke-width: 4; opacity: 0; transition: opacity .4s; }
@@ -327,6 +328,13 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
 .js .hero .reveal:nth-child(4) { transition-delay: .24s; }
 .js .hero .reveal:nth-child(5) { transition-delay: .32s; }
 
+/* Invisible decoration keeps its phase without consuming animation work. */
+.js.motion-paused *, .js.motion-paused *::before, .js.motion-paused *::after,
+.js .motion-offscreen, .js .motion-offscreen::before, .js .motion-offscreen::after,
+.js .motion-offscreen *, .js .motion-offscreen *::before, .js .motion-offscreen *::after {
+  animation-play-state: paused !important;
+}
+
 @keyframes drift { to { transform: translate3d(-6vmax, 5vmax, 0) scale(1.12); } }
 @keyframes sheen { to { background-position: -220% 0; } }
 @keyframes sweep { 0%, 55% { transform: translateX(-120%); } 85%, 100% { transform: translateX(120%); } }
@@ -410,7 +418,7 @@ details a { color: var(--red-soft); text-underline-offset: 3px; }
   html { scroll-behavior: auto; }
   *, *::before, *::after { animation-duration: .001ms !important; animation-iteration-count: 1 !important; transition-duration: .001ms !important; }
   .js .reveal { opacity: 1; transform: none; }
-  .route-line, .route-shadow { stroke-dashoffset: 0; }
+  .route-line, .route-shadow { animation: none !important; stroke-dashoffset: 0; }
   .lock-demo::before, .lock-demo * { animation: none !important; } /* Rest in the unlocked "Slide to lock" state. */
   .btn-hot::after { display: none; }
 }

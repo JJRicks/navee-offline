@@ -42,3 +42,12 @@ Keep the page short enough to skim: what Volt does, model compatibility, downloa
 The map footnote uses `map-data-note` for its ID and class. Avoid the generic `privacy-note` ID: EasyList Cookie hides it as a cookie-banner selector, even on ordinary page text.
 
 The slide-to-lock demo is decorative (`aria-hidden`). Its knob, glyphs, labels and track tint run on one shared CSS cycle (`--lock-cycle`), started together by `main.js`. With reduced motion or without JavaScript it rests in the unlocked "Slide to lock" state.
+
+
+## Animation efficiency
+
+Decorative animations pause when the page is hidden, its window loses focus, or the page is suspended. Whole sections also pause when offscreen, preserving the shared lock-demo cycle. Visible animations resume from their paused position; reduced-motion and no-JavaScript fallbacks remain available.
+
+The ambient particle canvas paints at most 60 times per second, with time-based movement on faster displays. Lightning paths are built once per strike; distant particle pairs skip expensive distance calculations. The route demo stops completely offscreen, retains its text nodes, and refreshes its numeric readout at most eight times per second while keeping the moving dot smooth.
+
+When changing CSS or JavaScript, update their content-hash query strings in `src/index.html` so returning visitors receive the matching assets immediately. For lifecycle checks, include a real window focus change: browser automation can emulate focus or keep background pages reported as visible. CPU timings measure browser work, not power consumption.
