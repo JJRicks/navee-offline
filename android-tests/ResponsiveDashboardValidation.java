@@ -17,6 +17,7 @@ import android.graphics.drawable.LayerDrawable;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.Handler;
+import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.view.View;
 import android.view.ViewGroup;
@@ -25,6 +26,8 @@ import android.widget.ScrollView;
 import android.widget.TextView;
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.ByteArrayOutputStream;
+import java.io.InputStream;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.ArrayList;
@@ -77,7 +80,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().containsKey("odometer_km"), "Cached fixture did not load");
             stopUiPulse(); settle();
             String mode = arguments.getString("mode", "all");
-            if (mode.equals("closeout")) {
+            if (mode.equals("layout-modes")) {
+                verifyIndependentWindowLayouts();
+            } else if (mode.equals("closeout")) {
                 verifyCloseoutGeometry();
             } else if (mode.equals("example")) {
                 verifyAllWidgetsExample();
@@ -750,12 +755,12 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private void verifyMinimumLockAndCharging() throws Exception {
         int columns = ((Number)field(grid(), "columns")).intValue();
         DashboardConfig.Widget lock = (DashboardConfig.Widget)field(lockTile(), "widget");
-        int originalLockHeight = lock.layouts.get(columns).h;
+        int originalLockHeight = dashboardConfig().widgetLayouts(lock).get(columns).h;
         try {
-            main(() -> { lock.layouts.get(columns).h = lock.minimumHeight(); grid().requestLayout(); });
+            main(() -> { dashboardConfig().widgetLayouts(lock).get(columns).h = lock.minimumHeight(); grid().requestLayout(); });
             settle(); assertLockStates();
         } finally {
-            main(() -> { lock.layouts.get(columns).h = originalLockHeight; grid().requestLayout(); }); settle();
+            main(() -> { dashboardConfig().widgetLayouts(lock).get(columns).h = originalLockHeight; grid().requestLayout(); }); settle();
         }
         assertLockStates();
         // The classic battery card is no longer in the default; seed it so its charging checks keep running.
@@ -763,15 +768,15 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         main(() -> {
             int end = 0;
             for (DashboardConfig.Widget widget : dashboardConfig().widgets) {
-                DashboardLayout.Cell cell = widget.layouts.get(columns);
+                DashboardLayout.Cell cell = dashboardConfig().widgetLayouts(widget).get(columns);
                 if (cell != null) end = Math.max(end, cell.y + cell.h);
             }
-            seededBattery.layouts.put(columns, new DashboardLayout.Cell(seededBattery.id, 0, end, columns, seededBattery.defaultHeight()));
+            dashboardConfig().widgetLayouts(seededBattery).put(columns, new DashboardLayout.Cell(seededBattery.id, 0, end, columns, seededBattery.defaultHeight()));
             dashboardConfig().widgets.add(seededBattery); invoke(dashboard(), "render");
         }); settleMotion(); stopUiPulse();
         Object item = tile("battery");
         DashboardConfig.Widget battery = (DashboardConfig.Widget)field(item, "widget");
-        int originalHeight = battery.layouts.get(columns).h, originalWidth = battery.layouts.get(columns).w;
+        int originalHeight = dashboardConfig().widgetLayouts(battery).get(columns).h, originalWidth = dashboardConfig().widgetLayouts(battery).get(columns).w;
         Map<String, TelemetryHistory.Reading> cached = activity.service().displayReadings();
         Map<String, TelemetryHistory.Reading> preview = new LinkedHashMap<>(cached);
         long wall = System.currentTimeMillis();
@@ -783,7 +788,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         reading(preview, "charge_limit_percent", "80 %", "%", 80d, wall);
         try {
             main(() -> {
-                battery.layouts.get(columns).h = battery.minimumHeight(); battery.layouts.get(columns).w = 1;
+                dashboardConfig().widgetLayouts(battery).get(columns).h = battery.minimumHeight(); dashboardConfig().widgetLayouts(battery).get(columns).w = 1;
                 invoke(item, "refresh", new Class<?>[] {Map.class}, preview);
                 require(((View)field(item, "chargingData")).getVisibility() == View.VISIBLE, "Fresh charging calculation did not select the charging view");
                 grid().requestLayout();
@@ -801,7 +806,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             });
         } finally {
             main(() -> {
-                battery.layouts.get(columns).h = originalHeight; battery.layouts.get(columns).w = originalWidth;
+                dashboardConfig().widgetLayouts(battery).get(columns).h = originalHeight; dashboardConfig().widgetLayouts(battery).get(columns).w = originalWidth;
                 invoke(item, "refresh", new Class<?>[] {Map.class}, cached);
                 invoke(tile("overview"), "refresh", new Class<?>[] {Map.class}, cached);
                 dashboardConfig().widgets.remove(seededBattery); invoke(dashboard(), "render");
@@ -823,19 +828,19 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             DashboardConfig config = dashboardConfig(); original.addAll(config.widgets);
             for (DashboardConfig.Widget widget : config.widgets) {
                 Map<Integer, DashboardLayout.Cell> cells = new LinkedHashMap<>();
-                for (Map.Entry<Integer, DashboardLayout.Cell> entry : widget.layouts.entrySet()) cells.put(entry.getKey(), entry.getValue().copy());
+                for (Map.Entry<Integer, DashboardLayout.Cell> entry : dashboardConfig().widgetLayouts(widget).entrySet()) cells.put(entry.getKey(), entry.getValue().copy());
                 placements.put(widget.id, cells);
             }
             int at = -1;
             for (int i = 0; i < config.widgets.size(); i++) if (config.widgets.get(i).type.equals("lockbar")) at = i;
             require(at >= 0 && tileOrNull("lock") == null, "Classic Lock pass expects the Lock bar and no Lock");
             DashboardConfig.Widget bar = config.widgets.get(at), lock = new DashboardConfig.Widget("lock");
-            for (Map.Entry<Integer, DashboardLayout.Cell> entry : bar.layouts.entrySet()) {
+            for (Map.Entry<Integer, DashboardLayout.Cell> entry : dashboardConfig().widgetLayouts(bar).entrySet()) {
                 DashboardLayout.Cell from = entry.getValue();
-                lock.layouts.put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
+                dashboardConfig().widgetLayouts(lock).put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
             }
             config.widgets.set(at, lock);
-            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++) if (lock.layouts.containsKey(c)) config.layout(c, lock.id);
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++) if (dashboardConfig().widgetLayouts(lock).containsKey(c)) config.layout(c, lock.id);
             classic.set(lock); invoke(dashboard(), "render");
         }); settleMotion(); stopUiPulse();
         try {
@@ -849,7 +854,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     lock.showDisconnect = false;
                     require(lock.minimumHeight() == 3, "Hiding Disconnect must allow the three-row classic Lock");
                     lock.showDisconnect = true;
-                    lock.layouts.get(columns).h = 4; grid().requestLayout();
+                    dashboardConfig().widgetLayouts(lock).get(columns).h = 4; grid().requestLayout();
                 }); settle(); assertLockStates();
             }
         } finally {
@@ -857,8 +862,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 DashboardConfig config = dashboardConfig(); config.widgets.clear(); config.widgets.addAll(original);
                 for (DashboardConfig.Widget widget : config.widgets) {
                     Map<Integer, DashboardLayout.Cell> cells = placements.get(widget.id);
-                    widget.layouts.clear();
-                    for (Map.Entry<Integer, DashboardLayout.Cell> entry : cells.entrySet()) widget.layouts.put(entry.getKey(), entry.getValue().copy());
+                    dashboardConfig().widgetLayouts(widget).clear();
+                    for (Map.Entry<Integer, DashboardLayout.Cell> entry : cells.entrySet()) dashboardConfig().widgetLayouts(widget).put(entry.getKey(), entry.getValue().copy());
                 }
                 invoke(dashboard(), "render");
             }); settleMotion(); stopUiPulse();
@@ -871,7 +876,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             DashboardConfig config = dashboardConfig(); original.addAll(config.widgets);
             DashboardConfig.Widget lock = new DashboardConfig.Widget("lock");
             for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++)
-                lock.layouts.put(c, new DashboardLayout.Cell(lock.id, 0, 0, c, lock.defaultHeight()));
+                dashboardConfig().widgetLayouts(lock).put(c, new DashboardLayout.Cell(lock.id, 0, 0, c, lock.defaultHeight()));
             config.widgets.clear(); config.widgets.add(lock); invoke(dashboard(), "render");
         }); settleMotion(); stopUiPulse();
         try { verifyClassicLockWidthTransitions(); }
@@ -968,6 +973,140 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         main(() -> require((Boolean)invoke(activity, "verticalHinge"), "Physical vertical hinge must remain separating while flat"));
         inject(); assertGridAndHeader();
     }
+
+    /** Real window configuration callbacks must select separate banks even at the same five columns. */
+    private void verifyIndependentWindowLayouts() throws Exception {
+        require(admitted && "1".equals(shell("getprop ro.kernel.qemu").trim()),
+                "Window changes require an admitted disposable emulator");
+        java.util.regex.Matcher override = java.util.regex.Pattern.compile("Override size: ([0-9]+x[0-9]+)")
+                .matcher(shell("wm size"));
+        String restoreSize = override.find() ? override.group(1) : "reset";
+        try {
+            resizeDashboardWindow(344, 882, false);
+            final String[] ids = new String[2];
+            main(() -> {
+                DashboardConfig config = dashboardConfig();
+                settings().edit().putInt("dashboard_columns", 5).apply();
+                config.widgets.clear();
+                for (int i = 0; i < ids.length; i++) {
+                    DashboardConfig.Widget widget = new DashboardConfig.Widget("note");
+                    widget.title = "Window layout " + (i + 1);
+                    widget.note = "Independent compact and expanded placement";
+                    ids[i] = widget.id;
+                    for (boolean expanded : new boolean[] {false, true})
+                        widget.layouts(expanded).put(5,
+                                new DashboardLayout.Cell(widget.id, 0, i * 2, 5, 2));
+                    config.widgets.add(widget);
+                }
+                config.save(); invoke(dashboard(), "render");
+                if (!dashboard().isEditing()) invoke(dashboard(), "toggleEditing");
+            });
+            settleMotion();
+            final AtomicReference<Map<String, String>> initialExpanded = new AtomicReference<>();
+            final AtomicReference<Map<String, String>> compact = new AtomicReference<>(), expanded = new AtomicReference<>();
+            main(() -> initialExpanded.set(storedCells(true)));
+            DashboardConfig.Widget compactWidget = (DashboardConfig.Widget)field(tileById(ids[0]), "widget");
+            verifyCommittedGestureHistory(compactWidget, false); historyAction("Redo");
+            verifyCommittedGestureHistory(compactWidget, true); historyAction("Redo");
+            main(() -> {
+                compact.set(storedCells(false));
+                require(initialExpanded.get().equals(storedCells(true)),
+                        "Compact move/resize changed the unvisited expanded bank");
+                require(!compact.get().equals(initialExpanded.get()), "Compact edits did not create a separate arrangement");
+            });
+            screenshot("layout-modes-compact-edited");
+
+            resizeDashboardWindow(725, 604, true);
+            main(() -> {
+                require(compact.get().equals(storedCells(false)) && initialExpanded.get().equals(storedCells(true)),
+                        "First expanded visit changed either saved arrangement");
+                require(dashboard().isEditing(), "Configuration rebuild lost dashboard editing state");
+            });
+            DashboardConfig.Widget expandedWidget = (DashboardConfig.Widget)field(tileById(ids[1]), "widget");
+            verifyCommittedGestureHistory(expandedWidget, false); historyAction("Redo");
+            verifyCommittedGestureHistory(expandedWidget, true); historyAction("Redo");
+            main(() -> {
+                expanded.set(storedCells(true));
+                require(compact.get().equals(storedCells(false)), "Expanded move/resize changed the compact bank");
+                require(!expanded.get().equals(initialExpanded.get()) && !expanded.get().equals(compact.get()),
+                        "Expanded edits did not retain a distinct arrangement");
+            });
+            screenshot("layout-modes-expanded-edited");
+
+            resizeDashboardWindow(344, 882, true);
+            main(() -> require(compact.get().equals(storedCells(false)) && expanded.get().equals(storedCells(true)),
+                    "Returning to compact lost an arrangement"));
+            screenshot("layout-modes-compact-returned");
+
+            // Keep a real gesture preview pending across the Android configuration change.
+            // The old config must cancel into its frozen compact bank after resources become wide.
+            final AtomicReference<ViewGroup> oldGrid = new AtomicReference<>();
+            final AtomicReference<DashboardConfig> oldConfig = new AtomicReference<>();
+            main(() -> {
+                oldGrid.set(grid()); oldConfig.set(dashboardConfig());
+                View card = (View)tileById(ids[0]); int[] location = new int[2]; card.getLocationOnScreen(location);
+                float x = location[0] + card.getWidth() / 2f, y = location[1] + card.getHeight() / 2f;
+                float step = ((Number)invoke(grid(), "rowHeight")).floatValue();
+                invoke(grid(), "beginGesture", new Class<?>[] {card.getClass(), boolean.class, float.class, float.class},
+                        card, false, x, y);
+                invoke(grid(), "updateGesture", new Class<?>[] {float.class, float.class}, x, y + step * 3);
+                require(field(grid(), "gestureTile") != null && !compact.get().equals(storedCells(false)),
+                        "Configuration cancellation fixture did not create a pending move");
+                require(expanded.get().equals(storedCells(true)), "Pending compact move changed the expanded bank");
+            });
+            resizeDashboardWindow(725, 604, true);
+            main(() -> {
+                require(field(oldGrid.get(), "gestureTile") == null && field(oldGrid.get(), "previewBounds") == null,
+                        "Configuration rebuild left the old gesture active");
+                require(compact.get().equals(storedCells(oldConfig.get(), false))
+                                && expanded.get().equals(storedCells(oldConfig.get(), true)),
+                        "Configuration cancellation restored geometry into the wrong bank");
+                require(compact.get().equals(storedCells(false)) && expanded.get().equals(storedCells(true)),
+                        "Configuration cancellation persisted a preview or lost saved placement");
+                DashboardConfig reopened = new DashboardConfig(settings(), activity.service().profiles.active().id, true);
+                require(compact.get().equals(storedCells(reopened, false))
+                                && expanded.get().equals(storedCells(reopened, true)),
+                        "Reopening the dashboard lost one of the two five-column arrangements");
+            });
+            screenshot("layout-modes-expanded-returned");
+            check("Real 344×882 → 725×604 → 344×882 → 725×604 window changes keep five columns and separate placements; moves/resizes and Undo/Redo affect only their bank, and an interrupted compact gesture cancels into its original bank");
+        } finally {
+            shell("wm size " + restoreSize);
+            waitForIdleSync();
+        }
+    }
+
+    private void resizeDashboardWindow(int widthDp, int heightDp, boolean expectRebuild) throws Exception {
+        require(admitted, "Window resize requires an admitted emulator");
+        final DashboardScreen previous = dashboard();
+        float density = activity.getResources().getDisplayMetrics().density;
+        shell("wm size " + Math.round(widthDp * density) + "x" + Math.round(heightDp * density));
+        final boolean expanded = widthDp >= 650;
+        await(() -> field(activity, "screen") instanceof DashboardScreen && grid().getWidth() > 0
+                        && (activity.getResources().getConfiguration().screenWidthDp >= 650) == expanded
+                        && (!expectRebuild || dashboard() != previous),
+                "Window configuration did not select the " + (expanded ? "expanded" : "compact") + " dashboard");
+        settleMotion(); stopUiPulse();
+        main(() -> {
+            require((Boolean)field(activity, "expanded") == expanded, "Activity window class disagrees with the 650dp breakpoint");
+            require(((Number)field(grid(), "columns")).intValue() == 5, "Window change altered the five-column choice");
+            for (DashboardConfig.Widget widget : dashboardConfig().widgets)
+                require(dashboardConfig().widgetLayouts(widget) == widget.layouts(expanded),
+                        "Dashboard selected a placement bank from columns instead of window class");
+            overlayGeometry.add("layout-modes requested=" + widthDp + "x" + heightDp
+                    + " actual-width=" + activity.getResources().getConfiguration().screenWidthDp
+                    + " expanded=" + expanded + " columns=" + field(grid(), "columns"));
+        });
+    }
+
+    private String shell(String command) throws Exception {
+        try (InputStream input = new ParcelFileDescriptor.AutoCloseInputStream(getUiAutomation().executeShellCommand(command));
+                ByteArrayOutputStream output = new ByteArrayOutputStream()) {
+            byte[] buffer = new byte[4096]; int count;
+            while ((count = input.read(buffer)) >= 0) output.write(buffer, 0, count);
+            return output.toString("UTF-8");
+        }
+    }
     private void inject(FakeFeature... features) {
         main(() -> invoke(field(activity, "fold"), "layout", new Class<?>[] {Object.class}, new FakeLayout(features)));
         settle(); stopUiPulse();
@@ -1049,8 +1188,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             main(() -> {
                 settings().edit().putInt("dashboard_columns", 5).commit();
                 DashboardConfig.Widget photo = new DashboardConfig.Widget("scooter");
-                photo.layouts.put(5, new DashboardLayout.Cell(photo.id, 0, 0, 4, 4));
-                quick.layouts.put(5, new DashboardLayout.Cell(quick.id, 4, 0, 1, 3));
+                dashboardConfig().widgetLayouts(photo).put(5, new DashboardLayout.Cell(photo.id, 0, 0, 4, 4));
+                dashboardConfig().widgetLayouts(quick).put(5, new DashboardLayout.Cell(quick.id, 4, 0, 1, 3));
                 dashboardConfig().widgets.add(photo); invoke(dashboard(), "render");
             }); settleMotion();
             main(() -> {
@@ -1139,8 +1278,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         main(() -> {
             settings().edit().putInt("dashboard_columns", 2).commit();
             dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(recorder); dashboardConfig().widgets.add(scooter);
-            recorder.layouts.put(2, new DashboardLayout.Cell(recorder.id, 0, 8, 2, 1));
-            scooter.layouts.put(2, new DashboardLayout.Cell(scooter.id, 0, 10, 2, 3));
+            dashboardConfig().widgetLayouts(recorder).put(2, new DashboardLayout.Cell(recorder.id, 0, 8, 2, 1));
+            dashboardConfig().widgetLayouts(scooter).put(2, new DashboardLayout.Cell(scooter.id, 0, 10, 2, 3));
             scooter.keys.clear(); scooter.keys.addAll(Arrays.asList("odometer_km", "remaining_range_km", "driving_mode"));
             invoke(dashboard(), "render");
         }); settleMotion();
@@ -1317,9 +1456,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             settingTiles.quickActions.addAll(Arrays.asList("feature:traction_control", "feature:start_speed"));
             int end = 0;
             for (DashboardConfig.Widget widget : dashboardConfig().widgets)
-                for (DashboardLayout.Cell cell : widget.layouts.values()) end = Math.max(end, cell.y + cell.h);
+                for (DashboardLayout.Cell cell : dashboardConfig().widgetLayouts(widget).values()) end = Math.max(end, cell.y + cell.h);
             for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++)
-                settingTiles.layouts.put(c, new DashboardLayout.Cell(settingTiles.id, 0, end, c, settingTiles.defaultHeight()));
+                dashboardConfig().widgetLayouts(settingTiles).put(c, new DashboardLayout.Cell(settingTiles.id, 0, end, c, settingTiles.defaultHeight()));
             dashboardConfig().widgets.add(settingTiles); invoke(dashboard(), "render");
         }); settleMotion(); stopUiPulse();
         main(() -> {
@@ -1490,7 +1629,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         int columns = ((Number)field(grid(), "columns")).intValue();
         int minimum = ((Number)invoke(grid(), "minimumWidth", new Class<?>[] {DashboardConfig.Widget.class}, widget)).intValue();
         for (int width : new int[] {minimum, columns}) for (int height : new int[] {widget.minimumHeight(), widget.defaultHeight()+2}) {
-            main(() -> { widget.layouts.put(columns, new DashboardLayout.Cell(widget.id, 0, 0, width, height)); invoke(grid(), "settle", new Class<?>[] {String.class}, widget.id); });
+            main(() -> { dashboardConfig().widgetLayouts(widget).put(columns, new DashboardLayout.Cell(widget.id, 0, 0, width, height)); invoke(grid(), "settle", new Class<?>[] {String.class}, widget.id); });
             settleMotion();
             for (String state : new String[] {"live", "dual", "unknown", "stale", "long"}) {
                 main(() -> {
@@ -1582,10 +1721,10 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     DashboardConfig.Widget first = config.widgets.get(i++);
                     int firstWidth = columns == 1 ? 1 : (columns + 1) / 2;
                     int height = first.defaultHeight();
-                    first.layouts.put(columns, new DashboardLayout.Cell(first.id, 0, row, firstWidth, height));
+                    dashboardConfig().widgetLayouts(first).put(columns, new DashboardLayout.Cell(first.id, 0, row, firstWidth, height));
                     if (columns > 1 && i < config.widgets.size()) {
                         DashboardConfig.Widget second = config.widgets.get(i++);
-                        second.layouts.put(columns, new DashboardLayout.Cell(second.id, firstWidth, row, columns-firstWidth, second.defaultHeight()));
+                        dashboardConfig().widgetLayouts(second).put(columns, new DashboardLayout.Cell(second.id, firstWidth, row, columns-firstWidth, second.defaultHeight()));
                         height = Math.max(height, second.defaultHeight());
                     }
                     row += height;
@@ -1616,7 +1755,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 View card = (View)tile(type);
                 DashboardConfig.Widget widget = (DashboardConfig.Widget)field(card, "widget");
                 int originalWidth = card.getWidth(), originalHeight = card.getHeight();
-                String saved = cellText(widget.layouts.get(5));
+                String saved = cellText(dashboardConfig().widgetLayouts(widget).get(5));
                 int span = widget.minimumWidth(5, available, 10, scale);
                 int width = Math.round(density * (span * (available + 10) / 5 - 10));
                 int minimumHeight = Math.round(widget.minimumHeight(width / density) * rowHeight) - activity.ui().dp(10);
@@ -1653,7 +1792,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                             * activity.getResources().getDisplayMetrics().scaledDensity;
                     require(Math.abs(restoredValue.getTextSize() - normal) <= 1,
                             type + " did not restore its full-size value after expanding");
-                    require(cellText(widget.layouts.get(5)).equals(saved), type + " measurement changed its saved grid rectangle");
+                    require(cellText(dashboardConfig().widgetLayouts(widget).get(5)).equals(saved), type + " measurement changed its saved grid rectangle");
                 } finally { measureCard(card, originalWidth, originalHeight); }
             }
         });
@@ -1679,7 +1818,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 ScrollView viewport = (ScrollView)field(card, "viewport");
                 ViewGroup body = (ViewGroup)field(card, "body");
                 int originalWidth = card.getWidth(), originalHeight = card.getHeight();
-                String saved = cellText(widget.layouts.get(5));
+                String saved = cellText(dashboardConfig().widgetLayouts(widget).get(5));
                 invoke(card, "refresh", new Class<?>[]{Map.class}, live);
                 require(((View)field(card, "footer")).getVisibility() == View.GONE,
                         "Live " + type + " fixture must not reserve footer space");
@@ -1698,7 +1837,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                                 + "x" + card.getHeight() + " body=" + body.getHeight() + " viewport=" + viewport.getHeight());
                         saveCardBitmap(card, "compact-live-" + type + "-" + columns + "-columns");
                     }
-                    require(cellText(widget.layouts.get(5)).equals(saved), "Live measurement changed its saved rectangle");
+                    require(cellText(dashboardConfig().widgetLayouts(widget).get(5)).equals(saved), "Live measurement changed its saved rectangle");
                 } finally {
                     invoke(card, "refresh", new Class<?>[]{Map.class}, activity.service().displayReadings());
                     measureCard(card, originalWidth, originalHeight);
@@ -1747,7 +1886,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 int span = widget.minimumWidth(5, available, 10, scale);
                 float width = span * (available + 10) / 5 - 10;
                 int height = widget.minimumHeight(width);
-                widget.layouts.put(5, new DashboardLayout.Cell(widget.id, 0, row, span, height));
+                dashboardConfig().widgetLayouts(widget).put(5, new DashboardLayout.Cell(widget.id, 0, row, span, height));
                 row += height;
             }
             invoke(dashboard(), "render");
@@ -2145,7 +2284,11 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(copy.title.equals(source.title) && copy.metric.equals(source.metric) && copy.note.equals(source.note)
                     && copy.keys.equals(source.keys) && copy.keys != source.keys && copy.color == source.color && copy.windowMs == source.windowMs
                     && copy.minimum == source.minimum && copy.maximum == source.maximum && copy.advertisedWh == source.advertisedWh, "Duplicate dropped widget options");
-            for (Integer columns : source.layouts.keySet()) require(copy.layouts.containsKey(columns) && copy.layouts.get(columns) != source.layouts.get(columns), "Duplicate shares or lost a saved rectangle");
+            for (boolean expanded : new boolean[] {false, true})
+                for (Integer columns : source.layouts(expanded).keySet())
+                    require(copy.layouts(expanded).containsKey(columns)
+                                    && copy.layouts(expanded).get(columns) != source.layouts(expanded).get(columns),
+                            "Duplicate shares or lost a saved rectangle in one window class");
             assertHistoryControls(true, false);
         });
         historyAction("Undo");
@@ -2183,8 +2326,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             if (sixAvailable) {
                 DashboardConfig.Widget scooter = (DashboardConfig.Widget)field(tile("scooter"), "widget");
                 DashboardConfig.Widget lock = (DashboardConfig.Widget)field(tile("lock"), "widget");
-                scooter.layouts.put(6, new DashboardLayout.Cell(scooter.id, 0, 0, 4, 4));
-                lock.layouts.put(6, new DashboardLayout.Cell(lock.id, 4, 0, 2, 4));
+                dashboardConfig().widgetLayouts(scooter).put(6, new DashboardLayout.Cell(scooter.id, 0, 0, 4, 4));
+                dashboardConfig().widgetLayouts(lock).put(6, new DashboardLayout.Cell(lock.id, 4, 0, 2, 4));
                 invoke(grid(), "settle", new Class<?>[] {String.class}, lock.id);
             }
         }); settleMotion();
@@ -2378,8 +2521,18 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     }
     private Map<String, String> storedCells() {
         LinkedHashMap<String, String> snapshot = new LinkedHashMap<>();
-        for (DashboardConfig.Widget widget : dashboardConfig().widgets)
-            for (Map.Entry<Integer, DashboardLayout.Cell> cell : widget.layouts.entrySet())
+        for (boolean expanded : new boolean[] {false, true})
+            for (Map.Entry<String, String> cell : storedCells(expanded).entrySet())
+                snapshot.put((expanded ? "expanded:" : "compact:") + cell.getKey(), cell.getValue());
+        return snapshot;
+    }
+    private Map<String, String> storedCells(boolean expanded) {
+        return storedCells(dashboardConfig(), expanded);
+    }
+    private Map<String, String> storedCells(DashboardConfig config, boolean expanded) {
+        LinkedHashMap<String, String> snapshot = new LinkedHashMap<>();
+        for (DashboardConfig.Widget widget : config.widgets)
+            for (Map.Entry<Integer, DashboardLayout.Cell> cell : widget.layouts(expanded).entrySet())
                 snapshot.put(widget.id + ":" + cell.getKey(), cellText(cell.getValue()));
         return snapshot;
     }
@@ -2429,7 +2582,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             int undoCount = ((java.util.Collection<?>)field(history, "undo")).size();
             int redoCount = ((java.util.Collection<?>)field(history, "redo")).size();
             int columns = ((Number)field(grid(), "columns")).intValue();
-            for (DashboardConfig.Widget other : dashboardConfig().widgets) before.put(other.id, cellText(other.layouts.get(columns)));
+            for (DashboardConfig.Widget other : dashboardConfig().widgets) before.put(other.id, cellText(dashboardConfig().widgetLayouts(other).get(columns)));
             View card = (View)tileById(widget.id); int[] location = new int[2]; card.getLocationOnScreen(location);
             float x = location[0] + card.getWidth(), y = location[1] + card.getHeight();
             invoke(grid(), "beginGesture", new Class<?>[] {card.getClass(), boolean.class, float.class, float.class}, card, true, x, y);
@@ -2438,7 +2591,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             int minimum = ((Number)invoke(grid(), "minimumWidth", new Class<?>[] {DashboardConfig.Widget.class}, widget)).intValue();
             require(requested != null && requested.w >= minimum && requested.h >= widget.minimumHeight(), "Resize preview ignored minimum card size");
             invoke(grid(), "finishGesture", new Class<?>[] {boolean.class}, false);
-            for (DashboardConfig.Widget other : dashboardConfig().widgets) require(before.get(other.id).equals(cellText(other.layouts.get(columns))), "Cancelled resize changed a saved rectangle");
+            for (DashboardConfig.Widget other : dashboardConfig().widgets) require(before.get(other.id).equals(cellText(dashboardConfig().widgetLayouts(other).get(columns))), "Cancelled resize changed a saved rectangle");
             require(field(grid(), "gestureTile") == null && field(grid(), "previewBounds") == null, "Cancel left a live drag or preview");
             require(undoCount == ((java.util.Collection<?>)field(history, "undo")).size()
                             && redoCount == ((java.util.Collection<?>)field(history, "redo")).size(),

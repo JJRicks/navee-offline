@@ -309,7 +309,7 @@ public final class DashboardValidation extends Instrumentation {
             DashboardConfig.Widget custom = new DashboardConfig.Widget("note");
             custom.title = "Saved fixture"; custom.note = "Retain my widget options";
             for (int c = 1; c <= 4; c++)
-                custom.layouts.put(c, new DashboardLayout.Cell(custom.id, 0, 30, c, 3));
+                config().widgetLayouts(custom).put(c, new DashboardLayout.Cell(custom.id, 0, 30, c, 3));
             config().widgets.add(custom); config().save(); invoke(dashboard(), "render");
         });
         waitForIdleSync();
@@ -818,20 +818,20 @@ public final class DashboardValidation extends Instrumentation {
             DashboardConfig config = config();
             for (DashboardConfig.Widget widget : config.widgets) {
                 Map<Integer, DashboardLayout.Cell> cells = new LinkedHashMap<>();
-                for (Map.Entry<Integer, DashboardLayout.Cell> entry : widget.layouts.entrySet()) cells.put(entry.getKey(), entry.getValue().copy());
+                for (Map.Entry<Integer, DashboardLayout.Cell> entry : config.widgetLayouts(widget).entrySet()) cells.put(entry.getKey(), entry.getValue().copy());
                 placements.put(widget.id, cells);
             }
             for (int i = 0; i < config.widgets.size(); i++) if (config.widgets.get(i).type.equals("lockbar")) position.set(i);
             require(position.get() >= 0 && !types().contains("lock"), "Classic Lock pass expects the Lock bar and no Lock");
             DashboardConfig.Widget bar = config.widgets.get(position.get()), lock = new DashboardConfig.Widget("lock");
             require(lock.showDisconnect, "A new classic Lock should offer Disconnect");
-            for (Map.Entry<Integer, DashboardLayout.Cell> entry : bar.layouts.entrySet()) {
+            for (Map.Entry<Integer, DashboardLayout.Cell> entry : config.widgetLayouts(bar).entrySet()) {
                 DashboardLayout.Cell from = entry.getValue();
-                lock.layouts.put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
+                config.widgetLayouts(lock).put(entry.getKey(), new DashboardLayout.Cell(lock.id, from.x, from.y, from.w, lock.defaultHeight()));
             }
             config.widgets.set(position.get(), lock);
             // Settle each grid around the taller card in place of the one-row bar.
-            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++) if (lock.layouts.containsKey(c)) config.layout(c, lock.id);
+            for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++) if (config.widgetLayouts(lock).containsKey(c)) config.layout(c, lock.id);
             config.save(); invoke(dashboard(), "render");
             original.set(bar); classic.set(lock);
         });
@@ -870,8 +870,8 @@ public final class DashboardValidation extends Instrumentation {
                 for (DashboardConfig.Widget widget : config.widgets) {
                     Map<Integer, DashboardLayout.Cell> cells = placements.get(widget.id);
                     if (cells == null) continue;
-                    widget.layouts.clear();
-                    for (Map.Entry<Integer, DashboardLayout.Cell> entry : cells.entrySet()) widget.layouts.put(entry.getKey(), entry.getValue().copy());
+                    config.widgetLayouts(widget).clear();
+                    for (Map.Entry<Integer, DashboardLayout.Cell> entry : cells.entrySet()) config.widgetLayouts(widget).put(entry.getKey(), entry.getValue().copy());
                 }
                 config.save(); invoke(dashboard(), "render");
             });
@@ -885,7 +885,7 @@ public final class DashboardValidation extends Instrumentation {
             DashboardConfig.Widget scooter = new DashboardConfig.Widget("scooter");
             // Below the default stack (rows 0–8) or, at six columns, below the left column (rows 0–4).
             for (int c = 1; c <= DashboardConfig.MAX_COLUMNS; c++)
-                scooter.layouts.put(c, new DashboardLayout.Cell(scooter.id, 0, c == 6 ? 5 : 9, c, scooter.defaultHeight()));
+                config().widgetLayouts(scooter).put(c, new DashboardLayout.Cell(scooter.id, 0, c == 6 ? 5 : 9, c, scooter.defaultHeight()));
             config().widgets.add(scooter); config().save(); invoke(dashboard(), "render");
         });
         await(() -> tileOrNull("scooter") != null && ((View)tile("scooter")).getWidth() > 0, 4000, "Seeded scooter card did not lay out");
@@ -1814,7 +1814,7 @@ public final class DashboardValidation extends Instrumentation {
                     DashboardConfig restored = new DashboardConfig(settings(), profileId);
                     DashboardLayout.Cell saved = null;
                     for (DashboardConfig.Widget widget : restored.widgets) if (widget.id.equals(id))
-                        saved = widget.layouts.get(((Number)field(grid(), "columns")).intValue());
+                        saved = config().widgetLayouts(widget).get(((Number)field(grid(), "columns")).intValue());
                     require(sameCell(saved, cell(id)), "Dropped placement was not saved");
                 });
             }
@@ -2058,7 +2058,7 @@ public final class DashboardValidation extends Instrumentation {
     private Set<String> types() { Set<String> result = new HashSet<>(); for (DashboardConfig.Widget widget : config().widgets) result.add(widget.type); return result; }
     private DashboardConfig.Widget widget(String type) { for (DashboardConfig.Widget widget : config().widgets) if (widget.type.equals(type)) return widget; throw new IllegalStateException("Missing widget type " + type); }
     private DashboardConfig.Widget widgetById(String id) { for (DashboardConfig.Widget widget : config().widgets) if (widget.id.equals(id)) return widget; throw new IllegalStateException("Missing widget ID"); }
-    private DashboardLayout.Cell cell(String id) { DashboardLayout.Cell cell = widgetById(id).layouts.get(((Number)field(grid(), "columns")).intValue()); require(cell != null, "Widget has no current rectangle"); return cell; }
+    private DashboardLayout.Cell cell(String id) { DashboardLayout.Cell cell = config().widgetLayouts(widgetById(id)).get(((Number)field(grid(), "columns")).intValue()); require(cell != null, "Widget has no current rectangle"); return cell; }
     private Object tileOrNull(String type) { for (Object tile : tiles()) if (((DashboardConfig.Widget)field(tile, "widget")).type.equals(type)) return tile; return null; }
     private Object tile(String type) { Object tile = tileOrNull(type); require(tile != null, "Missing tile " + type); return tile; }
     private Object tileById(String id) { for (Object tile : tiles()) if (((DashboardConfig.Widget)field(tile, "widget")).id.equals(id)) return tile; throw new IllegalStateException("Missing tile ID"); }

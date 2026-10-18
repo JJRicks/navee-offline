@@ -53,9 +53,8 @@ public final class DashboardEditHistory {
         private void restore(DashboardConfig config) {
             config.widgets.clear();
             for (Entry entry : entries) {
-                entry.widget.layouts.clear();
-                for (Map.Entry<Integer, DashboardLayout.Cell> layout : entry.layouts.entrySet())
-                    entry.widget.layouts.put(layout.getKey(), copy(layout.getValue()));
+                restoreLayouts(entry.widget.layouts(false), entry.layouts);
+                restoreLayouts(entry.widget.layouts(true), entry.expandedLayouts);
                 config.widgets.add(entry.widget);
             }
             if (columns != UNTRACKED) config.restoreColumnPreference(columns);
@@ -65,24 +64,38 @@ public final class DashboardEditHistory {
     private static final class Entry {
         final DashboardConfig.Widget widget;
         final Map<Integer, DashboardLayout.Cell> layouts = new HashMap<>();
+        final Map<Integer, DashboardLayout.Cell> expandedLayouts = new HashMap<>();
 
         Entry(DashboardConfig.Widget widget) {
             this.widget = widget;
-            for (Map.Entry<Integer, DashboardLayout.Cell> layout : widget.layouts.entrySet())
-                layouts.put(layout.getKey(), copy(layout.getValue()));
+            restoreLayouts(layouts, widget.layouts(false));
+            restoreLayouts(expandedLayouts, widget.layouts(true));
         }
 
         boolean sameLayout(Entry other) {
-            if (widget != other.widget || !layouts.keySet().equals(other.layouts.keySet())) return false;
-            for (Integer columns : layouts.keySet()) {
-                DashboardLayout.Cell a = layouts.get(columns), b = other.layouts.get(columns);
-                if (a == null || b == null) {
-                    if (a != b) return false;
-                } else if (!Objects.equals(a.id, b.id) || a.x != b.x || a.y != b.y
-                        || a.w != b.w || a.h != b.h) return false;
-            }
-            return true;
+            return widget == other.widget && sameLayouts(layouts, other.layouts)
+                    && sameLayouts(expandedLayouts, other.expandedLayouts);
         }
+    }
+
+    private static void restoreLayouts(Map<Integer, DashboardLayout.Cell> target,
+            Map<Integer, DashboardLayout.Cell> source) {
+        target.clear();
+        for (Map.Entry<Integer, DashboardLayout.Cell> entry : source.entrySet())
+            target.put(entry.getKey(), copy(entry.getValue()));
+    }
+
+    private static boolean sameLayouts(Map<Integer, DashboardLayout.Cell> first,
+            Map<Integer, DashboardLayout.Cell> second) {
+        if (!first.keySet().equals(second.keySet())) return false;
+        for (Integer columns : first.keySet()) {
+            DashboardLayout.Cell a = first.get(columns), b = second.get(columns);
+            if (a == null || b == null) {
+                if (a != b) return false;
+            } else if (!Objects.equals(a.id, b.id) || a.x != b.x || a.y != b.y
+                    || a.w != b.w || a.h != b.h) return false;
+        }
+        return true;
     }
 
     private static final class Change {

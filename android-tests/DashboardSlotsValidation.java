@@ -58,12 +58,15 @@ public final class DashboardSlotsValidation extends Instrumentation {
             malformedSnapshots();
             boundsNamesAndIsolation();
             migrationCompatibility();
+            independentDisplayLayouts();
+            legacyDisplayLayoutMigration();
             sixColumnPersistence();
             classicLockPersistence();
             quickAccessPersistence();
             legacyFourColumnSlots();
             temporaryWidthConstraints();
             editHistoryRestoresStructureOnly();
+            editHistoryRestoresBothDisplays();
             editHistoryNoOpsAndBounds();
             require(historyCount() == 2, "Layout changes altered history rows");
             try (Cursor row = history.rawQuery("SELECT profile,wall,power FROM readings ORDER BY wall", null)) {
@@ -602,14 +605,23 @@ public final class DashboardSlotsValidation extends Instrumentation {
         JSONArray[] rectangles = {new JSONArray().put(0), new JSONArray(new int[]{-1,0,1,4}),
                 new JSONArray(new int[]{0,0,3,4}), new JSONArray(new int[]{0,-1,1,4}),
                 new JSONArray(new int[]{0,0,1,17}), new JSONArray().put("0").put(0).put(1).put(4)};
-        for (JSONArray rectangle : rectangles) {
+        for (String field : Arrays.asList("layouts", "expandedLayouts")) {
+            for (JSONArray rectangle : rectangles) {
+                JSONObject damaged = new JSONObject(valid);
+                JSONObject layouts = new JSONObject().put("2", rectangle);
+                damaged.getJSONArray("widgets").getJSONObject(0).put(field, layouts);
+                invalid.add(damaged.toString());
+            }
+            JSONObject badWidth = new JSONObject(valid);
+            badWidth.getJSONArray("widgets").getJSONObject(0)
+                    .put(field, new JSONObject().put("7", new JSONArray(new int[]{0,0,1,4})));
+            invalid.add(badWidth.toString());
+        }
+        for (Object wrongMap : new Object[] {JSONObject.NULL, new JSONArray(), "not-a-map"}) {
             JSONObject damaged = new JSONObject(valid);
-            damaged.getJSONArray("widgets").getJSONObject(0).getJSONObject("layouts").put("2", rectangle);
+            damaged.getJSONArray("widgets").getJSONObject(0).put("expandedLayouts", wrongMap);
             invalid.add(damaged.toString());
         }
-        JSONObject badWidth = new JSONObject(valid);
-        badWidth.getJSONArray("widgets").getJSONObject(0).getJSONObject("layouts").put("7", new JSONArray(new int[]{0,0,1,4}));
-        invalid.add(badWidth.toString());
         for (String broken : invalid) {
             require(preferences.edit().putString(slotKey("damage", 0), broken).commit(), "Could not seed corrupt slot");
             Map<String, ?> before = new LinkedHashMap<>(preferences.getAll());
@@ -724,6 +736,116 @@ public final class DashboardSlotsValidation extends Instrumentation {
                         && preferences.getInt("dashboard_columns", -1) == 5,
                 "Five-column preference could not round-trip");
         checks.add("Explicit five/six-column slots preserve every layout and Disconnect=false; default six columns place overview/lock bar beside tiles without changing the 1–4 stack");
+    }
+
+    private void independentDisplayLayouts() throws Exception {
+        String profile = "independent-displays";
+        DashboardConfig compact = new DashboardConfig(preferences, profile, false);
+        compact.widgets.clear();
+        DashboardConfig.Widget note = new DashboardConfig.Widget("note");
+        note.layouts.put(5, new DashboardLayout.Cell(note.id, 0, 0, 5, 3));
+        compact.widgets.add(note);
+        compact.save();
+
+        DashboardConfig expanded = new DashboardConfig(preferences, profile, true);
+        note = expanded.widgets.get(0);
+        require(expanded.widgetLayouts(note) == note.layouts(true),
+                "Expanded configuration selected the compact map");
+        expanded.widgetLayouts(note).put(5, new DashboardLayout.Cell(note.id, 3, 0, 2, 6));
+        assertCell(expanded.layout(5, null).get(0), 3, 0, 2, 6, "Expanded five-column display");
+        expanded.save();
+        compact = new DashboardConfig(preferences, profile);
+        note = compact.widgets.get(0);
+        require(compact.widgetLayouts(note) == note.layouts,
+                "Existing two-argument constructor no longer selects compact geometry");
+        assertCell(compact.layout(5, null).get(0), 0, 0, 5, 3, "Compact after expanded save/reopen");
+        compact.widgetLayouts(note).put(5, new DashboardLayout.Cell(note.id, 0, 0, 1, 4));
+        compact.save();
+        expanded = new DashboardConfig(preferences, profile, true);
+        note = expanded.widgets.get(0);
+        assertCell(expanded.layout(5, null).get(0), 3, 0, 2, 6, "Expanded after compact save/reopen");
+        require(note.layouts.get(5) != note.layouts(true).get(5),
+                "Display contexts share a mutable Cell");
+        require(expanded.saveSlot(0, "Independent five-column screens", 5),
+                "Could not save both display arrangements");
+        String saved = preferences.getString(slotKey(profile, 0), "");
+        note.layouts.get(5).h = 10;
+        note.layouts(true).get(5).w = 1;
+        expanded.save();
+        require(expanded.restoreSlot(0), "Could not restore paired display arrangements");
+        note = expanded.widgets.get(0);
+        assertCell(note.layouts.get(5), 0, 0, 1, 4, "Restored compact arrangement");
+        assertCell(expanded.layout(5, null).get(0), 3, 0, 2, 6, "Restored expanded arrangement");
+        expanded.save();
+        compact = new DashboardConfig(preferences, profile, false);
+        assertCell(compact.layout(5, null).get(0), 0, 0, 1, 4, "Compact slot restoration after reopen");
+        assertCell(compact.widgets.get(0).layouts(true).get(5), 3, 0, 2, 6,
+                "Expanded slot restoration after reopen");
+        require(saved.equals(preferences.getString(slotKey(profile, 0), "")),
+                "Editing/restoring either display rewrote its saved slot");
+        checks.add("Compact and expanded displays keep distinct five-column rectangles through edits, save/reopen and slot restoration; cells and stored snapshots stay independent");
+    }
+
+    private void legacyDisplayLayoutMigration() throws Exception {
+        String profile = "legacy-displays", activeKey = "dashboard_v1_" + profile;
+        DashboardConfig seed = new DashboardConfig(preferences, profile);
+        seed.widgets.clear();
+        DashboardConfig.Widget original = new DashboardConfig.Widget("note");
+        for (int columns = 1; columns <= 6; columns++)
+            original.layouts.put(columns, new DashboardLayout.Cell(original.id,
+                    columns - 1, columns * 4, 1, 2 + columns % 3));
+        seed.widgets.add(original);
+        seed.save();
+        require(seed.saveSlot(0, "Legacy six widths", 5), "Could not seed legacy display slot");
+        JSONArray legacy = new JSONArray(seed.widgetsJson());
+        legacy.getJSONObject(0).remove("expandedLayouts");
+        JSONObject oldSlot = new JSONObject(preferences.getString(slotKey(profile, 0), ""));
+        oldSlot.put("widgets", legacy);
+        String rawSlot = oldSlot.toString(), rawActive = legacy.toString();
+        require(preferences.edit().putString(activeKey, rawActive)
+                        .putString(slotKey(profile, 0), rawSlot).commit(), "Could not seed pre-separation data");
+        DashboardConfig compact = new DashboardConfig(preferences, profile, false);
+        DashboardConfig.Widget note = compact.widgets.get(0);
+        for (int columns = 1; columns <= 6; columns++)
+            assertCell(note.layouts.get(columns), columns - 1, columns * 4, 1, 2 + columns % 3,
+                    "Legacy compact width " + columns);
+        require(rawActive.equals(preferences.getString(activeKey, ""))
+                        && rawSlot.equals(preferences.getString(slotKey(profile, 0), "")),
+                "Opening legacy geometry eagerly rewrote stored data");
+        // Do not request the expanded map until after the first compact edit.
+        compact.widgetLayouts(note).get(5).y = 91;
+        for (int columns = 1; columns <= 6; columns++) {
+            assertCell(note.layouts(true).get(columns), columns - 1, columns * 4, 1, 2 + columns % 3,
+                    "Legacy expanded width after first compact edit " + columns);
+            require(note.layouts.get(columns) != note.layouts(true).get(columns),
+                    "Legacy migration shares a cell at width " + columns);
+        }
+        compact.save();
+        DashboardConfig expanded = new DashboardConfig(preferences, profile, true);
+        note = expanded.widgets.get(0);
+        require(note.layouts.get(5).y == 91, "First compact edit was not persisted");
+        for (int columns = 1; columns <= 6; columns++)
+            assertCell(expanded.widgetLayouts(note).get(columns), columns - 1, columns * 4, 1, 2 + columns % 3,
+                    "Migrated expanded width after reopen " + columns);
+        require(expanded.restoreSlot(0), "Legacy slot without expandedLayouts no longer restores");
+        note = expanded.widgets.get(0);
+        for (int columns = 1; columns <= 6; columns++) {
+            assertCell(note.layouts.get(columns), columns - 1, columns * 4, 1, 2 + columns % 3,
+                    "Legacy slot compact width " + columns);
+            assertCell(expanded.widgetLayouts(note).get(columns), columns - 1, columns * 4, 1, 2 + columns % 3,
+                    "Legacy slot expanded width " + columns);
+        }
+        expanded.widgetLayouts(note).get(5).y = 77;
+        require(note.layouts.get(5).y == 20, "Editing restored expanded geometry changed compact geometry");
+        expanded.save();
+        require(rawSlot.equals(preferences.getString(slotKey(profile, 0), "")),
+                "Legacy saved slot was rewritten by restore, migration or active save");
+        checks.add("Legacy layouts seed independent copies of all six widths before the first compact edit; legacy slots restore both displays without rewriting their stored bytes");
+    }
+
+    private void assertCell(DashboardLayout.Cell cell, int x, int y, int width, int height, String context) {
+        require(cell != null && cell.x == x && cell.y == y && cell.w == width && cell.h == height,
+                context + " lost its saved rectangle");
     }
 
     /**
@@ -989,6 +1111,47 @@ public final class DashboardSlotsValidation extends Instrumentation {
                         && signature(other).equals(otherBefore),
                 "Cleared history could not begin a fresh independent editing session");
         checks.add("Layout no-ops and settings-only edits preserve redo; new edits branch correctly; bounded history, clear and dashboard isolation work");
+    }
+
+    private void editHistoryRestoresBothDisplays() {
+        DashboardConfig config = new DashboardConfig(preferences, "history-both-displays", true);
+        config.widgets.clear();
+        DashboardConfig.Widget note = new DashboardConfig.Widget("note");
+        note.layouts.put(5, new DashboardLayout.Cell(note.id, 0, 0, 2, 3));
+        note.layouts(true).put(5, new DashboardLayout.Cell(note.id, 2, 0, 3, 5));
+        config.widgets.add(note);
+        config.save();
+        Map<String, ?> diskBefore = new LinkedHashMap<>(preferences.getAll());
+        DashboardEditHistory history = new DashboardEditHistory();
+        DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
+        config.widgetLayouts(note).get(5).h = 7;
+        require(history.record(before, config), "Expanded-only geometry change was not recorded");
+        before = DashboardEditHistory.capture(config);
+        note.layouts(false).get(5).w = 1;
+        require(history.record(before, config), "Compact-only geometry change was not recorded");
+        note.title = "Latest title"; note.note = "Latest note"; note.color = 3;
+        require(history.undo(config), "Could not undo compact geometry");
+        assertCell(note.layouts.get(5), 0, 0, 2, 3, "Compact undo");
+        assertCell(note.layouts(true).get(5), 2, 0, 3, 7, "Expanded after compact undo");
+        DashboardLayout.Cell detached = note.layouts(true).get(5);
+        require(history.undo(config), "Could not undo expanded geometry");
+        assertCell(note.layouts.get(5), 0, 0, 2, 3, "Compact after expanded undo");
+        assertCell(note.layouts(true).get(5), 2, 0, 3, 5, "Expanded undo");
+        detached.h = 15;
+        require(history.redo(config), "Could not redo expanded geometry");
+        assertCell(note.layouts(true).get(5), 2, 0, 3, 7, "Expanded redo after detached-cell mutation");
+        require(history.redo(config), "Could not redo compact geometry");
+        assertCell(note.layouts.get(5), 0, 0, 1, 3, "Compact redo");
+        assertCell(note.layouts(true).get(5), 2, 0, 3, 7, "Expanded after compact redo");
+        require(config.widgets.get(0) == note && note.title.equals("Latest title")
+                        && note.note.equals("Latest note") && note.color == 3
+                        && note.layouts.get(5) != note.layouts(true).get(5),
+                "Display-history restore lost identity, current settings or cell independence");
+        before = DashboardEditHistory.capture(config);
+        note.layouts(true).put(5, note.layouts(true).get(5).copy());
+        require(!history.record(before, config), "Equal expanded geometry consumed history");
+        require(diskBefore.equals(preferences.getAll()), "Display-history operations wrote preferences");
+        checks.add("Undo/redo captures both display maps, detects expanded-only edits, deep-copies restored cells and retains latest widget settings");
     }
 
     private void quickAccessPersistence() throws Exception {
