@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Single-worker Volt CI autoscaler. Credentials remain on this controller.
+"""Bounded disposable-worker Volt CI autoscaler. Credentials remain on this controller.
 
 The reusable image must never have run a job or contained runner credentials.
 Each job receives a fresh VM/JIT registration. This module deliberately has no
@@ -145,13 +145,16 @@ def load_config(path):
                 "max_attempts_per_job": 2, "cooldown_seconds": 60,
                 "startup_timeout_seconds": 600, "allow_public_repository": False,
                 "runner_arch": "ARM64", "max_launches_per_hour": 12,
-                "max_launches_per_day": 60}
+                "max_launches_per_day": 60, "max_workers": 1}
     for key, value in defaults.items():
         config.setdefault(key, value)
     for key in ("poll_seconds", "max_lifetime_seconds", "max_attempts_per_job",
-                "cooldown_seconds", "startup_timeout_seconds", "max_launches_per_hour", "max_launches_per_day"):
+                "cooldown_seconds", "startup_timeout_seconds", "max_launches_per_hour", "max_launches_per_day",
+                "max_workers"):
         if not numeric(config[key]):
             raise ValueError(f"Invalid {key}")
+    if config["max_workers"] > 2:
+        raise ValueError("Worker concurrency exceeds controller safety cap")
     if config["max_lifetime_seconds"] > 1800 or config["max_attempts_per_job"] > 3:
         raise ValueError("Worker lifetime/attempt limits exceed controller safety cap")
     if config["max_launches_per_hour"] > 12 or config["max_launches_per_day"] > 60:
@@ -190,10 +193,26 @@ class Store:
 
     def load(self):
         if not self.path.exists():
-            return {"version": 1, "active": None, "attempts": {}, "next_launch_at": 0}
+            return {"version": 2, "workers": [], "attempts": {}, "next_launch_at": 0}
         state = json.loads(self.path.read_text())
-        if state.get("version") != 1 or not isinstance(state.get("attempts"), dict):
+        if state.get("version") == 1:
+            # Preserve the exact reservation, retry budgets and IP ownership
+            # proof. The old controller rejects v2 rather than losing workers
+            # after an accidental binary rollback.
+            active = state.pop("active")
+            state["workers"] = [] if active is None else [active]
+            state["version"] = 2
+        workers = state.get("workers")
+        if (state.get("version") != 2 or not isinstance(state.get("attempts"), dict)
+                or not isinstance(workers, list) or len(workers) > 2
+                or any(not isinstance(worker, dict) for worker in workers)):
             raise ValueError("Invalid controller state; refusing to replace it")
+        names = [worker.get("name") for worker in workers]
+        keys = [worker.get("budget_key") for worker in workers]
+        if (any(not isinstance(name, str) or not re.fullmatch(r"volt-ci-[a-z0-9-]+", name) for name in names)
+                or len(set(names)) != len(names) or any(not isinstance(key, str) for key in keys)
+                or len(set(keys)) != len(keys)):
+            raise ValueError("Ambiguous worker state; refusing to replace it")
         return state
 
     def save(self, state):
@@ -372,18 +391,21 @@ class Controller:
 
     def reconcile(self):
         """Cloud inventory/cleanup precede every GitHub request, even on auth loss."""
-        active = self.state["active"]
         servers = self.resource_list("servers")
-        matches = [s for s in servers if active and s["name"] == active["name"]]
-        if len(matches) > 1:
-            raise ValueError("Ambiguous owned server name")
-        current = matches[0] if matches else None
-        if active and current:
-            self.remember_address(current)
-            if active.get("server_id") and active["server_id"] != current["id"]:
+        current = {}
+        for active in self.state["workers"]:
+            matches = [server for server in servers if server["name"] == active["name"]]
+            if len(matches) > 1:
+                raise ValueError("Ambiguous owned server name")
+            if not matches:
+                continue
+            server = matches[0]
+            current[active["name"]] = server
+            self.remember_address(server)
+            if active.get("server_id") and active["server_id"] != server["id"]:
                 raise ValueError("Worker identity changed")
-            active["server_id"] = current["id"]
-            ipv4 = current.get("public_net", {}).get("ipv4") or {}
+            active["server_id"] = server["id"]
+            ipv4 = server.get("public_net", {}).get("ipv4") or {}
             if ipv4.get("id"):
                 active["ip_id"] = ipv4["id"]
                 active["ip"] = ipv4["ip"]
@@ -392,7 +414,7 @@ class Controller:
             self.save()
         cleanup_pending = False
         for server in servers:
-            if server is not current:
+            if server["name"] not in current:
                 cleanup_pending = True
                 try:
                     self.delete_server(server)
@@ -408,12 +430,15 @@ class Controller:
             # blocks replacement spending until reconciliation succeeds.
             cleanup_pending = True
             log("ip_cleanup_deferred", status=error.status)
-        return current, cleanup_pending or bool(self.state["pending_ips"])
+        # Addresses belonging to current workers are expected and retain their
+        # ownership proof. Unassigned/orphan addresses must finish cleanup before
+        # another slot is filled, without serializing healthy active workers.
+        current_ids = {server["id"] for server in current.values()}
+        pending_orphan = any(proof["server_id"] not in current_ids
+                             for proof in self.state["pending_ips"].values())
+        return current, cleanup_pending or pending_orphan
 
-    def cleanup(self, reason, server=None):
-        active = self.state["active"]
-        if not active:
-            return
+    def cleanup(self, active, reason, server=None):
         active["phase"] = "deleting"
         active["cleanup_reason"] = reason
         self.save()
@@ -439,7 +464,7 @@ class Controller:
         if cloud_absent and runner_gone:
             log("worker_finished", worker=active["name"], reason=reason)
             self.worker.forget(active["name"])
-            self.state["active"] = None
+            self.state["workers"].remove(active)
             self.state["next_launch_at"] = self.clock() + self.config["cooldown_seconds"]
             self.save()
 
@@ -531,7 +556,8 @@ class Controller:
                 continue
             for job in self.queued_jobs(run["id"], run["run_attempt"]):
                 key = self.budget_key(run["id"], run["run_attempt"], job["id"])
-                if self.state["attempts"].get(key, 0) >= self.config["max_attempts_per_job"]:
+                if (self.state["attempts"].get(key, 0) >= self.config["max_attempts_per_job"]
+                        or any(worker["budget_key"] == key for worker in self.state["workers"])):
                     continue
                 candidates.append({"run_id": run["id"], "attempt": run["run_attempt"],
                                    "job_id": job["id"], "job_name": job["name"], "budget_key": key})
@@ -547,6 +573,11 @@ class Controller:
                    for job in self.queued_jobs(candidate["run_id"], candidate["attempt"]))
 
     def launch(self, candidate):
+        # Every reservation counts, including uncertain creation and deletion.
+        if (len(self.state["workers"]) >= self.config["max_workers"]
+                or any(worker["budget_key"] == candidate["budget_key"] for worker in self.state["workers"])
+                or self.state["attempts"].get(candidate["budget_key"], 0) >= self.config["max_attempts_per_job"]):
+            return
         # Last-minute state/attempt validation is deliberately separate from the
         # initial queue scan. Cancellations/reruns must not provision stale work.
         if not self.still_queued(candidate):
@@ -570,7 +601,7 @@ class Controller:
         count = self.state["attempts"].get(candidate["budget_key"], 0) + 1
         name = f"volt-ci-{self.owner[:8]}-{candidate['job_id']}-{count}-{uuid.uuid4().hex[:8]}"
         active = {**candidate, "name": name, "created_at": self.clock(), "phase": "reserved"}
-        self.state["active"] = active
+        self.state["workers"].append(active)
         self.state["attempts"][candidate["budget_key"]] = count
         self.state["launch_history"].append(now)
         self.save()
@@ -588,7 +619,7 @@ class Controller:
             result = self.cloud.post("/servers", payload)
         except ApiError as error:
             # Even 4xx/5xx outcomes are resolved from owned inventory rather than
-            # blindly repeating create. An unknown outcome reserves the one slot.
+            # blindly repeating create. An unknown outcome keeps its slot reserved.
             log("create_outcome_unconfirmed", worker=name, status=error.status)
             return
         server = result["server"]
@@ -599,8 +630,7 @@ class Controller:
         self.save()
         log("worker_created", worker=name, server_id=server["id"], run_id=candidate["run_id"])
 
-    def tag_address(self, server):
-        active = self.state["active"]
+    def tag_address(self, active, server):
         if active.get("ip_tagged") or not active.get("ip_id"):
             return
         address = self.cloud.get(f"/primary_ips/{active['ip_id']}")["primary_ip"]
@@ -616,11 +646,11 @@ class Controller:
         self.save()
 
     def start_job(self, active, server):
-        self.tag_address(server)
+        self.tag_address(active, server)
         if not active.get("ip") or not self.worker.ready(active):
             return
         if not self.still_queued(active):
-            self.cleanup("job_no_longer_queued", server)
+            self.cleanup(active, "job_no_longer_queued", server)
             return
         # A crash after requesting JIT but before saving its id cannot safely
         # replay registration. Reconciliation cleans the named registration.
@@ -633,7 +663,7 @@ class Controller:
                 "labels": self.labels(active["run_id"], active["attempt"], active["job_name"]),
                 "work_folder": "_work"})
         except ApiError:
-            self.cleanup("jit_registration_failed", server)
+            self.cleanup(active, "jit_registration_failed", server)
             return
         active["runner_id"] = jit["runner"]["id"]
         active["phase"] = "starting"
@@ -641,7 +671,7 @@ class Controller:
         try:
             self.worker.start(active, jit["encoded_jit_config"])
         except (subprocess.SubprocessError, OSError):
-            self.cleanup("worker_start_failed", server)
+            self.cleanup(active, "worker_start_failed", server)
             return
         active["phase"] = "running"
         active["started_at"] = self.clock()
@@ -651,62 +681,70 @@ class Controller:
     def observe_running(self, active, server):
         run = self.gh.get(f"{self.root}/actions/runs/{active['run_id']}")
         if run.get("run_attempt") != active["attempt"] or run.get("status") == "completed":
-            self.cleanup("run_finished_or_superseded", server)
+            self.cleanup(active, "run_finished_or_superseded", server)
             return
         jobs = self.jobs(active["run_id"], active["attempt"])
         assigned = [job for job in jobs if job.get("runner_id") == active.get("runner_id")]
         if assigned:
             job = assigned[0]
             if len(assigned) != 1 or job["id"] != active["job_id"]:
-                self.cleanup("unexpected_job_assignment", server)
+                self.cleanup(active, "unexpected_job_assignment", server)
                 return
             if not active.get("assigned_job_id"):
                 active["assigned_job_id"] = job["id"]
                 self.save()
             if job.get("status") == "completed":
-                self.cleanup("job_completed", server)
+                self.cleanup(active, "job_completed", server)
         elif self.clock() - active.get("started_at", active["created_at"]) > 180:
-            self.cleanup("job_assignment_timeout", server)
+            self.cleanup(active, "job_assignment_timeout", server)
+
+    def advance(self, active, server, now):
+        age = now - active["created_at"]
+        if active["phase"] == "deleting":
+            self.cleanup(active, active.get("cleanup_reason", "cleanup_resume"), server)
+        elif age >= self.config["max_lifetime_seconds"] or age < 0:
+            self.cleanup(active, "maximum_lifetime", server)
+        elif active["phase"] in ("reserved", "registering", "starting"):
+            self.cleanup(active, "interrupted_mutation", server)
+        elif server is None:
+            if active["phase"] != "creating":
+                self.cleanup(active, "worker_disappeared")
+            # An uncertain create keeps its slot until the lifetime deadline.
+            # A different job may use the other slot; never retry this create.
+        elif server.get("status") == "off":
+            self.cleanup(active, "worker_powered_off", server)
+        elif active["phase"] == "booting":
+            if age > self.config["startup_timeout_seconds"]:
+                self.cleanup(active, "boot_timeout", server)
+            elif server.get("status") == "running":
+                self.start_job(active, server)
+        elif active["phase"] == "running":
+            self.observe_running(active, server)
 
     def tick(self):
         now = self.clock()
-        server, cleanup_pending = self.reconcile()
-        active = self.state["active"]
-        if active:
-            age = now - active["created_at"]
-            if active["phase"] == "deleting":
-                self.cleanup(active.get("cleanup_reason", "cleanup_resume"), server)
-                return
-            if age >= self.config["max_lifetime_seconds"] or age < 0:
-                self.cleanup("maximum_lifetime", server)
-                return
-            if active["phase"] in ("reserved", "registering", "starting"):
-                self.cleanup("interrupted_mutation", server)
-                return
-            if server is None:
-                if active["phase"] == "creating":
-                    # A timed-out POST may yet materialize. Wait with this slot
-                    # reserved rather than provisioning a second worker.
-                    return
-                self.cleanup("worker_disappeared")
-                return
-            if server.get("status") == "off":
-                self.cleanup("worker_powered_off", server)
-                return
-            if active["phase"] == "booting":
-                if age > self.config["startup_timeout_seconds"]:
-                    self.cleanup("boot_timeout", server)
-                elif server.get("status") == "running":
-                    self.start_job(active, server)
-            elif active["phase"] == "running":
-                self.observe_running(active, server)
-            return
-        # Wait for complete server/IP reconciliation before any new spending.
+        servers, cleanup_pending = self.reconcile()
+        errors = []
+        for active in list(self.state["workers"]):
+            try:
+                self.advance(active, servers.get(active["name"]), now)
+            except (ApiError, ValueError, KeyError, TypeError, OSError, subprocess.SubprocessError) as error:
+                # One worker's GitHub, SSH or cleanup failure must not prevent
+                # its sibling's lifetime/power-off cleanup. No new spending is
+                # allowed after any failed advance.
+                errors.append(error)
+        if errors:
+            raise errors[0]
+        # Reconciliation precedes new spending. Deleting slots remain reserved;
+        # existing workers may run while other owned resources are cleaned up.
         if cleanup_pending or now < self.state["next_launch_at"]:
             return
-        candidates = self.eligible()
-        if candidates:
-            self.launch(candidates[0])
+        if len(self.state["workers"]) >= self.config["max_workers"]:
+            return
+        for candidate in self.eligible():
+            self.launch(candidate)
+            if len(self.state["workers"]) >= self.config["max_workers"]:
+                break
 
 
 def main(argv=None):

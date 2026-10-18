@@ -11,8 +11,7 @@ final class DefaultDashboard {
 
     static ArrayList<DashboardConfig.Widget> create() {
         ArrayList<DashboardConfig.Widget> result = new ArrayList<>();
-        // One full-width stack on phones (overview, lock bar beneath it, tiles, shortcuts, ride);
-        // two columns on wide six-column grids.
+        // Keep the compact release layout unchanged, including its six-column arrangement.
         DashboardConfig.Widget overview = add(result, "overview", "Scooter overview",
                 "power_w", 86400000L, stack(0, 4, 0, 0, 3, 4));
         overview.keys.clear();
@@ -23,14 +22,46 @@ final class DefaultDashboard {
         DashboardConfig.Widget readings = add(result, "tiles", "Reading tiles",
                 "power_w", 86400000L, stack(5, 2, 3, 0, 3, 2));
         readings.keys.clear();
-        readings.keys.addAll(Arrays.asList("power_w", "temperature_c", "battery_health_percent"));
+        readings.keys.addAll(Arrays.asList("power_w", "temperature_c", "battery_health_percent",
+                "charge_limit_percent"));
         DashboardConfig.Widget settings = add(result, "shortcuts", "Setting tiles",
                 "power_w", 86400000L, stack(7, 1, 3, 2, 3, 1));
         settings.quickActions.clear();
         settings.quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
         add(result, "ride", "Ride recorder",
                 "power_w", 86400000L, stack(8, 1, 3, 3, 3, 1));
+        setExpandedLayouts(result);
         return result;
+    }
+
+    /** Wide Home: overview/readings above full-width lock, settings and recorder rows. */
+    private static void setExpandedLayouts(ArrayList<DashboardConfig.Widget> widgets) {
+        for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
+            if (columns == 1) {
+                // A deliberately single-column wide dashboard still uses the compact stack.
+                for (DashboardConfig.Widget widget : widgets)
+                    widget.layouts(true).put(columns, widget.layouts.get(columns).copy());
+                continue;
+            }
+            int overviewWidth = Math.max(1, Math.min(columns - 1, (columns * 3 + 2) / 5));
+            for (DashboardConfig.Widget widget : widgets) {
+                DashboardLayout.Cell cell;
+                switch (widget.type) {
+                    case "overview":
+                        cell = new DashboardLayout.Cell(widget.id, 0, 0, overviewWidth, 4);
+                        break;
+                    case "tiles":
+                        cell = new DashboardLayout.Cell(widget.id, overviewWidth, 0,
+                                columns - overviewWidth, 4);
+                        break;
+                    default:
+                        int row = widget.type.equals("lockbar") ? 4
+                                : widget.type.equals("shortcuts") ? 5 : 6;
+                        cell = new DashboardLayout.Cell(widget.id, 0, row, columns, 1);
+                }
+                widget.layouts(true).put(columns, cell);
+            }
+        }
     }
 
     /** Full width at row {@code y} for one to five columns, then the given six-column cell. */

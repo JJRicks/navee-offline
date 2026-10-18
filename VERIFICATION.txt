@@ -1,3 +1,26 @@
+VOLT 1.4.3 — UNFOLDED DEFAULT DASHBOARD (versionCode 40)
+October 18, 2026
+
+- Native saved-layout validation passes 6,144 assertions, including compact
+  geometry goldens, distinct expanded defaults at 1–6 columns, four default
+  readings, existing three-reading dashboards, slots, imports and reset.
+- Responsive checks pass at 344x882, 448x960 and 725x604 dp, plus expanded
+  140% app text. Fold/unfold editing checks preserve independent arrangements.
+  Four reading tiles stay horizontal at the wider phone width and wrap at the
+  narrow width. Existing responsive tile behavior is unchanged.
+- Both website dashboard images were recaptured with the same demo name and
+  existing readings. The unfolded image includes Charge limit; the phone keeps
+  the requested three-reading example. Final images were visually inspected
+  independently after removing emulator notification icons.
+- All core suites, 11 capture guards and 66 controller tests pass. App and native
+  runners build, sign and align successfully. Independent app and CI reviews
+  found no actionable issues; the CI deployment procedure was also reviewed.
+- CI supports a bounded two-worker pool with migration, durable reservations,
+  shared cost caps and independent cleanup. Live overlap/teardown verification
+  and release signing/download checks are recorded during publication.
+- Emulator tests use synthetic data and disabled Bluetooth. No physical scooter
+  test is claimed, and the owner will install the GitHub APK themselves.
+
 VOLT 1.4.2 — CONTROLS, RANGE AND RIDE MAP POLISH (versionCode 39)
 October 18, 2026
 

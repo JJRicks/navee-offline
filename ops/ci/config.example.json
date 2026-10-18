@@ -12,6 +12,7 @@
   "ssh_private_key_file": "/etc/volt-ci/worker-access",
   "state_dir": "/var/lib/volt-ci",
   "poll_seconds": 20,
+  "max_workers": 2,
   "cooldown_seconds": 60,
   "startup_timeout_seconds": 600,
   "max_lifetime_seconds": 1800,

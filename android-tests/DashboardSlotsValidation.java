@@ -52,6 +52,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             newHomeWidgetTypes();
             allWidgetsExample();
             releaseDefaultsPreserveExistingData();
+            unfoldedReleaseDefaults();
             fullRoundTrip();
             overwriteAndReset();
             emptyAndMissingLayouts();
@@ -450,7 +451,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             JSONArray expected = new JSONArray(
                     "[{\"type\":\"overview\",\"title\":\"Scooter overview\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"odometer_km\",\"driving_mode\"],\"layouts\":{\"1\":[0,0,1,4],\"2\":[0,0,2,4],\"3\":[0,0,3,4],\"4\":[0,0,4,4],\"5\":[0,0,5,4],\"6\":[0,0,3,4]}}"
                     + ",{\"type\":\"lockbar\",\"title\":\"Lock bar\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":false,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,4,1,1],\"2\":[0,4,2,1],\"3\":[0,4,3,1],\"4\":[0,4,4,1],\"5\":[0,4,5,1],\"6\":[0,4,3,1]}}"
-                    + ",{\"type\":\"tiles\",\"title\":\"Reading tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"power_w\",\"temperature_c\",\"battery_health_percent\"],\"layouts\":{\"1\":[0,5,1,2],\"2\":[0,5,2,2],\"3\":[0,5,3,2],\"4\":[0,5,4,2],\"5\":[0,5,5,2],\"6\":[3,0,3,2]}}"
+                    + ",{\"type\":\"tiles\",\"title\":\"Reading tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"power_w\",\"temperature_c\",\"battery_health_percent\",\"charge_limit_percent\"],\"layouts\":{\"1\":[0,5,1,2],\"2\":[0,5,2,2],\"3\":[0,5,3,2],\"4\":[0,5,4,2],\"5\":[0,5,5,2],\"6\":[3,0,3,2]}}"
                     + ",{\"type\":\"shortcuts\",\"title\":\"Setting tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,7,1,1],\"2\":[0,7,2,1],\"3\":[0,7,3,1],\"4\":[0,7,4,1],\"5\":[0,7,5,1],\"6\":[3,2,3,1]}}"
                     + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,1],\"2\":[0,8,2,1],\"3\":[0,8,3,1],\"4\":[0,8,4,1],\"5\":[0,8,5,1],\"6\":[3,3,3,1]}}]");
             check.accept(configuration.widgets.size() == expected.length(), "Captured default widget count changed");
@@ -483,7 +484,93 @@ public final class DashboardSlotsValidation extends Instrumentation {
                             "Captured " + columns + "-column rectangle changed for " + widget.type);
                 }
             }
+            assertExpandedDefaults(configuration, check);
         } catch (Exception failure) { throw new AssertionError("Default capture mismatch", failure); }
+    }
+
+    private static void assertExpandedDefaults(DashboardConfig configuration,
+            java.util.function.BiConsumer<Boolean, String> check) {
+        // Same five widgets/options as compact; only the unfolded rectangles differ.
+        int[][][] expected = {
+            {{0,0,1,4}, {0,0,1,4}, {0,0,2,4}, {0,0,2,4}, {0,0,3,4}, {0,0,4,4}},
+            {{0,4,1,1}, {0,4,2,1}, {0,4,3,1}, {0,4,4,1}, {0,4,5,1}, {0,4,6,1}},
+            {{0,5,1,2}, {1,0,1,4}, {2,0,1,4}, {2,0,2,4}, {3,0,2,4}, {4,0,2,4}},
+            {{0,7,1,1}, {0,5,2,1}, {0,5,3,1}, {0,5,4,1}, {0,5,5,1}, {0,5,6,1}},
+            {{0,8,1,1}, {0,6,2,1}, {0,6,3,1}, {0,6,4,1}, {0,6,5,1}, {0,6,6,1}}
+        };
+        check.accept(configuration.widgets.size() == expected.length, "Unfolded default widget membership changed");
+        for (int i = 0; i < expected.length; i++) {
+            DashboardConfig.Widget widget = configuration.widgets.get(i);
+            check.accept(widget.layouts(true).size() == DashboardConfig.MAX_COLUMNS,
+                    "Unfolded default lacks explicit supported widths");
+            for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
+                DashboardLayout.Cell cell = widget.layouts(true).get(columns);
+                int[] wanted = expected[i][columns - 1];
+                check.accept(cell != null && cell.id.equals(widget.id) && cell.x == wanted[0]
+                                && cell.y == wanted[1] && cell.w == wanted[2] && cell.h == wanted[3],
+                        "Unfolded default " + widget.type + " differs at " + columns + " columns");
+                check.accept(cell != widget.layouts.get(columns), "Default window classes share a mutable cell");
+            }
+        }
+    }
+
+    private void unfoldedReleaseDefaults() throws Exception {
+        String profile = "unfolded-release", activeKey = "dashboard_v1_" + profile;
+        DashboardConfig expanded = new DashboardConfig(preferences, profile, true);
+        assertCapturedDefaults(expanded, this::require);
+        String pristine = expanded.widgetsJson();
+        for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
+            java.util.List<DashboardLayout.Cell> cells = expanded.layout(columns, null);
+            assertExpandedDefaults(expanded, this::require);
+            int occupied = 0, end = 0;
+            for (int i = 0; i < cells.size(); i++) {
+                DashboardLayout.Cell cell = cells.get(i);
+                occupied += cell.w * cell.h;
+                end = Math.max(end, cell.y + cell.h);
+                for (int j = 0; j < i; j++)
+                    require(!DashboardLayout.overlaps(cell, cells.get(j)), "Unfolded default cards overlap");
+            }
+            require(occupied == columns * end, "Unfolded default leaves an unintended empty grid cell");
+        }
+        require(pristine.equals(expanded.widgetsJson()), "Settling changed an explicit unfolded default");
+        expanded.save();
+        require(pristine.equals(new DashboardConfig(preferences, profile, false).widgetsJson()),
+                "Visiting folded changed the new unfolded layout");
+        require(pristine.equals(new DashboardConfig(preferences, profile, true).widgetsJson()),
+                "Reopening unfolded changed the paired defaults");
+        require(expanded.saveSlot(0, "Paired defaults", 5), "Could not save paired defaults");
+        String portable = expanded.exportLayouts();
+        expanded.widgets.get(0).layouts(true).get(5).h = 8;
+        expanded.save();
+        require(expanded.restoreSlot(0) && pristine.equals(expanded.widgetsJson()),
+                "Slot round trip lost new unfolded defaults");
+        DashboardConfig imported = new DashboardConfig(preferences, "unfolded-import", true);
+        require(imported.importLayouts(portable) && pristine.equals(imported.widgetsJson()),
+                "Portable layout round trip lost new unfolded defaults");
+
+        // Existing installations keep their saved expanded rectangles, even when those
+        // match the previous compact defaults. Only an explicit reset adopts this layout.
+        JSONArray old = new JSONArray(pristine);
+        for (int i = 0; i < old.length(); i++) {
+            JSONObject widget = old.getJSONObject(i);
+            widget.put("expandedLayouts", new JSONObject(widget.getJSONObject("layouts").toString()));
+        }
+        old.getJSONObject(2).put("keys", new JSONArray(Arrays.asList(
+                "power_w", "temperature_c", "battery_health_percent")));
+        String savedOld = old.toString();
+        require(preferences.edit().putString(activeKey, savedOld).commit(), "Could not seed previous release defaults");
+        expanded = new DashboardConfig(preferences, profile, true);
+        require(savedOld.equals(expanded.widgetsJson()) && savedOld.equals(preferences.getString(activeKey, "")),
+                "Opening an existing dashboard replaced its previous unfolded layout");
+        String savedSlot = preferences.getString(slotKey(profile, 0), "");
+        expanded.reset();
+        assertCapturedDefaults(expanded, this::require);
+        require(savedSlot.equals(preferences.getString(slotKey(profile, 0), "")),
+                "Resetting unfolded defaults overwrote a saved slot");
+        require(expanded.restoreSlot(0) && pristine.equals(expanded.widgetsJson()),
+                "Reset prevented restoring the saved paired defaults");
+        require(preferences.edit().clear().commit(), "Could not clear unfolded defaults fixture");
+        checks.add("Unfolded defaults place overview/readings side by side above full-width controls at 2–6 columns; compact geometry stays identical and both modes include Charge limit; upgrades, paired slots, portable layouts and explicit reset preserve owner data");
     }
 
     private void fullRoundTrip() throws Exception {
