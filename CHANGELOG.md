@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.4 — 2026-10-18
+
+- Return default Reading tiles to Power, Temp and Health for compact screens. Existing saved dashboards keep their selected readings and layout.
+- Add Capacity experiment below Record ride in folded and unfolded defaults, and refresh the unfolded website dashboard capture.
+- Show Processing while the capacity estimate loads; keep a completed estimate visible during refreshes instead of briefly claiming there is not enough data.
+
 ## 1.4.3 — 2026-10-18
 
 - Arrange the unfolded default with the scooter overview beside live readings, followed by full-width lock, settings and ride controls. Preserve the folded geometry and existing custom dashboards; add Charge limit to default readings on both screens.

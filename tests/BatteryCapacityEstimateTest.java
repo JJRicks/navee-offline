@@ -25,10 +25,21 @@ public final class BatteryCapacityEstimateTest {
             initialAndMidRideDirectionChanges();
             scopeAndEnvironmentalCautions();
             analysisSnapshotsAreReadOnlyAndConsistent();
+            unavailableIsNotInsufficient();
             System.out.println("BatteryCapacityEstimateTest: " + assertions + " assertions passed");
         } finally {
             for (File directory : directories) remove(directory);
         }
+    }
+
+    private static void unavailableIsNotInsufficient() {
+        BatteryCapacityEstimate.Result empty = calculate("A", Collections.emptyList(), 716.04);
+        check(empty.unavailableReason == null && empty.estimatedUsableWh == null,
+                "Completed empty history remains distinguishable from failed analysis");
+        BatteryCapacityEstimate.Result failed = BatteryCapacityEstimate.unavailable(
+                "A", 716.04, 90, "Recorded rides could not be analyzed");
+        check("Recorded rides could not be analyzed".equals(failed.unavailableReason),
+                "Failed analysis preserves an explicit reason instead of claiming insufficient history");
     }
 
     private static void weightedConfirmedAndDeduplicated() throws Exception {

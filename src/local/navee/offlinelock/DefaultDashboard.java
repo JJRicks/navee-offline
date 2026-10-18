@@ -11,7 +11,7 @@ final class DefaultDashboard {
 
     static ArrayList<DashboardConfig.Widget> create() {
         ArrayList<DashboardConfig.Widget> result = new ArrayList<>();
-        // Keep the compact release layout unchanged, including its six-column arrangement.
+        // Keep the existing compact cards in place, including their six-column arrangement.
         DashboardConfig.Widget overview = add(result, "overview", "Scooter overview",
                 "power_w", 86400000L, stack(0, 4, 0, 0, 3, 4));
         overview.keys.clear();
@@ -22,19 +22,21 @@ final class DefaultDashboard {
         DashboardConfig.Widget readings = add(result, "tiles", "Reading tiles",
                 "power_w", 86400000L, stack(5, 2, 3, 0, 3, 2));
         readings.keys.clear();
-        readings.keys.addAll(Arrays.asList("power_w", "temperature_c", "battery_health_percent",
-                "charge_limit_percent"));
+        readings.keys.addAll(Arrays.asList("power_w", "temperature_c", "battery_health_percent"));
         DashboardConfig.Widget settings = add(result, "shortcuts", "Setting tiles",
                 "power_w", 86400000L, stack(7, 1, 3, 2, 3, 1));
         settings.quickActions.clear();
         settings.quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
         add(result, "ride", "Ride recorder",
                 "power_w", 86400000L, stack(8, 1, 3, 3, 3, 1));
+        // Six columns need to clear the overview/lock stack before spanning the whole grid.
+        add(result, "capacity", "Capacity experiment",
+                "power_w", 90 * 86400000L, stack(9, 5, 0, 5, 6, 5));
         setExpandedLayouts(result);
         return result;
     }
 
-    /** Wide Home: overview/readings above full-width lock, settings and recorder rows. */
+    /** Wide Home: overview/readings above full-width controls and Capacity experiment. */
     private static void setExpandedLayouts(ArrayList<DashboardConfig.Widget> widgets) {
         for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
             if (columns == 1) {
@@ -53,6 +55,9 @@ final class DefaultDashboard {
                     case "tiles":
                         cell = new DashboardLayout.Cell(widget.id, overviewWidth, 0,
                                 columns - overviewWidth, 4);
+                        break;
+                    case "capacity":
+                        cell = new DashboardLayout.Cell(widget.id, 0, 7, columns, 5);
                         break;
                     default:
                         int row = widget.type.equals("lockbar") ? 4

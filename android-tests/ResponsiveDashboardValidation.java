@@ -61,8 +61,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
     private Bundle arguments;
     private MainActivity activity;
     private boolean admitted;
-    /** Fresh Home: Scooter overview, Lock bar beneath it, Reading tiles, Setting tiles, Ride recorder. */
-    private static final String[] DEFAULT_STACK = {"overview", "lockbar", "tiles", "shortcuts", "ride"};
+    /** Fresh Home keeps Capacity experiment below the overview, controls and three readings. */
+    private static final String[] DEFAULT_STACK = {"overview", "lockbar", "tiles", "shortcuts", "ride", "capacity"};
     private final ArrayList<String> checks = new ArrayList<>(), screenshots = new ArrayList<>();
     private final ArrayList<String> overlayGeometry = new ArrayList<>();
 
@@ -463,9 +463,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     boolean expanded = (Boolean)field(activity, "expanded");
                     int[][] rectangles = expanded
                             ? new int[][] {{0, 0, 3, 4}, {0, 4, 5, 1}, {3, 0, 2, 4},
-                                    {0, 5, 5, 1}, {0, 6, 5, 1}}
+                                    {0, 5, 5, 1}, {0, 6, 5, 1}, {0, 7, 5, 5}}
                             : new int[][] {{0, 0, 5, 4}, {0, 4, 5, 1}, {0, 5, 5, 2},
-                                    {0, 7, 5, 1}, {0, 8, 5, 1}};
+                                    {0, 7, 5, 1}, {0, 8, 5, 1}, {0, 9, 5, 5}};
                     for (int i = 0; i < DEFAULT_STACK.length; i++) {
                         DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid, "currentCell",
                                 new Class<?>[]{DashboardConfig.Widget.class}, field(tile(DEFAULT_STACK[i]), "widget"));
@@ -501,7 +501,24 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             check("Fresh two-column lock and Connect remain fully visible on the first screen at default text");
         });
     }
-    private void assertDefaultCardContents() { assertCardContents("overview", "tiles"); }
+    private void assertDefaultCardContents() {
+        assertCardContents("overview", "tiles");
+        main(() -> {
+            DashboardConfig.Widget readings = (DashboardConfig.Widget)field(tile("tiles"), "widget");
+            require(readings.keys.equals(Arrays.asList("power_w", "temperature_c", "battery_health_percent")),
+                    "Fresh Reading tiles must keep exactly the three default readings");
+            Object capacity = tile("capacity");
+            DashboardConfig.Widget widget = (DashboardConfig.Widget)field(capacity, "widget");
+            View card = (View)capacity, recorder = (View)tile("ride");
+            ScrollView viewport = (ScrollView)field(capacity, "viewport");
+            require(widget.windowMs == 90 * 86400000L && widget.advertisedWh == 0,
+                    "Default Capacity experiment changed its history window or model rating");
+            require(card.getLeft() == 0 && card.getRight() == grid().getWidth()
+                            && card.getTop() >= recorder.getBottom()
+                            && viewport.getWidth() > 0 && viewport.getHeight() > 0,
+                    "Default Capacity experiment must render full width beneath Ride recorder");
+        });
+    }
     private void assertCardContents(String... types) {
         main(() -> {
             for (String type : types) {
@@ -644,8 +661,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 }
                 Object readings=field(readingCard,"readingTiles");
                 List<?> values=(List<?>)field(readings,"values");
-                require(values.size()==4,"Reading tile regression expects the default four readings");
-                String[] samples={"-123.4 W","23 °C","100 %","100 %"};
+                require(values.size()==3,"Reading tile regression expects the default three readings");
+                String[] samples={"-123.4 W","23 °C","100 %"};
                 for(int i=0;i<values.size();i++)((TextView)values.get(i)).setText(samples[i]);
                 for(int[] size:new int[][]{{117,54},{150,54},{312,54},{117,182},{312,182}}) {
                     measureCard(readingCard,activity.ui().dp(size[0]),activity.ui().dp(size[1]));
