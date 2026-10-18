@@ -165,6 +165,9 @@ public final class ChargeSessionStore {
     private Double lastSoc,lastPower,lastVoltage;
     private int samples;
     private boolean gap;
+    private double candidatePower,candidateVoltage;
+    private long candidateMono,candidateElectricalMono;
+    private int candidateSamples;
 
     public ChargeSessionStore(File directory) throws IOException {
         this.directory=directory;
@@ -191,6 +194,7 @@ public final class ChargeSessionStore {
         append(file,"charge-v2,"+profile+","+charger.name()+","+wall+","+mono+"\n");
         this.active=file;this.profile=profile;this.charger=charger;startMono=mono;lastFreshMono=mono;
         lastWriteMono=lastElectricalMono=0;lastSoc=lastPower=lastVoltage=null;samples=0;gap=true;
+        resetElectricalCandidate();
     }
     /** Returns true only for a newly committed, fresh paired sample. Rejected samples break continuity. */
     public synchronized boolean sample(Frame frame) throws IOException {
@@ -208,7 +212,7 @@ public final class ChargeSessionStore {
     }
     private boolean sample(Frame frame,boolean completion,Estimate estimate) throws IOException {
         if(active==null)return false;
-        if(frame==null||!(completion?frame.usableCompletion():frame.usable())){gap=true;return false;}
+        if(frame==null||!(completion?frame.usableCompletion():frame.usable())){gap=true;resetElectricalCandidate();return false;}
         if(frame.mono<startMono||frame.mono-startMono>MAX_SESSION_MS||samples>=MAX_SAMPLES||active.length()>=MAX_FILE_BYTES){stop(Stop.LIMIT);return false;}
         if(frame.voltage.mono<=lastElectricalMono)return false;
         lastFreshMono=frame.mono;
@@ -220,7 +224,7 @@ public final class ChargeSessionStore {
         // Current falling to zero at the cutoff is expected, unlike an upward electrical spike.
         if(completion&&lastPower!=null&&Math.abs(power)<=Math.abs(lastPower))spike=false;
         spike|=lastVoltage!=null&&Math.abs(frame.voltage.value-lastVoltage)>3;
-        if(spike){gap=true;return false;}
+        if(spike){gap=true;if(!confirmElectricalChange(frame,power))return false;}
         if(lastSoc!=null&&(frame.soc.value<lastSoc||frame.soc.value-lastSoc>1))gap=true;
         Double temperature=fresh(frame.temperature,frame.mono)&&between(frame.temperature.value,-40,100)?frame.temperature.value:null;
         Estimate saved=estimate==null?ChargingEstimate.recordingSnapshot(null):estimate;
@@ -229,13 +233,34 @@ public final class ChargeSessionStore {
                 +","+csv(saved.fullSource)+","+csv(saved.limitSource)+","+saved.learnedSessions+"\n";
         append(active,line);samples++;lastWriteMono=frame.mono;lastElectricalMono=frame.voltage.mono;
         lastSoc=frame.soc.value;lastPower=power;lastVoltage=frame.voltage.value;gap=false;
+        resetElectricalCandidate();
         return true;
     }
+    /** An isolated spike stays excluded, but a sustained new charging level must not latch
+     * against the old sample forever. Require three compatible, independent measurements
+     * at the recording cadence, within 25% (or 25 W) and 1 V of the first candidate.
+     * Only the confirming real sample starts the new segment. */
+    private boolean confirmElectricalChange(Frame frame,double power){
+        if(candidateSamples>0&&(frame.mono<candidateMono||frame.mono-candidateMono>MAX_GAP_MS
+                ||frame.voltage.mono<candidateElectricalMono
+                ||Math.abs(power-candidatePower)>Math.max(25,Math.abs(candidatePower)*.25)
+                ||Math.abs(frame.voltage.value-candidateVoltage)>1))resetElectricalCandidate();
+        if(candidateSamples==0){
+            candidatePower=power;candidateVoltage=frame.voltage.value;candidateSamples=1;
+            candidateMono=frame.mono;candidateElectricalMono=frame.voltage.mono;
+            return false;
+        }
+        if(frame.voltage.mono==candidateElectricalMono||frame.mono-candidateMono<SAMPLE_INTERVAL_MS)return false;
+        candidateMono=frame.mono;candidateElectricalMono=frame.voltage.mono;
+        return ++candidateSamples>=3;
+    }
+    private void resetElectricalCandidate(){candidateSamples=0;candidateMono=candidateElectricalMono=0;}
     /** A new observed segment must not be compared with electrical values from before a loss. */
-    public synchronized void markGap(){gap=true;lastPower=lastVoltage=null;}
+    public synchronized void markGap(){gap=true;lastPower=lastVoltage=null;resetElectricalCandidate();}
     public synchronized void stop(Stop reason) throws IOException {
         if(active==null)return;
         File file=active;active=null;profile=null;charger=null;
+        resetElectricalCandidate();
         append(file,"end,"+reason.name()+"\n");
         if(!file.renameTo(new File(directory,file.getName().replace(".active",".csv"))))throw new IOException("Charge could not be finalized");
         prune();

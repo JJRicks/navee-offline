@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.5 — 2026-10-18
+
+- Recover charge recording after a sustained, valid change in charging power instead of repeatedly rejecting readings against an old baseline. Isolated spikes remain excluded; discarded readings stay marked as a gap.
+- Use one shared Y axis for estimated and observed finish times, and for estimated and actual countdowns. Keep both traces and their individual readouts without duplicate, clipped axis columns.
+- Preserve existing recordings and their genuine missing intervals; this update does not invent historical samples.
+
 ## 1.4.4 — 2026-10-18
 
 - Return default Reading tiles to Power, Temp and Health for compact screens. Existing saved dashboards keep their selected readings and layout.

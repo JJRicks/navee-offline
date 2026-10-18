@@ -1,3 +1,30 @@
+VOLT 1.4.5 — CHARGE RECORDING AND SHARED TIME AXES (versionCode 42)
+October 18, 2026
+
+- Reproduced a permanent spike-filter latch with unmodified prior source:
+  a low-power initial sample followed by fresh valid higher-power measurements
+  never resumed recording. The new regression fails on the old implementation.
+- All pure Java suites pass, including 175 recorder, 6,616 charge-chart,
+  91 ride-chart and 7,398 scale checks. A fresh independent reviewer also ran
+  the entire pure suite successfully. The 11 capture guards and 66 controller
+  tests pass; app and native runner build, sign and align.
+- Native charge-estimate/history validation passes 357 compact and 361 expanded
+  assertions. The new regression selects estimated and observed finish together,
+  verifies a single fully visible clock axis, preserves both traces, and checks
+  the observed-only toggle. Capture lifecycle validation passes 215 assertions
+  on each layout. Cases: 344x882 dp/dark/default text and
+  725x604 dp/light/140% system text, disposable emulator, Bluetooth disabled.
+- Two fresh independent internal reviews found no actionable functionality or
+  security issues. No new permissions, storage-format migration, network or
+  scooter-control changes. The static site build passes; only its displayed
+  release version changes.
+- Existing recordings retain original samples and gaps. Sustained change
+  confirmation records the real confirming sample after three compatible fresh
+  readings at 10-second spacing; it does not reconstruct discarded samples.
+  No new physical charging session is claimed. Final-main CI, retained-key
+  signing, downloaded assets and in-place phone installation are verified
+  separately during release publication.
+
 VOLT 1.4.4 — CAPACITY DEFAULT AND LOADING STATE (versionCode 41)
 October 18, 2026
 

@@ -88,6 +88,15 @@ public final class ChargeChartDataTest {
         check(connected(find(data, ChargeChartData.OBSERVED_COUNTDOWN), 1, 2), "Actual comparison survives missing terminal ETA");
         check(finish.min == find(data, ChargeChartData.OBSERVED_FINISH).min && finish.max == find(data, ChargeChartData.OBSERVED_FINISH).max, "Finish and actual comparison share a scale");
         check(countdown.min == find(data, ChargeChartData.OBSERVED_COUNTDOWN).min && countdown.max == find(data, ChargeChartData.OBSERVED_COUNTDOWN).max, "Countdown and actual comparison share a scale");
+        RideChartData.Series observedFinish = find(data, ChargeChartData.OBSERVED_FINISH);
+        RideChartData.Series observedCountdown = find(data, ChargeChartData.OBSERVED_COUNTDOWN);
+        List<RideChartData.Series> axes = RideChartData.axes(Arrays.asList(finish, observedFinish, countdown, observedCountdown));
+        check(axes.equals(Arrays.asList(finish, countdown)), "Estimated/observed pairs use one clock axis and one countdown axis");
+        check(RideChartData.axes(Arrays.asList(observedFinish)).equals(Arrays.asList(observedFinish)), "Observed finish keeps its axis when estimate is toggled off");
+        check(RideChartData.axes(Arrays.asList(finish)).equals(Arrays.asList(finish)), "Estimated finish keeps its axis when observed is toggled off");
+        for (double tick : new double[]{0, .25, .5, .75, 1}) near(finish.scale.at(tick), observedFinish.scale.at(tick), "Shared clock ticks match");
+        for (RideChartData.Value value : finish.values) if (value.value != null)
+            near(finish.scale.fraction(value.value), observedFinish.scale.fraction(value.value), "Same finish time has the same vertical coordinate");
 
         StringBuilder gaps = new StringBuilder();
         gaps.append(row(0, 50, -2, 20d, true, metadata("v1", 20d, 5d, 80d)));
@@ -121,6 +130,8 @@ public final class ChargeChartDataTest {
         check(!has(data, ChargeChartData.OBSERVED_FINISH), "Reconnect at 100 is not an observed completion");
         data = ChargeChartData.build(session("charge-v1", row(0, 99, -2, null, true, "") + row(10000, 100, 0, null, false, ""), "COMPLETE"), false);
         check(has(data, ChargeChartData.OBSERVED_FINISH) && !find(data, ChargeChartData.FINISH).available(), "Legacy witnessed completion compares actuals without inventing predictions");
+        check(RideChartData.axes(Arrays.asList(find(data, ChargeChartData.FINISH), find(data, ChargeChartData.OBSERVED_FINISH)))
+                .equals(Arrays.asList(find(data, ChargeChartData.OBSERVED_FINISH))), "Available observed data supplies labels when the estimate is unavailable");
         check(find(data, ChargeChartData.OBSERVED_FINISH).max - find(data, ChargeChartData.OBSERVED_FINISH).min >= 60000, "Constant clock trace gets at least a minute of viewing range");
 
         data = ChargeChartData.build(session("charge-v2", row(0, 50, -2, null, true, metadata("v1", Double.MAX_VALUE, Double.MAX_VALUE, 80d))

@@ -121,6 +121,22 @@ public final class RideChartData {
         }
         private int bound(double time,boolean after){int low=0,high=values.size();while(low<high){int middle=(low+high)>>>1;long value=values.get(middle).time;if(value<time||(after&&value==time))low=middle+1;else high=middle;}return low;}
     }
+    /** One axis for each deliberately shared scale. Equal bounds alone do not imply that
+     * different readings are comparable; callers opt in by reusing the same Range object. */
+    public static List<Series> axes(List<Series> selected) {
+        List<Series> axes = new ArrayList<>();
+        for (Series candidate : selected) {
+            int shared = -1;
+            for (int i = 0; i < axes.size(); i++) if (sharesAxis(axes.get(i), candidate)) { shared = i; break; }
+            if (shared < 0) axes.add(candidate);
+            // A missing estimate must not turn an available observed-completion axis into dashes.
+            else if (!axes.get(shared).available() && candidate.available()) axes.set(shared, candidate);
+        }
+        return Collections.unmodifiableList(axes);
+    }
+    public static boolean sharesAxis(Series first, Series second) {
+        return first.scale == second.scale && first.unit.equals(second.unit);
+    }
     public static Set<String> defaults() { return new LinkedHashSet<String>(Arrays.asList("power_w", "speed_kmh")); }
     public static Double energyPerDistance(Double powerW, Double speedKmh, boolean miles) {
         // W / (km/h) = Wh/km. Near a stop the ratio is not useful and tends to infinity.

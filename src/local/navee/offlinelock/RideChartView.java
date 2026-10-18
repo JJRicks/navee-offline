@@ -24,7 +24,7 @@ public final class RideChartView extends View {
         @Override public String sample(RideChartData.Series series, RideChartData.Value value) { return sampleValue(series, value); }
     };
     private final Ui ui; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG);
-    private List<RideChartData.Series> series = Collections.emptyList();
+    private List<RideChartData.Series> series = Collections.emptyList(), axes = Collections.emptyList();
     private double duration = 1, from = 0, to = 1, inspectedTime = Double.NaN;
     private float lastX, downX, downY, axisScroll, axesWidth, multiX;
     private float axisWidthDp = 48;
@@ -99,28 +99,28 @@ public final class RideChartView extends View {
     }
     private float totalAxisWidth() {
         float total = 0;
-        for (RideChartData.Series selected : series) total += axisWidth(selected);
+        for (RideChartData.Series selected : axes) total += axisWidth(selected);
         return total;
     }
     private float axisColumnPosition() {
         float offset = 0;
-        for (int i = 0; i < series.size(); i++) {
-            float width = axisWidth(series.get(i));
+        for (int i = 0; i < axes.size(); i++) {
+            float width = axisWidth(axes.get(i));
             if (axisScroll <= offset + width) return i + (axisScroll - offset) / width;
             offset += width;
         }
-        return series.size();
+        return axes.size();
     }
     private void restoreAxisColumnPosition(float position) {
         float offset = 0;
-        for (int i = 0; i < series.size() && i < position; i++)
-            offset += axisWidth(series.get(i)) * Math.min(1, position - i);
+        for (int i = 0; i < axes.size() && i < position; i++)
+            offset += axisWidth(axes.get(i)) * Math.min(1, position - i);
         axisScroll = offset;
     }
     private void snapAxisScroll() {
         float limit = Math.max(0, totalAxisWidth() - axesWidth);
         float closest = 0, distance = Math.abs(axisScroll), offset = 0;
-        for (RideChartData.Series selected : series) {
+        for (RideChartData.Series selected : axes) {
             offset += axisWidth(selected);
             float candidate = Math.min(limit, offset), delta = Math.abs(candidate - axisScroll);
             if (delta < distance) { closest = candidate; distance = delta; }
@@ -147,6 +147,7 @@ public final class RideChartView extends View {
     public void set(List<RideChartData.Series> all, Set<String> selected) {
         series = new ArrayList<>(); double end = 1;
         for (RideChartData.Series s : all) { end = Math.max(end, s.endTime); if (selected.contains(s.key)) series.add(s); }
+        axes = RideChartData.axes(series);
         boolean reset = duration <= 1; duration = end; if (reset) { from = 0; to = duration; } else clamp();
         // Start the cursor on the last recorded sample so the readout always shows values.
         if (!Double.isFinite(inspectedTime)) inspectedTime = lastSampleTime();
@@ -242,7 +243,7 @@ public final class RideChartView extends View {
         super.onDraw(canvas);
         float totalWidth = 0, widest = 0, completeWidth = 0;
         float budget = Math.min(ui.dp(144), getWidth() * .34f);
-        for (RideChartData.Series selected : series) {
+        for (RideChartData.Series selected : axes) {
             float width = axisWidth(selected);
             totalWidth += width; widest = Math.max(widest, width);
             if (totalWidth <= budget) completeWidth = totalWidth;
@@ -271,11 +272,13 @@ public final class RideChartView extends View {
         if (series.isEmpty()) { canvas.drawText("Choose readings above", plot.centerX(), plot.centerY(), paint); return; }
         drawHatches(canvas);
         float axisEnd = 0, axisTextSize = paint.getTextSize();
-        for (int i = 0; i < series.size(); i++) {
-            RideChartData.Series s = series.get(i);
+        for (RideChartData.Series s : axes) {
             float width = axisWidth(s); axisEnd += width;
             float x = ui.dp(8) + axisEnd - ui.dp(6) - axisScroll;
-            int color = ui.dark ? s.color : darken(s.color); paint.setColor(color); paint.setTextAlign(Paint.Align.RIGHT);
+            boolean shared = false;
+            for (RideChartData.Series other : series) if (other != s && RideChartData.sharesAxis(s, other)) { shared = true; break; }
+            // A shared scale belongs to both colored traces, rather than favoring either one.
+            paint.setColor(shared ? ui.muted : ui.dark ? s.color : darken(s.color)); paint.setTextAlign(Paint.Align.RIGHT);
             paint.setTextSize(axisTextSize);
             String[] labels = new String[5]; float textWidth = paint.measureText(s.unit);
             for (int tick = 0; tick < labels.length; tick++) {
@@ -290,6 +293,9 @@ public final class RideChartView extends View {
             for (int tick = 0; tick < labels.length; tick++) canvas.drawText(labels[tick], x, plot.top + plot.height() * tick / 4 + ui.dp(4), paint);
             paint.setStrokeWidth(ui.dp(1)); canvas.drawLine(x + ui.dp(3), plot.top, x + ui.dp(3), plot.bottom, paint);
             canvas.restore(); paint.setTextSize(axisTextSize);
+        }
+        for (RideChartData.Series s : series) {
+            paint.setColor(ui.dark ? s.color : darken(s.color));
             canvas.save(); canvas.clipRect(plot); paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(ui.dp(2));
             paint.setPathEffect(s.index % 3 == 0 ? null : new DashPathEffect(new float[]{ui.dp(s.index % 3 == 1 ? 7 : 2), ui.dp(3)}, 0));
             Path path = new Path();
