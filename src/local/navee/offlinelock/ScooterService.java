@@ -685,7 +685,7 @@ public final class ScooterService extends Service {
             PendingIntent open=PendingIntent.getActivity(this,2,new Intent(this,MainActivity.class),PendingIntent.FLAG_UPDATE_CURRENT|PendingIntent.FLAG_IMMUTABLE);
             RideStore.Summary ride=null;try{ride=rides.get(id);}catch(IOException ignored){}
             String text=ride==null||ride.label.isEmpty()?"Bluetooth lost while parked":ride.label+" · Bluetooth lost while parked";
-            getSystemService(NotificationManager.class).notify(AUTO_STOP_NOTICE,new Notification.Builder(this,"scooter").setSmallIcon(R.drawable.ic_lock)
+            getSystemService(NotificationManager.class).notify(AUTO_STOP_NOTICE,new Notification.Builder(this,"scooter").setSmallIcon(R.drawable.ic_volt_notification)
                     .setContentTitle("Ride saved automatically").setContentText(text).setStyle(new Notification.BigTextStyle().bigText(text)).setContentIntent(open).setAutoCancel(true)
                     .setCategory(Notification.CATEGORY_STATUS).setVisibility(Notification.VISIBILITY_PRIVATE).build());
         }catch(RuntimeException unavailable){}
@@ -936,7 +936,7 @@ public final class ScooterService extends Service {
         settings.edit().putString("range_source_" + activeProfileId(), enabled ? "learned" : "scooter").apply();
         changed();
     }
-    /** Only Home substitutes the selected forecast; Live Stats and stored telemetry stay raw. */
+    /** Current forecast for glanceable UI. Recorded charts and explicit scooter readings stay raw. */
     public Map<String, TelemetryHistory.Reading> dashboardReadings() {
         Map<String, TelemetryHistory.Reading> raw = displayReadings();
         if (!usesLearnedRange() || simulating()) return raw;
@@ -1350,7 +1350,7 @@ public final class ScooterService extends Service {
         }
         Notification.Builder builder =
                 new Notification.Builder(this, "scooter")
-                        .setSmallIcon(R.drawable.ic_lock)
+                        .setSmallIcon(R.drawable.ic_volt_notification)
                         .setContentTitle(title)
                         .setContentText(text)
                         .setContentIntent(content)

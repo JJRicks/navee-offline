@@ -178,13 +178,16 @@ public final class UiOrganizationValidation extends Instrumentation {
             verifyMapSources(map);
             reveal(map);
             main(() -> {
-                // The last point is preselected; the tap must move the selection to the tapped point.
-                int last = ((java.util.List<?>)field(map, "points")).size() - 1;
+                require(((Number)field(map, "selected")).intValue() == -1, "Route readings should wait for a deliberate line tap");
+                java.util.List<?> route = (java.util.List<?>)field(map, "points");
+                PhoneRideStore.Point point = (PhoneRideStore.Point)route.get(route.size() / 2);
+                float x = ((Number)invoke(map, "screenX", new Class<?>[]{PhoneRideStore.Point.class}, point)).floatValue();
+                float y = ((Number)invoke(map, "screenY", new Class<?>[]{PhoneRideStore.Point.class}, point)).floatValue();
                 long now = SystemClock.uptimeMillis();
-                MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, map.getWidth() / 2f, map.getHeight() / 2f, 0);
-                MotionEvent up = MotionEvent.obtain(now, now + 25, MotionEvent.ACTION_UP, map.getWidth() / 2f, map.getHeight() / 2f, 0);
+                MotionEvent down = MotionEvent.obtain(now, now, MotionEvent.ACTION_DOWN, x, y, 0);
+                MotionEvent up = MotionEvent.obtain(now, now + 25, MotionEvent.ACTION_UP, x, y, 0);
                 try { map.dispatchTouchEvent(down); map.dispatchTouchEvent(up); } finally { down.recycle(); up.recycle(); }
-                require(((Number)field(map, "selected")).intValue() != last, "Tapping the route did not select the tapped point");
+                require(((Number)field(map, "selected")).intValue() >= 0, "Tapping the route did not select the tapped point");
                 View power = findReadout(dialogRoot, "Power, ");
                 require(power != null && !"Power, not measured".contentEquals(power.getContentDescription()),
                         "Tapping the route did not expose synchronized readings");

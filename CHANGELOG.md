@@ -1,5 +1,14 @@
 # Changelog
 
+## 1.4.2 — 2026-10-18
+
+- Make switches clearer in both states, with solid Volt red for On and a brighter grey for Off.
+- Align Quick access and Setting tiles fill, ripple and clipping corners across screen sizes.
+- Inspect ride-map readings only near the route; tap elsewhere to dismiss them.
+- Use a transparent lightning bolt for Android notification icons.
+- Apply the selected range estimate consistently across current-value widgets and the Stats summary; identify stored scooter range separately.
+- Show battery percentage consumed in each ride's overview.
+
 ## 1.4.1 — 2026-10-18
 
 - Keep folded and unfolded dashboard positions and sizes independent, including when both use the same column count. Preserve both layouts in saved slots, exports, backups and Undo/Redo.

@@ -395,13 +395,36 @@ public final class Ui {
         if (!enabled || value == null) heading.setTextColor(muted);
         return row;
     }
-    /** Red track with a white thumb when on; a dark track with a grey thumb when off. */
+    /** Opaque tracks keep both states legible, independent of OEM switch artwork and its alpha. */
     public void styleSwitch(Switch toggle) {
+        GradientDrawable track = shape(Color.WHITE, 15, 0);
+        track.setSize(dp(56), dp(30));
+        // Draw the thumb's breathing room without InsetDrawable optical insets: native
+        // Switch subtracts those from the track too, leaving its thumb outside the ends.
+        GradientDrawable thumb = new GradientDrawable() {
+            @Override public void draw(Canvas canvas) {
+                Rect bounds = getBounds();
+                if (bounds.width() <= dp(4) || bounds.height() <= dp(6)) return;
+                int save = canvas.save();
+                canvas.scale((bounds.width() - dp(4)) / (float) bounds.width(),
+                        (bounds.height() - dp(6)) / (float) bounds.height(), bounds.exactCenterX(), bounds.exactCenterY());
+                super.draw(canvas); canvas.restoreToCount(save);
+            }
+        };
+        thumb.setColor(Color.WHITE); thumb.setCornerRadius(dp(15)); thumb.setSize(dp(28), dp(30));
+        toggle.setTrackDrawable(track);
+        toggle.setThumbDrawable(thumb);
+        toggle.setShowText(false);
+        toggle.setSwitchMinWidth(dp(56));
+        toggle.setSplitTrack(false);
         toggle.setThumbTintList(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled},
-                new int[] {android.R.attr.state_checked}, new int[] {}}, new int[] {dim, Color.WHITE, muted}));
+                new int[] {}}, new int[] {dark ? Color.parseColor("#AEB0A8") : Color.WHITE, Color.WHITE}));
         toggle.setTrackTintList(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled},
-                new int[] {android.R.attr.state_checked}, new int[] {}}, new int[] {raised, accent, raised}));
-        if (Build.VERSION.SDK_INT >= 29) toggle.setTrackTintMode(android.graphics.PorterDuff.Mode.SRC_IN);
+                new int[] {android.R.attr.state_checked}, new int[] {}}, new int[] {
+                Color.parseColor(dark ? "#4F514C" : "#BFC1B9"), accent,
+                Color.parseColor(dark ? "#777A74" : "#73766F")}));
+        toggle.setThumbTintMode(android.graphics.PorterDuff.Mode.SRC_IN);
+        toggle.setTrackTintMode(android.graphics.PorterDuff.Mode.SRC_IN);
     }
     /** Quiet, aligned navigation row. Child 1 is the value text for live updates. */
     public LinearLayout settingRow(String label, String value, Runnable action) {

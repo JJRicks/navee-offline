@@ -59,6 +59,7 @@ public final class LearnedRangeValidation extends Instrumentation {
                 service.setSimulation(false);
             });
             require(estimate().rides==3,"Simulation exit lost genuine rides");
+            currentRangeUi();
             service.rides.delete(c);main(()->service.invalidateCapacityEstimate());
             require(estimate().fullRangeKm==null,"Deleting a ride left learned evidence active");
             main(()->require(service.dashboardReadings().get("remaining_range_km").number==30,"Insufficient history did not fall back"));
@@ -68,6 +69,69 @@ public final class LearnedRangeValidation extends Instrumentation {
             result.putString("result","PASS");
         } catch(Throwable error) { result.putString("result","FAIL");result.putString("error",error.toString());error.printStackTrace(); }
         finally {result.putInt("assertions",checks);if(activity!=null)main(()->{activity.finish();getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});finish("PASS".equals(result.getString("result"))?0:1,result);}
+    }
+    /** Different reported/learned fixtures expose inconsistent consumers, including all unit choices. */
+    private void currentRangeUi() {
+        main(() -> {
+            invoke(activity,"select",new Class<?>[]{String.class},"home");
+            DashboardScreen dashboard=(DashboardScreen)field(activity,"screen");
+            DashboardConfig config=(DashboardConfig)field(dashboard,"config");
+            List<DashboardConfig.Widget> saved=new ArrayList<>(config.widgets);
+            String oldUnits=settings().getString("units","mi");
+            Set<String> oldFavourites=new LinkedHashSet<>(settings().getStringSet("stats_favourites",Collections.emptySet()));
+            try {
+                config.widgets.clear();
+                for(String type:new String[]{"scooter","battery","overview","metric","gauge","readings","tiles","live","history"}) {
+                    DashboardConfig.Widget widget=new DashboardConfig.Widget(type);
+                    widget.metric="remaining_range_km";widget.keys.clear();widget.keys.add("remaining_range_km");config.widgets.add(widget);
+                }
+                invoke(dashboard,"render",new Class<?>[0]);
+                for(boolean learned:new boolean[]{false,true}) for(String units:new String[]{"km","mi","dual"}) {
+                    settings().edit().putString("units",units).putStringSet("stats_favourites",new LinkedHashSet<>(Arrays.asList("remaining_range_km"))).commit();
+                    service.useLearnedRange(learned);dashboard.refresh();
+                    double km=learned?11:30;
+                    String precise=DisplayUnits.metricText(String.format(Locale.US,"%.2f km",km),units);
+                    String roundedKm=Math.round(km)+" km",roundedMi=Math.round(km/RideStore.KM_PER_MILE)+" mi";
+                    String rounded=units.equals("km")?roundedKm:units.equals("dual")?roundedMi+" / "+roundedKm:roundedMi;
+                    for(Object tile:(List<?>)field(dashboard,"tiles")) {
+                        DashboardConfig.Widget widget=(DashboardConfig.Widget)field(tile,"widget");
+                        if(Arrays.asList("scooter","readings","tiles").contains(widget.type)) {
+                            TextView value=(TextView)((Map<?,?>)field(tile,"amounts")).get("remaining_range_km");
+                            require(value.getText().toString().equals(precise),widget.type+" ignored source/units: "+value.getText());
+                            require(value.getContentDescription().toString().startsWith("Estimated remaining range"),"Current range incorrectly claims scooter-only source");
+                        } else if(widget.type.equals("metric"))
+                            require(((TextView)field(tile,"big")).getText().toString().equals(precise),"Single-reading range ignored source/units");
+                        else if(widget.type.equals("gauge")) {
+                            Object gauge=field(tile,"gauge");TelemetryHistory.Reading reading=(TelemetryHistory.Reading)field(gauge,"reading");
+                            require(Math.abs(reading.number-km)<.001&&((View)gauge).getContentDescription().toString().contains(precise),"Gauge range ignored source/units");
+                        } else if(widget.type.equals("battery"))
+                            require(field(field(tile,"battery"),"detail").equals("about "+rounded),"Battery range ignored source/units");
+                        else if(widget.type.equals("overview"))
+                            require(((TextView)field(field(tile,"overview"),"range")).getText().toString().equals("about "+rounded+" left"),"Overview range ignored source/units");
+                        else {
+                            require(((TextView)field(tile,"subtitle")).getContentDescription().toString().startsWith("Scooter's estimated remaining range"),"Recorded range chart lost source label");
+                        }
+                    }
+                    StatsScreen stats=new StatsScreen(activity);
+                    try {
+                        stats.refresh();
+                        require(((TextView)field(stats,"batteryHeadline")).getText().toString().equals("≈ "+rounded+" left"),"Stats overview ignored source/units");
+                        Object favourite=((Map<?,?>)field(stats,"favouriteRows")).get("remaining_range_km");
+                        require(((TextView)field(favourite,"name")).getText().toString().equals("Scooter range"),"Raw favourite must identify its source");
+                        invoke(stats,"selectSection",new Class<?>[]{String.class},"Readings");stats.refresh();
+                        Object row=((Map<?,?>)field(stats,"rows")).get("remaining_range_km");
+                        require(((TextView)field(row,"name")).getText().toString().equals("Scooter range"),"Raw reading must identify its source");
+                        String reported=((TextView)field(row,"amount")).getText().toString();
+                        require(reported.contains(units.equals("km")?"30 km":"18.64 mi"),"Raw scooter reading was replaced by learned range");
+                        require(invoke(field(stats,"chartBrowser"),"label",new Class<?>[]{String.class},"remaining_range_km").equals("Scooter range"),"Stored chart must identify its source");
+                    } finally {stats.close();settings().edit().putString("stats_section","Overview").commit();}
+                    require(service.displayReadings().get("remaining_range_km").number==30,"UI preference changed recorded source data");
+                }
+            } finally {
+                settings().edit().putString("units",oldUnits).putStringSet("stats_favourites",oldFavourites).putString("stats_section","Overview").commit();
+                service.useLearnedRange(true);config.widgets.clear();config.widgets.addAll(saved);invoke(dashboard,"render",new Class<?>[0]);
+            }
+        });
     }
     private void pickerUi() throws Exception {
         main(()->{

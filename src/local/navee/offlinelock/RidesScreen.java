@@ -30,6 +30,7 @@ import android.text.style.ForegroundColorSpan;
 import android.text.style.MetricAffectingSpan;
 import android.util.TypedValue;
 import android.view.Gravity;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.ViewGroup;
 import android.view.Window;
@@ -114,7 +115,7 @@ public final class RidesScreen implements AppScreen {
         selectedRide = preferences.getString("ride_selected", "");
         // Same trigger as the activity's side rail, so two panes appear exactly when the rail does.
         wide = host.activity().getResources().getConfiguration().screenWidthDp >= 650;
-        scroll = new ScrollView(host.activity()); scroll.setFillViewport(true); scroll.setClipToPadding(false);
+        scroll = new MapTouchScroll(); scroll.setFillViewport(true); scroll.setClipToPadding(false);
         page = vertical(); page.setPadding(wide ? 0 : ui.dp(18), ui.dp(6), wide ? 0 : ui.dp(18), ui.dp(24)); scroll.addView(page);
 
         // Live recording: red-tinted card with elapsed time, three stats, quality, chart and Notes / End.
@@ -642,7 +643,7 @@ public final class RidesScreen implements AppScreen {
     private void showDetails(String id) {
         try {
             RideStore.Summary ride = service.rides.get(id); if (ride == null) { host.toast("This recording is unavailable."); return; }
-            ScrollView scroller = new ScrollView(host.activity()); LinearLayout body = vertical();
+            ScrollView scroller = new MapTouchScroll(); LinearLayout body = vertical();
             body.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(20)); scroller.addView(body);
             AlertDialog[] holder = new AlertDialog[1];
             buildOverview(body, ride, () -> { if (holder[0] != null) holder[0].dismiss(); });
@@ -688,8 +689,12 @@ public final class RidesScreen implements AppScreen {
                 "Avg speed", speed(ride.averageSpeedKmh), "Max speed", speed(ride.maximumSpeedKmh)});
         if (ride.odometerReset) reasonOnTap(journey.get(0), "Odometer reset");
         body.addView(ui.sectionLabel("Battery & energy"));
-        List<View> energy = tiles(body, new String[]{"Battery %", battery(ride), "Per distance", efficiency(ride),
+        boolean batteryGain = ride.batteryDropPercent != null && ride.batteryDropPercent < 0;
+        List<View> energy = tiles(body, new String[]{batteryGain ? "Battery gain" : "Battery drop", battery(ride), "Per distance", efficiency(ride),
                 "Throughput", quantity(ride.measuredThroughputWh, "Wh", 2), "Power coverage", percent(ride.electricalCoverage)});
+        if (ride.batteryDropPercent != null && Double.isFinite(ride.batteryDropPercent))
+            energy.get(0).setContentDescription((batteryGain ? "Battery gain, " : "Battery drop, ")
+                    + Math.round(Math.abs(ride.batteryDropPercent)) + " percentage points");
         reasonOnTap(energy.get(1), efficiencyReason(ride));
         LinearLayout phone = vertical(); body.addView(phone);
         detailSections(body, ride.id, ride, measured, afterDelete);
@@ -1091,9 +1096,8 @@ public final class RidesScreen implements AppScreen {
         parent.addView(card);
     }
     private String battery(RideStore.Summary s) {
-        if (s.startBatteryPercent != null && s.endBatteryPercent != null)
-            return String.format(Locale.US, "%.0f→%.0f %%", s.startBatteryPercent, s.endBatteryPercent);
-        return change(s.batteryDropPercent);
+        return s.batteryDropPercent == null || !Double.isFinite(s.batteryDropPercent) ? "Not measured"
+                : Math.round(Math.abs(s.batteryDropPercent)) + "%";
     }
     private void note(LinearLayout parent, String text) {
         TextView caption = ui.caption(text); caption.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(10)); parent.addView(caption);
@@ -1221,7 +1225,7 @@ public final class RidesScreen implements AppScreen {
         String rideName = "Phone sensors";
         try { RideStore.Summary summary = service.rides == null ? null : service.rides.get(track.id); if (summary != null && !summary.label.isEmpty()) rideName = summary.label; }
         catch (IOException | RuntimeException ignored) { }
-        ScrollView scroller = new ScrollView(host.activity()); LinearLayout outer = vertical(); scroller.addView(outer);
+        ScrollView scroller = new MapTouchScroll(); LinearLayout outer = vertical(); scroller.addView(outer);
         LinearLayout content = vertical(); content.setPadding(ui.dp(16), ui.dp(4), ui.dp(16), ui.dp(16)); outer.addView(content);
         PhoneRide ride = phoneRide(track, content, content, false);
         outer.addView(ride.frame, 0, new LinearLayout.LayoutParams(-1, ui.dp(340)));
@@ -1264,8 +1268,9 @@ public final class RidesScreen implements AppScreen {
     private static final String[] ROUTE_METRICS = {"power", "speed", "grade", "accel", "elevation"};
     /** Shared controls keep power, speed, grade, acceleration, selection and basemap attribution in both views. */
     private PhoneRide mapPanel(PhoneRideStore.Track track, LinearLayout top, boolean inline, boolean full) {
-        // Label-over-value cells like the chart's readout; the last point starts selected so they always show values.
-        Flow selection = new Flow(); selection.setPadding(0, ui.dp(2), 0, ui.dp(10));
+        // Readings appear only after a route hit, and leave no empty row when inspection is dismissed.
+        Flow selection = new Flow(); selection.setPadding(0, ui.dp(2), 0, ui.dp(10)); selection.setVisibility(View.GONE);
+        selection.setContentDescription("Selected route measurements");
         MapSource source = MapSource.load(preferences);
         RouteMapView map = new RouteMapView(ui, track, source.url, p -> pointReadout(selection, p));
         if (full) map.setMinimumHeight(0);
@@ -1297,7 +1302,6 @@ public final class RidesScreen implements AppScreen {
         if (!track.points.isEmpty()) {
             LinearLayout.LayoutParams colorParams = new LinearLayout.LayoutParams(-1, -2); colorParams.topMargin = ui.dp(6);
             top.addView(colors, colorParams); top.addView(legend); top.addView(selection);
-            map.selectLast();
         }
         PhoneRide ride = new PhoneRide(mapFrame, map, colors, legend, track);
         LinearLayout controls = vertical();
@@ -1338,7 +1342,7 @@ public final class RidesScreen implements AppScreen {
         LinearLayout controls = vertical(); controls.setPadding(ui.dp(12), 0, ui.dp(12), ui.dp(8));
         ScrollView controlScroll = new ScrollView(host.activity()); controlScroll.addView(controls);
         controlScroll.setContentDescription("Route map readings and colors");
-        LinearLayout body = new LinearLayout(host.activity()) {
+        LinearLayout body = new MapTouchColumn() {
             @Override protected void onMeasure(int widthSpec, int heightSpec) {
                 // The map keeps most of the display even with large text or a landscape window.
                 int available = MeasureSpec.getSize(heightSpec);
@@ -1389,11 +1393,12 @@ public final class RidesScreen implements AppScreen {
     }
     /** Route point readings as label-over-value cells; "—" where a reading was not measured. */
     private void pointReadout(Flow readout, PhoneRideStore.Point p) {
+        readout.removeAllViews(); readout.setVisibility(p == null ? View.GONE : View.VISIBLE);
+        if (p == null) return;
         String gps = p.speedMps == null ? "—" : speed(p.speedMps * 3.6);
         String[] cells = {"Time", duration(p.elapsedMs), "GPS", gps, "Scooter", p.scooterSpeedKmh == null ? "—" : speed(p.scooterSpeedKmh), "Power", dash(quantity(p.powerW, "W", 0)), "Battery", dash(quantity(p.batteryPercent, "%", 0)),
                 "Grade", p.gradePercent == null ? "—" : String.format(Locale.US, "≈%+.1f%%", p.gradePercent),
                 "GPS accel", accel(p.gpsAccelerationMps2), "Scooter accel", accel(p.scooterAccelerationMps2)};
-        readout.removeAllViews();
         for (int i = 0; i < cells.length; i += 2) {
             LinearLayout cell = vertical(); cell.setMinimumWidth(ui.dp(96)); cell.setPadding(ui.dp(4), ui.dp(4), ui.dp(8), ui.dp(4));
             TextView label = ui.caption(cells[i]); label.setSingleLine(true); cell.addView(label);
@@ -1895,12 +1900,54 @@ public final class RidesScreen implements AppScreen {
             canvas.drawPath(path, paint);
         }
     }
+    /** Observe without intercepting: buttons, page scrolling and map gestures keep their normal targets. */
+    private void dismissOutsideMap(View scope, MotionEvent event) {
+        Rect visible = new Rect(); int[] windowOffset = new int[2];
+        scope.getRootView().getLocationOnScreen(windowOffset);
+        for (RouteMapView map : maps) {
+            if (!map.isAttachedToWindow() || !java.util.Objects.equals(map.getWindowToken(), scope.getWindowToken())) continue;
+            boolean shown = map.getGlobalVisibleRect(visible);
+            visible.offset(windowOffset[0], windowOffset[1]);
+            if (!shown || !visible.contains((int) event.getRawX(), (int) event.getRawY())) map.clearSelection();
+        }
+    }
+    private final class MapOutsideTap {
+        private float downX, downY; private boolean tap;
+        boolean completes(MotionEvent event) {
+            int action = event.getActionMasked();
+            if (action == MotionEvent.ACTION_DOWN) { downX = event.getRawX(); downY = event.getRawY(); tap = true; }
+            else if (action == MotionEvent.ACTION_POINTER_DOWN || action == MotionEvent.ACTION_CANCEL) tap = false;
+            else if (Math.hypot(event.getRawX() - downX, event.getRawY() - downY)
+                    > android.view.ViewConfiguration.get(host.activity()).getScaledTouchSlop()) tap = false;
+            if (action != MotionEvent.ACTION_UP) return false;
+            boolean completed = tap; tap = false; return completed;
+        }
+    }
+    private class MapTouchScroll extends ScrollView {
+        private final MapOutsideTap mapTap = new MapOutsideTap();
+        MapTouchScroll() { super(host.activity()); }
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            boolean clear = mapTap.completes(event), handled = super.dispatchTouchEvent(event);
+            // Collapse readouts only after the tapped button has received its complete gesture.
+            if (clear) dismissOutsideMap(this, event); return handled;
+        }
+    }
+    private class MapTouchColumn extends LinearLayout {
+        private final MapOutsideTap mapTap = new MapOutsideTap();
+        MapTouchColumn() { super(host.activity()); }
+        @Override public boolean dispatchTouchEvent(MotionEvent event) {
+            boolean clear = mapTap.completes(event), handled = super.dispatchTouchEvent(event);
+            if (clear) dismissOutsideMap(this, event); return handled;
+        }
+        // Keep the down/up pair for blank space such as the fullscreen heading; children still get first refusal.
+        @Override public boolean onTouchEvent(MotionEvent event) { return true; }
+    }
     /**
      * Wide layout root. It is a ScrollView so the activity does not wrap the page in another scroller, but it
      * never scrolls itself: it gives the two panes exactly its own size and each pane scrolls independently.
      */
-    private final class PaneHost extends ScrollView {
-        PaneHost() { super(host.activity()); setVerticalScrollBarEnabled(false); setOverScrollMode(OVER_SCROLL_NEVER); }
+    private final class PaneHost extends MapTouchScroll {
+        PaneHost() { super(); setVerticalScrollBarEnabled(false); setOverScrollMode(OVER_SCROLL_NEVER); }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
             int width = MeasureSpec.getSize(widthSpec), height = MeasureSpec.getSize(heightSpec);
             if (MeasureSpec.getMode(heightSpec) == MeasureSpec.UNSPECIFIED) { super.onMeasure(widthSpec, heightSpec); return; }
@@ -1910,7 +1957,7 @@ public final class RidesScreen implements AppScreen {
                     MeasureSpec.makeMeasureSpec(Math.max(0, height - getPaddingTop() - getPaddingBottom()), MeasureSpec.EXACTLY));
         }
         @Override public boolean onInterceptTouchEvent(android.view.MotionEvent event) { return false; }
-        @Override public boolean onTouchEvent(android.view.MotionEvent event) { return false; }
+        @Override public boolean onTouchEvent(android.view.MotionEvent event) { return true; }
     }
     /** List (about 45%) and detail side by side, 20dp apart; on a vertical hinge the gap covers the hinge instead. */
     private final class Panes extends LinearLayout {
