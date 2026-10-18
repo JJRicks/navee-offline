@@ -12,6 +12,10 @@ import urllib.parse
 import controller as ci
 
 
+def first_worker(controller):
+    return next(iter(controller.state["workers"]), None)
+
+
 def run_record(run_id=10, attempt=1):
     repo = {"id": 123, "full_name": ci.REPOSITORY}
     return {"id": run_id, "run_attempt": attempt, "repository": repo,
@@ -39,6 +43,7 @@ class FakeGithub:
         self.fail_delete = False
         self.fail_register = False
         self.register_despite_error = False
+        self.next_runner_id = 300
         self.page_size = 100
         self.run_get_hook = None
 
@@ -87,7 +92,8 @@ class FakeGithub:
             raise AssertionError(path)
         if self.fail_register and not self.register_despite_error:
             raise ci.ApiError("github", "POST", path, 503)
-        runner = {"id": 300 + len(self.runners), "name": body["name"]}
+        runner = {"id": self.next_runner_id, "name": body["name"]}
+        self.next_runner_id += 1
         self.runners[runner["id"]] = runner
         if self.fail_register:
             raise ci.ApiError("github", "POST", path)
@@ -230,7 +236,7 @@ class ControllerTests(unittest.TestCase):
             "ssh_key_id": 3, "allowed_actors": {"jjricks", "ollies5"}, "poll_seconds": 20,
             "max_lifetime_seconds": 1800, "max_attempts_per_job": 2, "cooldown_seconds": 60,
             "startup_timeout_seconds": 600, "allow_public_repository": False, "runner_arch": "ARM64",
-            "max_launches_per_hour": 12, "max_launches_per_day": 60}
+            "max_launches_per_hour": 12, "max_launches_per_day": 60, "max_workers": 1}
         self.gh, self.cloud, self.worker = FakeGithub(), FakeCloud(), FakeWorker()
         self.now = 1000
         self.store = ci.Store(self.temp.name)
@@ -242,12 +248,12 @@ class ControllerTests(unittest.TestCase):
     def launch(self, jobs=None):
         self.gh.queued(jobs=jobs)
         self.controller.tick()
-        self.assertEqual(self.controller.state["active"]["phase"], "booting")
+        self.assertEqual(first_worker(self.controller)["phase"], "booting")
 
     def running(self, jobs=None):
         self.launch(jobs)
         self.controller.tick()
-        self.assertEqual(self.controller.state["active"]["phase"], "running")
+        self.assertEqual(first_worker(self.controller)["phase"], "running")
 
     def posts(self):
         return [call for call in self.cloud.calls if call[0] == "POST"]
@@ -255,12 +261,12 @@ class ControllerTests(unittest.TestCase):
     def test_no_queue_costs_nothing(self):
         self.controller.tick()
         self.assertFalse(self.posts())
-        self.assertIsNone(self.controller.state["active"])
+        self.assertIsNone(first_worker(self.controller))
         self.assertFalse(self.worker.prepared)
 
     def test_full_job_then_delete_keeps_clean_image(self):
         self.running()
-        active = self.controller.state["active"]
+        active = first_worker(self.controller)
         self.assertEqual(len(self.posts()), 1)
         payload = self.posts()[0][2]
         self.assertEqual(payload["image"], 1)
@@ -271,7 +277,7 @@ class ControllerTests(unittest.TestCase):
         self.controller.tick()
         self.assertFalse(self.cloud.servers)
         self.controller.tick()
-        self.assertIsNone(self.controller.state["active"])
+        self.assertIsNone(first_worker(self.controller))
         self.assertFalse(self.cloud.ips)
         self.assertFalse(self.gh.runners)
         self.assertFalse(any(call[0] != "GET" and "images" in call[1] for call in self.cloud.calls))
@@ -282,7 +288,7 @@ class ControllerTests(unittest.TestCase):
         core, web = job_record(100), job_record(101, name="web-setup")
         self.controller.state["attempts"]["10:1:100"] = 2
         self.running([core, web])
-        active = self.controller.state["active"]
+        active = first_worker(self.controller)
         self.assertEqual(active["job_id"], 101)
         registration = next(call[2] for call in self.gh.calls if call[0] == "POST")
         runner_labels = set(registration["labels"])
@@ -301,12 +307,12 @@ class ControllerTests(unittest.TestCase):
         self.controller.tick()
         self.now += 61
         self.controller.tick()
-        self.assertIsNone(self.controller.state["active"])
+        self.assertIsNone(first_worker(self.controller))
         self.assertEqual(len(self.posts()), 1)
 
     def test_unexpected_assignment_deletes_without_refunding_budget(self):
         self.running([job_record(100), job_record(101, name="web-setup")])
-        active = self.controller.state["active"]
+        active = first_worker(self.controller)
         self.gh.job_lists[(10, 1)][1].update(status="in_progress", runner_id=active["runner_id"])
         self.controller.tick()
         self.assertFalse(self.cloud.servers)
@@ -459,10 +465,10 @@ class ControllerTests(unittest.TestCase):
         self.cloud.create_despite_error = True
         self.gh.queued()
         self.controller.tick()
-        self.assertEqual(self.controller.state["active"]["phase"], "creating")
+        self.assertEqual(first_worker(self.controller)["phase"], "creating")
         self.controller = self.make_controller()
         self.controller.tick()
-        self.assertEqual(self.controller.state["active"]["phase"], "running")
+        self.assertEqual(first_worker(self.controller)["phase"], "running")
         self.assertEqual(len(self.posts()), 1)
 
     def test_unknown_create_without_server_does_not_retry_blindly(self):
@@ -476,7 +482,7 @@ class ControllerTests(unittest.TestCase):
         self.assertEqual(len(self.posts()), 1)
         self.now += 1800
         self.controller.tick()
-        self.assertIsNone(self.controller.state["active"])
+        self.assertIsNone(first_worker(self.controller))
         self.assertEqual(len(self.posts()), 1)
 
     def test_maximum_lifetime_still_deletes_when_github_auth_fails(self):
@@ -486,13 +492,13 @@ class ControllerTests(unittest.TestCase):
         self.now += 1801
         self.controller.tick()
         self.assertFalse(self.cloud.servers)
-        self.assertEqual(self.controller.state["active"]["phase"], "deleting")
+        self.assertEqual(first_worker(self.controller)["phase"], "deleting")
         self.controller.tick()
         self.assertFalse(self.cloud.ips)
         self.assertEqual(len(self.posts()), 1)
         self.gh.fail_delete = False
         self.controller.tick()
-        self.assertIsNone(self.controller.state["active"])
+        self.assertIsNone(first_worker(self.controller))
 
     def test_auth_failure_before_deadline_never_launches_more(self):
         self.running()
@@ -528,7 +534,7 @@ class ControllerTests(unittest.TestCase):
                     github.queued()
                     controller.tick()
                     controller.tick()
-                    active = controller.state["active"]
+                    active = first_worker(controller)
                     self.assertEqual(active["phase"], "running")
                     server_id = active["server_id"]
                     # An unrelated, owned orphan IP can also fail deletion.
@@ -548,7 +554,7 @@ class ControllerTests(unittest.TestCase):
                     self.assertIn(("DELETE", f"/servers/{server_id}"), cloud.calls)
                     self.assertFalse(github.runners)
                     controller.tick()
-                    self.assertIsNone(controller.state["active"])
+                    self.assertIsNone(first_worker(controller))
                     now[0] += 61
                     controller.tick()
                     self.assertEqual(sum(call[0] == "POST" for call in cloud.calls), 1)
@@ -599,7 +605,7 @@ class ControllerTests(unittest.TestCase):
 
     def test_interrupted_registration_restart_does_not_register_again(self):
         self.launch()
-        active = self.controller.state["active"]
+        active = first_worker(self.controller)
         active.update(phase="registering", registration_started=True)
         self.gh.runners[888] = {"id": 888, "name": active["name"]}
         self.gh.runners[999] = {"id": 999, "name": "unrelated-runner"}
@@ -635,13 +641,13 @@ class ControllerTests(unittest.TestCase):
         self.now += 1801
         with self.assertRaises(ci.ApiError):
             self.controller.tick()
-        self.assertEqual(self.controller.state["active"]["phase"], "deleting")
+        self.assertEqual(first_worker(self.controller)["phase"], "deleting")
         self.cloud.fail_delete = False
         self.controller = self.make_controller()
         self.controller.tick()
         self.assertFalse(self.cloud.servers)
         self.controller.tick()
-        self.assertIsNone(self.controller.state["active"])
+        self.assertIsNone(first_worker(self.controller))
 
     def test_exhausted_attempt_budget_and_cooldown(self):
         self.gh.queued()
@@ -665,7 +671,7 @@ class ControllerTests(unittest.TestCase):
         ignored["labels"] = ["ubuntu-latest"]
         self.gh.queued(run_record(), [ignored, job_record(101, name="web-setup")])
         self.controller.tick()
-        self.assertEqual(self.controller.state["active"]["job_id"], 101)
+        self.assertEqual(first_worker(self.controller)["job_id"], 101)
         self.assertTrue(any("page=2" in call[1] for call in self.gh.calls))
 
     def test_cloud_inventory_failure_never_creates(self):
@@ -766,9 +772,14 @@ class ControllerTests(unittest.TestCase):
         path = Path(self.temp.name) / "config.json"
         path.write_text(json.dumps(source))
         self.assertEqual(ci.load_config(path)["runner_arch"], "ARM64")
+        path.write_text(json.dumps({key: value for key, value in source.items() if key != "max_workers"}))
+        self.assertEqual(ci.load_config(path)["max_workers"], 1)
+        path.write_text(json.dumps({**source, "max_workers": 2}))
+        self.assertEqual(ci.load_config(path)["max_workers"], 2)
         for key, value in (("max_launches_per_hour", 13), ("max_launches_per_day", 61),
                            ("max_lifetime_seconds", 1801), ("max_attempts_per_job", 4),
                            ("repository", "another/repo"), ("runner_arch", "ARM32"),
+                           ("max_workers", 3), ("max_workers", 0), ("max_workers", True),
                            ("snapshot_id", True), ("state_dir", "relative/path")):
             with self.subTest(key=key):
                 path.write_text(json.dumps({**source, key: value}))
@@ -783,6 +794,237 @@ class ControllerTests(unittest.TestCase):
         self.assertIn(1500, self.cloud.ips)
 
 
+class ParallelControllerTests(unittest.TestCase):
+    setUp = ControllerTests.setUp
+    make_controller = ControllerTests.make_controller
+    posts = ControllerTests.posts
+
+    def queue_pair(self):
+        self.config["max_workers"] = 2
+        self.gh.queued(jobs=[job_record(100), job_record(101, name="web-setup")])
+
+    def test_two_jobs_start_together_and_return_to_zero(self):
+        self.queue_pair()
+        self.controller.tick()
+        self.assertEqual(len(self.cloud.servers), 2)
+        self.assertEqual({worker["job_id"] for worker in self.controller.state["workers"]}, {100, 101})
+        self.controller.tick()
+        self.assertEqual(len(self.worker.started), 2)
+        self.assertEqual({worker["phase"] for worker in self.controller.state["workers"]}, {"running"})
+        for job, worker in zip(self.gh.job_lists[(10, 1)], self.controller.state["workers"]):
+            job.update(status="completed", runner_id=worker["runner_id"])
+        self.controller.tick()
+        self.controller.tick()
+        self.assertEqual(self.controller.state["workers"], [])
+        self.assertFalse(self.cloud.servers)
+        self.assertFalse(self.cloud.ips)
+        self.assertFalse(self.gh.runners)
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual(len(set(self.worker.forgotten)), 2)
+
+    def test_active_job_is_not_duplicated_while_github_still_reports_queued(self):
+        self.config["max_workers"] = 2
+        self.gh.queued()
+        self.controller.tick()
+        self.controller = self.make_controller()
+        self.controller.tick()
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 1)
+        self.assertEqual(len(self.controller.state["workers"]), 1)
+        self.assertEqual(self.controller.state["attempts"], {"10:1:100": 1})
+
+    def test_healthy_assigned_ip_does_not_block_spare_slot(self):
+        self.config["max_workers"] = 2
+        self.gh.queued()
+        self.controller.tick()
+        self.controller.tick()
+        self.gh.job_lists[(10, 1)].append(job_record(101, name="web-setup"))
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual(len(self.cloud.servers), 2)
+
+    def test_more_queued_runs_cannot_exceed_two_including_direct_launch(self):
+        self.queue_pair()
+        self.gh.queued(run_record(11), [job_record(110, 11)])
+        extra = self.controller.eligible()[-1]
+        self.controller.tick()
+        self.controller.launch(extra)
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual({worker["run_id"] for worker in self.controller.state["workers"]}, {10})
+
+    def test_uncertain_create_reserves_both_slots_across_restart(self):
+        self.queue_pair()
+        self.cloud.fail_create = True
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual({worker["phase"] for worker in self.controller.state["workers"]}, {"creating"})
+        self.gh.queued(run_record(11), [job_record(110, 11)])
+        self.controller = self.make_controller()
+        for _ in range(5):
+            self.now += 20
+            self.controller.tick()
+        self.assertEqual(len(self.posts()), 2)
+        self.now += 1800
+        self.controller.tick()
+        self.assertEqual(self.controller.state["workers"], [])
+        self.assertEqual(len(self.posts()), 2)
+
+    def test_unknown_created_pair_recovers_exact_workers_without_replaying_create(self):
+        self.queue_pair()
+        self.cloud.fail_create = True
+        self.cloud.create_despite_error = True
+        self.controller.tick()
+        self.controller = self.make_controller()
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual(len(self.worker.started), 2)
+        self.assertEqual({worker["phase"] for worker in self.controller.state["workers"]}, {"running"})
+        self.assertEqual(len({worker["server_id"] for worker in self.controller.state["workers"]}), 2)
+
+    def test_interrupted_registration_cleans_only_affected_worker(self):
+        self.queue_pair()
+        self.controller.tick()
+        first, second = self.controller.state["workers"]
+        first.update(phase="registering", registration_started=True)
+        self.gh.runners[888] = {"id": 888, "name": first["name"]}
+        self.controller.save()
+        self.controller = self.make_controller()
+        self.controller.tick()
+        self.assertNotIn(first["server_id"], self.cloud.servers)
+        self.assertIn(second["server_id"], self.cloud.servers)
+        self.assertNotIn(888, self.gh.runners)
+        self.assertEqual(len(self.worker.started), 1)
+        self.assertEqual(self.worker.started[0][0], second["name"])
+        self.assertEqual(len(self.posts()), 2)
+
+    def test_one_github_failure_does_not_block_other_worker_expiry(self):
+        self.queue_pair()
+        self.controller.tick()
+        self.controller.tick()
+        first, second = self.controller.state["workers"]
+        first["created_at"] = self.now + 1000
+        self.now += 1801
+        self.gh.fail_get = True
+        with self.assertRaises(ci.ApiError):
+            self.controller.tick()
+        self.assertIn(first["server_id"], self.cloud.servers)
+        self.assertNotIn(second["server_id"], self.cloud.servers)
+        self.assertEqual(second["phase"], "deleting")
+        self.assertEqual(len(self.posts()), 2)
+
+    def test_ip_outage_does_not_block_either_worker_expiry(self):
+        self.queue_pair()
+        self.controller.tick()
+        self.controller.tick()
+        self.cloud.fail_ip_inventory = True
+        self.cloud.fail_ip_get = True
+        self.now += 1801
+        self.controller.tick()
+        self.assertFalse(self.cloud.servers)
+        self.controller.tick()
+        self.now += 61
+        self.controller.tick()
+        self.assertFalse(self.controller.state["workers"])
+        self.assertEqual(len(self.posts()), 2)
+
+    def test_pending_delete_reserves_slot_while_sibling_continues(self):
+        self.queue_pair()
+        self.controller.tick()
+        self.controller.tick()
+        first, second = self.controller.state["workers"]
+        self.gh.job_lists[(10, 1)][0].update(status="completed", runner_id=first["runner_id"])
+        self.gh.job_lists[(10, 1)][1].update(status="in_progress", runner_id=second["runner_id"])
+        self.gh.queued(run_record(11), [job_record(110, 11)])
+        self.cloud.pending_delete = True
+        for _ in range(3):
+            self.controller.tick()
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual(len(self.cloud.servers), 2)
+        self.assertEqual(first["phase"], "deleting")
+        self.assertEqual(second["phase"], "running")
+
+    def test_finished_slot_refills_after_cleanup_while_sibling_runs(self):
+        self.queue_pair()
+        self.controller.tick()
+        self.controller.tick()
+        first, second = self.controller.state["workers"]
+        self.gh.job_lists[(10, 1)][0].update(status="completed", runner_id=first["runner_id"])
+        self.gh.job_lists[(10, 1)][1].update(status="in_progress", runner_id=second["runner_id"])
+        self.gh.queued(run_record(11), [job_record(110, 11)])
+        self.controller.tick()
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual(len(self.cloud.servers), 1)
+        self.now += 61
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 3)
+        self.assertEqual(len(self.cloud.servers), 2)
+        self.assertEqual({worker["job_id"] for worker in self.controller.state["workers"]}, {101, 110})
+        self.controller.tick()
+        self.assertEqual(len(self.worker.started), 3)
+        self.assertIn(second["runner_id"], self.gh.runners)
+
+    def test_hourly_budget_is_global_not_per_slot(self):
+        self.queue_pair()
+        self.controller.state["launch_history"] = [self.now - 100] * 11
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 1)
+        self.controller = self.make_controller()
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 1)
+        self.assertEqual(len(self.controller.state["launch_history"]), 12)
+
+    def test_lowering_capacity_drains_existing_workers_without_replacement(self):
+        self.queue_pair()
+        self.controller.tick()
+        self.controller.tick()
+        self.config["max_workers"] = 1
+        self.controller = self.make_controller()
+        self.controller.tick()
+        self.assertEqual(len(self.cloud.servers), 2)
+        self.assertEqual(len(self.posts()), 2)
+        self.assertEqual(len(self.worker.started), 2)
+
+    def test_single_worker_state_migrates_without_losing_cleanup_or_budgets(self):
+        self.gh.queued()
+        self.controller.tick()
+        self.controller.tick()
+        old = copy.deepcopy(self.controller.state)
+        worker = old.pop("workers")[0]
+        old.update(version=1, active=worker)
+        old["next_launch_at"] = self.now + 20
+        self.store.save(old)
+        self.config["max_workers"] = 2
+        self.controller = self.make_controller()
+        migrated = self.store.load()
+        self.assertEqual(migrated["version"], 2)
+        self.assertNotIn("active", migrated)
+        self.assertEqual(migrated["workers"], [worker])
+        for field in ("attempts", "pending_ips", "launch_history", "next_launch_at", "deployment_id"):
+            self.assertEqual(migrated[field], old[field])
+        self.controller.tick()
+        self.assertEqual(len(self.posts()), 1)
+        self.assertEqual(len(self.worker.started), 1)
+
+    def test_invalid_duplicate_pool_state_is_not_overwritten(self):
+        self.queue_pair()
+        self.controller.tick()
+        original = copy.deepcopy(self.controller.state)
+        invalid_states = [
+            {**original, "workers": [original["workers"][0]] * 2},
+            {**original, "workers": original["workers"] * 2},
+            {**original, "workers": [None]},
+        ]
+        for state in invalid_states:
+            with self.subTest(state=state):
+                self.store.save(state)
+                before = self.store.path.read_bytes()
+                with self.assertRaises(ValueError):
+                    self.make_controller()
+                self.assertEqual(self.store.path.read_bytes(), before)
+
+
 class StoreAndConfigTests(unittest.TestCase):
     def test_exclusive_lock_and_atomic_json(self):
         with tempfile.TemporaryDirectory() as temp:
@@ -790,7 +1032,7 @@ class StoreAndConfigTests(unittest.TestCase):
             try:
                 self.assertTrue(first.acquire())
                 self.assertFalse(second.acquire())
-                state = {"version": 1, "active": None, "attempts": {}, "next_launch_at": 0}
+                state = {"version": 2, "workers": [], "attempts": {}, "next_launch_at": 0}
                 first.save(state)
                 self.assertEqual(second.load(), state)
                 self.assertEqual((Path(temp) / "state.json").stat().st_mode & 0o777, 0o600)

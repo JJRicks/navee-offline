@@ -1,5 +1,11 @@
 # Changelog
 
+## 1.4.3 — 2026-10-18
+
+- Arrange the unfolded default with the scooter overview beside live readings, followed by full-width lock, settings and ride controls. Preserve the folded geometry and existing custom dashboards; add Charge limit to default readings on both screens.
+- Refresh the unfolded website dashboard with the same sample readings and Charge limit; keep the phone screenshot’s three-reading example.
+- Support two bounded, disposable CI workers so core and setup checks can run together.
+
 ## 1.4.2 — 2026-10-18
 
 - Make switches clearer in both states, with solid Volt red for On and a brighter grey for Off.

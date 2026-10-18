@@ -369,6 +369,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             reading(values, "battery_percent", "100 %", "%", 100d, wall);
             reading(values, "power_w", "14.6 W", "W", 14.6d, wall);
             reading(values, "battery_health_percent", "100 %", "%", 100d, wall);
+            reading(values, "charge_limit_percent", "100 %", "%", 100d, wall);
             reading(values, "remaining_range_km", "49.8 km", "km", 49.8d, wall);
             reading(values, "temperature_c", "23 °C", "°C", 23d, wall);
             reading(values, "odometer_km", "24.89 km", "km", 24.89d, wall);
@@ -459,13 +460,20 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 require(count == 5, "A five-column dashboard silently switched layout on a cover screen");
                 if (activity.ui().textScale * activity.getResources().getConfiguration().fontScale <= 1.05f
                         && dashboardConfig().widgets.size() == DEFAULT_STACK.length) {
-                    // The default Home is one full-width stack: rows 0–3 (overview), 4 (lock bar), 5–6, 7 and 8.
-                    int[][] rows = {{0, 4}, {4, 1}, {5, 2}, {7, 1}, {8, 1}};
+                    boolean expanded = (Boolean)field(activity, "expanded");
+                    int[][] rectangles = expanded
+                            ? new int[][] {{0, 0, 3, 4}, {0, 4, 5, 1}, {3, 0, 2, 4},
+                                    {0, 5, 5, 1}, {0, 6, 5, 1}}
+                            : new int[][] {{0, 0, 5, 4}, {0, 4, 5, 1}, {0, 5, 5, 2},
+                                    {0, 7, 5, 1}, {0, 8, 5, 1}};
                     for (int i = 0; i < DEFAULT_STACK.length; i++) {
                         DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid, "currentCell",
                                 new Class<?>[]{DashboardConfig.Widget.class}, field(tile(DEFAULT_STACK[i]), "widget"));
-                        require(cell.x == 0 && cell.w == 5 && cell.y == rows[i][0] && cell.h == rows[i][1],
-                                "Narrow default dashboard shuffled its full-width five-column stack: " + DEFAULT_STACK[i] + " " + cellText(cell));
+                        int[] expectedCell = rectangles[i];
+                        require(cell.x == expectedCell[0] && cell.y == expectedCell[1]
+                                        && cell.w == expectedCell[2] && cell.h == expectedCell[3],
+                                (expanded ? "Unfolded" : "Folded") + " default dashboard shuffled its five-column layout: "
+                                        + DEFAULT_STACK[i] + " " + cellText(cell));
                     }
                 }
             }
@@ -636,8 +644,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 }
                 Object readings=field(readingCard,"readingTiles");
                 List<?> values=(List<?>)field(readings,"values");
-                require(values.size()==3,"Reading tile regression expects the default three readings");
-                String[] samples={"-123.4 W","100 %","23 °C"};
+                require(values.size()==4,"Reading tile regression expects the default four readings");
+                String[] samples={"-123.4 W","23 °C","100 %","100 %"};
                 for(int i=0;i<values.size();i++)((TextView)values.get(i)).setText(samples[i]);
                 for(int[] size:new int[][]{{117,54},{150,54},{312,54},{117,182},{312,182}}) {
                     measureCard(readingCard,activity.ui().dp(size[0]),activity.ui().dp(size[1]));
