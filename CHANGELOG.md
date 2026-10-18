@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.1 — 2026-10-18
 
 - Keep folded and unfolded dashboard positions and sizes independent, including when both use the same column count. Preserve both layouts in saved slots, exports, backups and Undo/Redo.
 

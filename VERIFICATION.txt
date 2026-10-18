@@ -1,3 +1,25 @@
+VOLT 1.4.1 — INDEPENDENT FOLDED/UNFOLDED DASHBOARDS (versionCode 38)
+October 18, 2026
+
+- The application and separate native test runner build successfully. All core
+  suites pass, and GitHub core/setup checks passed on the functional PR head.
+- Native saved-layout checks pass 5,107 assertions; portable/unified layout
+  transfers pass 22,500 assertions. Coverage includes legacy migration, separate
+  five-column geometry, saved slots, malformed imports, backups and Undo/Redo.
+- A disposable Android emulator switched 344x882 -> 725x604 -> 344x882 -> 725x604
+  dp, keeping five columns throughout. Moves/resizes, Undo/Redo, reopening and
+  folding during a pending drag preserve the independent arrangements.
+- Existing editor regressions pass at both sizes. Tests used synthetic data,
+  disabled Bluetooth and no physical phone or scooter commands.
+- Independent internal review of the functional change found no actionable
+  issues. The tested production code is PR #63 at b2018c80; subsequent release
+  preparation changes only version metadata, documentation and homepage text.
+- Existing saved geometry is copied into both modes before editing. Previously
+  overwritten geometry cannot be recovered automatically. Widget options,
+  membership and the global column preference remain shared.
+- No new physical-device test is claimed. Pixel sideload is deferred by owner
+  request. Production signing and downloaded-asset checks are release steps.
+
 VOLT 1.4.0 — COMPATIBILITY, BACKUPS AND CHARGING (versionCode 37)
 October 17, 2026
 
