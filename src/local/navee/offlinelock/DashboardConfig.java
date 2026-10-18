@@ -6,7 +6,7 @@ import org.json.*;
 
 import java.util.*;
 
-/** Local, per-scooter dashboard definitions with independent layouts for each column count. */
+/** Local, per-scooter widgets with independent compact/expanded layouts at each column count. */
 public final class DashboardConfig {
     public static final int MAX_COLUMNS = DashboardLayout.MAX_COLUMNS;
     public static final int SLOT_COUNT = 3;
@@ -64,7 +64,10 @@ public final class DashboardConfig {
         public String type, title, metric, note = "";
         public final ArrayList<String> keys = new ArrayList<>();
         public final ArrayList<String> quickActions = new ArrayList<>(QuickAccessActions.defaultIds());
+        /** Legacy placement is the compact bank, retaining its original column keys. */
         public final Map<Integer, DashboardLayout.Cell> layouts = new HashMap<>();
+        public final Map<Integer, DashboardLayout.Cell> expandedLayouts = new HashMap<>();
+        private boolean expandedLayoutsInitialized;
         public int color;
         public long windowMs;
         public double minimum = 0, maximum = 100;
@@ -108,6 +111,21 @@ public final class DashboardConfig {
             }
             // The compact bar matches the Home concept: Disconnect stays in connection details.
             if (type.equals("lockbar")) showDisconnect = false;
+        }
+
+        /**
+         * Copies every legacy width before either bank can be edited. Initializing only
+         * on the first expanded visit would copy edits already made on the cover screen.
+         * Freshly added widgets use the same guard as loaded/default definitions.
+         */
+        public Map<Integer, DashboardLayout.Cell> layouts(boolean expanded) {
+            if (!expandedLayoutsInitialized) {
+                for (Map.Entry<Integer, DashboardLayout.Cell> entry : layouts.entrySet())
+                    if (!expandedLayouts.containsKey(entry.getKey()))
+                        expandedLayouts.put(entry.getKey(), entry.getValue().copy());
+                expandedLayoutsInitialized = true;
+            }
+            return expanded ? expandedLayouts : layouts;
         }
 
         public int defaultHeight() {
@@ -196,15 +214,27 @@ public final class DashboardConfig {
     private final String storageKey;
     private final String slotKeyPrefix;
     private final String emptyExampleKey;
+    private final boolean expanded;
     public final ArrayList<Widget> widgets = new ArrayList<>();
 
     public DashboardConfig(SharedPreferences preferences, String profileId) {
-        this(preferences, profileId, AllWidgetsDashboard::create);
+        this(preferences, profileId, false);
+    }
+
+    /** The window class is fixed for this screen/configuration, independently of columns. */
+    public DashboardConfig(SharedPreferences preferences, String profileId, boolean expanded) {
+        this(preferences, profileId, expanded, AllWidgetsDashboard::create);
     }
 
     DashboardConfig(SharedPreferences preferences, String profileId,
             java.util.function.Supplier<ArrayList<Widget>> exampleFactory) {
+        this(preferences, profileId, false, exampleFactory);
+    }
+
+    private DashboardConfig(SharedPreferences preferences, String profileId, boolean expanded,
+            java.util.function.Supplier<ArrayList<Widget>> exampleFactory) {
         this.preferences = preferences;
+        this.expanded = expanded;
         storageKey = "dashboard_v1_" + profileId;
         slotKeyPrefix = "dashboard_slot_v1_" + profileId + "_";
         emptyExampleKey = "dashboard_empty_example_v1_" + profileId;
@@ -227,6 +257,7 @@ public final class DashboardConfig {
                     if (key.startsWith("dashboard_v1_")) { firstDashboard = false; break; }
             loadDefaults(firstDashboard);
         }
+        for (Widget widget : widgets) widget.layouts(false);
         seedExampleSlot(exampleFactory);
     }
 
@@ -311,23 +342,32 @@ public final class DashboardConfig {
                 w.keys.clear();
                 w.keys.addAll(Arrays.asList("odometer_km", "driving_mode"));
             }
-            JSONObject layouts = o.optJSONObject("layouts");
-            if (layouts != null)
-                for (int c = 1; c <= MAX_COLUMNS; c++) {
-                    JSONArray p = layouts.optJSONArray(Integer.toString(c));
-                    if (p != null && p.length() == 4)
-                        w.layouts.put(
-                                c,
-                                new DashboardLayout.Cell(
-                                        id,
-                                        p.getInt(0),
-                                        p.getInt(1),
-                                        p.getInt(2),
-                                        p.getInt(3)));
-                }
+            readLayouts(o.optJSONObject("layouts"), w.layouts, id);
+            if (o.has("expandedLayouts")) {
+                readLayouts(o.getJSONObject("expandedLayouts"), w.expandedLayouts, id);
+                // An explicitly empty/sparse expanded bank belongs to the owner too.
+                w.expandedLayoutsInitialized = true;
+            }
+            w.layouts(false);
             result.add(w);
         }
         return result;
+    }
+
+    private static void readLayouts(JSONObject layouts, Map<Integer, DashboardLayout.Cell> target,
+            String id) throws JSONException {
+        if (layouts == null) return;
+        for (int columns = 1; columns <= MAX_COLUMNS; columns++) {
+            JSONArray rectangle = layouts.optJSONArray(Integer.toString(columns));
+            if (rectangle != null && rectangle.length() == 4)
+                target.put(columns, new DashboardLayout.Cell(id, rectangle.getInt(0),
+                        rectangle.getInt(1), rectangle.getInt(2), rectangle.getInt(3)));
+        }
+    }
+
+    /** The current screen's placements; settings and widget membership remain shared. */
+    public Map<Integer, DashboardLayout.Cell> widgetLayouts(Widget widget) {
+        return widget.layouts(expanded);
     }
 
     /** Explicit Restore defaults resets the column choice, but never any saved slots. */
@@ -345,14 +385,15 @@ public final class DashboardConfig {
         columns = Math.max(1, Math.min(MAX_COLUMNS, columns));
         ArrayList<DashboardLayout.Cell> cells = new ArrayList<>();
         for (Widget w : widgets) {
-            DashboardLayout.Cell cell = w.layouts.get(columns);
-            // New finer grids start from the owner's existing unfolded layout.
+            Map<Integer, DashboardLayout.Cell> layouts = widgetLayouts(w);
+            DashboardLayout.Cell cell = layouts.get(columns);
+            // New finer grids start from this window class's existing layout.
             // Materializing them must not rewrite any previously saved width.
             if (cell == null && columns > 4) {
-                int sourceColumns = w.layouts.containsKey(4) ? 4 : columns - 1;
-                while (sourceColumns > 0 && !w.layouts.containsKey(sourceColumns)) sourceColumns--;
+                int sourceColumns = layouts.containsKey(4) ? 4 : columns - 1;
+                while (sourceColumns > 0 && !layouts.containsKey(sourceColumns)) sourceColumns--;
                 if (sourceColumns > 0)
-                    cell = DashboardLayout.rescale(w.layouts.get(sourceColumns), sourceColumns, columns);
+                    cell = DashboardLayout.rescale(layouts.get(sourceColumns), sourceColumns, columns);
             }
             if (cell == null) {
                 int width = w.defaultWidth(columns);
@@ -365,7 +406,7 @@ public final class DashboardConfig {
         List<DashboardLayout.Cell> settled = DashboardLayout.settle(cells, columns, priority);
         if (priority == null) settled = DashboardLayout.withoutLeadingRows(settled);
         for (DashboardLayout.Cell cell : settled)
-            for (Widget w : widgets) if (w.id.equals(cell.id)) w.layouts.put(columns, cell);
+            for (Widget w : widgets) if (w.id.equals(cell.id)) widgetLayouts(w).put(columns, cell);
         return settled;
     }
 
@@ -464,16 +505,22 @@ public final class DashboardConfig {
             o.put("quickActions", new JSONArray(QuickAccessActions.normalize(w.quickActions,
                     minimumShortcuts(w.type), maximumShortcuts(w.type))));
             o.put("keys", new JSONArray(w.keys));
-            JSONObject layouts = new JSONObject();
-            for (Map.Entry<Integer, DashboardLayout.Cell> e : w.layouts.entrySet()) {
-                DashboardLayout.Cell c = e.getValue();
-                layouts.put(
-                        e.getKey().toString(), new JSONArray(new int[] {c.x, c.y, c.w, c.h}));
-            }
-            o.put("layouts", layouts);
+            o.put("layouts", writeLayouts(w.layouts(false)));
+            o.put("expandedLayouts", writeLayouts(w.layouts(true)));
             a.put(o);
         }
         return a;
+    }
+
+    private static JSONObject writeLayouts(Map<Integer, DashboardLayout.Cell> layouts)
+            throws JSONException {
+        JSONObject result = new JSONObject();
+        for (Map.Entry<Integer, DashboardLayout.Cell> entry : layouts.entrySet()) {
+            DashboardLayout.Cell cell = entry.getValue();
+            result.put(entry.getKey().toString(),
+                    new JSONArray(new int[] {cell.x, cell.y, cell.w, cell.h}));
+        }
+        return result;
     }
 
     /** Read-only metadata. Widget data stays private so later edits cannot mutate a slot. */
@@ -654,7 +701,7 @@ public final class DashboardConfig {
             JSONObject widget = widgets.getJSONObject(i);
             allowedKeys(widget, "id", "type", "title", "metric", "note", "color", "window",
                     "min", "max", "advertisedWh", "showDisconnect", "absoluteAxis", "quickActions",
-                    "keys", "layouts", "scooterStats", "glanceableScooterStats");
+                    "keys", "layouts", "expandedLayouts", "scooterStats", "glanceableScooterStats");
             require(string(widget.get("title")).length() <= 80, "Widget title is too long");
             require(string(widget.get("note")).length() <= 1200, "Widget note is too long");
             require(metricKeys.contains(string(widget.get("metric"))), "Unknown reading key");
@@ -816,23 +863,28 @@ public final class DashboardConfig {
                 require(Boolean.TRUE.equals(widget.get("scooterStats")), "Missing scooter marker");
                 require(Boolean.TRUE.equals(widget.get("glanceableScooterStats")), "Missing scooter marker");
             }
-            JSONObject layouts = widget.getJSONObject("layouts");
-            Iterator<String> widths = layouts.keys();
-            while (widths.hasNext()) {
-                String width = widths.next();
-                require(width.length() == 1 && width.charAt(0) >= '1'
-                        && width.charAt(0) <= '0' + MAX_COLUMNS, "Invalid layout width");
-                int columnCount = Integer.parseInt(width);
-                JSONArray rectangle = layouts.getJSONArray(width);
-                require(rectangle.length() == 4, "Invalid layout rectangle");
-                long x = integer(rectangle.get(0)), y = integer(rectangle.get(1));
-                long w = integer(rectangle.get(2)), h = integer(rectangle.get(3));
-                require(w >= 1 && w <= columnCount && x >= 0 && x <= columnCount - w,
-                        "Layout exceeds column bounds");
-                // Matches the grid's 300 gesture rows plus displaced 16-row cards.
-                require(y >= 0 && y <= 300 + 32 * 32 && h >= 1 && h <= 16,
-                        "Layout exceeds row bounds");
-            }
+            validateLayouts(widget.getJSONObject("layouts"));
+            if (widget.has("expandedLayouts"))
+                validateLayouts(widget.getJSONObject("expandedLayouts"));
+        }
+    }
+
+    private static void validateLayouts(JSONObject layouts) throws JSONException {
+        Iterator<String> widths = layouts.keys();
+        while (widths.hasNext()) {
+            String width = widths.next();
+            require(width.length() == 1 && width.charAt(0) >= '1'
+                    && width.charAt(0) <= '0' + MAX_COLUMNS, "Invalid layout width");
+            int columnCount = Integer.parseInt(width);
+            JSONArray rectangle = layouts.getJSONArray(width);
+            require(rectangle.length() == 4, "Invalid layout rectangle");
+            long x = integer(rectangle.get(0)), y = integer(rectangle.get(1));
+            long w = integer(rectangle.get(2)), h = integer(rectangle.get(3));
+            require(w >= 1 && w <= columnCount && x >= 0 && x <= columnCount - w,
+                    "Layout exceeds column bounds");
+            // Matches the grid's 300 gesture rows plus displaced 16-row cards.
+            require(y >= 0 && y <= 300 + 32 * 32 && h >= 1 && h <= 16,
+                    "Layout exceeds row bounds");
         }
     }
 

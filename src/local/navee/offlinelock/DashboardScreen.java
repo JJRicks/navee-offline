@@ -87,7 +87,9 @@ public final class DashboardScreen implements AppScreen {
         preferences = host.activity().getSharedPreferences("app_settings", Context.MODE_PRIVATE);
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
         profileId = profile == null ? "unconfigured" : profile.id;
-        config = new DashboardConfig(preferences, profileId);
+        // Freeze the window class for this screen, including any gesture canceled during a fold.
+        config = new DashboardConfig(preferences, profileId,
+                host.activity().getResources().getConfiguration().screenWidthDp >= 650);
         restoreUndoKey = "dashboard_restore_undo_v1_" + profileId;
         editing = preferences.getBoolean("dashboard_editing", false);
         view = column();
@@ -4402,7 +4404,7 @@ public final class DashboardScreen implements AppScreen {
 
         DashboardLayout.Cell currentCell(DashboardConfig.Widget widget) {
             for (DashboardLayout.Cell cell : displayed) if (cell.id.equals(widget.id)) return cell;
-            return widget.layouts.get(columns);
+            return config.widgetLayouts(widget).get(columns);
         }
 
         void prepareEdit() {
@@ -4463,7 +4465,7 @@ public final class DashboardScreen implements AppScreen {
         private void apply(List<DashboardLayout.Cell> cells, int layoutColumns) {
             for (DashboardLayout.Cell cell : cells)
                 for (DashboardConfig.Widget widget : config.widgets)
-                    if (widget.id.equals(cell.id)) widget.layouts.put(layoutColumns, cell.copy());
+                    if (widget.id.equals(cell.id)) config.widgetLayouts(widget).put(layoutColumns, cell.copy());
         }
 
         void beginGesture(Tile tile, boolean resize, float x, float y) {
@@ -4474,7 +4476,7 @@ public final class DashboardScreen implements AppScreen {
             gestureHistory = DashboardEditHistory.capture(config);
             storedGestureSnapshot = new ArrayList<>();
             for (DashboardConfig.Widget widget : config.widgets)
-                storedGestureSnapshot.add(widget.layouts.get(columns).copy());
+                storedGestureSnapshot.add(config.widgetLayouts(widget).get(columns).copy());
             gestureSnapshot = snapshot();
             gestureColumns = columns;
             gestureTile = tile;
@@ -4919,10 +4921,10 @@ public final class DashboardScreen implements AppScreen {
                         DashboardConfig.Widget widget = new DashboardConfig.Widget(type);
                         int end = 0;
                         for (DashboardConfig.Widget item : config.widgets) {
-                            DashboardLayout.Cell cell = item.layouts.get(grid.columns);
+                            DashboardLayout.Cell cell = config.widgetLayouts(item).get(grid.columns);
                             if (cell != null) end = Math.max(end, cell.y + cell.h);
                         }
-                        widget.layouts.put(
+                        config.widgetLayouts(widget).put(
                                 grid.columns,
                                 new DashboardLayout.Cell(
                                         widget.id,
@@ -5294,10 +5296,13 @@ public final class DashboardScreen implements AppScreen {
         copy.advertisedWh = widget.advertisedWh;
         copy.showDisconnect = widget.showDisconnect;
         copy.absoluteAxis = widget.absoluteAxis;
-        for (Map.Entry<Integer, DashboardLayout.Cell> entry : widget.layouts.entrySet()) {
-            DashboardLayout.Cell original = entry.getValue();
-            copy.layouts.put(entry.getKey(), new DashboardLayout.Cell(copy.id, original.x,
-                    original.y + original.h, original.w, original.h));
+        for (boolean expanded : new boolean[] {false, true}) {
+            Map<Integer, DashboardLayout.Cell> target = copy.layouts(expanded);
+            for (Map.Entry<Integer, DashboardLayout.Cell> entry : widget.layouts(expanded).entrySet()) {
+                DashboardLayout.Cell original = entry.getValue();
+                target.put(entry.getKey(), new DashboardLayout.Cell(copy.id, original.x,
+                        original.y + original.h, original.w, original.h));
+            }
         }
         config.widgets.add(copy);
         grid.settle(copy.id);
@@ -5933,7 +5938,7 @@ public final class DashboardScreen implements AppScreen {
                                 (d, n) -> {
                                     DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
                                     grid.prepareEdit();
-                                    DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
+                                    DashboardLayout.Cell latest = config.widgetLayouts(widget).get(grid.columns);
                                     latest.w = width.getValue();
                                     latest.h = height.getValue();
                                     grid.settle(widget.id);
@@ -5972,7 +5977,7 @@ public final class DashboardScreen implements AppScreen {
                                 (d, n) -> {
                                     DashboardEditHistory.Snapshot before = DashboardEditHistory.capture(config);
                                     grid.prepareEdit();
-                                    DashboardLayout.Cell latest = widget.layouts.get(grid.columns);
+                                    DashboardLayout.Cell latest = config.widgetLayouts(widget).get(grid.columns);
                                     latest.x = Math.max(0, Math.min(grid.columns - 1, x.getValue() - 1));
                                     latest.y = Math.max(0, Math.min(300, y.getValue() - 1));
                                     grid.settle(widget.id);

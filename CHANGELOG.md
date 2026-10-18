@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Keep folded and unfolded dashboard positions and sizes independent, including when both use the same column count. Preserve both layouts in saved slots, exports, backups and Undo/Redo.
+
 ## 1.4.0 — 2026-10-17
 
 - Add model-aware controls, local compatibility reports, read-only discovery, and guarded developer tests for mapped NAVEE scooters. Physical validation still covers the UT5 MAX only.

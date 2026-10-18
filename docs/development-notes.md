@@ -98,8 +98,13 @@ belongs on an owner's phone; both reject physical devices.
 Keep cached values separate from fresh authenticated state. History must not
 enable scooter controls, extend the background grace, start phone sensors, or
 change ride-energy integration. Preserve gaps between connections and do not
-store owner identity or PIN traffic. Dashboard layout is per scooter and column
-count. New/reset dashboards prefer five columns and seed explicit supported-grid
+store owner identity or PIN traffic. Dashboard placement is per scooter,
+compact/expanded window class and column count. The window class follows the
+navigation breakpoint (650 dp), independently
+of the selected columns. Capture it when constructing the dashboard so a fold
+cancels any in-flight gesture into its original layout. Legacy placements are
+deep-copied into both window classes before editing; widget settings and membership
+remain shared. New/reset dashboards prefer five columns and seed explicit supported-grid
 rectangles from `DefaultDashboard`; never overwrite saved custom or empty dashboards.
 Adaptive keeps its existing one- through four-column breakpoints; explicit
 five/six-column choices are available only when the measured width permits.
@@ -110,9 +115,12 @@ window or font changes must not persist expanded rectangles until an actual edit
 is committed. The grid, resize corners and accessible size dialog must use the same limits.
 Widget scale values are stored in canonical units and converted for display.
 
-Dashboard slots keep all one- through six-column layouts and widget options
-together per scooter. Continue accepting existing slots with only one- through
-four-column layouts and without the optional showDisconnect field (default true).
+Dashboard slots keep both window classes, all one- through six-column layouts
+and widget options together per scooter. The optional `expandedLayouts` field
+uses the same bounded rectangle schema as compact `layouts`; old files without
+it seed an independent copy when read. Continue accepting existing slots with
+only one- through four-column layouts and without the optional showDisconnect
+field (default true).
 Editing or resetting the live dashboard must never mutate a saved slot. Validate
 a snapshot before restoring it, and preserve intentionally empty dashboards.
 `DashboardSlotsValidation` checks persistence, isolation and malformed snapshots

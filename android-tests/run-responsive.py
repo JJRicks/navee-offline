@@ -47,6 +47,7 @@ matrix = [(344, 882, 1.0, 'cards', 1.0), (725, 604, 1.0, 'fold', 1.0)] if args.b
     (360, 800, 1.4, 'constraints', 1.0), (650, 850, 1.0, 'constraints', 1.0),
     (344, 882, 1.0, 'edit', 1.0), (725, 604, 1.0, 'edit', 1.0),
     (344, 882, 1.0, 'editor', 1.0), (725, 604, 1.0, 'editor', 1.0),
+    (344, 882, 1.0, 'layout-modes', 1.0),
     (344, 882, 1.0, 'example', 1.0), (448, 960, 1.0, 'example', 1.0),
     (725, 604, 1.0, 'example', 1.0), (344, 882, 1.4, 'example', 1.0),
     (448, 960, 1.4, 'example', 1.0), (725, 604, 1.4, 'example', 1.0),
@@ -66,7 +67,7 @@ if args.case:
         width, height = map(int, size.split('x'))
         if not 280 <= width <= 1400 or not 280 <= height <= 1600 or not 1 <= float(scale) <= 2 or not 1 <= system_scale <= 2:
             parser.error('Cases must stay within reasonable emulator dimensions/text sizes')
-        if mode not in ('all', 'cards', 'fold', 'battery', 'constraints', 'edit', 'editor', 'gauge', 'motion', 'quick', 'followup', 'chart', 'example', 'narrow', 'compact', 'closeout'):
+        if mode not in ('all', 'cards', 'fold', 'battery', 'constraints', 'edit', 'editor', 'gauge', 'motion', 'quick', 'followup', 'chart', 'example', 'narrow', 'compact', 'closeout', 'layout-modes'):
             parser.error('Unknown validation mode')
         matrix.append((width, height, float(scale), mode, system_scale))
 args.out.mkdir(parents=True, exist_ok=True)

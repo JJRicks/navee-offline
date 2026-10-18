@@ -39,6 +39,7 @@ public final class DashboardTransferValidation extends Instrumentation {
             fixture = "dashboard_transfer_validation_" + System.nanoTime();
             prefs = getTargetContext().getSharedPreferences(fixture, Context.MODE_PRIVATE);
             roundTrip();
+            legacyDisplayLayouts();
             unifiedImport();
             emptyAndExample();
             malformed();
@@ -81,6 +82,9 @@ public final class DashboardTransferValidation extends Instrumentation {
             int index = source.widgets.size();
             for (int columns = 1; columns <= 6; columns++)
                 w.layouts.put(columns, new DashboardLayout.Cell(w.id, 0, index * 10, columns, 6));
+            for (int columns = 1; columns <= 6; columns++)
+                w.layouts(true).put(columns, new DashboardLayout.Cell(w.id,
+                        columns == 1 ? 0 : 1, index * 10 + 2, Math.max(1, columns - 1), 5));
             source.widgets.add(w);
         }
         source.save();
@@ -106,6 +110,10 @@ public final class DashboardTransferValidation extends Instrumentation {
         sameJson(new JSONObject(portable), new JSONObject(target.exportLayouts()));
         DashboardConfig reopened = new DashboardConfig(prefs, "target");
         sameJson(new JSONObject(portable), new JSONObject(reopened.exportLayouts()));
+        DashboardConfig expanded = new DashboardConfig(prefs, "target", true);
+        require(expanded.widgetLayouts(expanded.widgets.get(0)).get(5).x == 1
+                        && reopened.widgetLayouts(reopened.widgets.get(0)).get(5).x == 0,
+                "Import/reopen selected the same five-column geometry for both displays");
         sameJson(new JSONObject(other), new JSONObject(untouched.exportLayouts()));
         for (Map.Entry<String, ?> item : original.entrySet()) {
             String key = item.getKey();
@@ -116,13 +124,83 @@ public final class DashboardTransferValidation extends Instrumentation {
         require(reopened.restoreSlot(0), "Imported saved slot cannot be restored");
         require(reopened.widgets.size() == DashboardConfig.TYPES.length && reopened.widgets.get(0).note.contains("Unicode"),
                 "Imported slot lost its independent widget options");
-        for (DashboardConfig.Widget w : reopened.widgets) {
-            require(w.layouts.size() == 6, "Import lost folded/unfolded arrangements");
+        for (int index = 0; index < reopened.widgets.size(); index++) {
+            DashboardConfig.Widget w = reopened.widgets.get(index);
+            require(w.layouts.size() == 6 && w.layouts(true).size() == 6,
+                    "Import lost compact/expanded width arrangements");
+            for (int columns = 1; columns <= 6; columns++) {
+                DashboardLayout.Cell compact = w.layouts.get(columns), wide = w.layouts(true).get(columns);
+                require(compact != wide && compact.x == 0 && compact.y == index * 10
+                                && compact.w == columns && compact.h == 6
+                                && wide.x == (columns == 1 ? 0 : 1) && wide.y == index * 10 + 2
+                                && wide.w == Math.max(1, columns - 1) && wide.h == 5,
+                        "Imported slot changed or coupled display geometry at width " + columns);
+            }
             require(w.keys.equals(Arrays.asList("odometer_km", "battery_percent"))
                     && !w.showDisconnect && w.absoluteAxis && w.minimum == -12.5
                     && w.advertisedWh == 716.04, "Import changed widget parameters");
         }
-        checks.add("All " + DashboardConfig.TYPES.length + " widget types, options, six widths, three independent slots and columns survive export/import/reopen; other profiles and owner/history settings remain untouched");
+        checks.add("All " + DashboardConfig.TYPES.length + " widget types, options, independent compact/expanded rectangles at six widths, three slots and columns survive export/import/reopen; other profiles and owner/history settings remain untouched");
+    }
+
+    private void legacyDisplayLayouts() throws Exception {
+        DashboardConfig source = new DashboardConfig(prefs, "legacy-source");
+        source.widgets.clear();
+        DashboardConfig.Widget note = new DashboardConfig.Widget("note");
+        for (int columns = 1; columns <= 6; columns++)
+            note.layouts.put(columns, new DashboardLayout.Cell(note.id, columns - 1, columns * 3, 1, 4));
+        source.widgets.add(note); source.save();
+        require(source.saveSlot(0, "Old layout file", 5), "Could not seed legacy transfer slot");
+        JSONObject legacy = new JSONObject(source.exportLayouts());
+        legacy.getJSONArray("widgets").getJSONObject(0).remove("expandedLayouts");
+        JSONArray slots = legacy.getJSONArray("slots");
+        for (int slot = 0; slot < slots.length(); slot++) {
+            if (slots.isNull(slot)) continue;
+            JSONArray widgets = slots.getJSONObject(slot).getJSONArray("widgets");
+            for (int index = 0; index < widgets.length(); index++)
+                widgets.getJSONObject(index).remove("expandedLayouts");
+        }
+        require(DashboardConfig.inspectLayouts(legacy.toString()).widgetCount == 1,
+                "Legacy export without expandedLayouts failed inspection");
+        DashboardConfig target = new DashboardConfig(prefs, "legacy-target");
+        require(target.importLayouts(legacy.toString()), "Legacy export without expandedLayouts failed import");
+        String savedSlot = prefs.getString("dashboard_slot_v1_legacy-target_0", "");
+        note = target.widgets.get(0);
+        target.widgetLayouts(note).get(5).y = 99;
+        for (int columns = 1; columns <= 6; columns++) {
+            DashboardLayout.Cell expanded = note.layouts(true).get(columns);
+            require(expanded != note.layouts.get(columns) && expanded.x == columns - 1
+                            && expanded.y == columns * 3 && expanded.w == 1 && expanded.h == 4,
+                    "First compact edit corrupted migrated imported width " + columns);
+        }
+        target.save();
+        target = new DashboardConfig(prefs, "legacy-target", true);
+        require(target.widgetLayouts(target.widgets.get(0)).get(5).y == 15
+                        && target.widgets.get(0).layouts.get(5).y == 99,
+                "Migrated imported display geometry did not survive reopen");
+        require(target.restoreSlot(0), "Imported legacy slot failed to restore");
+        note = target.widgets.get(0);
+        require(note.layouts.get(5).y == 15 && target.widgetLayouts(note).get(5).y == 15,
+                "Imported legacy slot did not restore both displays");
+        target.exportLayouts();
+        require(savedSlot.equals(prefs.getString("dashboard_slot_v1_legacy-target_0", "")),
+                "Restoring/exporting imported legacy slots rewrote saved data");
+
+        // A present empty/sparse map means intentional missing widths, not legacy data.
+        for (boolean sparse : new boolean[] {false, true}) {
+            JSONObject explicit = new JSONObject(legacy.toString());
+            JSONObject expanded = new JSONObject();
+            if (sparse) expanded.put("5", new JSONArray(new int[] {0, 8, 2, 3}));
+            explicit.getJSONArray("widgets").getJSONObject(0).put("expandedLayouts", expanded);
+            require(target.importLayouts(explicit.toString()), "Explicit empty/sparse expanded map failed import");
+            target = new DashboardConfig(prefs, "legacy-target", true);
+            note = target.widgets.get(0);
+            require(note.layouts.size() == 6 && target.widgetLayouts(note).size() == (sparse ? 1 : 0),
+                    "Import invented expanded widths for an explicit map");
+            if (sparse) require(target.widgetLayouts(note).get(5).y == 8,
+                    "Explicit expanded rectangle was replaced with legacy geometry");
+        }
+        checks.add("Legacy files and saved slots without expandedLayouts migrate all six widths independently; explicit empty/sparse expanded maps retain their meaning");
     }
 
     private void emptyAndExample() throws Exception {
@@ -174,6 +252,25 @@ public final class DashboardTransferValidation extends Instrumentation {
             JSONObject changed = new JSONObject(good);
             changed.getJSONArray("widgets").getJSONObject(0).put(fields[i], values[i]);
             invalid.add(changed.toString());
+        }
+        Object[] damagedExpanded = {JSONObject.NULL, new JSONArray(), "not-a-map",
+                new JSONObject().put("7", new JSONArray(new int[] {0, 0, 1, 4})),
+                new JSONObject().put("05", new JSONArray(new int[] {0, 0, 1, 4})),
+                new JSONObject().put("5", new JSONArray(new int[] {4, 0, 2, 4})),
+                new JSONObject().put("5", new JSONArray(new int[] {0, -1, 1, 4})),
+                new JSONObject().put("5", new JSONArray(new int[] {0, 1325, 1, 4})),
+                new JSONObject().put("5", new JSONArray(new int[] {0, 0, 1, 17})),
+                new JSONObject().put("5", new JSONArray(new int[] {0, 0, 1})),
+                new JSONObject().put("5", new JSONArray().put("0").put(0).put(1).put(4))};
+        for (Object damaged : damagedExpanded) {
+            for (boolean savedSlot : new boolean[] {false, true}) {
+                JSONObject changed = new JSONObject(good);
+                JSONArray widgets = savedSlot
+                        ? changed.getJSONArray("slots").getJSONObject(2).getJSONArray("widgets")
+                        : changed.getJSONArray("widgets");
+                widgets.getJSONObject(0).put("expandedLayouts", damaged);
+                invalid.add(changed.toString());
+            }
         }
         JSONObject duplicate = new JSONObject(good);
         duplicate.getJSONArray("widgets").getJSONObject(1).put("id",
@@ -282,7 +379,11 @@ public final class DashboardTransferValidation extends Instrumentation {
             SharedPreferences settings = storage.getSharedPreferences("app_settings", 0);
             require(storage.getSharedPreferences("profiles", 0).edit().putString("items", "[{\"id\":\"chosen\",\"name\":\"Chosen\"},{\"id\":\"other\",\"name\":\"Other\"}]").putString("active", "other").commit(), "Store fixture scooters");
             DashboardConfig source = new DashboardConfig(settings, "source");
-            source.widgets.clear(); source.widgets.add(new DashboardConfig.Widget("battery")); source.save();
+            source.widgets.clear();
+            DashboardConfig.Widget battery = new DashboardConfig.Widget("battery");
+            battery.layouts.put(5, new DashboardLayout.Cell(battery.id, 0, 0, 2, 3));
+            battery.layouts(true).put(5, new DashboardLayout.Cell(battery.id, 2, 7, 3, 4));
+            source.widgets.add(battery); source.save();
             require(source.saveSlot(0, "Shared", 0), "Save shared slot");
             String portable = source.exportLayouts();
             String other = new DashboardConfig(settings, "other").exportLayouts();
