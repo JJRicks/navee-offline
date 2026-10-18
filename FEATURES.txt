@@ -1,5 +1,5 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
-Current version: 1.4.3 (versionCode 40)
+Current version: 1.4.4 (versionCode 41)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -17,7 +17,13 @@ or sponsored by NAVEE.
 That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
 
-NEW IN 1.4.3
+NEW IN 1.4.4
+
+- Three default readings and a full-width Capacity experiment under Record ride.
+- Capacity estimates show a loading state until evidence has been checked.
+- Existing custom dashboards and their selected readings are preserved.
+
+PREVIOUSLY IN 1.4.3
 
 - New unfolded default: overview beside readings, with full-width controls below.
 - Charge limit joins the default readings on both screens. Folded geometry
@@ -434,10 +440,11 @@ Done restores normal widget actions.
 Up to 32 widgets are supported, with one lock control (Lock & connection or
 Lock bar). Customize titles, colors, selected parameters/readings, gauge
 scales, chart windows and notes where applicable. New widgets remain drafts
-until Save. New/reset dashboards use a five-widget Home: Scooter overview, Lock
-bar beneath it, Reading tiles (power, pack temperature, health), Setting tiles (top
-speed, charge schedule) and Ride recorder, stacked full width and split
-into two columns on six-column grids. The header status line carries "last
+until Save. New/reset dashboards use a six-widget Home: Scooter overview, Lock
+bar, Reading tiles (power, pack temperature, health), Setting tiles (top speed,
+charge schedule), Ride recorder and Capacity experiment (90 days). Compact
+layouts stack full width, with a two-column arrangement at six columns. Expanded
+layouts put the overview beside readings and full-width controls/capacity below. The header status line carries "last
 seen"; the new cards grey stale values instead of a per-card footer. Older
 widgets remain in Add widget. While editing, card content dims (animated,
 interrupt-safe, instant with animations off) so the solid editor handles stand

@@ -59,7 +59,7 @@ import local.navee.offlinelock.TelemetryHistory;
 public final class DashboardValidation extends Instrumentation {
     private static final String[] PREFS = {"app_settings", "profiles", "scooter", "pending_documents"};
     private static final String[] DESTINATIONS = {"Home", "Scooter", "Live Stats", "Rides", "More"};
-    private static final String[] DEFAULT_TYPES = {"overview", "lockbar", "tiles", "shortcuts", "ride"};
+    private static final String[] DEFAULT_TYPES = {"overview", "lockbar", "tiles", "shortcuts", "ride", "capacity"};
     /** Lock and Lock bar are mutually exclusive; the default's Lock bar keeps the palette from adding Lock. */
     private static final int HOME_TYPE_COUNT = DashboardConfig.TYPES.length - 1;
     private static final String FIXTURE_NAME = "Synthetic dashboard fixture";
@@ -94,7 +94,7 @@ public final class DashboardValidation extends Instrumentation {
                 for (int i = 0; i < DEFAULT_TYPES.length; i++)
                     require(config().widgets.get(i).type.equals(DEFAULT_TYPES[i]), "Fresh Home default order changed at " + i);
             });
-            check("Five-widget Home default (lock bar, battery overview, reading tiles, setting tiles, recorder) matches its 1–6-column layouts, survives reload and resets only the selected profile; navigation and cards fit");
+            check("Six-widget Home default (scooter overview, lock bar, three reading tiles, setting tiles, recorder, Capacity experiment) matches its 1–6-column layouts, survives reload and resets only the selected profile; navigation and cards fit");
 
             if ("layout-slots".equals(arguments.getString("mode"))) {
                 verifySavedLayoutSlots();

@@ -35,6 +35,8 @@ public final class BatteryCapacityEstimate {
     public static final class Result {
         /** The short UI state; measured evidence below supplies the details on tap. */
         public final String profileId, label;
+        /** Non-null when analysis could not complete; distinct from completed, insufficient evidence. */
+        public final String unavailableReason;
         /** Short (four words or fewer) most common rejection reason, or null when none. */
         public final String reason;
         /** Battery points in the larger evidence group, toward {@link #MIN_TOTAL_DROP}. */
@@ -68,6 +70,7 @@ public final class BatteryCapacityEstimate {
             this.profileId = profileId == null ? "" : profileId;
             this.advertisedWh = positive(advertisedWh) ? advertisedWh : null;
             this.windowDays = windowDays;
+            unavailableReason = unavailable;
             computedWallMs = now;
             qualifiedRides = confirmed.count;
             proxyRides = proxy.count;

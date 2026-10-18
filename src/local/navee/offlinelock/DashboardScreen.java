@@ -1844,7 +1844,7 @@ public final class DashboardScreen implements AppScreen {
                 chargingEtaTag,
                 chargingTemperature;
         LinearLayout batteryData, chargingData;
-        boolean capacityPending, dragging, showsRange;
+        boolean capacityPending, capacitySample, dragging, showsRange;
         View resizeControl;
         QuickAccessGrid quickAccess, settingTiles;
         OverviewCard overview;
@@ -1853,7 +1853,7 @@ public final class DashboardScreen implements AppScreen {
         InfoTiles infoTiles;
         float jiggleAngle;
         Boolean recordingShown;
-        long capacityChecked;
+        long capacityChecked, capacityRequest;
         ImageView photo;
         TextView photoHint;
         ScrollView viewport;
@@ -2285,7 +2285,8 @@ public final class DashboardScreen implements AppScreen {
                     LinearLayout.LayoutParams methodSpace = new LinearLayout.LayoutParams(-2, -2);
                     methodSpace.topMargin = ui.dp(6);
                     body.addView(capacityMethod, methodSpace);
-                    capacityValue = new FittedValue("Not enough ride data", 16, 34, 2);
+                    capacityValue = new FittedValue("Processing…", 16, 34, 2);
+                    capacityValue.setTextColor(ui.muted);
                     capacityValue.setPadding(0, ui.dp(8), 0, ui.dp(4));
                     body.addView(capacityValue, new LinearLayout.LayoutParams(-1, -2));
                     capacityCompare = ui.text("", 14, true);
@@ -2297,6 +2298,7 @@ public final class DashboardScreen implements AppScreen {
                     body.addView(capacityReference, new LinearLayout.LayoutParams(-2, -2));
                     // The bar compares with the reference, or fills toward 20 battery points.
                     capacityBar = new CapacityBar();
+                    capacityBar.setVisibility(View.GONE);
                     LinearLayout.LayoutParams barSpace = new LinearLayout.LayoutParams(-1, ui.dp(10));
                     barSpace.topMargin = barSpace.bottomMargin = ui.dp(10);
                     body.addView(capacityBar, barSpace);
@@ -3555,8 +3557,13 @@ public final class DashboardScreen implements AppScreen {
         }
 
         private void refreshCapacity() {
-            if (service == null || capacityPending) return;
+            if (service == null) return;
             if (service.simulating()) {
+                // Supersede real-history callbacks even when their worker is still running.
+                if (!capacitySample) capacityRequest++;
+                capacityPending = false;
+                capacityChecked = 0;
+                capacitySample = true;
                 // One "Sample" chip marks the preview; the app-wide banner already says sample data.
                 Double advertised = rating(widget);
                 double sample = advertised == null ? 610 : advertised * .95;
@@ -3569,21 +3576,58 @@ public final class DashboardScreen implements AppScreen {
                 showComparison(advertised == null ? null : 95d, advertised, false, true);
                 return;
             }
-            if (service.profiles.active() == null) {
-                capacityUnavailable = "No scooter set up";
-                capacitySummary.setText(capacityUnavailable);
+            if (capacitySample) {
+                capacitySample = false;
+                capacityMessage("Processing…", "Checking recorded rides…");
+            }
+            ScooterProfiles.Profile current = service.profiles.active();
+            if (current == null || !profileId.equals(current.id)) {
+                capacityRequest++;
+                capacityPending = false;
+                capacityChecked = 0;
+                capacityResult = null;
+                capacityUnavailable = current == null ? "No scooter set up" : null;
+                capacityMessage(current == null ? capacityUnavailable : "Processing…",
+                        current == null ? capacityUnavailable : "Checking recorded rides…");
                 return;
             }
+            if (capacityPending) return;
             long now = android.os.SystemClock.elapsedRealtime();
             if (capacityChecked > 0 && now - capacityChecked < 10000) return;
             capacityChecked = now;
             capacityPending = true;
+            long request = ++capacityRequest;
+            capacityUnavailable = null;
+            // Keep a genuine last estimate during refresh; no completed evidence means processing.
+            if (!hasCapacityValue()) {
+                capacityResult = null;
+                capacityMessage("Processing…", "Checking recorded rides…");
+            } else {
+                capacitySummary.setText("Updating recorded rides…");
+            }
             service.requestCapacityEstimate(
                     rating(widget),
                     (int) (widget.windowMs / 86400000L),
                     result -> {
+                        if (request != capacityRequest) return;
                         capacityPending = false;
-                        if (closed || !active || !profileId.equals(result.profileId)) return;
+                        if (closed || !active) return;
+                        ScooterProfiles.Profile selected = service.profiles.active();
+                        if (service.simulating() || selected == null || !profileId.equals(selected.id)) {
+                            refreshCapacity();
+                            return;
+                        }
+                        if (!profileId.equals(result.profileId)) return;
+                        if (result.unavailableReason != null) {
+                            capacityUnavailable = result.unavailableReason;
+                            if (hasCapacityValue()) {
+                                capacitySummary.setText("Last estimate · refresh unavailable");
+                            } else {
+                                capacityResult = null;
+                                capacityMessage("Estimate unavailable", capacityUnavailable);
+                            }
+                            return;
+                        }
                         capacityResult = result;
                         capacityUnavailable = null;
                         boolean estimated = result.estimatedUsableWh != null;
@@ -3624,6 +3668,21 @@ public final class DashboardScreen implements AppScreen {
                                 estimated ? result.batteryDropPoints : result.proxyBatteryDropPoints));
                         showComparison(percent, result.advertisedWh, proxy, false);
                     });
+        }
+
+        private boolean hasCapacityValue() {
+            return capacityResult != null && (capacityResult.estimatedUsableWh != null
+                    || capacityResult.throughputEquivalentWh != null);
+        }
+
+        private void capacityMessage(String value, String summary) {
+            capacityValue.setText(value);
+            capacityValue.setTextColor(ui.muted);
+            capacitySummary.setText(summary);
+            styleTag(capacityMethod, null, false);
+            capacityCompare.setVisibility(View.GONE);
+            capacityReference.setVisibility(View.GONE);
+            capacityBar.setVisibility(View.GONE);
         }
 
         /** "95% of 716 Wh" with its bar; without a reference, a Set reference chip instead. */
@@ -3676,6 +3735,7 @@ public final class DashboardScreen implements AppScreen {
                 if (!estimated && !proxy && r.qualifiedRides + r.proxyRides == 0 && r.rejectedRides == 0)
                     details.addView(caveat(r.label));
                 details.addView(caveat(proxy ? "Proxy: may overstate; not health." : "Not a measured capacity test."));
+                if (capacityUnavailable != null) details.addView(caveat(capacityUnavailable));
             }
             show("Capacity estimate", details);
         }

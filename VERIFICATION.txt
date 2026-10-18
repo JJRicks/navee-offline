@@ -1,3 +1,27 @@
+VOLT 1.4.4 — CAPACITY DEFAULT AND LOADING STATE (versionCode 41)
+October 18, 2026
+
+- All core suites pass, including unavailable-versus-insufficient capacity
+  results. Application and native validation runner build, sign and align.
+- Deterministically delayed native capacity analysis passes 97 assertions:
+  Processing before first completion, real insufficient/estimated outcomes,
+  retained values on refresh, read failures, and stale callbacks across
+  simulation, profile changes and closed cards. No Bluetooth transport is used.
+- Native saved-layout checks pass 8,878 assertions. Existing five-card dashboards,
+  owner four-reading/six-card layouts, custom four-row capacity cards and paired
+  slots survive without being rewritten. Fresh/reset capacity uses five rows
+  so the details control fits, with a 90-day evidence window.
+- Dashboard interaction checks and responsive cards at 344x882, 448x960 and
+  725x604 dp pass, including expanded 140% app text and fold/unfold separation.
+- Independent final review found no unresolved actionable issues. The unfolded
+  image was recaptured at 1400x1370 to show the complete capacity card; the phone
+  image retains its existing three-reading top layout. All example data remains
+  synthetic. Local website checks at 344/768/1440 px pass image decoding,
+  intrinsic dimensions, page-error and horizontal-overflow assertions.
+- Tests run on a disposable emulator. Pixel access and sideload are deferred
+  while the owner records a charge. Signing/download and live-site verification
+  are separate release steps; no new physical scooter test is claimed.
+
 VOLT 1.4.3 — UNFOLDED DEFAULT DASHBOARD (versionCode 40)
 October 18, 2026
 
