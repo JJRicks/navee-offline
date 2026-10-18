@@ -24,6 +24,15 @@ public final class RideChartDataTest {
         store.stop(1003000, 4000); List<RideStore.Point> points = store.trend(id, 600);
         List<RideChartData.Series> metric = RideChartData.build(points, null, false), imperial = RideChartData.build(points, null, true);
         check(metric.size() == 8, "Every unified graph series exists");
+        check(RideChartData.axes(metric).equals(metric), "Ride readings retain their independent axes");
+        ChartScale.Range shared = ChartScale.range("clock", "Time", false, 1000, 2000);
+        List<RideChartData.Value> axisValues = Arrays.asList(new RideChartData.Value(0, 1500d, 0));
+        RideChartData.Series a = new RideChartData.Series("a", "A", "Time", 1, 0, axisValues, shared);
+        RideChartData.Series b = new RideChartData.Series("b", "B", "Time", 2, 1, axisValues, new ChartScale.Range(shared.min, shared.max));
+        RideChartData.Series c = new RideChartData.Series("c", "C", "min", 3, 2, axisValues, shared);
+        check(RideChartData.axes(Arrays.asList(a, b, c)).size() == 3, "Equal bounds or different units do not accidentally share axes");
+        boolean frozen = false; try { RideChartData.axes(Arrays.asList(a)).clear(); } catch (UnsupportedOperationException expected) { frozen = true; }
+        check(frozen, "Axis selection is immutable");
         near(20, metric.get(1).values.get(0).value, "Metric wheel speed"); near(20 / 1.609344, imperial.get(1).values.get(0).value, "Imperial wheel speed");
         near(50, metric.get(7).values.get(0).value, "Instantaneous efficiency is separate from ride average");
         check(metric.get(4).min == 0 && metric.get(4).max == 100, "Battery scale fixed to meaningful limits");

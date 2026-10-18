@@ -76,6 +76,7 @@ public final class ChargeEstimateValidation extends Instrumentation {
                 require((Double)field(chart,"inspectedTime")==0d,"Accessibility previous did not return to first sample");
                 require(String.valueOf(chart.getContentDescription()).contains("Power"),"Accessible chart omits selected raw reading descriptions");
                 verifyClockLabels(chart);
+                verifySharedFinishAxis(chart);
                 setChoice(dialogRoot(),false,"estimated_finish",false);setChoice(dialogRoot(),false,"estimated_countdown",false);setChoice(dialogRoot(),false,"observed_finish",false);
                 require(keys(chart).equals(new LinkedHashSet<>(Arrays.asList("power_w","battery_percent"))),"Toggles did not isolate power and battery");
                 setChoice(dialogRoot(),false,"estimated_finish",true);setChoice(dialogRoot(),false,"estimated_countdown",true);
@@ -332,6 +333,28 @@ public final class ChargeEstimateValidation extends Instrumentation {
     private void setChoice(View decor,boolean expanded,String key,boolean checked){View choice=decor.findViewWithTag((expanded?"charge-fullscreen-series:":"charge-series:")+key);require(choice instanceof CheckBox,"Missing category toggle "+key);CheckBox box=(CheckBox)choice;require(box.isEnabled(),"Unavailable category "+key);if(box.isChecked()!=checked)box.performClick();require(box.isChecked()==checked,"Category did not change "+key);}
     private void assertNoDataChoice(View decor,boolean expanded,String key){View choice=decor.findViewWithTag((expanded?"charge-fullscreen-series:":"charge-series:")+key);require(choice==null||!choice.isEnabled(),"Unavailable actual finish category is selectable");}
     private double range(RideChartView chart){return(Double)field(chart,"to")-(Double)field(chart,"from");}
+    /** Selecting a second clock trace must not create a second scrollable copy of its Y axis. */
+    private void verifySharedFinishAxis(RideChartView chart){
+        List<RideChartData.Series> saved=new ArrayList<>(series(chart));Set<String> selected=keys(chart);
+        RideChartView.State state=chart.getState();
+        try{
+            RideChartData.Series estimate=findSeries(chart,"estimated_finish"),observed=findSeries(chart,"observed_finish");
+            chart.set(saved,new LinkedHashSet<>(Arrays.asList("estimated_finish","observed_finish")));
+            android.graphics.Bitmap bitmap=android.graphics.Bitmap.createBitmap(chart.getWidth(),chart.getHeight(),android.graphics.Bitmap.Config.ARGB_8888);
+            try{chart.draw(new android.graphics.Canvas(bitmap));}finally{bitmap.recycle();}
+            @SuppressWarnings("unchecked") List<RideChartData.Series> axes=(List<RideChartData.Series>)field(chart,"axes");
+            require(series(chart).size()==2&&axes.size()==1,"Comparing finish times duplicated the clock axis or removed a trace");
+            float width=(Float)invoke(chart,"totalAxisWidth",new Class<?>[0]);
+            require(Math.abs(width-(Float)field(chart,"axesWidth"))<.01f,"Shared clock axis still overflows its visible strip");
+            require((Float)field(chart,"axisScroll")==0,"Shared clock axis retained hidden scroll offset");
+            RideChartView.ValueFormatter formatter=(RideChartView.ValueFormatter)field(chart,"valueFormatter");
+            for(double fraction:new double[]{0,.25,.5,.75,1})
+                require(formatter.axis(estimate,estimate.scale.at(fraction)).equals(formatter.axis(observed,observed.scale.at(fraction))),"Compared finish labels disagree");
+            chart.set(saved,new LinkedHashSet<>(Arrays.asList("observed_finish")));
+            @SuppressWarnings("unchecked") List<RideChartData.Series> observedAxes=(List<RideChartData.Series>)field(chart,"axes");
+            require(observedAxes.size()==1&&observedAxes.get(0)==observed,"Observed clock axis disappeared after hiding estimate");
+        }finally{chart.set(saved,selected);chart.restoreState(state);}
+    }
     private void verifyClockLabels(RideChartView chart){
         RideChartView.ValueFormatter formatter=(RideChartView.ValueFormatter)field(chart,"valueFormatter");
         Calendar clock=Calendar.getInstance();clock.set(2025,Calendar.JANUARY,1,23,59,50);clock.set(Calendar.MILLISECOND,0);

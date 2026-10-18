@@ -12,6 +12,87 @@ public final class ChargeSessionStoreTest {
     static void near(double expected,Double actual,String message){check(actual!=null&&Math.abs(actual-expected)<.0001,message+": "+actual);}
     static ChargeSessionStore.Value value(Double v,long mono){return new ChargeSessionStore.Value(v,mono,0x72);}
     static ChargeSessionStore.Frame frame(long mono,double soc){return new ChargeSessionStore.Frame(WALL+mono-MONO,mono,value(1d,mono),value(soc,mono),value(52d,mono),value(-2d,mono),value(23d,mono));}
+    static ChargeSessionStore.Frame electrical(long offset,double soc,double volts,double amps){
+        long mono=MONO+offset;return new ChargeSessionStore.Frame(WALL+offset,mono,value(1d,mono),value(soc,mono),value(volts,mono),value(amps,mono),value(23d,mono));
+    }
+    static ChargeSessionStore startup()throws Exception{
+        ChargeSessionStore store=store();store.start("one",ChargeSessionStore.Charger.HIGH_SPEED,WALL,MONO);
+        check(store.sample(electrical(0,73,51.398,-1.98)),"Real low-power startup sample accepted");return store;
+    }
+    static boolean watts(ChargeSessionStore store,long offset,double watts)throws Exception{return store.sample(electrical(offset,73,53,-watts/53));}
+    static List<ChargeSessionStore.HistoryPoint> finish(ChargeSessionStore store)throws Exception{
+        store.stop(ChargeSessionStore.Stop.STOPPED);return store.recordings("one").get(0).points;
+    }
+    static void sustainedElectricalChanges()throws Exception{
+        ChargeSessionStore trace=startup();
+        check(!watts(trace,10000,400)&&!watts(trace,20000,400),"Large new power awaits independent confirmation");
+        check(trace.sampleCount()==1&&trace.lastFreshMono()==MONO+20000,"Fresh candidates keep capture alive without being saved");
+        check(watts(trace,30000,400),"Sustained 400 W startup no longer waits for the old 305.30412 W threshold");
+        check(watts(trace,40000,410),"Confirmed new power records normally at the next interval");
+        check(trace.sample(electrical(881866,84,53.949,-5.65)),"Actual later 304.81185 W sample remains accepted");
+        List<ChargeSessionStore.HistoryPoint> points=finish(trace);
+        check(points.size()==4&&points.get(1).mono==MONO+30000,"Rejected candidates are not backfilled");
+        near(-101.76804,points.get(0).power,"Exact initial signed power preserved");
+        near(-400,points.get(1).power,"Confirming real measurement preserved");
+        near(-304.81185,points.get(3).power,"Actual resumed sample preserved");
+        check(points.get(1).gap&&!points.get(2).gap&&points.get(3).gap,"Confirmation and actual missing time break continuity; subsequent samples reconnect");
+
+        ChargeSessionStore transientSpike=startup();
+        check(!watts(transientSpike,10000,400)&&watts(transientSpike,20000,104),"Isolated spike remains excluded and normal power resumes");
+        check(!watts(transientSpike,30000,400)&&!watts(transientSpike,40000,400)&&watts(transientSpike,50000,400),"A normal committed sample resets pending confirmation");
+        points=finish(transientSpike);
+        check(points.size()==3&&points.get(1).gap&&points.get(2).gap,"No isolated spike is persisted or connected across");
+
+        ChargeSessionStore rapid=startup();
+        for(int t=10000;t<30000;t+=1000)check(!watts(rapid,t,400),"Rapid fresh packets cannot shorten the confirmation window");
+        check(watts(rapid,30000,400)&&rapid.sampleCount()==2,"Three cadence-spaced observations confirm after twenty seconds");
+        finish(rapid);
+
+        ChargeSessionStore changing=startup();
+        check(!watts(changing,10000,400)&&!watts(changing,20000,800)&&!watts(changing,30000,400)
+                &&!watts(changing,40000,400)&&watts(changing,50000,400),"Incompatible outliers restart rather than accumulate confirmation");
+        finish(changing);
+
+        ChargeSessionStore expired=startup();
+        check(!watts(expired,10000,400)&&!watts(expired,20000,400)&&!watts(expired,50001,400)
+                &&!watts(expired,60001,400)&&watts(expired,70001,400),"Confirmation cannot bridge a gap longer than twenty-five seconds");
+        check(finish(expired).get(1).gap,"Accepted post-gap power starts a distinct segment");
+
+        ChargeSessionStore invalid=startup();
+        check(!watts(invalid,10000,400)&&!watts(invalid,20000,400),"Invalid-input fixture has two candidates");
+        ChargeSessionStore.Frame stale=electrical(30000,73,53,-400d/53);
+        check(!invalid.sample(new ChargeSessionStore.Frame(stale.wall,stale.mono,value(1d,MONO),stale.soc,stale.voltage,stale.current,stale.temperature)),"Stale charge state cannot confirm new power");
+        check(!watts(invalid,40000,400)&&!watts(invalid,50000,400)&&watts(invalid,60000,400),"Unusable frame resets pending confirmation");
+        finish(invalid);
+
+        ChargeSessionStore voltage=startup();
+        check(!voltage.sample(electrical(10000,73,56,-2))&&!voltage.sample(electrical(20000,73,56,-2))
+                &&voltage.sample(electrical(30000,73,56,-2)),"Sustained valid voltage change also establishes a fresh baseline");
+        check(finish(voltage).get(1).gap,"Voltage baseline change never joins the rejected interval");
+
+        ChargeSessionStore falling=store();falling.start("one",ChargeSessionStore.Charger.HIGH_SPEED,WALL,MONO);
+        check(watts(falling,0,400)&&!watts(falling,10000,104)&&!watts(falling,20000,104)&&watts(falling,30000,104),"Sustained large power decrease also recovers");
+        finish(falling);
+
+        ChargeSessionStore recovered=startup();check(!watts(recovered,10000,400),"Recovery fixture starts a pending candidate");
+        recovered.markGap();
+        check(watts(recovered,20000,400)&&watts(recovered,30000,410),"Verified recovery immediately establishes its own electrical baseline");
+        points=finish(recovered);check(points.get(1).gap&&!points.get(2).gap,"Recovery keeps its explicit gap");
+
+        ChargeSessionStore restarted=startup();
+        check(!watts(restarted,10000,400)&&!watts(restarted,20000,400),"Session-reset fixture stops with pending evidence");
+        finish(restarted);restarted.start("one",ChargeSessionStore.Charger.HIGH_SPEED,WALL+30000,MONO+30000);
+        check(restarted.sample(electrical(30000,73,51.398,-1.98))&&!watts(restarted,40000,400)&&!watts(restarted,50000,400)
+                &&watts(restarted,60000,400),"A new session cannot inherit prior confirmation");
+        finish(restarted);
+
+        ChargeSessionStore bounded=startup();
+        for(int t=10000;t<=40000;t+=10000){
+            check(!bounded.sample(electrical(t,73,101,-2)),"Sustained invalid voltage never becomes accepted");
+            check(!bounded.sample(electrical(t,73,53,-31)),"Sustained invalid current never becomes accepted");
+        }
+        check(bounded.sampleCount()==1,"Confirmation does not bypass physical limits");finish(bounded);
+    }
     static ChargingEstimate.Result estimate(double soc,Double amps){
         return ChargingEstimate.calculate(new ChargingEstimate.Value(1d,true,100),new ChargingEstimate.Value(52d,true,100),
                 new ChargingEstimate.Value(amps,true,100),new ChargingEstimate.Value(soc,true,100),
@@ -228,7 +309,7 @@ public final class ChargeSessionStoreTest {
         StringWriter resumedJson=new StringWriter();reconnected.exportJson("one",resumedJson);
         check(resumedJson.toString().contains("\"battery_percent\":54.0,\"voltage_v\":56.0,\"current_a\":-0.2,\"power_w\":-11.200000000000001,\"temperature_c\":null,\"gap_before\":true"),"First post-loss sample keeps gap and real measurements");
         check(reconnected.snapshot().sessions==1,"Transient recovery remains one journal, not a second session");
-        journals();
+        sustainedElectricalChanges();journals();
         System.out.println("ChargeSessionStore: "+checks+" checks passed");
     }
 }
