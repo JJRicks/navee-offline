@@ -38,6 +38,7 @@ public final class ChargeScheduleValidation extends Instrumentation {
     private boolean admitted;
     private String profile;
     private int assertions;
+    private long savedManualStart, armedDeadline;
     private final ArrayList<String> checks=new ArrayList<>(),screenshots=new ArrayList<>();
     @Override public void onCreate(Bundle arguments){args=arguments==null?new Bundle():arguments;start();}
     @Override public void onStart(){Bundle result=new Bundle();try{
@@ -56,6 +57,7 @@ public final class ChargeScheduleValidation extends Instrumentation {
         });
         activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         await(()->activity.service()!=null&&root().getWidth()>0,"App did not launch");service=activity.service();
+        verifyOfflinePreference();
         main(()->require(service.setSimulation(true),"Simulation did not start"));settle();
         controls();verifyOrdering();verifyUnplugged();verifyDisabledThumb(false);
         controls();main(()->service.ble.setSimulationCharging(true));settle();
@@ -70,6 +72,23 @@ public final class ChargeScheduleValidation extends Instrumentation {
         if(admitted&&activity!=null)try{main(()->{if(service!=null)service.setSimulation(false);activity.finish();ScooterService.setUiVisible(false);getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});}catch(Throwable ignored){}
         finish("PASS".equals(result.getString("result"))?0:1,result);
     }}
+    private void verifyOfflinePreference(){
+        main(()->{
+            require(!service.ble.ready()&&service.chargeSchedule().timeBlockedReason==null,"Disconnected time preference was blocked");
+            invoke(activity,"quickAction",new Class<?>[]{String.class},"charge_done_time");
+        });settle();
+        main(()->{TimePickerDialog dialog=picker();dialog.updateTime(9,17);dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();});settle();
+        main(()->{
+            require(service.chargeSchedule().doneByMinuteOfDay==557&&!service.chargeSchedule().doneByEnabled,"Offline preference did not save locally");
+            require(settings().contains("charge_schedule_owned_"+profile),"Offline preference did not persist");
+            ViewGroup grid=root().findViewWithTag("setting-tiles");require(grid!=null,"Offline time shortcut disappeared");
+            boolean found=false;for(int i=0;i<grid.getChildCount();i++){View cell=grid.getChildAt(i);if("charge_done_time".equals(field(field(cell,"entry"),"id"))){found=true;String spoken=String.valueOf(cell.getContentDescription());require(!spoken.contains("Connect")&&spoken.contains("09:17"),"Offline shortcut is incorrectly blocked or stale");}}
+            require(found,"Offline time shortcut missing");
+            require(!service.ble.ready()&&!service.chargeSchedule().busy,"Offline preference started a connection/transaction");
+            settings().edit().remove("charge_schedule_owned_"+profile).commit();
+        });
+        assertNoRadio();checks.add("Done-by time picker and shortcut save a per-scooter preference offline without radio operations");
+    }
     private void verifyOrdering(){main(()->{
         Object manual=control("timed_charging"),start=control("charge_start");
         assertImmediatelyAfter((View)field(manual,"card"),(View)field(field(done(false),"row"),"card"));
@@ -79,13 +98,14 @@ public final class ChargeScheduleValidation extends Instrumentation {
     private void assertImmediatelyAfter(View previous,View next){ViewGroup parent=(ViewGroup)previous.getParent();require(next.getParent()==parent,"Schedule rows have different sections");int i=parent.indexOfChild(previous)+1;while(i<parent.getChildCount()&&parent.getChildAt(i)!=next){View gap=parent.getChildAt(i++);require(!(gap instanceof ViewGroup),"Another control separates related schedule rows");}require(i<parent.getChildCount(),"Done-by setting is not immediately after its matching schedule setting");}
     private void verifyUnplugged(){main(()->{
         ChargeScheduleController.View state=service.chargeSchedule();require(!state.chargerConnected&&!state.doneByEnabled,"Unplugged fixture starts armed");
-        require("Connect a charger first".equals(state.doneByBlockedReason)&&"Connect a charger first".equals(state.timeBlockedReason),"Wrong unplugged explanation");
+        require("Connect a charger first".equals(state.doneByBlockedReason)&&state.timeBlockedReason==null,"Toggle must require a charger while local time stays editable");
+        View timeLine=(View)field(field(done(true),"row"),"line");require(timeLine.isEnabled()&&timeLine.getAlpha()==1f,"Unplugged done-by time is dimmed");
         Switch toggle=(Switch)field(done(false),"toggle");View line=(View)field(field(done(false),"row"),"line");
         require(!toggle.isEnabled()&&!toggle.isClickable()&&line.isEnabled()&&line.getAlpha()<1,"Unplugged toggle is not muted but explainable");
         require(String.valueOf(line.getContentDescription()).contains("Connect a charger first"),"Unplugged accessible reason missing");
         invoke(activity,"quickAction",new Class<?>[]{String.class},"charge_done_by");
         require(!service.chargeSchedule().doneByEnabled,"Unplugged shortcut armed a schedule");
-    });checks.add("Unplugged done-by time and toggle are dimmed, with the exact Connect a charger first explanation");}
+    });checks.add("Unplugged toggle explains charger requirement while the time preference stays editable");}
     private void verifyDisabledThumb(boolean manual)throws Exception{
         AtomicInteger taps=new AtomicInteger();AtomicReference<Switch> target=new AtomicReference<>();
         main(()->{
@@ -134,21 +154,33 @@ public final class ChargeScheduleValidation extends Instrumentation {
         checks.add("Changing scooters before accepting either time picker prevents the stale action");
     }
     private void verifyPlanAndPausedControls() throws Exception {
+        AtomicReference<String> initialResponse=new AtomicReference<>("pending");
+        main(()->{savedManualStart=Math.floorDiv(System.currentTimeMillis()+2*60*60_000L,60_000L)*60_000L;service.setManualChargeStart(savedManualStart,initialResponse::set);});
+        await(()->!"pending".equals(initialResponse.get()),"Initial manual time did not finish");require(initialResponse.get()==null,"Initial manual time failed");
         main(()->invoke(activity,"quickAction",new Class<?>[]{String.class},"charge_done_by"));settle();
-        main(()->{ChargeScheduleController.View state=service.chargeSchedule();require(state.doneByEnabled&&!state.manualEnabled&&!state.busy,"Done-by transaction did not finish");require(state.startWallMs>System.currentTimeMillis()&&state.doneByWallMs>state.startWallMs,"Computed charging plan is not in the future");require(Integer.valueOf(1).equals(service.ble.featureValue("timed_charging")),"Done-by did not arm the simulated scooter scheduler");require("Disable Charge done by first".equals(state.manualBlockedReason),"Wrong mutually-exclusive explanation");service.ble.setSimulationCharging(false);});settle();
+        main(()->{ChargeScheduleController.View state=service.chargeSchedule();require(state.doneByEnabled&&!state.manualEnabled&&!state.busy,"Done-by transaction did not finish");require(state.startWallMs>System.currentTimeMillis()&&state.doneByWallMs>state.startWallMs,"Computed charging plan is not in the future");require(Integer.valueOf(1).equals(service.ble.featureValue("timed_charging")),"Done-by did not arm the simulated scooter scheduler");require("Disable Charge done by first".equals(state.manualBlockedReason)&&"Disable Charge done by first".equals(state.manualTimeBlockedReason),"Wrong mutually-exclusive explanation");require(state.manualStartWallMs==savedManualStart,"Done-by overwrote manual time");armedDeadline=state.doneByWallMs;service.ble.setSimulationCharging(false);});settle();
         main(()->{require(service.chargeSchedule().doneByEnabled,"Expected charge pause erased the plan");Switch toggle=(Switch)field(done(false),"toggle");require(toggle.isChecked()&&toggle.isEnabled(),"Paused done-by plan cannot be disabled");require(!((Switch)field(control("timed_charging"),"toggle")).isEnabled(),"Manual switch remained active while done-by armed");});
+        main(()->{
+            Object row=control("charge_start");String expected=DisplayTime.clock(activity,settings(),savedManualStart);
+            require(expected.contentEquals(((TextView)field(row,"value")).getText()),"Locked manual row shows the calculated time instead of the saved manual time");
+            require(((View)field(field(row,"row"),"line")).getAlpha()<1,"Manual time was not visually locked");
+            invoke(activity,"showChargingTime");Object dialog=field(activity,"controlDialog");require(!(dialog instanceof TimePickerDialog)||!((TimePickerDialog)dialog).isShowing(),"Locked manual time opened a picker");
+            invoke(activity,"showChargeDoneTime");
+        });settle();
+        main(()->{TimePickerDialog dialog=picker();int minute=(service.chargeSchedule().doneByMinuteOfDay+60)%1440;dialog.updateTime(minute/60,minute%60);dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();});settle();
+        main(()->require(service.chargeSchedule().doneByEnabled&&service.chargeSchedule().doneByWallMs==armedDeadline&&service.chargeSchedule().manualStartWallMs==savedManualStart,"Editing the next deadline changed the active schedule"));
         verifyDisabledThumb(true);screenshot("paused-plan");controls();
         main(()->{AtomicReference<String> response=new AtomicReference<>();service.setManualChargeEnabled(true,response::set);require("Disable Charge done by first".equals(response.get()),"Manual API bypassed done-by exclusion");});
         home();verifyTiles(true);
         main(()->invoke(activity,"showQuickSettings",new Class<?>[]{String.class},"Battery"));settle();
         main(()->{List<?> rows=(List<?>)field(activity,"quickChargeRows");require(rows.size()==2,"Battery quick menu omitted done-by rows");Object toggleRow=rows.get(0);require(((Switch)field(toggleRow,"toggle")).isChecked()&&((Switch)field(toggleRow,"toggle")).isEnabled(),"Paused plan is not actionable in quick menu");((View)field(field(toggleRow,"row"),"line")).performClick();});settle();
-        main(()->{require(!service.chargeSchedule().doneByEnabled,"Quick menu did not disable the paused schedule");for(Object row:(List<?>)field(activity,"quickChargeRows"))if(!(Boolean)field(row,"time"))require(!((Switch)field(row,"toggle")).isChecked(),"Quick menu retained stale enabled state");invoke(activity,"closeQuickMenu");});settle();
+        main(()->{require(!service.chargeSchedule().doneByEnabled&&!service.chargeSchedule().manualEnabled&&!service.chargeSchedule().busy,"Quick menu did not disable the paused schedule");require(service.chargeSchedule().startWallMs==savedManualStart&&service.chargeSchedule().manualStartWallMs==savedManualStart,"Disabling did not restore the saved manual time");require(Integer.valueOf(0).equals(service.ble.featureValue("timed_charging")),"Restoring manual time unexpectedly enabled charging schedule");for(Object row:(List<?>)field(activity,"quickChargeRows"))if(!(Boolean)field(row,"time"))require(!((Switch)field(row,"toggle")).isChecked(),"Quick menu retained stale enabled state");invoke(activity,"closeQuickMenu");});settle();
         verifyTiles(false);checks.add("Simulated done-by applies clock/start/enable, stays cancellable during pause, excludes manual scheduling and refreshes quick-menu/tile state");
     }
     private void verifyTiles(boolean armed){main(()->{
         ViewGroup grid=root().findViewWithTag("setting-tiles");require(grid!=null&&grid.getChildCount()==4,"Charging setting tiles missing");
         for(int i=0;i<grid.getChildCount();i++){View cell=grid.getChildAt(i);String id=(String)field(field(cell,"entry"),"id");boolean toggle=id.equals("charge_done_by")||id.equals("feature:timed_charging");require((Boolean)field(cell,"toggle")==toggle,"Wrong power/chevron cue for "+id);require(String.valueOf(cell.getContentDescription()).endsWith(toggle?", toggle":", open"),"Wrong accessible action for "+id);
-            if(id.equals("charge_done_by")){require(cell.isSelected()==armed,"Done-by tile state did not refresh");if(!armed)require(String.valueOf(cell.getContentDescription()).contains("Connect a charger first"),"Unplugged tile lost its reason");}
+            if(id.equals("charge_done_by")){if(armed)require(String.valueOf(cell.getContentDescription()).contains(DisplayTime.clock(activity,settings(),armedDeadline)),"Active tile shows next-use preference instead of the armed deadline");require(cell.isSelected()==armed,"Done-by tile state did not refresh");if(!armed)require(String.valueOf(cell.getContentDescription()).contains("Connect a charger first"),"Unplugged tile lost its reason");}
         }
     });}
     private void verifyManualAndQuickRefresh(){controls();

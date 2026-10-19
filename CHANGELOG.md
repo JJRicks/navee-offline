@@ -1,5 +1,10 @@
 # Changelog
 
+## 1.4.7 — 2026-10-19
+
+- Edit the Charge done by time without a connected scooter or charger; changes apply when next enabled.
+- Preserve the manual Charge start time while done-by is active, and restore it when done-by is disabled without enabling scheduled charging.
+
 ## 1.4.6 — 2026-10-19
 
 - Add **Charge done by** in Scooter settings and dashboard shortcuts. Use the current charge estimate plus a ten-minute buffer to save a one-time start on the scooter; no ongoing phone connection is needed.

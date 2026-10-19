@@ -1,5 +1,5 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
-Current version: 1.4.6 (versionCode 43)
+Current version: 1.4.7 (versionCode 44)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -16,6 +16,12 @@ Volt is an independent community project, not affiliated with, endorsed by
 or sponsored by NAVEE.
 That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
+
+NEW IN 1.4.7
+------------
+- Edit Charge done by time offline; the saved preference applies next time it is enabled.
+- Keep the manual Charge start time visible but locked during a done-by plan.
+- Turning done-by off restores the saved manual time without enabling Scheduled charging.
 
 NEW IN 1.4.6
 
