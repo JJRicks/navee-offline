@@ -35,7 +35,7 @@ public final class ChargeScheduleControllerTest {
         void recreate(){controller=new ChargeScheduleController(this,this);}
     }
     public static void main(String[] args){
-        planner();transactions();reconciliation();gating();persistence();preferences();restoration();
+        planner();transactions();reconciliation();gating();persistence();preferences();restoration();externalManualEdits();connectedPlanEdits();
         System.out.println("ChargeScheduleControllerTest: "+checks+" assertions passed");
     }
     private static void planner(){
@@ -146,9 +146,10 @@ public final class ChargeScheduleControllerTest {
         offline.c.scope="";offline.controller.setDoneTime(9,0,offline.results::add);
         check(offline.results.get(2).equals("Choose a scooter first")&&!offline.saved.containsKey(""),"missing profile cannot store global preference");
         Rig active=new Rig();active.arm();long start=active.controller.view().startWallMs,deadline=active.controller.view().doneByWallMs;int commands=active.writes.size();
+        active.c.ready=false;
         active.controller.setDoneTime(9,30,active.results::add);
-        check(active.results.get(1)==null&&active.controller.view().doneByMinuteOfDay==570,"active plan allows preferred deadline edit");
-        check(active.writes.size()==commands&&active.controller.view().startWallMs==start&&active.controller.view().doneByWallMs==deadline,"active preference edit does not reprogram or mislabel existing plan");
+        check(active.results.get(1)==null&&active.controller.view().doneByMinuteOfDay==570,"disconnected active plan allows preferred deadline edit");
+        check(active.writes.size()==commands&&active.controller.view().startWallMs==start&&active.controller.view().doneByWallMs==deadline,"offline active preference edit does not reprogram or mislabel existing plan");
         active.c.ready=false;active.controller.setDoneTime(10,30,active.results::add);active.recreate();
         check(active.controller.view().doneByEnabled&&active.controller.view().doneByWallMs==deadline&&active.controller.view().doneByMinuteOfDay==630,"active disconnected preference preserves plan through restart");
         active.c.ready=true;active.controller.setDoneEnabled(false,active.results::add);active.c.enabled=0;active.reply(true);
@@ -173,8 +174,10 @@ public final class ChargeScheduleControllerTest {
         check(ChargeScheduleController.decode(manualV1).manualStart==manual,"v1 genuine manual start migrates");
         check(ChargeScheduleController.decode(manualV1.replace("|0.0|false","|90.0|false")).manualStart==0,"v1 downgraded calculated schedule not mistaken for prior manual preference");
         ChargeScheduleController.State migrated=ChargeScheduleController.decode(manualV1);
-        check(ChargeScheduleController.encode(migrated).startsWith("2|")&&ChargeScheduleController.decode(ChargeScheduleController.encode(migrated)).manualStart==manual,"new schema roundtrips migrated preference");
-        check(ChargeScheduleController.decode(ChargeScheduleController.encode(migrated).replace("|"+manual,"|-1")).mode==0,"invalid v2 timestamp rejected");
+        check(ChargeScheduleController.encode(migrated).startsWith("3|")&&ChargeScheduleController.decode(ChargeScheduleController.encode(migrated)).manualStart==manual,"new schema roundtrips migrated preference");
+        check(ChargeScheduleController.decode(ChargeScheduleController.encode(migrated).replace("|"+manual,"|-1")).mode==0,"invalid v3 timestamp rejected");
+        String v2=ChargeScheduleController.encode(migrated).replaceFirst("^3\\|","2|");v2=v2.substring(0,v2.lastIndexOf('|'));v2=v2.substring(0,v2.lastIndexOf('|'));
+        check(ChargeScheduleController.decode(v2).manualStart==manual&&ChargeScheduleController.decode(v2).calculatedWire==0,"v2 manual preference remains readable");
     }
     private static Rig armedWithManual(){
         Rig r=new Rig();long manual=time("2026-10-20T11:00:00Z");
@@ -223,5 +226,81 @@ public final class ChargeScheduleControllerTest {
         check(priorOn.controller.view().manualEnabled,"manual schedule initially active");priorOn.writes.clear();priorOn.results.clear();priorOn.c.charging=1;priorOn.arm();
         priorOn.controller.setDoneEnabled(false,priorOn.results::add);priorOn.c.enabled=0;priorOn.reply(true);priorOn.reply(true);priorOn.c.wireStart=priorOn.sentTime/1000+priorOn.sentOffset;priorOn.reply(true);
         check(!priorOn.controller.view().manualEnabled&&priorOn.writes.equals(java.util.Arrays.asList("clock","time","on","off","clock","time")),"restoring previously active manual time still never re-enables schedule");
+    }
+    private static Rig withManualOnly(){
+        Rig r=new Rig();long manual=time("2026-10-20T11:00:00Z");r.controller.setManualStart(manual,r.results::add);r.reply(true);
+        r.c.wireStart=r.sentTime/1000+r.sentOffset;r.reply(true);r.writes.clear();r.results.clear();return r;
+    }
+    private static void externalManualEdits(){
+        Rig external=withManualOnly();long edited=time("2026-10-20T12:00:00Z");external.c.wireStart=edited/1000+external.sentOffset;external.controller.observe();
+        check(external.controller.view().startWallMs==edited&&external.controller.view().manualStartWallMs==edited,"positive native edit updates genuine manual preference");
+        external.recreate();check(external.controller.view().manualStartWallMs==edited,"external manual edit persists");
+        external.controller.setManualEnabled(true,external.results::add);external.reply(true);
+        check(external.sentTime==edited,"manual enable preserves external choice rather than overwriting with old time");external.reply(true);external.reply(true);
+        Rig externalDone=withManualOnly();externalDone.c.wireStart=edited/1000+externalDone.sentOffset;externalDone.controller.observe();externalDone.arm();
+        check(externalDone.controller.view().manualStartWallMs==edited,"done-by retains most recent external manual choice");
+        externalDone.controller.setDoneEnabled(false,externalDone.results::add);externalDone.c.enabled=0;externalDone.reply(true);externalDone.reply(true);
+        check(externalDone.sentTime==edited,"done-by cancellation restores external manual choice");externalDone.c.wireStart=externalDone.sentTime/1000+externalDone.sentOffset;externalDone.reply(true);
+        long later=edited+3600_000;externalDone.c.wireStart=later/1000+externalDone.sentOffset;externalDone.controller.observe();
+        check(externalDone.controller.view().manualStartWallMs==later,"successful restoration returns to ordinary external manual reconciliation");
+        Rig late=withManualOnly();long preferred=late.controller.view().manualStartWallMs;late.enable();late.reply(true);long calculated=late.sentTime,wire=late.sentTime/1000+late.sentOffset;
+        check(ChargeScheduleController.decode(late.saved.get("owner-A")).calculatedWire==wire,"attempted calculated write is journaled before its confirmation");late.reply(false);late.recreate();late.c.wireStart=wire;late.controller.observe();
+        check(late.controller.view().startWallMs==calculated&&late.controller.view().manualStartWallMs==preferred,"late readback after failed calculated ACK and restart does not become manual preference");
+        Rig dropped=withManualOnly();preferred=dropped.controller.view().manualStartWallMs;dropped.enable();dropped.reply(true);wire=dropped.sentTime/1000+dropped.sentOffset;
+        dropped.c.ready=false;dropped.controller.observe();dropped.recreate();dropped.c.ready=true;dropped.c.generation++;dropped.c.wireStart=wire;dropped.controller.observe();dropped.reply(true);
+        check(dropped.controller.view().manualStartWallMs==preferred,"disconnect/restart during calculated write cannot corrupt manual preference from delayed readback");
+        Rig active=armedWithManual();preferred=active.controller.view().manualStartWallMs;active.c.wireStart+=1800;active.controller.observe();
+        check(active.controller.view().manualStartWallMs==preferred,"changed native time during owned done-by never replaces separate manual preference");
+        Rig collision=new Rig();long sameCalculated=time("2026-10-20T12:20:00Z");collision.controller.setManualStart(sameCalculated,collision.results::add);collision.reply(true);collision.c.wireStart=collision.sentTime/1000+collision.sentOffset;collision.reply(true);
+        collision.writes.clear();collision.results.clear();collision.arm();collision.c.soc=100d;collision.controller.observe();collision.c.wireStart+=1800;collision.controller.observe();
+        check(collision.controller.view().manualStartWallMs==sameCalculated,"retired calculated start matching manual by coincidence does not establish manual context");
+        Rig clockFailure=withManualOnly();clockFailure.enable();clockFailure.reply(false);clockFailure.c.wireStart=edited/1000+clockFailure.sentOffset;clockFailure.controller.observe();
+        check(clockFailure.controller.view().manualStartWallMs==edited,"clock failure before calculated write does not suppress genuine external manual edits");
+        String[] invalid=late.saved.get("owner-A").split("\\|",-1);invalid[11]="-1";
+        check(ChargeScheduleController.decode(String.join("|",invalid)).mode==0,"invalid calculated wire marker rejected");
+    }
+    private static void connectedPlanEdits(){
+        Rig paused=armedWithManual();long manual=paused.controller.view().manualStartWallMs;long oldDeadline=paused.controller.view().doneByWallMs;
+        paused.controller.setDoneTime(9,30,paused.results::add);
+        check(paused.writes.get(3).equals("clock")&&paused.controller.view().doneByMinuteOfDay==480,"active connected edit starts confirmation without prematurely saving new deadline");
+        paused.reply(true);check(paused.sentTime==time("2026-10-20T13:50:00Z"),"paused plan reuses verified 90 minute estimate plus buffer");
+        paused.c.wireStart=paused.sentTime/1000+paused.sentOffset;paused.reply(true);paused.reply(true);
+        check(paused.results.get(1)==null&&paused.controller.view().doneByMinuteOfDay==570&&paused.controller.view().doneByWallMs==time("2026-10-20T15:30:00Z"),"connected active edit applies and displays confirmed new deadline");
+        check(paused.controller.view().manualStartWallMs==manual,"active update preserves separate manual preference");
+        paused.recreate();paused.controller.setDoneTime(10,0,paused.results::add);paused.reply(true);
+        check(paused.sentTime==time("2026-10-20T14:20:00Z"),"captured ETA and SOC survive restart for explicit paused edit");paused.c.wireStart=paused.sentTime/1000+paused.sentOffset;paused.reply(true);paused.reply(true);
+        Rig live=armedWithManual();live.c.charging=1;live.c.soc=80d;live.c.estimateMinutes=60d;live.controller.setDoneTime(10,0,live.results::add);live.reply(true);
+        check(live.sentTime==time("2026-10-20T14:50:00Z"),"active charging uses fresh live estimate rather than older capture");live.c.wireStart=live.sentTime/1000+live.sentOffset;live.reply(true);live.reply(true);
+        check(ChargeScheduleController.decode(live.saved.get("owner-A")).capturedSoc==80,"fresh update captures current SOC for next paused edit");
+        Rig offline=armedWithManual();offline.c.ready=false;offline.controller.setDoneTime(11,0,offline.results::add);int commands=offline.writes.size();offline.c.ready=true;offline.c.generation++;offline.controller.observe();
+        check(offline.writes.size()==commands&&offline.controller.view().doneByWallMs==oldDeadline&&offline.controller.view().doneByMinuteOfDay==660,"reconnect does not auto-apply offline preference to active plan");
+        for(int unavailable=0;unavailable<4;unavailable++){
+            Rig missing=armedWithManual();if(unavailable==0)missing.c.soc=null;if(unavailable==1)missing.c.soc=78d;if(unavailable==2)missing.c.charging=null;if(unavailable==3)missing.c.now=missing.sentTime+1000;
+            missing.controller.setDoneTime(9,0,missing.results::add);
+            check(missing.writes.size()==3&&missing.results.get(1).contains("fresh charging estimate"),"unverified paused state refuses captured ETA reuse");
+            check(missing.controller.view().doneByMinuteOfDay==480&&missing.controller.view().doneByWallMs==oldDeadline,"refused update preserves original deadline and preference");
+        }
+        Rig legacy=armedWithManual();String old=legacy.saved.get("owner-A").replaceFirst("^3\\|","2|");old=old.substring(0,old.lastIndexOf('|'));old=old.substring(0,old.lastIndexOf('|'));
+        legacy.saved.put("owner-A",old);legacy.recreate();legacy.controller.setDoneTime(9,0,legacy.results::add);
+        check(legacy.writes.size()==3&&legacy.results.get(1).contains("fresh charging estimate"),"legacy active plan cannot invent missing captured SOC");
+        for(int failure=0;failure<3;failure++){
+            Rig failed=armedWithManual();failed.controller.setDoneTime(9,0,failed.results::add);for(int step=0;step<failure;step++){if(step==1)failed.c.wireStart=failed.sentTime/1000+failed.sentOffset;failed.reply(true);}failed.reply(false);
+            check(failed.results.size()==2&&failed.results.get(1)!=null&&!failed.controller.busy(),"active update failure completes once");
+            check(failed.controller.view().doneByMinuteOfDay==480&&failed.controller.view().manualStartWallMs==manual,"failed active update never saves unconfirmed new preference or overwrites manual preference");
+            if(failure<2)check(failed.controller.view().doneByEnabled&&failed.controller.view().doneByWallMs==oldDeadline,"pre-time-confirmation failure retains old plan");
+            else check(!failed.controller.view().doneByEnabled&&failed.results.get(1).contains("not confirmed"),"partial native time change is not falsely called an armed finish deadline");
+        }
+        for(int changed=0;changed<3;changed++){
+            Rig race=armedWithManual();race.controller.setDoneTime(9,0,race.results::add);
+            for(int step=0;step<changed;step++){if(step==1)race.c.wireStart=race.sentTime/1000+race.sentOffset;race.reply(true);}race.c.soc=80d;
+            if(changed==1)race.c.wireStart=race.sentTime/1000+race.sentOffset;race.reply(true);
+            check(race.results.size()==2&&race.results.get(1)!=null&&!race.controller.busy(),"SOC change during paused transaction prevents stale finish claim");
+            check(race.controller.view().doneByMinuteOfDay==480&&race.controller.view().manualStartWallMs==manual,"SOC race preserves user preferences");
+        }
+        Rig late=armedWithManual();late.c.now=time("2026-10-20T11:00:00Z");late.controller.setDoneTime(6,0,late.results::add);
+        check(late.writes.get(3).equals("off"),"updated deadline with insufficient time starts charging now");late.c.enabled=0;late.reply(true);
+        check(!late.controller.view().doneByEnabled&&late.controller.view().doneByMinuteOfDay==360&&late.results.get(1).startsWith("Charging now"),"charge-now update saves new preference only after OFF confirmed");
+        String[] bad=paused.saved.get("owner-A").split("\\|",-1);bad[12]="NaN";
+        check(ChargeScheduleController.decode(String.join("|",bad)).mode==0,"invalid captured SOC rejected");
     }
 }

@@ -20,6 +20,8 @@ See VERIFICATION.txt for executed checks and physical validation limits.
 NEW IN 1.4.7
 ------------
 - Edit Charge done by time offline; the saved preference applies next time it is enabled.
+- Connected active time edits recalculate and confirm the native start once, including
+  an unchanged scheduled pause. No background connection or automatic rearming.
 - Keep the manual Charge start time visible but locked during a done-by plan.
 - Turning done-by off restores the saved manual time without enabling Scheduled charging.
 

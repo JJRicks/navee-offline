@@ -168,14 +168,21 @@ public final class ChargeScheduleValidation extends Instrumentation {
             invoke(activity,"showChargeDoneTime");
         });settle();
         main(()->{TimePickerDialog dialog=picker();int minute=(service.chargeSchedule().doneByMinuteOfDay+60)%1440;dialog.updateTime(minute/60,minute%60);dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();});settle();
-        main(()->require(service.chargeSchedule().doneByEnabled&&service.chargeSchedule().doneByWallMs==armedDeadline&&service.chargeSchedule().manualStartWallMs==savedManualStart,"Editing the next deadline changed the active schedule"));
+        main(()->{
+            ChargeScheduleController.View updated=service.chargeSchedule();
+            require(updated.doneByEnabled&&!updated.busy,"Editing the connected paused deadline did not complete");
+            require(updated.doneByWallMs==armedDeadline+60*60_000L,"Editing the connected paused deadline did not update the active schedule");
+            require(updated.manualStartWallMs==savedManualStart,"Reprogramming the deadline overwrote the manual preference");
+            require(Integer.valueOf(1).equals(service.ble.featureValue("timed_charging")),"Updating the deadline left the native schedule disabled");
+            armedDeadline=updated.doneByWallMs;
+        });
         verifyDisabledThumb(true);screenshot("paused-plan");controls();
         main(()->{AtomicReference<String> response=new AtomicReference<>();service.setManualChargeEnabled(true,response::set);require("Disable Charge done by first".equals(response.get()),"Manual API bypassed done-by exclusion");});
         home();verifyTiles(true);
         main(()->invoke(activity,"showQuickSettings",new Class<?>[]{String.class},"Battery"));settle();
         main(()->{List<?> rows=(List<?>)field(activity,"quickChargeRows");require(rows.size()==2,"Battery quick menu omitted done-by rows");Object toggleRow=rows.get(0);require(((Switch)field(toggleRow,"toggle")).isChecked()&&((Switch)field(toggleRow,"toggle")).isEnabled(),"Paused plan is not actionable in quick menu");((View)field(field(toggleRow,"row"),"line")).performClick();});settle();
         main(()->{require(!service.chargeSchedule().doneByEnabled&&!service.chargeSchedule().manualEnabled&&!service.chargeSchedule().busy,"Quick menu did not disable the paused schedule");require(service.chargeSchedule().startWallMs==savedManualStart&&service.chargeSchedule().manualStartWallMs==savedManualStart,"Disabling did not restore the saved manual time");require(Integer.valueOf(0).equals(service.ble.featureValue("timed_charging")),"Restoring manual time unexpectedly enabled charging schedule");for(Object row:(List<?>)field(activity,"quickChargeRows"))if(!(Boolean)field(row,"time"))require(!((Switch)field(row,"toggle")).isChecked(),"Quick menu retained stale enabled state");invoke(activity,"closeQuickMenu");});settle();
-        verifyTiles(false);checks.add("Simulated done-by applies clock/start/enable, stays cancellable during pause, excludes manual scheduling and refreshes quick-menu/tile state");
+        verifyTiles(false);checks.add("Simulated done-by applies clock/start/enable, reprograms an edited deadline during a verified pause, restores the manual time on cancellation and refreshes quick-menu/tile state");
     }
     private void verifyTiles(boolean armed){main(()->{
         ViewGroup grid=root().findViewWithTag("setting-tiles");require(grid!=null&&grid.getChildCount()==4,"Charging setting tiles missing");

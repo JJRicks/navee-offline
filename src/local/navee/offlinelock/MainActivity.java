@@ -1827,9 +1827,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{
             if(scooterService==null||scooterService.profiles.active()==null
                     ||!profile.equals(scooterService.profiles.active().id)){toast("The selected scooter changed");return;}
-            boolean active=scooterService.chargeSchedule().doneByEnabled;
+            boolean deferred=scooterService.chargeSchedule().doneByEnabled&&!scooterService.ble.ready();
             scooterService.setChargeDoneByTime(hour,minute,result->{
-                if(result==null&&active)toast("Saved for next time");
+                if(result==null&&deferred)toast("Saved for next time");
                 scheduleResult(result);
             });redraw();
         },charge.doneByMinuteOfDay/60,charge.doneByMinuteOfDay%60,DisplayTime.is24Hour(this,preferences));

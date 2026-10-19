@@ -51,18 +51,19 @@ public final class ChargeScheduleController {
             manualTimeBlockedReason=manualBlockedReason!=null?manualBlockedReason:baseReason(c,true);
             String unavailable=busy?"Wait for the current change to finish":!chargerConnected?"Connect a charger first":baseReason(c,true);
             doneByBlockedReason=unavailable;
-            // This picker changes a local preference for the next activation only.
+            // The picker remains available offline. Connected active plans are
+            // validated and explicitly reprogrammed by setDoneTime instead.
             timeBlockedReason=busy?"Wait for the current change to finish":c.scope.isEmpty()?"Choose a scooter first":null;
         }
     }
     static final class State {
         int mode, minute=8*60;
-        long start, manualStart, wire, deadline, armed;
-        double target=100, estimate;
+        long start, manualStart, wire, deadline, armed, calculatedWire;
+        double target=100, estimate, capturedSoc=-1;
         boolean retired;
         String status="";
         long earlyFirst, earlyLast;
-        State copy(){State n=new State();n.mode=mode;n.minute=minute;n.start=start;n.manualStart=manualStart;n.wire=wire;n.deadline=deadline;n.armed=armed;n.target=target;n.estimate=estimate;n.retired=retired;n.status=status;return n;}
+        State copy(){State n=new State();n.mode=mode;n.minute=minute;n.start=start;n.manualStart=manualStart;n.wire=wire;n.deadline=deadline;n.armed=armed;n.calculatedWire=calculatedWire;n.target=target;n.estimate=estimate;n.capturedSoc=capturedSoc;n.retired=retired;n.status=status;return n;}
     }
     public static final class Plan {
         public final long deadlineWallMs, startWallMs;
@@ -103,7 +104,13 @@ public final class ChargeScheduleController {
         if(s.wire>0&&c.wireStart!=null&&c.wireStart>0&&c.wireStart!=s.wire){
             long offset=s.wire*1000L-s.start;
             if(Math.abs(offset)>86_400_000L)offset=c.zone.getOffset(c.now);
-            s.mode=0;s.retired=false;s.start=fromWire(c.wireStart,offset);s.wire=c.wireStart;s.status="Charging time changed on the scooter";save(c,s);return;
+            boolean manualContext=s.mode!=2&&s.manualStart>0&&s.start==s.manualStart
+                    &&s.wire!=s.calculatedWire&&c.wireStart!=s.calculatedWire;
+            s.mode=0;s.retired=false;s.start=fromWire(c.wireStart,offset);s.wire=c.wireStart;
+            // Follow genuine manual edits made on the scooter/OEM app, but do not
+            // mistake a late readback from our calculated write for a manual choice.
+            if(manualContext)s.manualStart=s.start;
+            s.status="Charging time changed on the scooter";save(c,s);return;
         }
         if(s.mode==0)return;
         if(finite(c.target)&&c.target>0&&c.target<=100&&c.target!=s.target){
@@ -135,6 +142,7 @@ public final class ChargeScheduleController {
         Context c=context();View view=view();
         if(hour<0||hour>23||minute<0||minute>59){completion.accept("Choose a valid time");return;}
         if(view.timeBlockedReason!=null){completion.accept(view.timeBlockedReason);return;}
+        if(c.ready&&view.doneByEnabled){enableDone(hour*60+minute,completion);return;}
         State s=state(c);s.minute=hour*60+minute;save(c,s);completion.accept(null);
     }
     public void setDoneEnabled(boolean enabled,Consumer<String> completion){
@@ -144,8 +152,21 @@ public final class ChargeScheduleController {
     }
     private void enableDone(int minute,Consumer<String> completion){
         Context c=context();View view=view();
-        if(view.doneByBlockedReason!=null){completion.accept(view.doneByBlockedReason);return;}
-        if(!finite(c.target)||c.target<=0||c.target>100||!finite(c.estimateMinutes)||c.estimateMinutes<=0){
+        String blocked=view.doneByEnabled?(busy?"Wait for the current change to finish":baseReason(c,true)):view.doneByBlockedReason;
+        if(blocked!=null){completion.accept(blocked);return;}
+        State previous=state(c);boolean paused=!Integer.valueOf(1).equals(c.charging);
+        if(paused){
+            // Native scheduled charging intentionally pauses current flow. Reuse its
+            // captured ETA only while fresh electrical readings still prove that the
+            // same amount of charging remains before the owned start time.
+            if(previous.mode!=2||!Integer.valueOf(0).equals(c.charging)||c.now>=previous.start
+                    ||previous.capturedSoc<0||!finite(c.soc)||c.soc!=previous.capturedSoc
+                    ||!finite(c.target)||c.target!=previous.target||previous.estimate<=0){
+                completion.accept("A fresh charging estimate is needed; disable Charge done by and charge briefly");return;
+            }
+            c.estimateMinutes=previous.estimate;
+        }
+        if(!finite(c.soc)||c.soc<0||c.soc>100||!finite(c.target)||c.target<=0||c.target>100||!finite(c.estimateMinutes)||c.estimateMinutes<=0){
             completion.accept(finite(c.soc)&&finite(c.target)&&c.soc>=c.target?"Battery is already at its charge limit":"Wait for a charging time estimate");return;
         }
         final Plan plan;
@@ -158,8 +179,8 @@ public final class ChargeScheduleController {
         }
         program(c,plan.startWallMs,plan.offsetSeconds,()->{
             State s=state(c);s.mode=2;s.minute=minute;s.start=plan.startWallMs;s.wire=plan.startWallMs/1000+plan.offsetSeconds;
-            s.deadline=plan.deadlineWallMs;s.armed=context().now;s.target=c.target;s.estimate=c.estimateMinutes;s.retired=false;s.status="";save(c,s);
-        },true,c.target,completion);
+            s.deadline=plan.deadlineWallMs;s.armed=context().now;s.target=c.target;s.estimate=c.estimateMinutes;s.capturedSoc=c.soc;s.retired=false;s.status="";save(c,s);
+        },true,c.target,paused?c.soc:null,completion);
     }
     public void setManualEnabled(boolean enabled,Consumer<String> completion){
         Context c=context();View view=view();
@@ -175,7 +196,7 @@ public final class ChargeScheduleController {
         // Enabling an existing native time is also an explicit manual choice. Keep
         // it even if confirmation fails after the native timestamp was rewritten.
         state(c).manualStart=chosen;save(c,state(c));
-        program(c,chosen,offset,()->{state(c).manualStart=chosen;armManual(c,chosen,offset);},true,null,completion);
+        program(c,chosen,offset,()->{state(c).manualStart=chosen;state(c).calculatedWire=0;armManual(c,chosen,offset);},true,null,null,completion);
     }
     public void setManualStart(long wallMs,Consumer<String> completion){
         Context c=context();View view=view();
@@ -186,10 +207,10 @@ public final class ChargeScheduleController {
         int offset=c.zone.getOffset(c.now)/1000;
         boolean enabled=view.manualEnabled;
         program(c,wallMs,offset,()->{
-            state(c).manualStart=wallMs;
+            state(c).manualStart=wallMs;state(c).calculatedWire=0;
             if(enabled)armManual(c,wallMs,offset);
             else{State s=state(c);s.start=wallMs;s.wire=wallMs/1000+offset;s.retired=false;save(c,s);}
-        },false,null,completion);
+        },false,null,null,completion);
     }
     private void armManual(Context c,long start,int offset){State s=state(c);s.mode=1;s.start=start;s.wire=start/1000+offset;s.armed=context().now;
         s.deadline=start+24*60*60_000L;s.target=finite(c.target)&&c.target>0&&c.target<=100?c.target:100;s.retired=false;s.status="";save(c,s);}
@@ -223,7 +244,7 @@ public final class ChargeScheduleController {
             driver.time(restored,offset,time->{
                 if(!valid(c,token,completion))return;
                 if(!time){restoreFailed(c,"restoring Charge start was not confirmed",completion);return;}
-                State s=state(c);s.manualStart=restored;s.start=restored;s.wire=restored/1000+offset;s.status="";save(c,s);
+                State s=state(c);s.manualStart=restored;s.start=restored;s.wire=restored/1000+offset;s.calculatedWire=0;s.status="";save(c,s);
                 finishBusy();completion.accept(null);
             });
         });
@@ -231,12 +252,19 @@ public final class ChargeScheduleController {
     private void restoreFailed(Context c,String detail,Consumer<String> completion){
         State s=state(c);s.status="Charge done by is off; "+detail;save(c,s);finishBusy();completion.accept(s.status);
     }
-    private void program(Context c,long start,int offset,Runnable commit,boolean enable,Double deadlineTarget,Consumer<String> completion){
+    private void program(Context c,long start,int offset,Runnable commit,boolean enable,Double deadlineTarget,Double stableSoc,Consumer<String> completion){
         if(busy){completion.accept("Wait for the current change to finish");return;}
         long token=++operation;busy=true;pendingContext=c;pendingCompletion=completion;
         driver.clock(clock->{
             if(!valid(c,token,completion))return;
             if(!clock){finishBusy();completion.accept("Could not set the scooter clock; schedule unchanged");return;}
+            if(stableSoc!=null&&!stableSoc.equals(context().soc)){
+                finishBusy();completion.accept("Battery level changed; a fresh charging estimate is needed");return;
+            }
+            // A transmitted calculated time may apply despite a lost confirmation.
+            // Retain its identity across restart so its later readback cannot replace
+            // the separate manual preference during reconciliation.
+            if(deadlineTarget!=null){State s=state(c);s.calculatedWire=start/1000+offset;save(c,s);}
             driver.time(start,offset,time->{
                 if(!valid(c,token,completion))return;
                 if(!time){finishBusy();completion.accept("Charge start was not confirmed; check the scooter schedule");return;}
@@ -249,6 +277,9 @@ public final class ChargeScheduleController {
                 Context latest=context();
                 if(deadlineTarget!=null&&(!finite(latest.target)||!deadlineTarget.equals(latest.target))){
                     finishBusy();completion.accept("Charge limit changed; check the schedule and try again");return;
+                }
+                if(stableSoc!=null&&!stableSoc.equals(latest.soc)){
+                    finishBusy();completion.accept("Charge start changed, but a fresh charging estimate is needed");return;
                 }
                 if(start<=latest.now){
                     // ACK/readback can consume a start only seconds away. Never enable a
@@ -267,6 +298,8 @@ public final class ChargeScheduleController {
                         Context after=context();
                         if(deadlineTarget!=null&&(!finite(after.target)||!deadlineTarget.equals(after.target))){
                             armManual(after,start,offset);completion.accept("Charge limit changed; the charge start is saved without a finish estimate");
+                        }else if(stableSoc!=null&&!stableSoc.equals(after.soc)){
+                            armManual(after,start,offset);completion.accept("Battery level changed; the charge start is saved without a finish estimate");
                         }else{commit.run();completion.accept(null);}
                     }
                     else completion.accept("Charge start changed, but enabling the schedule was not confirmed");
@@ -323,15 +356,17 @@ public final class ChargeScheduleController {
     }
     private static long fromWire(long raw,long clockOffsetMs){return raw*1000L-clockOffsetMs;}
     private static boolean finite(Double n){return n!=null&&Double.isFinite(n);}
-    static String encode(State s){return "2|"+s.mode+"|"+s.minute+"|"+s.start+"|"+s.wire+"|"+s.deadline+"|"+s.armed+"|"+s.target+"|"+s.estimate+"|"+s.retired+"|"+s.manualStart;}
+    static String encode(State s){return "3|"+s.mode+"|"+s.minute+"|"+s.start+"|"+s.wire+"|"+s.deadline+"|"+s.armed+"|"+s.target+"|"+s.estimate+"|"+s.retired+"|"+s.manualStart+"|"+s.calculatedWire+"|"+s.capturedSoc;}
     static State decode(String text){
         State s=new State();if(text==null)return s;
-        try{String[] v=text.split("\\|",-1);boolean legacy=v.length==10&&v[0].equals("1");if(!legacy&&!(v.length==11&&v[0].equals("2")))return s;
+        try{String[] v=text.split("\\|",-1);boolean legacy=v.length==10&&v[0].equals("1"),v2=v.length==11&&v[0].equals("2");if(!legacy&&!v2&&!(v.length==13&&v[0].equals("3")))return s;
             State n=new State();n.mode=Integer.parseInt(v[1]);n.minute=Integer.parseInt(v[2]);n.start=Long.parseLong(v[3]);n.wire=Long.parseLong(v[4]);n.deadline=Long.parseLong(v[5]);n.armed=Long.parseLong(v[6]);n.target=Double.parseDouble(v[7]);n.estimate=Double.parseDouble(v[8]);n.retired=Boolean.parseBoolean(v[9]);
             // Version 1 did not save manual and calculated starts separately. Only
             // a record without a calculated estimate can safely supply that preference.
             n.manualStart=legacy?(n.mode!=2&&n.estimate==0?n.start:0):Long.parseLong(v[10]);
-            if(n.mode<0||n.mode>2||n.minute<0||n.minute>=1440||n.start<0||n.start>0xffffffffL*1000L||n.manualStart<0||n.manualStart>0xffffffffL*1000L||n.wire<0||n.wire>0xffffffffL||n.deadline<0||n.deadline>0xffffffffL*1000L||n.armed<0||n.armed>0xffffffffL*1000L||!Double.isFinite(n.target)||n.target<=0||n.target>100||!Double.isFinite(n.estimate)||n.estimate<0||n.estimate>2880)return s;
+            n.calculatedWire=legacy||v2?(n.mode==2?n.wire:0):Long.parseLong(v[11]);
+            n.capturedSoc=legacy||v2?-1:Double.parseDouble(v[12]);
+            if(n.mode<0||n.mode>2||n.minute<0||n.minute>=1440||n.start<0||n.start>0xffffffffL*1000L||n.manualStart<0||n.manualStart>0xffffffffL*1000L||n.wire<0||n.wire>0xffffffffL||n.calculatedWire<0||n.calculatedWire>0xffffffffL||n.deadline<0||n.deadline>0xffffffffL*1000L||n.armed<0||n.armed>0xffffffffL*1000L||!Double.isFinite(n.target)||n.target<=0||n.target>100||!Double.isFinite(n.estimate)||n.estimate<0||n.estimate>2880||!Double.isFinite(n.capturedSoc)||n.capturedSoc< -1||n.capturedSoc>100)return s;
             if(n.mode!=0&&(n.start==0||n.armed==0||n.deadline<n.start))return s;return n;
         }catch(RuntimeException invalid){return s;}
     }

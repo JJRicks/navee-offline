@@ -3,6 +3,7 @@
 ## 1.4.7 — 2026-10-19
 
 - Edit the Charge done by time without a connected scooter or charger; changes apply when next enabled.
+- Editing the time while connected and active recalculates the scooter's start once, using a live estimate or the saved estimate during an unchanged scheduled pause.
 - Preserve the manual Charge start time while done-by is active, and restore it when done-by is disabled without enabling scheduled charging.
 
 ## 1.4.6 — 2026-10-19
