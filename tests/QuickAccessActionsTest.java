@@ -31,6 +31,11 @@ public final class QuickAccessActionsTest {
         check(QuickAccessActions.normalize(null, 1, 4).equals(QuickAccessActions.defaultIds()), "setting tiles legacy");
         check(QuickAccessActions.find(null) == null && QuickAccessActions.find("nonsense") == null, "invalid IDs");
         check(QuickAccessActions.find("feature:traction_control").directToggle(), "traction is a direct toggle");
+        check(QuickAccessActions.find("charge_done_by").directToggle(), "done-by has an on/off cue");
+        check(!QuickAccessActions.find("charge_done_time").directToggle(), "done-by time opens the picker");
+        check(QuickAccessActions.find("charge_done_by").feature() == null, "local scheduling is not a BLE command");
+        check(QuickAccessActions.normalize(Arrays.asList("charge_done_by", "charge_done_time"), 1, 4)
+                .equals(Arrays.asList("charge_done_by", "charge_done_time")), "schedule shortcuts survive saved-layout normalization");
         check(!QuickAccessActions.find("feature:start_speed").directToggle(), "kick start opens its range editor");
         check(!QuickAccessActions.find("feature:energy_recovery").directToggle(), "energy recovery opens choices");
         check(!QuickAccessActions.find("feature:proximity_key").directToggle(), "proximity keeps PIN and bond approval flow");

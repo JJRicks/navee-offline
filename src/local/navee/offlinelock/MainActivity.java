@@ -129,6 +129,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private AlertDialog quickMenuDialog;
     private MoreScreen quickMoreScreen;
     private final ArrayList<ControlRow> quickMenuRows = new ArrayList<>();
+    private final ArrayList<ChargeDoneRow> quickChargeRows = new ArrayList<>();
     private Runnable pendingRideLocation;
     private boolean rideLocationResolved;
     private android.window.OnBackInvokedCallback systemBack;
@@ -326,6 +327,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void refreshBodyNow(){
         lastBodyRefreshMs=SystemClock.elapsedRealtime();if(screen!=null)screen.refresh();updateScan();
         for (ControlRow row : quickMenuRows) row.refresh();
+        for (ChargeDoneRow row : quickChargeRows) row.refresh();
         if (quickMoreScreen != null) quickMoreScreen.refresh();
         if (choiceSheet != null) choiceSheet.refresh();
         if (rangeSourceSheet != null) rangeSourceSheet.refresh();
@@ -1288,6 +1290,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private final class ControlsScreen implements AppScreen {
         private final LinearLayout view=column();
         private final ArrayList<ControlRow> rows=new ArrayList<>();
+        private final ArrayList<ChargeDoneRow> chargeRows=new ArrayList<>();
         private final LinkedHashMap<String,LinearLayout> sections=new LinkedHashMap<>(), bodies=new LinkedHashMap<>();
         private final LinkedHashMap<String,TextView> labels=new LinkedHashMap<>();
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
@@ -1364,6 +1367,11 @@ public final class MainActivity extends Activity implements ScreenHost {
                 // where another model maps them normally; maximum_speed's row replaces the top speed card the same way.
                 if(f.key.equals("lock")||f.key.equals("pin")||f.key.equals("proximity_key"))continue;
                 ControlRow control=new ControlRow(f);rows.add(control);addRow(groupOf(f),control.card);
+                if(f.key.equals("timed_charging")||f.key.equals("charge_start")){
+                    ChargeDoneRow done=new ChargeDoneRow(f.key.equals("charge_start"));chargeRows.add(done);
+                    addRow("Battery",done.row.card);
+                    extras.put(done.row.card,new String[]{"Battery","charge done by finish charging deadline time"});
+                }
             }
             // Lights page: a read-only first row says the front headlight is switched on the scooter itself.
             SettingLine headlight=new SettingLine(design.featureIcon("headlight"),"Headlight",null);headlight.value.setText("Power button");
@@ -1421,6 +1429,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             for(Map.Entry<View,String[]> e:extras.entrySet()){
                 String[] metadata=e.getValue();
                 boolean match=e.getKey()==zonesRow&&(lights||!zones)||e.getKey()==clockLine.card&&!offered("clock_sync")||e.getKey()==headlightRow&&!lights&&!searching?false:searching?normalize(metadata[1]).contains(needle):onPage(metadata[0]);
+                if("charge-done-by".equals(e.getKey().getTag())&&!chargeDoneOffered())match=false;
                 e.getKey().setVisibility(match?View.VISIBLE:View.GONE);if(match){count++;visible.add(metadata[0]);}
             }
             boolean speed=topSpeedCard()&&(searching?TOP_SPEED_WORDS.contains(needle):!lights);
@@ -1471,6 +1480,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         @Override public void close(){if(controlDialog!=null){controlDialog.dismiss();controlDialog=null;}choiceSheet=null;}
         @Override public void refresh(){
             for(ControlRow row:rows)row.refresh();
+            for(ChargeDoneRow row:chargeRows)row.refresh();
             topSpeed.refresh();
             BleController ble=scooterService==null?null:scooterService.ble;boolean ready=ble!=null&&ble.ready();
             boolean connecting=ble!=null&&!ready&&(ble.connected()||ble.state()==BleController.State.CONNECTING||ble.state()==BleController.State.AUTHENTICATING
@@ -1524,6 +1534,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         QuickAccessActions.Entry entry = QuickAccessActions.find(id);
         if (entry == null) return;
         if (id.equals("stats") || id.equals("rides")) { select(id); return; }
+        if (id.equals("charge_done_by")) { toggleChargeDoneBy(); return; }
+        if (id.equals("charge_done_time")) { showChargeDoneTime(); return; }
+        if (id.equals("feature:timed_charging")) { toggleManualCharge(); return; }
+        if (id.equals("feature:charge_start")) { showChargingTime(); return; }
         if (scooterService == null) { toast("Connect to your scooter first."); return; }
         if (id.equals("lights")) { showQuickSettings("Lights"); return; }
         if (id.equals("controls")) { showQuickSettings("Settings"); return; }
@@ -1580,6 +1594,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         AlertDialog old = quickMenuDialog; quickMenuDialog = null;
         MoreScreen oldMore = quickMoreScreen; quickMoreScreen = null;
         quickMenuRows.clear();
+        quickChargeRows.clear();
         if (oldMore != null) oldMore.close();
         if (old != null) old.dismiss();
     }
@@ -1610,6 +1625,10 @@ public final class MainActivity extends Activity implements ScreenHost {
             if (settings.getChildCount() > 0) design.divider(settings);
             ControlRow row = new ControlRow(f); quickMenuRows.add(row);
             settings.addView(row.card); row.refresh();
+            if((f.key.equals("timed_charging")||f.key.equals("charge_start"))&&chargeDoneOffered()){
+                design.divider(settings);ChargeDoneRow done=new ChargeDoneRow(f.key.equals("charge_start"));
+                quickChargeRows.add(done);settings.addView(done.row.card);done.refresh();
+            }
         }
         if (section.equals("Settings")) {
             for (String id : new String[]{"section:Security", "section:Profile", "more:App"}) {
@@ -1621,7 +1640,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         AlertDialog dialog = showSheet(body); self[0] = dialog; quickMenuDialog = dialog;
         dialog.setOnDismissListener(d -> {
-            if (quickMenuDialog == dialog) { quickMenuDialog = null; quickMenuRows.clear(); }
+            if (quickMenuDialog == dialog) { quickMenuDialog = null; quickMenuRows.clear(); quickChargeRows.clear(); }
         });
     }
 
@@ -1768,6 +1787,83 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         void setSub(String text){sub.setText(text==null?"":text);sub.setVisibility(text==null||text.isEmpty()?View.GONE:View.VISIBLE);}
     }
+    private boolean chargeDoneOffered(){
+        return scooterService==null||scooterService.ble==null
+                ||scooterService.ble.controlOffered("timed_charging")&&scooterService.ble.controlOffered("charge_start");
+    }
+    private void scheduleResult(String message){
+        if(destroyed)return;
+        if(message!=null)toast(message);
+        redraw();
+    }
+    private String doneByActionBlocked(ChargeScheduleController.View charge){
+        if(!charge.doneByEnabled)return charge.doneByBlockedReason;
+        if(scooterService==null||!scooterService.ble.ready())return "Connect your scooter first";
+        return charge.busy?"Wait for the current scooter change":null;
+    }
+    private void toggleChargeDoneBy(){toggleChargeDoneBy(true);}
+    private void toggleChargeDoneBy(boolean feedback){
+        if(scooterService==null){toast("Connect a charger first");return;}
+        ChargeScheduleController.View charge=scooterService.chargeSchedule();
+        String blocked=doneByActionBlocked(charge);if(blocked!=null){toast(blocked);return;}
+        boolean enable=!charge.doneByEnabled;
+        scooterService.setChargeDoneByEnabled(enable,this::scheduleResult);
+        if(feedback)Haptics.toggle(getWindow().getDecorView(),enable);redraw();
+    }
+    private void toggleManualCharge(){toggleManualCharge(true);}
+    private void toggleManualCharge(boolean feedback){
+        if(scooterService==null){toast("Connect your scooter first");return;}
+        ChargeScheduleController.View charge=scooterService.chargeSchedule();
+        if(charge.manualBlockedReason!=null){toast(charge.manualBlockedReason);return;}
+        boolean enable=!charge.manualEnabled;
+        scooterService.setManualChargeEnabled(enable,this::scheduleResult);
+        if(feedback)Haptics.toggle(getWindow().getDecorView(),enable);redraw();
+    }
+    private void showChargeDoneTime(){
+        if(scooterService==null){toast("Connect a charger first");return;}
+        ChargeScheduleController.View charge=scooterService.chargeSchedule();
+        if(charge.timeBlockedReason!=null){toast(charge.timeBlockedReason);return;}
+        final String profile=scooterService.profiles.active()==null?"":scooterService.profiles.active().id;
+        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{
+            if(scooterService==null||scooterService.profiles.active()==null
+                    ||!profile.equals(scooterService.profiles.active().id)){toast("The selected scooter changed");return;}
+            scooterService.setChargeDoneByTime(hour,minute,this::scheduleResult);redraw();
+        },charge.doneByMinuteOfDay/60,charge.doneByMinuteOfDay%60,DisplayTime.is24Hour(this,preferences));
+        picker.setTitle("Charge done by");controlDialog=picker;picker.show();
+        styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);
+        styleDialogButton(picker.getButton(AlertDialog.BUTTON_NEGATIVE),design.muted);
+    }
+    /** Local charge planning uses the same row and picker language as scooter-owned settings. */
+    private final class ChargeDoneRow {
+        final SettingLine row;final Switch toggle;final boolean time;final View spinner;
+        ChargeDoneRow(boolean time){
+            this.time=time;row=new SettingLine("clock","Charge done by",null);row.card.setTag("charge-done-by");
+            row.line.setTag(time?"charge-done-time":"charge-done-toggle");
+            spinner=new Spinner();spinner.setVisibility(View.GONE);row.line.addView(spinner,rowSpinnerSize());
+            if(time){toggle=null;row.chevron(MainActivity.this::showChargeDoneTime);}
+            else{
+                row.value.setVisibility(View.GONE);
+                toggle=new Haptics.FeedbackSwitch(MainActivity.this);toggle.setShowText(false);toggle.setMinHeight(design.dp(48));
+                toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);toggle.setContentDescription("Charge done by");
+                toggle.setOnClickListener(v->{toggle.setChecked(scooterService!=null&&scooterService.chargeSchedule().doneByEnabled);toggleChargeDoneBy(false);});
+                LinearLayout.LayoutParams p=new LinearLayout.LayoutParams(-2,-2);p.leftMargin=design.dp(10);row.line.addView(toggle,p);
+                row.line.setClickable(true);row.line.setFocusable(true);row.line.setBackground(rowRipple());
+                row.line.setOnClickListener(v->toggleChargeDoneBy());
+            }
+        }
+        void refresh(){
+            ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
+            String blocked=charge==null?"Connect a charger first":time?charge.timeBlockedReason:doneByActionBlocked(charge);
+            boolean on=charge!=null&&charge.doneByEnabled;int minute=charge==null?8*60:charge.doneByMinuteOfDay;
+            Calendar at=Calendar.getInstance();at.set(Calendar.HOUR_OF_DAY,minute/60);at.set(Calendar.MINUTE,minute%60);
+            String value=time?DisplayTime.clock(MainActivity.this,preferences,at.getTimeInMillis()):on?"On":"Off";
+            row.name.setTextColor(blocked==null?design.text:design.muted);row.value.setText(value);
+            row.line.setAlpha(blocked==null?1f:.5f);row.line.setEnabled(true);
+            row.line.setContentDescription((time?"Charge done by time":"Charge done by")+", "+value+(blocked==null?"":", "+blocked));
+            boolean pending=charge!=null&&charge.busy;spinner.setVisibility(pending?View.VISIBLE:View.GONE);
+            if(toggle!=null){toggle.setChecked(on);toggle.setEnabled(blocked==null&&!pending);toggle.setClickable(blocked==null&&!pending);toggle.setFocusable(blocked==null&&!pending);toggle.setVisibility(pending?View.GONE:View.VISIBLE);}
+        }
+    }
     private final class ControlRow {
         final ScooterCommands.Feature feature;final LinearLayout card;final SettingLine row;final TextView value,name,result;final Switch toggle;final View action,spinner;
         final String haystack;final boolean inline;SegmentedSelector patternSelector;
@@ -1789,9 +1885,9 @@ public final class MainActivity extends Activity implements ScreenHost {
                 value.setVisibility(View.GONE);
                 toggle=new Haptics.FeedbackSwitch(MainActivity.this);toggle.setShowText(false);toggle.setTextOn("");toggle.setTextOff("");toggle.setMinHeight(design.dp(48));toggle.setMinimumWidth(design.dp(54));design.styleSwitch(toggle);
                 toggle.setContentDescription(shortLabel(feature));
-                toggle.setOnClickListener(v->{if(scooterService!=null){int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);confirmChange(feature,target,()->{scooterService.ble.set(feature.key,target);redraw();});}});
+                toggle.setOnClickListener(v->{if(scooterService!=null){if(feature.key.equals("timed_charging")){toggle.setChecked(scooterService.chargeSchedule().manualEnabled);toggleManualCharge(false);return;}int target=toggle.isChecked()?1:0;Integer old=scooterService.ble.featureValue(feature.key);toggle.setChecked(old!=null&&old==1);confirmChange(feature,target,()->{scooterService.ble.set(feature.key,target);redraw();});}});
                 LinearLayout.LayoutParams tp=new LinearLayout.LayoutParams(-2,-2);tp.leftMargin=design.dp(10);row.line.addView(toggle,tp);
-                row.line.setFocusable(true);row.line.setBackground(rowRipple());row.line.setOnClickListener(v->{if(parkedBlocked)toast("Stop to change");else if(toggle.isEnabled())toggle.performClick();});
+                row.line.setFocusable(true);row.line.setBackground(rowRipple());row.line.setOnClickListener(v->{if(feature.key.equals("timed_charging"))toggleManualCharge();else if(parkedBlocked)toast("Stop to change");else if(toggle.isEnabled())toggle.performClick();});
             }else if(inline){
                 toggle=null;value.setVisibility(View.GONE);
                 if(feature.key.endsWith("_pattern")){
@@ -1815,9 +1911,10 @@ public final class MainActivity extends Activity implements ScreenHost {
                     }
                     row.line.addView(swatches);
                 }
-            }else{toggle=null;row.chevron(()->{if(parkedBlocked)toast("Stop to change");else editFeature(feature);});}
+            }else{toggle=null;row.chevron(()->{if(feature.key.equals("charge_start"))showChargingTime();else if(parkedBlocked)toast("Stop to change");else editFeature(feature);});}
         }
         void refresh(){
+            if(feature.key.equals("timed_charging")||feature.key.equals("charge_start")){refreshChargeSchedule();return;}
             if(feature.key.equals("range_algorithm")){
                 boolean editable=scooterService!=null&&scooterService.profiles.active()!=null;
                 String source=editable&&scooterService.usesLearnedRange()?"Volt (learned)":"Scooter";
@@ -1864,6 +1961,18 @@ public final class MainActivity extends Activity implements ScreenHost {
             // TalkBack reads the name and value, plus any short state.
             action.setContentDescription(shortLabel(feature)+", "+shown+(pending?", confirming":chip!=null?", "+chip.toLowerCase(Locale.ROOT):parkedBlocked?", stop to change":note!=null?", "+note.toLowerCase(Locale.ROOT):""));
             if(toggle!=null){toggle.setVisibility(pending?View.GONE:View.VISIBLE);toggle.setEnabled(usable);toggle.setChecked(actual!=null&&actual==1);if(Build.VERSION.SDK_INT>=30)toggle.setStateDescription(actual==null?"Not reported":actual==1?"On":"Off");}
+        }
+        private void refreshChargeSchedule(){
+            ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
+            String blocked=charge==null?"Connect your scooter first":toggle==null?charge.manualTimeBlockedReason:charge.manualBlockedReason;
+            boolean pending=charge!=null&&charge.busy,on=charge!=null&&charge.manualEnabled;
+            String shown=toggle!=null?(on?"On":"Off"):charge==null||charge.startWallMs<=0?"Not scheduled"
+                    :DisplayTime.clock(MainActivity.this,preferences,charge.startWallMs);
+            name.setTextColor(blocked==null?design.text:design.muted);value.setText(shown);row.setSub(null);
+            action.setEnabled(true);row.line.setAlpha(blocked==null?1f:.5f);parkedBlocked=false;
+            spinner.setVisibility(pending?View.VISIBLE:View.GONE);result.setVisibility(View.GONE);
+            action.setContentDescription(shortLabel(feature)+", "+shown+(blocked==null?"":", "+blocked));
+            if(toggle!=null){toggle.setVisibility(pending?View.GONE:View.VISIBLE);toggle.setChecked(on);toggle.setEnabled(blocked==null&&!pending);toggle.setClickable(blocked==null&&!pending);toggle.setFocusable(blocked==null&&!pending);}
         }
         /**
          * Short caption for a connected row: why the control is refused (not the transient states the row
@@ -2451,11 +2560,23 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
     }
     private void showChargingTime(){
-        if(scooterService==null||!scooterService.ble.ready())return;Double stored=scooterService.ble.telemetry.number("scheduled_charge_time_raw");Calendar initial=Calendar.getInstance();if(stored!=null&&stored>0)initial.setTimeInMillis((long)(stored*1000)-TimeZone.getDefault().getOffset(System.currentTimeMillis()));
-        // Other models use the official app's whole-hour starts (within 48 hours); the UT5 MAX keeps any minute.
-        boolean wholeHours=scooterService.ble.decision("charge_start").layer!=ModelRegistry.Layer.UT5_MAX;if(wholeHours)initial.set(Calendar.MINUTE,0);
-        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,picked)->{int minute=wholeHours?0:picked;Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);chosen.set(Calendar.MINUTE,minute);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);long timestamp=chosen.getTimeInMillis();scooterService.ble.setChargeStart(timestamp/1000,TimeZone.getDefault().getOffset(System.currentTimeMillis())/1000);redraw();},initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));picker.setTitle(wholeHours?"Next charge start (on the hour)":"Next charge start");controlDialog=picker;picker.show();
-        styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);styleDialogButton(picker.getButton(AlertDialog.BUTTON_NEGATIVE),design.muted);
+        if(scooterService==null){toast("Connect your scooter first");return;}
+        ChargeScheduleController.View charge=scooterService.chargeSchedule();
+        if(charge.manualTimeBlockedReason!=null){toast(charge.manualTimeBlockedReason);return;}
+        Calendar initial=Calendar.getInstance();if(charge.startWallMs>0)initial.setTimeInMillis(charge.startWallMs);
+        final String profile=scooterService.profiles.active()==null?"":scooterService.profiles.active().id;
+        // Other models retain their official whole-hour start-time domain.
+        boolean wholeHours=scooterService.ble.decision("charge_start").layer!=ModelRegistry.Layer.UT5_MAX;
+        if(wholeHours)initial.set(Calendar.MINUTE,0);
+        TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,picked)->{
+            if(scooterService==null||scooterService.profiles.active()==null
+                    ||!profile.equals(scooterService.profiles.active().id)){toast("The selected scooter changed");return;}
+            long chosen=ChargeScheduleController.nextOccurrence(System.currentTimeMillis(),hour*60+(wholeHours?0:picked),TimeZone.getDefault());
+            scooterService.setManualChargeStart(chosen,this::scheduleResult);redraw();
+        },initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));
+        picker.setTitle(wholeHours?"Next charge start (on the hour)":"Next charge start");controlDialog=picker;picker.show();
+        styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);
+        styleDialogButton(picker.getButton(AlertDialog.BUTTON_NEGATIVE),design.muted);
     }
     /** The gutter follows the actual fold bounds within this content pane. */
     private final class TwoPane extends LinearLayout {

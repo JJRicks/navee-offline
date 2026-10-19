@@ -247,7 +247,8 @@ public final class RidesAnalysisValidation extends Instrumentation {
                 "Tapping the fullscreen heading dismisses route measurements");
         tapPoint(map, route.get(route.size() / 2));
         main(() -> {
-            float x=map.getWidth()/2f,y=map.getHeight()/2f,span=activity.ui().dp(24); long now=SystemClock.uptimeMillis();
+            float[] blank = blankMapPoint(map);
+            float x=blank[0],y=blank[1],span=activity.ui().dp(24); long now=SystemClock.uptimeMillis();
             touch(map,now,0,MotionEvent.ACTION_DOWN,new float[]{x,y});
             touch(map,now,20,MotionEvent.ACTION_MOVE,new float[]{x-activity.ui().dp(40),y}); touch(map,now,50,MotionEvent.ACTION_UP,new float[]{x-activity.ui().dp(40),y});
             check(Math.abs((double)field(map,"centerX")-originalCenter)>.0000001,"Expanded route pans with a real drag");
@@ -509,7 +510,7 @@ public final class RidesAnalysisValidation extends Instrumentation {
             check(field(fullScale, "source").equals(field(scale, "source")) && (double)field(fullScale, "topKmh") == (double)field(scale, "topKmh"), "Fullscreen uses the same speed scale");
             main(() -> verifyChoicesFit((View)ancestor(byDescription(full, "Route color: Speed"), "SegmentedSelector")));
             double zoom = (double)field(map, "zoom"), center = (double)field(map, "centerX");
-            main(() -> { float x = map.getWidth() / 2f, y = map.getHeight() / 2f, span = activity.ui().dp(24); long now = SystemClock.uptimeMillis();
+            main(() -> { float[] blank = blankMapPoint(map); float x = blank[0], y = blank[1], span = activity.ui().dp(24); long now = SystemClock.uptimeMillis();
                 touch(map, now, 0, MotionEvent.ACTION_DOWN, new float[]{x, y}); touch(map, now, 20, MotionEvent.ACTION_MOVE, new float[]{x - activity.ui().dp(40), y}); touch(map, now, 50, MotionEvent.ACTION_UP, new float[]{x - activity.ui().dp(40), y});
                 touch(map, now + 100, 0, MotionEvent.ACTION_DOWN, new float[]{x - span, y});
                 touch(map, now + 100, 20, MotionEvent.ACTION_POINTER_DOWN | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT), new float[]{x - span, y, x + span, y});
@@ -563,6 +564,14 @@ public final class RidesAnalysisValidation extends Instrumentation {
     void tapPoint(RouteMapView map, PhoneRideStore.Point point) {
         main(() -> { float x = (float)invoke(map, "screenX", new Class[]{PhoneRideStore.Point.class}, point), y = (float)invoke(map, "screenY", new Class[]{PhoneRideStore.Point.class}, point); long now = SystemClock.uptimeMillis();
             touch(map, now, 0, MotionEvent.ACTION_DOWN, new float[]{x, y}); touch(map, now, 30, MotionEvent.ACTION_UP, new float[]{x, y}); });
+    }
+    float[] blankMapPoint(RouteMapView map) {
+        for (float y = .15f; y < .9f; y += .2f) for (float x = .2f; x < .9f; x += .2f) {
+            float px = map.getWidth() * x, py = map.getHeight() * y;
+            if ((int)invoke(map, "hitRoute", new Class[]{float.class, float.class}, px, py) < 0)
+                return new float[]{px, py};
+        }
+        throw new AssertionError("No blank map area available for pan gesture");
     }
     List<View> all(View view) { List<View> out = new ArrayList<>(); out.add(view); if (view instanceof ViewGroup) for (int i = 0; i < ((ViewGroup)view).getChildCount(); i++) out.addAll(all(((ViewGroup)view).getChildAt(i))); return out; }
     void verifyZoomButtons(View root){for(String label:new String[]{"Zoom out ride chart","Fit the whole ride in the chart","Zoom in ride chart"}){View button=byDescription(root,label);ViewGroup row=(ViewGroup)button.getParent();check(button.getTop()>=row.getPaddingTop()&&button.getBottom()<=row.getHeight()-row.getPaddingBottom(),"Zoom button fits inside row: "+label);}}

@@ -63,6 +63,11 @@ public final class BackupRegistryTest {
         check(slot!=null&&"abc-1".equals(slot.profile("dashboard_slot_v1_abc-1_2"))&&slot.rename("dashboard_slot_v1_abc-1_2","new").equals("dashboard_slot_v1_new_2"),"slot keys carry the profile and keep the slot number on rename");
         check(BackupRegistry.rule("app_settings","dashboard_v1_p").rename("dashboard_v1_p","q").equals("dashboard_v1_q"),"per-scooter dashboard key renames");
         check("x".equals(BackupRegistry.rule("control_evidence","x").profile("x")),"control evidence keys are profile IDs");
+        BackupRegistry.Rule schedule=BackupRegistry.rule("app_settings","charge_schedule_owned_abc-1");
+        check(schedule!=null&&schedule.category.equals(BackupRegistry.SCOOTER_PREFERENCES)
+                &&"abc-1".equals(schedule.profile("charge_schedule_owned_abc-1"))
+                &&"charge_schedule_owned_new".equals(schedule.rename("charge_schedule_owned_abc-1","new")),
+                "charging intentions are scooter-scoped settings and remap on restore");
         check(BackupRegistry.rule("app_settings","legacy_removed_key")==null,"unknown keys are unassigned");
         check(BackupRegistry.rule("app_settings","dashboard_restore_undo_v1_p").excluded()&&BackupRegistry.rule("onboarding","tick_x").excluded()&&BackupRegistry.rule("onboarding","onboarding_done").category.equals(BackupRegistry.SCOOTERS),"pending and wizard keys are excluded; setup completion travels with Scooters");
         check(BackupRegistry.rule("scooter","identity").replaceOnly&&!BackupRegistry.rule("profiles","items").replaceOnly,"legacy setup restores only by Replace everything");

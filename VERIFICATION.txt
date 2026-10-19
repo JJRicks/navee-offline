@@ -1,3 +1,24 @@
+VOLT 1.4.6 — CHARGE DEADLINES AND ROUTE SCRUBBING (versionCode 43)
+October 19, 2026
+
+- Full pure-Java suites pass. The charging planner has 216 focused assertions,
+  including spring gaps, repeated fall hours, one-shot persistence, cancellation,
+  partial writes, changing charge limits and expiry during confirmation.
+- Synthetic native BLE validation passes 63 checks through the production
+  queue/gates. Schedule UI passes 116 assertions at each of 344x882 dp dark
+  and 725x604 dp light with 140% app text, including actual disabled-thumb taps,
+  matching native time pickers, simulation isolation and paused cancellation.
+- Route gestures pass 117 assertions; ride analysis passes 466 regression
+  checks. Capacity four-row geometry and saved-layout preservation pass at
+  compact and expanded sizes, including enlarged text.
+- Independent review findings were reproduced and fixed; final model reviews,
+  CI, production signing and downloaded release assets are verified separately
+  at publication. No physical phone or scooter operations were performed.
+- The scooter protocol has time/toggle readback, but real charging start timing,
+  reboot persistence and other models still need physical validation. Confirmed
+  scheduling adds no connection hold, alarm or automatic reconnection writes.
+  Details: docs/validation/charge-done-by.md.
+
 VOLT 1.4.5 — CHARGE RECORDING AND SHARED TIME AXES (versionCode 42)
 October 18, 2026
 

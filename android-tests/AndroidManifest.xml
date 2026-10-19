@@ -10,6 +10,7 @@
   <instrumentation android:name="local.navee.offlinelock.tests.HistoryValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator history validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.SearchFocusValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator search keyboard validation" />
   <instrumentation android:name="local.navee.offlinelock.MapTilesValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator map transport validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.RouteGestureValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated route inspection gesture validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.DashboardSlotsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator dashboard layout slot validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.DashboardTransferValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated portable dashboard import and export validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.BackupInventoryValidation" android:targetPackage="local.navee.offlinelock" android:label="Read-only emulator backup storage inventory validation" />
@@ -21,6 +22,8 @@
   <instrumentation android:name="local.navee.offlinelock.tests.CapacityWidgetValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated capacity widget loading validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.MotionPolishValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator Battery cell, charging glow and lock trail rendering validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ChargeCaptureValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge capture validation" />
+  <instrumentation android:name="local.navee.offlinelock.ChargeScheduleWireValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated schedule command callback validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.ChargeScheduleValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge scheduling UI validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ChargeEstimateValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge estimate history validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.QuickHapticsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated Quick access haptics validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.ConnectionHapticsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated connection haptics validation" />

@@ -63,6 +63,8 @@ final class BackupRegistry {
         prefix(app, "range_source_", String.class, SCOOTER_PREFERENCES, true);
         prefix(app, "range_follow_mode_", Boolean.class, SCOOTER_PREFERENCES, true);
         prefix(app, "charge_charger_", String.class, SCOOTER_PREFERENCES, true);
+        // Displayed one-shot intentions only; restoration never sends charging commands.
+        prefix(app, "charge_schedule_owned_", String.class, SCOOTER_PREFERENCES, true);
         RULES.add(new Rule(app, "dashboard_restore_undo_v1_", true, String.class, null, "Short-lived undo; removed when that scooter's dashboard is restored", true, false, false));
         exclude(app, "notification_prompted", Boolean.class, PERMISSION);
         exclude(app, "owner_import_applied", String.class, PENDING);

@@ -1833,7 +1833,7 @@ public final class DashboardScreen implements AppScreen {
         TextView big, subtitle, healthDetail, rideTitle, rideDetail;
         View rideButton, recordDisc;
         /** capacityMethod is a chip shown only for the proxy or sample cases; the title already says experiment. */
-        TextView capacityValue, capacitySummary, capacityCompare, capacityMethod, capacityReference;
+        TextView capacityValue, capacitySummary, capacityCompare, capacityMethod, capacityReference, capacityDetails;
         CapacityBar capacityBar;
         /** The latest analysis behind the details sheet; null while checking or in simulation. */
         BatteryCapacityEstimate.Result capacityResult;
@@ -2304,10 +2304,10 @@ public final class DashboardScreen implements AppScreen {
                     body.addView(capacityBar, barSpace);
                     capacitySummary = ui.caption("Checking recorded rides…");
                     body.addView(capacitySummary);
-                    TextView evidence = ui.secondaryButton("Estimate details", this::showCapacityDetails);
+                    capacityDetails = ui.secondaryButton("Estimate details", this::showCapacityDetails);
                     LinearLayout.LayoutParams evidenceSpace = new LinearLayout.LayoutParams(-1, -2);
                     evidenceSpace.topMargin = ui.dp(8);
-                    body.addView(evidence, evidenceSpace);
+                    body.addView(capacityDetails, evidenceSpace);
                     break;
                 case "charging":
                     buildCharging(body, true);
@@ -3169,6 +3169,17 @@ public final class DashboardScreen implements AppScreen {
                 arrangeScooter(width);
                 for (LinearLayout item : scooterStats) ((FittedValue)item.getChildAt(1)).capAt(Integer.MAX_VALUE);
             }
+            if (capacityValue != null) {
+                // Four-row cards need less decorative spacing, not smaller values or touch targets.
+                float scale = Math.max(1, ui.textScale * getResources().getConfiguration().fontScale);
+                boolean compact = MeasureSpec.getSize(heightSpec) < ui.dp(280 * scale);
+                capacitySpacing(capacityMethod, compact ? 2 : 6, 0);
+                capacitySpacing(capacityBar, compact ? 4 : 10, compact ? 4 : 10);
+                capacitySpacing(capacityDetails, compact ? 4 : 8, 0);
+                int top = ui.dp(compact ? 4 : 8), bottom = ui.dp(compact ? 2 : 4);
+                if (capacityValue.getPaddingTop() != top || capacityValue.getPaddingBottom() != bottom)
+                    capacityValue.setPadding(0, top, 0, bottom);
+            }
             super.onMeasure(widthSpec, heightSpec);
             int budget =
                     Math.max(
@@ -3249,6 +3260,15 @@ public final class DashboardScreen implements AppScreen {
                 viewSize(battery, -1, Math.max(battery.minimumContentHeight(), budget - stripHeight));
             }
             super.onMeasure(widthSpec, heightSpec);
+        }
+
+        private void capacitySpacing(View view, int top, int bottom) {
+            LinearLayout.LayoutParams params = (LinearLayout.LayoutParams)view.getLayoutParams();
+            int topPx = ui.dp(top), bottomPx = ui.dp(bottom);
+            if (params.topMargin != topPx || params.bottomMargin != bottomPx) {
+                params.topMargin = topPx; params.bottomMargin = bottomPx;
+                view.setLayoutParams(params);
+            }
         }
 
         private void addReading(String key) {

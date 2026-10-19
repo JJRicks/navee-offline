@@ -53,7 +53,8 @@ public final class RouteMapView extends View {
     private float lastX, lastY, downX, downY;
     private float focusX, focusY, span, lastFocusX, lastFocusY, lastSpan;
     private final int touchSlop;
-    private boolean dragged, multiplePointers;
+    private boolean dragged, multiplePointers, scrubbingRoute;
+    private double scrubPosition = Double.NaN;
     private String metric = "power";
     private boolean fitted, preserveViewportOnFirstSize;
     private volatile boolean streets, attached;
@@ -585,11 +586,17 @@ public final class RouteMapView extends View {
             lastY = downY = event.getY(0);
             dragged = multiplePointers = false;
             lastSpan = 0;
+            RouteHit hit = nearestRoute(downX, downY, ui.dp(18), Double.NaN);
+            scrubbingRoute = hit != null;
+            scrubPosition = Double.NaN;
+            if (scrubbingRoute) selectRouteHit(hit);
             if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(true);
             return true;
         }
         if (action == MotionEvent.ACTION_POINTER_DOWN) {
             multiplePointers = true;
+            // A deliberate second finger takes over for zoom/pan until every finger lifts.
+            scrubbingRoute = false;
             rebasePointers(event, -1);
             return true;
         }
@@ -617,6 +624,12 @@ public final class RouteMapView extends View {
                 int pointer = event.findPointerIndex(activePointer);
                 if (pointer < 0) { rebasePointers(event, -1); return true; }
                 float px = event.getX(pointer), py = event.getY(pointer);
+                if (scrubbingRoute) {
+                    dragged |= Math.hypot(px - downX, py - downY) > touchSlop;
+                    selectRouteHit(nearestRoute(px, py, Double.POSITIVE_INFINITY, scrubPosition));
+                    lastX = px; lastY = py;
+                    return true;
+                }
                 if (!dragged && !multiplePointers && Math.hypot(px-downX, py-downY) <= touchSlop) return true;
                 centerX -= (px-lastX)/world(); centerY -= (py-lastY)/world();
                 lastX = px; lastY = py; dragged = true;
@@ -627,9 +640,13 @@ public final class RouteMapView extends View {
             return true;
         }
         if (action == MotionEvent.ACTION_UP) {
+            if (scrubbingRoute)
+                selectRouteHit(nearestRoute(event.getX(), event.getY(), Double.POSITIVE_INFINITY, scrubPosition));
             if (!multiplePointers && !dragged && Math.hypot(event.getX()-downX, event.getY()-downY) <= touchSlop) {
-                selected = hitRoute(event.getX(), event.getY());
-                if (selection != null) selection.accept(selected >= 0 ? points.get(selected) : null);
+                if (!scrubbingRoute) {
+                    selected = hitRoute(event.getX(), event.getY());
+                    if (selection != null) selection.accept(selected >= 0 ? points.get(selected) : null);
+                }
                 performClick();
                 invalidate();
             }
@@ -645,7 +662,23 @@ public final class RouteMapView extends View {
 
     /** Hit the drawn line, not an arbitrarily distant GPS fix; gaps never form selectable bridges. */
     private int hitRoute(float tapX, float tapY) {
-        double best = ui.dp(18); int hit = -1;
+        RouteHit hit = nearestRoute(tapX, tapY, ui.dp(18), Double.NaN);
+        return hit == null ? -1 : hit.index;
+    }
+
+    private void selectRouteHit(RouteHit hit) {
+        if (hit == null) return;
+        scrubPosition = hit.position;
+        if (selected == hit.index) return;
+        selected = hit.index;
+        if (selection != null) selection.accept(points.get(selected));
+        invalidate();
+    }
+
+    /** Once captured, inspection follows the nearest drawn segment even outside its hit target. */
+    private RouteHit nearestRoute(float tapX, float tapY, double limit, double previousPosition) {
+        RouteHit hit = null;
+        RouteHit previousFirst = null, previousSecond = null;
         for (int i = 1; i < points.size(); i++) {
             PhoneRideStore.Point a = points.get(i - 1), b = points.get(i);
             if (b.gapBefore || b.segment != a.segment) continue;
@@ -654,15 +687,52 @@ public final class RouteMapView extends View {
             double fraction = lengthSquared == 0 ? 0 : Math.max(0, Math.min(1,
                     ((tapX - ax) * vx + (tapY - ay) * vy) / lengthSquared));
             double distance = Math.hypot(tapX - ax - fraction * vx, tapY - ay - fraction * vy);
-            if (distance <= best) { best = distance; hit = fraction <= .5 ? i - 1 : i; }
+            boolean nearer = distance <= limit && betterHit(distance, i - 1 + fraction, hit, previousPosition);
+            boolean previousSegment = i - 1 <= previousPosition && previousPosition <= i;
+            if (nearer || previousSegment) {
+                RouteHit candidate = new RouteHit(fraction <= .5 ? i - 1 : i, i - 1 + fraction, distance, i - 1);
+                if (nearer) hit = candidate;
+                if (previousSegment) {
+                    if (previousFirst == null) previousFirst = candidate;
+                    else previousSecond = candidate;
+                }
+            }
         }
         // Start/end markers are visible even on a single-fix route or beside a GPS gap.
         for (int i : new int[]{0, points.size() - 1}) {
             if (i < 0 || i >= points.size()) continue;
             double distance = Math.hypot(screenX(points.get(i)) - tapX, screenY(points.get(i)) - tapY);
-            if (distance <= best) { best = distance; hit = i; }
+            if (distance <= limit && betterHit(distance, i, hit, previousPosition))
+                hit = new RouteHit(i, i, distance, -1);
         }
-        return hit;
+        if (hit == null || previousFirst == null || hit.segment < 0) return hit;
+        int previousLast = previousSecond == null ? previousFirst.segment : previousSecond.segment;
+        // Moving along the same part of the route stays exact, without a sticky trailing reading.
+        if (hit.segment >= previousFirst.segment - 1 && hit.segment <= previousLast + 1) return hit;
+        // At a crossing, allow a little finger wobble before changing to another pass. The band
+        // stays anchored to the globally nearest distance; successive candidates cannot widen it.
+        double continuityLimit = Math.min(limit, hit.distance + ui.dp(3));
+        RouteHit retained = previousFirst.distance <= continuityLimit ? previousFirst : null;
+        if (previousSecond != null && previousSecond.distance <= continuityLimit
+                && (retained == null || Math.abs(previousSecond.position - previousPosition)
+                        < Math.abs(retained.position - previousPosition))) retained = previousSecond;
+        return retained == null ? hit : retained;
+    }
+
+    private boolean betterHit(double distance, double position, RouteHit best, double previousPosition) {
+        if (best == null) return true;
+        // Exact distance ties prefer the current chronological pass.
+        if (!Double.isNaN(previousPosition) && distance == best.distance)
+            return Math.abs(position - previousPosition) < Math.abs(best.position - previousPosition);
+        return distance <= best.distance;
+    }
+
+    private static final class RouteHit {
+        final int index, segment;
+        final double position, distance;
+        RouteHit(int index, double position, double distance, int segment) {
+            this.index = index; this.position = position; this.distance = distance; this.segment = segment;
+        }
     }
 
     /** Seed a new finger set without interpreting a finger arriving/leaving as map movement. */
@@ -686,7 +756,7 @@ public final class RouteMapView extends View {
     }
 
     private void endGesture() {
-        activePointer = -1; lastSpan = 0;
+        activePointer = -1; lastSpan = 0; scrubbingRoute = false; scrubPosition = Double.NaN;
         if (getParent() != null) getParent().requestDisallowInterceptTouchEvent(false);
     }
 
