@@ -1820,14 +1820,18 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(feedback)Haptics.toggle(getWindow().getDecorView(),enable);redraw();
     }
     private void showChargeDoneTime(){
-        if(scooterService==null){toast("Connect a charger first");return;}
+        if(scooterService==null){toast("Select a scooter first");return;}
         ChargeScheduleController.View charge=scooterService.chargeSchedule();
         if(charge.timeBlockedReason!=null){toast(charge.timeBlockedReason);return;}
         final String profile=scooterService.profiles.active()==null?"":scooterService.profiles.active().id;
         TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,minute)->{
             if(scooterService==null||scooterService.profiles.active()==null
                     ||!profile.equals(scooterService.profiles.active().id)){toast("The selected scooter changed");return;}
-            scooterService.setChargeDoneByTime(hour,minute,this::scheduleResult);redraw();
+            boolean deferred=scooterService.chargeSchedule().doneByEnabled&&!scooterService.ble.ready();
+            scooterService.setChargeDoneByTime(hour,minute,result->{
+                if(result==null&&deferred)toast("Saved for next time");
+                scheduleResult(result);
+            });redraw();
         },charge.doneByMinuteOfDay/60,charge.doneByMinuteOfDay%60,DisplayTime.is24Hour(this,preferences));
         picker.setTitle("Charge done by");controlDialog=picker;picker.show();
         styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);
@@ -1853,7 +1857,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         void refresh(){
             ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
-            String blocked=charge==null?"Connect a charger first":time?charge.timeBlockedReason:doneByActionBlocked(charge);
+            String blocked=charge==null?(time?"Select a scooter first":"Connect a charger first"):time?charge.timeBlockedReason:doneByActionBlocked(charge);
             boolean on=charge!=null&&charge.doneByEnabled;int minute=charge==null?8*60:charge.doneByMinuteOfDay;
             Calendar at=Calendar.getInstance();at.set(Calendar.HOUR_OF_DAY,minute/60);at.set(Calendar.MINUTE,minute%60);
             String value=time?DisplayTime.clock(MainActivity.this,preferences,at.getTimeInMillis()):on?"On":"Off";
@@ -1966,8 +1970,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
             String blocked=charge==null?"Connect your scooter first":toggle==null?charge.manualTimeBlockedReason:charge.manualBlockedReason;
             boolean pending=charge!=null&&charge.busy,on=charge!=null&&charge.manualEnabled;
-            String shown=toggle!=null?(on?"On":"Off"):charge==null||charge.startWallMs<=0?"Not scheduled"
-                    :DisplayTime.clock(MainActivity.this,preferences,charge.startWallMs);
+            String shown=toggle!=null?(on?"On":"Off"):charge==null||charge.manualStartWallMs<=0?"Not scheduled"
+                    :DisplayTime.clock(MainActivity.this,preferences,charge.manualStartWallMs);
             name.setTextColor(blocked==null?design.text:design.muted);value.setText(shown);row.setSub(null);
             action.setEnabled(true);row.line.setAlpha(blocked==null?1f:.5f);parkedBlocked=false;
             spinner.setVisibility(pending?View.VISIBLE:View.GONE);result.setVisibility(View.GONE);
@@ -2563,7 +2567,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(scooterService==null){toast("Connect your scooter first");return;}
         ChargeScheduleController.View charge=scooterService.chargeSchedule();
         if(charge.manualTimeBlockedReason!=null){toast(charge.manualTimeBlockedReason);return;}
-        Calendar initial=Calendar.getInstance();if(charge.startWallMs>0)initial.setTimeInMillis(charge.startWallMs);
+        Calendar initial=Calendar.getInstance();if(charge.manualStartWallMs>0)initial.setTimeInMillis(charge.manualStartWallMs);
         final String profile=scooterService.profiles.active()==null?"":scooterService.profiles.active().id;
         // Other models retain their official whole-hour start-time domain.
         boolean wholeHours=scooterService.ble.decision("charge_start").layer!=ModelRegistry.Layer.UT5_MAX;

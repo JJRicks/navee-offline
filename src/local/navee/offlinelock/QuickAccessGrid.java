@@ -78,7 +78,7 @@ final class QuickAccessGrid extends ViewGroup {
                 featureLive = service != null && service.profiles.active() != null;
                 state = featureLive && service.usesLearnedRange() ? "Volt (learned)" : "Scooter";
             }
-            String chargeBlocked = charge == null ? "Connect a charger first" : doneTime ? charge.timeBlockedReason
+            String chargeBlocked = charge == null ? (doneTime ? "Select a scooter first" : "Connect a charger first") : doneTime ? charge.timeBlockedReason
                     : doneBy ? charge.doneByBlockedReason : startTime ? charge.manualTimeBlockedReason : charge.manualBlockedReason;
             // An armed plan deliberately pauses charging; its own off action remains available.
             if (doneBy && charge != null && charge.doneByEnabled)
@@ -86,15 +86,17 @@ final class QuickAccessGrid extends ViewGroup {
             if (chargeControl && charge != null && !unmapped) {
                 value = (doneBy || doneTime ? charge.doneByEnabled : charge.manualEnabled) ? 1 : 0;
                 pending = charge.busy;
-                featureLive = live && chargeBlocked == null;
+                featureLive = (doneTime || live) && chargeBlocked == null;
                 if (doneBy || doneTime) {
                     Calendar deadline = Calendar.getInstance();
                     deadline.set(Calendar.HOUR_OF_DAY, charge.doneByMinuteOfDay / 60);
                     deadline.set(Calendar.MINUTE, charge.doneByMinuteOfDay % 60);
                     String time = DisplayTime.clock(host.activity(), preferences, deadline.getTimeInMillis());
-                    state = pending ? "Updating…" : doneTime ? time : charge.doneByEnabled ? "On • " + time : "Off";
+                    String activeTime = charge.doneByWallMs > 0
+                            ? DisplayTime.clock(host.activity(), preferences, charge.doneByWallMs) : time;
+                    state = pending ? "Updating…" : doneTime ? time : charge.doneByEnabled ? "On • " + activeTime : "Off";
                 } else if (manual) state = pending ? "Updating…" : charge.manualEnabled ? "On" : "Off";
-                else state = charge.startWallMs > 0 ? DisplayTime.clock(host.activity(), preferences, charge.startWallMs) : "Not scheduled";
+                else state = charge.manualStartWallMs > 0 ? DisplayTime.clock(host.activity(), preferences, charge.manualStartWallMs) : "Not scheduled";
             } else if (doneBy || doneTime) state = "—";
             if (manual && !unmapped && charge != null && charge.manualEnabled && charge.startWallMs > 0 && !pending)
                 state += " • " + DisplayTime.clock(host.activity(), preferences, charge.startWallMs);
@@ -111,7 +113,7 @@ final class QuickAccessGrid extends ViewGroup {
                 }
                 cell.label.setTag(state.isEmpty() ? "" : tileLabel(cell.entry));
                 // The lead tile's accent fill would make an unmapped control look active; it stays muted.
-                boolean highlight = index == 0 && live && !editing && !unmapped && (!chargeControl || chargeBlocked == null);
+                boolean highlight = index == 0 && (live || doneTime) && !editing && !unmapped && (!chargeControl || chargeBlocked == null);
                 boolean muted = (feature != null || chargeControl) && !featureLive;
                 cell.label.setTextColor(highlight ? Ui.withAlpha(ui.onAccent, 220) : ui.muted);
                 cell.value.setTextColor(highlight ? ui.onAccent : muted ? ui.muted : ui.text);
