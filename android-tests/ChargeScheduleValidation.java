@@ -152,8 +152,18 @@ public final class ChargeScheduleValidation extends Instrumentation {
         }
     });}
     private void verifyManualAndQuickRefresh(){controls();
-        main(()->{AtomicReference<String> response=new AtomicReference<>("pending");service.setManualChargeStart(System.currentTimeMillis()+3*60*60_000L,response::set);require(!"pending".equals(response.get()),"Manual start transaction did not complete");service.setManualChargeEnabled(true,response::set);activity.redraw();});settle();
-        main(()->{require(service.chargeSchedule().manualEnabled,"Manual schedule did not enable while unplugged");require(((Switch)field(control("timed_charging"),"toggle")).isChecked(),"Scooter setting did not show manual schedule");require(!"Not scheduled".contentEquals(((TextView)field(control("charge_start"),"value")).getText()),"Scheduled start time was not refreshed");service.setManualChargeEnabled(false,m->{});});settle();
+        AtomicReference<String> response=new AtomicReference<>("pending");
+        main(()->service.setManualChargeStart(System.currentTimeMillis()+3*60*60_000L,response::set));
+        await(()->!"pending".equals(response.get()),"Manual start transaction did not complete");
+        require(response.get()==null,"Manual start transaction failed: "+response.get());
+        response.set("pending");main(()->service.setManualChargeEnabled(true,response::set));
+        await(()->!"pending".equals(response.get()),"Manual enable transaction did not complete");
+        require(response.get()==null,"Manual enable transaction failed: "+response.get());
+        main(activity::redraw);settle();
+        main(()->{require(service.chargeSchedule().manualEnabled,"Manual schedule did not enable while unplugged");require(((Switch)field(control("timed_charging"),"toggle")).isChecked(),"Scooter setting did not show manual schedule");require(!"Not scheduled".contentEquals(((TextView)field(control("charge_start"),"value")).getText()),"Scheduled start time was not refreshed");});
+        response.set("pending");main(()->service.setManualChargeEnabled(false,response::set));
+        await(()->!"pending".equals(response.get()),"Manual disable transaction did not complete");
+        require(response.get()==null,"Manual disable transaction failed: "+response.get());settle();
         checks.add("Existing manual charging remains usable without a connected charger and refreshes its switch/start-time rows");
     }
     private void controls(){main(()->{settings().edit().putString("scooter_section","").commit();invoke(activity,"select",new Class<?>[]{String.class},"home");});settle();main(()->invoke(activity,"select",new Class<?>[]{String.class},"controls"));settle();main(()->{service.ble.tickSimulation();activity.redraw();});settle();}
