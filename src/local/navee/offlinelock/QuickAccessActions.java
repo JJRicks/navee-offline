@@ -20,6 +20,7 @@ public final class QuickAccessActions {
         }
         /** Sensitive and experimental controls retain their explained, guarded panels. */
         public boolean directToggle() {
+            if (id.equals("charge_done_by")) return true;
             ScooterCommands.Feature f = feature();
             return f != null && f.type == ScooterCommands.Type.TOGGLE && !f.experimental
                     && !f.sensitive && !f.key.equals("proximity_key");
@@ -54,6 +55,9 @@ public final class QuickAccessActions {
         add("more:Lab", "Experimental controls", "lab", "Menus", null);
         add("more:Data", "Data & history", "history", "Menus", null);
         add("more:About", "About & permissions", "info", "Menus", null);
+        // Volt schedules a supported charge-start command; these are not new BLE opcodes.
+        add("charge_done_by", "Charge done by", "clock", "Battery", null);
+        add("charge_done_time", "Charge done by time", "clock", "Battery", null);
         for (ScooterCommands.Feature feature : ScooterCommands.catalog())
             add("feature:" + feature.key, feature.label, icon(feature.key),
                     feature.experimental ? "Experimental controls" : feature.group, feature.key);

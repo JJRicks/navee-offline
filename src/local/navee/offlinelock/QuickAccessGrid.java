@@ -48,11 +48,15 @@ final class QuickAccessGrid extends ViewGroup {
         Map<String, Integer> values = service == null ? Collections.emptyMap() : service.displayFeatures();
         android.content.SharedPreferences preferences = host.activity().getSharedPreferences("app_settings", 0);
         String units = preferences.getString("units", "mi");
-        TelemetryHistory.Reading schedule = service == null ? null
-                : service.displayReadings().get("scheduled_charge_time_raw");
+        ChargeScheduleController.View charge = service == null ? null : service.chargeSchedule();
         for (int index = 0; index < cells.size(); index++) {
             Cell cell = cells.get(index);
             ScooterCommands.Feature feature = cell.entry.feature();
+            boolean doneBy = cell.entry.id.equals("charge_done_by");
+            boolean doneTime = cell.entry.id.equals("charge_done_time");
+            boolean manual = cell.entry.id.equals("feature:timed_charging");
+            boolean startTime = cell.entry.id.equals("feature:charge_start");
+            boolean chargeControl = doneBy || doneTime || manual || startTime;
             boolean featureLive = feature != null && live && (feature.type == ScooterCommands.Type.TIME
                     ? service.readingFresh("scheduled_charge_time_raw") : service.featureFresh(feature.key));
             Integer value = feature == null || feature.sensitive ? null : values.get(feature.key);
@@ -74,13 +78,26 @@ final class QuickAccessGrid extends ViewGroup {
                 featureLive = service != null && service.profiles.active() != null;
                 state = featureLive && service.usesLearnedRange() ? "Volt (learned)" : "Scooter";
             }
-            boolean showSchedule = feature != null && !unmapped && feature.key.equals("timed_charging")
-                    && schedule != null && schedule.number != null && schedule.number > 0;
-            if (showSchedule) {
-                long wall = (long)(schedule.number * 1000)
-                        - TimeZone.getDefault().getOffset(System.currentTimeMillis());
-                state += " • " + DisplayTime.clock(host.activity(), preferences, wall);
-            }
+            String chargeBlocked = charge == null ? "Connect a charger first" : doneTime ? charge.timeBlockedReason
+                    : doneBy ? charge.doneByBlockedReason : startTime ? charge.manualTimeBlockedReason : charge.manualBlockedReason;
+            // An armed plan deliberately pauses charging; its own off action remains available.
+            if (doneBy && charge != null && charge.doneByEnabled)
+                chargeBlocked = !live ? "Connect your scooter first" : charge.busy ? "Wait for the current change to finish" : null;
+            if (chargeControl && charge != null && !unmapped) {
+                value = (doneBy || doneTime ? charge.doneByEnabled : charge.manualEnabled) ? 1 : 0;
+                pending = charge.busy;
+                featureLive = live && chargeBlocked == null;
+                if (doneBy || doneTime) {
+                    Calendar deadline = Calendar.getInstance();
+                    deadline.set(Calendar.HOUR_OF_DAY, charge.doneByMinuteOfDay / 60);
+                    deadline.set(Calendar.MINUTE, charge.doneByMinuteOfDay % 60);
+                    String time = DisplayTime.clock(host.activity(), preferences, deadline.getTimeInMillis());
+                    state = pending ? "Updating…" : doneTime ? time : charge.doneByEnabled ? "On • " + time : "Off";
+                } else if (manual) state = pending ? "Updating…" : charge.manualEnabled ? "On" : "Off";
+                else state = charge.startWallMs > 0 ? DisplayTime.clock(host.activity(), preferences, charge.startWallMs) : "Not scheduled";
+            } else if (doneBy || doneTime) state = "—";
+            if (manual && !unmapped && charge != null && charge.manualEnabled && charge.startWallMs > 0 && !pending)
+                state += " • " + DisplayTime.clock(host.activity(), preferences, charge.startWallMs);
             // Another model's mapping can make a UT5 MAX Lab control an ordinary toggle.
             boolean toggle = cell.entry.directToggle(decision);
             if (tiles && toggle != cell.toggle) { cell.toggle(toggle); fittedWidth = -1; }
@@ -94,13 +111,14 @@ final class QuickAccessGrid extends ViewGroup {
                 }
                 cell.label.setTag(state.isEmpty() ? "" : tileLabel(cell.entry));
                 // The lead tile's accent fill would make an unmapped control look active; it stays muted.
-                boolean highlight = index == 0 && live && !editing && !unmapped;
-                boolean muted = feature != null && !featureLive;
+                boolean highlight = index == 0 && live && !editing && !unmapped && (!chargeControl || chargeBlocked == null);
+                boolean muted = (feature != null || chargeControl) && !featureLive;
                 cell.label.setTextColor(highlight ? Ui.withAlpha(ui.onAccent, 220) : ui.muted);
                 cell.value.setTextColor(highlight ? ui.onAccent : muted ? ui.muted : ui.text);
                 if (toggle) {
-                    boolean available = !editing && featureLive && value != null && ble.featureValue(feature.key) != null
-                            && decision != null && decision.available();
+                    boolean available = !editing && featureLive && value != null && (chargeControl
+                            ? charge != null && !charge.busy : ble.featureValue(feature.key) != null
+                            && decision != null && decision.available());
                     ((TileAction) cell.icon).appearance(selected && available ? ui.accent : ui.muted, available, highlight);
                 } else ((TileAction) cell.icon).appearance(highlight ? ui.onAccent : ui.muted, !editing, false);
                 if (cell.highlighted != highlight || cell.isSelected() != selected) {
@@ -113,12 +131,12 @@ final class QuickAccessGrid extends ViewGroup {
                 cell.value.setTag(state);
                 cell.value.setTextColor(featureLive ? ui.text : ui.muted);
                 if (cell.isSelected() != selected) { cell.setSelected(selected); cell.updateBackground(); }
-                cell.setAlpha(feature != null && !featureLive ? .65f : 1f);
+                cell.setAlpha((feature != null || chargeControl) && !featureLive ? .65f : 1f);
             }
             cell.setEnabled(!editing);
             String description = (tiles ? tileLabel(cell.entry) : cell.entry.label) + (state.isEmpty() ? "" : ", " + state)
-                    + (unmapped ? ", not on this model" : feature != null && !featureLive ? ", last seen" : "")
-                    + (showSchedule && !schedule.live ? ", scheduled time last seen" : "")
+                    + (chargeControl && chargeBlocked != null ? ", " + chargeBlocked
+                            : unmapped ? ", not on this model" : feature != null && !featureLive ? ", last seen" : "")
                     + (toggle ? ", toggle" : ", open");
             cell.setContentDescription(description);
             if (android.os.Build.VERSION.SDK_INT >= 30) cell.setStateDescription(state);

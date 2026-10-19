@@ -58,6 +58,7 @@ The main settings file. It mixes global options, per-scooter entries (key ends i
 | `range_source_<pid>` | String | per scooter | Durable | `scooter`/`learned` range estimate. ScooterService. |
 | `range_follow_mode_<pid>` | Boolean | per scooter | Durable | Range follows drive mode. |
 | `charge_charger_<pid>` | String | per scooter | Durable | Manual charger choice (`STOCK`/`HIGH_SPEED`). |
+| `charge_schedule_owned_<pid>` | String | per scooter | Durable | Confirmed one-shot charging intent, chosen finish time, actual scheduled start, target and expiry. ScooterService / ChargeScheduleController. Simulation and pending operations never persist; restoring this display state never sends or rearms a scooter command. |
 | `ride_comparison` | String set | global (ride UUIDs) | Durable | Rides selected for comparison. |
 | `ride_selected` | String | global (ride UUID) | Durable | Last opened ride. |
 | `notification_prompted` | Boolean | global | Device | Volt already asked for Android's notification permission on this installation. |

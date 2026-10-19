@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Add **Charge done by** in Scooter settings and dashboard shortcuts. Use the current charge estimate plus a ten-minute buffer to save a one-time start on the scooter; no ongoing phone connection is needed.
+- Remember confirmed charging schedules across reconnects and reconcile fresh completion or override evidence without automatically rearming them.
+- Drag along recorded map routes to inspect readings, retaining the gesture when your finger leaves the line; keep off-route panning and two-finger zoom.
+- Make the default Capacity experiment card one row shorter while preserving saved dashboard layouts.
+
 ## 1.4.5 — 2026-10-18
 
 - Recover charge recording after a sustained, valid change in charging power instead of repeatedly rejecting readings against an old baseline. Isolated spikes remain excluded; discarded readings stay marked as a gap.

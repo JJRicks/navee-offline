@@ -53,6 +53,7 @@ public final class ScooterService extends Service {
         final BatteryCapacityEstimate.Result result;
         CapacityCache(long mono, BatteryCapacityEstimate.Result result) { this.mono = mono; this.result = result; }
     }
+    private ChargeScheduleController chargeScheduleController;
     private ChargeSessionStore chargeStore;
     private ChargeSessionStore.Snapshot chargeSnapshot;
     private final ChargeReferenceGate chargeReferenceGate = new ChargeReferenceGate();
@@ -142,6 +143,7 @@ public final class ScooterService extends Service {
         if (isRecording() || isChargeRecording()) return "Stop the current recording first";
         if (phoneSaving() || phoneRecorder != null) return "Wait for the phone recording to finish saving";
         if (chargeExporting) return "Finish the current charge export first";
+        if (chargeScheduleController != null && chargeScheduleController.busy()) return "Wait for the charging schedule to finish";
         if (!clearingHistory.isEmpty()) return "Wait for history cleanup to finish";
         if (ble != null && ble.pending() != null) return "Wait for the current scooter change to finish";
         ShizukuCaptureClient capture = ShizukuCaptureClient.get(this);
@@ -168,6 +170,7 @@ public final class ScooterService extends Service {
         persistHistory(true);
         DataMaintenance.enter();
         dataMaintenance = true;
+        if(chargeScheduleController!=null)chargeScheduleController.cancel();
         resetChargeEstimateContext();
         destroyed = true;
         workActive = false;
@@ -231,6 +234,7 @@ public final class ScooterService extends Service {
         power.clear(); voltage.clear(); speed.clear();
         invalidateCapacityEstimate();
         resetChargeEstimateContext();
+        if(chargeScheduleController!=null)chargeScheduleController.cancel();
         ble.setSimulation(enabled);
         cancelBackgroundDeadline();
         applyWorkPolicy(false);
@@ -483,6 +487,61 @@ public final class ScooterService extends Service {
         // UT5 MAX reference curves only for the UT5 MAX layer; other models get live measured estimates.
         return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),charger,curve,chargeReferenceGate,
                 profile.id+":"+ble.currentTransportSerial(),chargingValue(readings,"current_a").observedMs,SystemClock.elapsedRealtime());
+    }
+
+    private ChargeScheduleController schedules(){
+        if(chargeScheduleController==null)chargeScheduleController=new ChargeScheduleController(new ChargeScheduleController.Store(){
+            public String read(String scope){return scope.startsWith("simulation:")?null:settings.getString("charge_schedule_owned_"+scope,null);}
+            public void write(String scope,String value){if(!scope.startsWith("simulation:"))settings.edit().putString("charge_schedule_owned_"+scope,value).apply();}
+        },new ChargeScheduleController.Driver(){
+            public ChargeScheduleController.Context context(){return chargeScheduleContext();}
+            public void clock(Consumer<Boolean> completion){ble.syncClock(completion);}
+            public void time(long wallMs,int offsetSeconds,Consumer<Boolean> completion){ble.setChargeStart(wallMs/1000,offsetSeconds,completion);}
+            public void enabled(boolean enabled,Consumer<Boolean> completion){ble.setChargeSchedule(enabled,completion);}
+        });
+        return chargeScheduleController;
+    }
+    /** Remembered intentions are displayed separately from raw firmware readings. */
+    public ChargeScheduleController.View chargeSchedule(){return schedules().view();}
+    private Consumer<String> scheduleCompletion(Consumer<String> completion){return result->{if(!destroyed){changed();if(completion!=null)completion.accept(result);}};}
+    public void setChargeDoneByEnabled(boolean enabled,Consumer<String> completion){schedules().setDoneEnabled(enabled,scheduleCompletion(completion));changed();}
+    public void setChargeDoneByTime(int hour,int minute,Consumer<String> completion){schedules().setDoneTime(hour,minute,scheduleCompletion(completion));changed();}
+    public void setManualChargeEnabled(boolean enabled,Consumer<String> completion){schedules().setManualEnabled(enabled,scheduleCompletion(completion));changed();}
+    public void setManualChargeStart(long wallMs,Consumer<String> completion){schedules().setManualStart(wallMs,scheduleCompletion(completion));changed();}
+    private ChargeScheduleController.Context chargeScheduleContext(){
+        ChargeScheduleController.Context c=new ChargeScheduleController.Context();c.now=System.currentTimeMillis();
+        if(ble==null||profiles==null)return c;
+        ScooterProfiles.Profile active=profiles.active(),transport=ble.profile();
+        boolean simulation=simulating();
+        c.scope=active==null?"":simulation?"simulation:"+active.id+":"+ble.simulationModel()+":"+ble.simulationRegion():active.id;
+        c.ready=!destroyed&&!dataMaintenance&&ble.ready()&&active!=null&&transport!=null&&active.id.equals(transport.id)
+                &&(simulation||active.serial.equals(ble.currentTransportSerial()));
+        c.generation=ble.connectionGeneration();
+        CapabilityResolver.Decision toggle=ble.decision("timed_charging"),time=ble.decision("charge_start");
+        c.toggleReason=toggle.available()?null:toggle.reasonText();c.timeReason=time.available()?null:time.reasonText();
+        c.wholeHours=time.layer!=ModelRegistry.Layer.UT5_MAX;
+        if(!c.ready)return c;
+        c.enabled=ble.featureValue("timed_charging");
+        long mono=SystemClock.elapsedRealtime();
+        Map<String,Telemetry.Metric> readings=new HashMap<>();
+        for(Telemetry.Metric metric:ble.telemetry.metrics())readings.put(metric.key,metric);
+        Telemetry.Metric charging=readings.get("charging_state");
+        Double chargingValue=freshScheduleNumber(charging,mono);
+        c.charging=chargingValue!=null&&(chargingValue==0||chargingValue==1)?chargingValue.intValue():null;
+        c.sampleMs=charging==null?0:charging.updatedMs;
+        c.soc=freshScheduleNumber(readings.get("battery_percent"),mono);
+        c.target=freshScheduleNumber(readings.get("charge_limit_percent"),mono);
+        Double raw=freshScheduleNumber(readings.get("scheduled_charge_time_raw"),mono);
+        if(raw!=null&&raw>=0&&raw<=0xffffffffL)c.wireStart=raw.longValue();
+        if(Integer.valueOf(1).equals(c.charging)){
+            ChargingEstimate.Result estimate=chargingEstimate(displayReadings());
+            c.estimateMinutes=estimate.remainingMinutesToLimit;
+        }
+        return c;
+    }
+    private Double freshScheduleNumber(Telemetry.Metric metric,long now){
+        return metric!=null&&metric.numericValue!=null&&Double.isFinite(metric.numericValue)
+                &&metric.updatedMs>0&&now>=metric.updatedMs&&now-metric.updatedMs<=10_000?metric.numericValue:null;
     }
 
     private void resetChargeEstimateContext(){
@@ -816,7 +875,7 @@ public final class ScooterService extends Service {
             };
 
     private void addTrend(ArrayDeque<Ui.Point> values,String key,long now){for(Telemetry.Metric m:ble.telemetry.metrics())if(m.key.equals(key)&&m.numericValue!=null&&m.updatedMs>=0&&now>=m.updatedMs&&now-m.updatedMs<2500){if(values.isEmpty()||values.peekLast().millis<m.updatedMs)values.add(new Ui.Point(m.updatedMs,m.numericValue));break;}while(!values.isEmpty()&&now-values.peek().millis>120000)values.remove();while(values.size()>240)values.remove();}
-    private void changed(){if(destroyed)return;updateChargerDetection();if(!canRetainStockReference())chargeReferenceGate.reset();updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeRideAutoStop(SystemClock.elapsedRealtime());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
+    private void changed(){if(destroyed)return;if(chargeScheduleController!=null)chargeScheduleController.observe();updateChargerDetection();if(!canRetainStockReference())chargeReferenceGate.reset();updateChargeCapture(SystemClock.elapsedRealtime(),System.currentTimeMillis());observeRideAutoStop(SystemClock.elapsedRealtime());observeTelemetry();followRangeMode();for(Runnable r:new ArrayList<>(listeners))r.run();}
     public boolean followsRidingMode() {
         return settings.getBoolean("range_follow_mode_" + activeProfileId(), true);
     }
@@ -827,6 +886,7 @@ public final class ScooterService extends Service {
         changed();
     }
     private void followRangeMode() {
+        if(chargeScheduleController!=null&&chargeScheduleController.busy())return;
         // A running compatibility check or guided test holds every automatic write (MutationGate refuses them too).
         if (destroyed || ble == null || selectingRange || ble.discovering() || ble.testing()) return;
         ScooterProfiles.Profile profile = profiles.active();
@@ -1441,6 +1501,7 @@ public final class ScooterService extends Service {
             return "{}";
         }}
     @Override public void onDestroy(){
+        if(chargeScheduleController!=null)chargeScheduleController.cancel();
         resetChargeEstimateContext();
         if (guardedLifecycle) { chargeWorker.shutdown(); capacityWorker.shutdown(); super.onDestroy(); return; }
         destroyed=true;finishChargeCapture(ChargeSessionStore.Stop.PROCESS_ENDED);chargeWorker.shutdown();workActive=false;if(running==this)running=null;if(settings!=null)settings.unregisterOnSharedPreferenceChangeListener(settingsChanged);handler.removeCallbacksAndMessages(null);capacityWorker.shutdown();capacityPending.clear();rangePending.clear();persistHistory(true);if(history!=null)history.close();stopPhoneRecording();if(isRecording())try{

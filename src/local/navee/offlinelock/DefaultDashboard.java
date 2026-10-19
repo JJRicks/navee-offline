@@ -31,7 +31,7 @@ final class DefaultDashboard {
                 "power_w", 86400000L, stack(8, 1, 3, 3, 3, 1));
         // Six columns need to clear the overview/lock stack before spanning the whole grid.
         add(result, "capacity", "Capacity experiment",
-                "power_w", 90 * 86400000L, stack(9, 5, 0, 5, 6, 5));
+                "power_w", 90 * 86400000L, stack(9, 4, 0, 5, 6, 4));
         setExpandedLayouts(result);
         return result;
     }
@@ -57,7 +57,7 @@ final class DefaultDashboard {
                                 columns - overviewWidth, 4);
                         break;
                     case "capacity":
-                        cell = new DashboardLayout.Cell(widget.id, 0, 7, columns, 5);
+                        cell = new DashboardLayout.Cell(widget.id, 0, 7, columns, 4);
                         break;
                     default:
                         int row = widget.type.equals("lockbar") ? 4

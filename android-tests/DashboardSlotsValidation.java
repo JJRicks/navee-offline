@@ -406,7 +406,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                     "Lock bar is not directly under the overview at " + columns + " columns");
             DashboardLayout.Cell recorder = captured.get(4), capacity = captured.get(5);
             require(fresh.widgets.get(5).type.equals("capacity") && capacity.x == 0
-                            && capacity.w == columns && capacity.h == 5
+                            && capacity.w == columns && capacity.h == 4
                             && capacity.y == Math.max(recorder.y + recorder.h, lockBar.y + lockBar.h),
                     "Capacity experiment must fill the width below the existing cards at " + columns + " columns");
             int occupied = 0;
@@ -459,7 +459,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                     + ",{\"type\":\"tiles\",\"title\":\"Reading tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"power_w\",\"temperature_c\",\"battery_health_percent\"],\"layouts\":{\"1\":[0,5,1,2],\"2\":[0,5,2,2],\"3\":[0,5,3,2],\"4\":[0,5,4,2],\"5\":[0,5,5,2],\"6\":[3,0,3,2]}}"
                     + ",{\"type\":\"shortcuts\",\"title\":\"Setting tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,7,1,1],\"2\":[0,7,2,1],\"3\":[0,7,3,1],\"4\":[0,7,4,1],\"5\":[0,7,5,1],\"6\":[3,2,3,1]}}"
                     + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,1],\"2\":[0,8,2,1],\"3\":[0,8,3,1],\"4\":[0,8,4,1],\"5\":[0,8,5,1],\"6\":[3,3,3,1]}}"
-                    + ",{\"type\":\"capacity\",\"title\":\"Capacity experiment\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":7776000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,9,1,5],\"2\":[0,9,2,5],\"3\":[0,9,3,5],\"4\":[0,9,4,5],\"5\":[0,9,5,5],\"6\":[0,5,6,5]}}]");
+                    + ",{\"type\":\"capacity\",\"title\":\"Capacity experiment\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":7776000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,9,1,4],\"2\":[0,9,2,4],\"3\":[0,9,3,4],\"4\":[0,9,4,4],\"5\":[0,9,5,4],\"6\":[0,5,6,4]}}]");
             check.accept(configuration.widgets.size() == expected.length(), "Captured default widget count changed");
             java.util.HashSet<String> ids = new java.util.HashSet<>();
             for (int i = 0; i < expected.length(); i++) {
@@ -503,7 +503,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
             {{0,5,1,2}, {1,0,1,4}, {2,0,1,4}, {2,0,2,4}, {3,0,2,4}, {4,0,2,4}},
             {{0,7,1,1}, {0,5,2,1}, {0,5,3,1}, {0,5,4,1}, {0,5,5,1}, {0,5,6,1}},
             {{0,8,1,1}, {0,6,2,1}, {0,6,3,1}, {0,6,4,1}, {0,6,5,1}, {0,6,6,1}},
-            {{0,9,1,5}, {0,7,2,5}, {0,7,3,5}, {0,7,4,5}, {0,7,5,5}, {0,7,6,5}}
+            {{0,9,1,4}, {0,7,2,4}, {0,7,3,4}, {0,7,4,4}, {0,7,5,4}, {0,7,6,4}}
         };
         check.accept(configuration.widgets.size() == expected.length, "Unfolded default widget membership changed");
         for (int i = 0; i < expected.length; i++) {
@@ -577,6 +577,21 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(expanded.widgets.size() == 5 && savedOld.equals(expanded.widgetsJson())
                         && savedOld.equals(preferences.getString(activeKey, "")),
                 "Opening an existing dashboard replaced its readings/layout or added Capacity experiment");
+
+        // An installed five-row default is saved user state, not a migration target.
+        JSONArray previousDefaults = new JSONArray(pristine);
+        JSONObject previousCapacity = previousDefaults.getJSONObject(5);
+        for (String bank : new String[] {"layouts", "expandedLayouts"})
+            for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++)
+                previousCapacity.getJSONObject(bank).getJSONArray(Integer.toString(columns)).put(3, 5);
+        String savedPreviousDefaults = previousDefaults.toString();
+        require(preferences.edit().putString(activeKey, savedPreviousDefaults).commit(), "Could not seed five-row defaults");
+        for (boolean unfolded : new boolean[] {false, true}) {
+            DashboardConfig reopened = new DashboardConfig(preferences, profile, unfolded);
+            require(savedPreviousDefaults.equals(reopened.widgetsJson())
+                            && savedPreviousDefaults.equals(preferences.getString(activeKey, "")),
+                    "Upgrade resized an installed five-row Capacity experiment");
+        }
 
         // Model an owner's existing phone: four readings plus their own four-row Capacity experiment.
         // Both display banks and every width must survive reload, reset and slot restoration.

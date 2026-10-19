@@ -89,6 +89,9 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 verifyAllWidgetsExample();
             } else if (mode.equals("compact")) {
                 verifyCompactReadingHeights();
+            } else if (mode.equals("capacity")) {
+                assertDefaultCardContents();
+                verifyCapacityDefaultFit();
             } else if (mode.equals("narrow")) {
                 verifyMinimumWidthContents();
             } else if (mode.equals("chart")) {
@@ -120,6 +123,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 }
                 assertDefaultCardContents(); screenshot("default-disconnected");
                 check("Default battery overview and reading tiles fit without hidden overflow");
+                verifyCapacityDefaultFit();
                 if (mode.equals("constraints")) {
                     verifyMinimumLockAndCharging();
                     check("Minimum lock height restores cleanly; minimum battery size fits its active charging readings");
@@ -513,11 +517,67 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             ScrollView viewport = (ScrollView)field(capacity, "viewport");
             require(widget.windowMs == 90 * 86400000L && widget.advertisedWh == 0,
                     "Default Capacity experiment changed its history window or model rating");
+            for (boolean expanded : new boolean[] {false, true})
+                for (DashboardLayout.Cell cell : widget.layouts(expanded).values())
+                    require(cell.h == 4, "Default Capacity experiment must use four rows in both display layouts");
             require(card.getLeft() == 0 && card.getRight() == grid().getWidth()
                             && card.getTop() >= recorder.getBottom()
                             && viewport.getWidth() > 0 && viewport.getHeight() > 0,
                     "Default Capacity experiment must render full width beneath Ride recorder");
         });
+    }
+    private void verifyCapacityDefaultFit() throws Exception {
+        Object capacity = tile("capacity");
+        AtomicReference<String> saved = new AtomicReference<>();
+        main(() -> {
+            saved.set(dashboardConfig().widgetsJson());
+            // Isolate presentation states from the async history worker. No ride data or
+            // simulation settings are changed, and render restores the real tile afterward.
+            setField(capacity, "capacityRequest", ((Number)field(capacity, "capacityRequest")).longValue() + 1);
+            setField(capacity, "capacityPending", true);
+        });
+        try {
+            for (String state : new String[] {"sample", "estimate", "proxy", "reference", "processing", "empty"}) {
+                main(() -> {
+                    boolean numeric = !state.equals("processing") && !state.equals("empty");
+                    TextView value = (TextView)field(capacity, "capacityValue");
+                    value.setText(numeric ? "≈ 680 Wh" : state.equals("processing") ? "Processing…" : "Not enough ride data");
+                    TextView method = (TextView)field(capacity, "capacityMethod");
+                    method.setText(state.equals("sample") ? "Sample" : "Proxy · not health");
+                    method.setVisibility(state.equals("sample") || state.equals("proxy") ? View.VISIBLE : View.GONE);
+                    TextView compare = (TextView)field(capacity, "capacityCompare");
+                    compare.setText("95% of 716 Wh");
+                    compare.setVisibility(numeric && !state.equals("reference") ? View.VISIBLE : View.GONE);
+                    ((View)field(capacity, "capacityBar")).setVisibility(compare.getVisibility());
+                    ((View)field(capacity, "capacityReference")).setVisibility(state.equals("reference") ? View.VISIBLE : View.GONE);
+                    ((TextView)field(capacity, "capacitySummary")).setText(numeric ? "6 rides · 42 points used"
+                            : state.equals("processing") ? "Checking recorded rides…" : "Record a longer ride");
+                    ((View)capacity).requestLayout();
+                });
+                settle();
+                assertCardContents("capacity");
+                main(() -> {
+                    View details = (View)field(capacity, "capacityDetails");
+                    ScrollView viewport = (ScrollView)field(capacity, "viewport");
+                    Rect bounds = relativeBounds(details, viewport);
+                    require(details.getHeight() >= activity.ui().dp(48)
+                                    && bounds.bottom <= viewport.getHeight() + 1,
+                            "Four-row Capacity experiment clipped or shrank its details action in " + state);
+                    require(saved.get().equals(dashboardConfig().widgetsJson()),
+                            "Fitting Capacity experiment changed saved dashboard geometry");
+                });
+                if (state.equals("sample") || state.equals("processing")) {
+                    main(() -> { View card = (View)capacity;
+                        card.requestRectangleOnScreen(new Rect(0, 0, card.getWidth(), card.getHeight()), true);
+                    });
+                    settle(); screenshot("capacity-four-row-" + state);
+                }
+            }
+        } finally {
+            main(() -> invoke(dashboard(), "render"));
+            settle();
+        }
+        check("Four-row Capacity experiment fits sample, estimate, proxy, missing reference, processing and empty states without inner scrolling; details keeps a 48 dp target and saved geometry is untouched");
     }
     private void assertCardContents(String... types) {
         main(() -> {
