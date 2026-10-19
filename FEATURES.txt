@@ -1,5 +1,5 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
-Current version: 1.4.5 (versionCode 42)
+Current version: 1.4.6 (versionCode 43)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -17,7 +17,16 @@ or sponsored by NAVEE.
 That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
 
-NEW IN 1.4.5
+NEW IN 1.4.6
+
+- Charge done by saves a one-time native start using the charge estimate and a
+  ten-minute buffer. Disconnect afterward; no background hold is introduced.
+- Confirmed charging schedules remain visible across ambiguous reboot readback.
+  Fresh completion/expiry/override evidence updates the local display only.
+- Drag to inspect recorded map routes, with off-route pan and two-finger zoom.
+- Four-row Capacity experiment default; existing saved layouts are preserved.
+
+PREVIOUSLY IN 1.4.5
 
 - Charge recording recovers after a sustained change in valid charging power.
 - Comparable finish-time and countdown traces share a readable graph axis.

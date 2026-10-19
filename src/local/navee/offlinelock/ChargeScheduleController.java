@@ -1,5 +1,12 @@
 package local.navee.offlinelock;
 
+import java.time.Instant;
+import java.time.LocalDate;
+import java.time.LocalDateTime;
+import java.time.LocalTime;
+import java.time.ZoneId;
+import java.time.ZoneOffset;
+import java.util.List;
 import java.util.Calendar;
 import java.util.HashMap;
 import java.util.Map;
@@ -261,9 +268,23 @@ public final class ChargeScheduleController {
         return new Plan(deadline,Math.max(now,start),offset,start<=now);
     }
     public static long nextOccurrence(long now,int minute,TimeZone zone){
-        Calendar cal=Calendar.getInstance(zone);cal.setTimeInMillis(now);cal.set(Calendar.HOUR_OF_DAY,minute/60);cal.set(Calendar.MINUTE,minute%60);cal.set(Calendar.SECOND,0);cal.set(Calendar.MILLISECOND,0);
-        if(cal.getTimeInMillis()<=now)cal.add(Calendar.DAY_OF_YEAR,1);
-        return cal.getTimeInMillis();
+        ZoneId id=zone.toZoneId();LocalDate today=Instant.ofEpochMilli(now).atZone(id).toLocalDate();
+        LocalTime chosen=LocalTime.of(minute/60,minute%60);
+        for(int day=0;day<3;day++){
+            // Rebuild the requested wall time for each day. Normalizing a spring gap
+            // must not carry its shifted hour into tomorrow's perfectly valid time.
+            LocalDateTime wall=LocalDateTime.of(today.plusDays(day),chosen);
+            List<ZoneOffset> offsets=id.getRules().getValidOffsets(wall);
+            if(offsets.isEmpty()){
+                long shifted=wall.atZone(id).toInstant().toEpochMilli();
+                if(shifted>now)return shifted; // A nonexistent time moves forward by the gap.
+            }else{
+                long next=Long.MAX_VALUE;
+                for(ZoneOffset offset:offsets){long candidate=wall.toInstant(offset).toEpochMilli();if(candidate>now)next=Math.min(next,candidate);}
+                if(next!=Long.MAX_VALUE)return next; // Earliest remaining occurrence in a repeated hour.
+            }
+        }
+        throw new IllegalArgumentException("No upcoming charge time");
     }
     private static long fromWire(long raw,long clockOffsetMs){return raw*1000L-clockOffsetMs;}
     private static boolean finite(Double n){return n!=null&&Double.isFinite(n);}

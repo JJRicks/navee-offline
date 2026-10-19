@@ -2571,10 +2571,8 @@ public final class MainActivity extends Activity implements ScreenHost {
         TimePickerDialog picker=new TimePickerDialog(dialogContext(),(view,hour,picked)->{
             if(scooterService==null||scooterService.profiles.active()==null
                     ||!profile.equals(scooterService.profiles.active().id)){toast("The selected scooter changed");return;}
-            Calendar chosen=Calendar.getInstance();chosen.set(Calendar.HOUR_OF_DAY,hour);
-            chosen.set(Calendar.MINUTE,wholeHours?0:picked);chosen.set(Calendar.SECOND,0);chosen.set(Calendar.MILLISECOND,0);
-            if(chosen.getTimeInMillis()<=System.currentTimeMillis())chosen.add(Calendar.DAY_OF_YEAR,1);
-            scooterService.setManualChargeStart(chosen.getTimeInMillis(),this::scheduleResult);redraw();
+            long chosen=ChargeScheduleController.nextOccurrence(System.currentTimeMillis(),hour*60+(wholeHours?0:picked),TimeZone.getDefault());
+            scooterService.setManualChargeStart(chosen,this::scheduleResult);redraw();
         },initial.get(Calendar.HOUR_OF_DAY),initial.get(Calendar.MINUTE),DisplayTime.is24Hour(this,preferences));
         picker.setTitle(wholeHours?"Next charge start (on the hour)":"Next charge start");controlDialog=picker;picker.show();
         styleDialogButton(picker.getButton(AlertDialog.BUTTON_POSITIVE),design.accent);

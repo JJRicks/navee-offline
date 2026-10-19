@@ -52,6 +52,10 @@ public final class ChargeScheduleControllerTest {
         ChargeScheduleController.Plan spring=ChargeScheduleController.plan(time("2027-03-14T06:00:00Z"),8*60,90,boise,false);
         check(spring.deadlineWallMs==time("2027-03-14T14:00:00Z"),"DST next day uses chosen localdeadline");
         check(spring.startWallMs==time("2027-03-14T12:20:00Z")&&spring.offsetSeconds==-7*3600,"DST keeps fixed scooter-clock offset, correct elapsed duration");
+        check(ChargeScheduleController.nextOccurrence(time("2027-03-14T10:00:00Z"),150,boise)==time("2027-03-15T08:30:00Z"),"past spring gap does not shift tomorrow's chosen time");
+        check(ChargeScheduleController.nextOccurrence(time("2027-03-14T08:00:00Z"),150,boise)==time("2027-03-14T09:30:00Z"),"today's nonexistent time advances through the gap");
+        check(ChargeScheduleController.nextOccurrence(time("2026-11-01T07:00:00Z"),90,boise)==time("2026-11-01T07:30:00Z"),"fall overlap selects first future occurrence");
+        check(ChargeScheduleController.nextOccurrence(time("2026-11-01T08:00:00Z"),90,boise)==time("2026-11-01T08:30:00Z"),"fall overlap retains second occurrence after first has passed");
         ChargeScheduleController.Plan fall=ChargeScheduleController.plan(time("2026-11-01T05:00:00Z"),8*60,90,boise,false);
         check(fall.deadlineWallMs==time("2026-11-01T15:00:00Z"),"fall deadline uses next local8AM");
         ChargeScheduleController.Plan halfDst=ChargeScheduleController.plan(time("2026-10-03T12:00:00Z"),8*60,90,TimeZone.getTimeZone("Australia/Lord_Howe"),true);

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.4.6 — 2026-10-19
 
 - Add **Charge done by** in Scooter settings and dashboard shortcuts. Use the current charge estimate plus a ten-minute buffer to save a one-time start on the scooter; no ongoing phone connection is needed.
 - Remember confirmed charging schedules across reconnects and reconcile fresh completion or override evidence without automatically rearming them.

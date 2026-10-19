@@ -17,7 +17,7 @@ All cases use synthetic data, never owner recordings or a physical radio.
 | Check | Result |
 | --- | --- |
 | Full pure-Java suite | Pass, including backup and shortcut regression tests |
-| ChargeScheduleControllerTest | 212 assertions: 6:20 AM example, lower charge limits, early charge-now, whole-hour domains, DST, persistence, reconnect reconciliation, partial failure, expiry, stale/profile/session changes, and cancellation |
+| ChargeScheduleControllerTest | 216 assertions: 6:20 AM example, lower charge limits, early charge-now, whole-hour domains, DST gaps/overlaps, persistence, reconnect reconciliation, partial failure, expiry, stale/profile/session changes, and cancellation |
 | Independent DST reproduction | Previously one hour wrong; now zero error |
 | Android app + instrumentation build | Pass |
 | ChargeScheduleWireValidation | 63 checks against real command queue/gates with an in-process GATT stand-in: ACK/readback order, forced-off, rejection, timeout, cancellation, exactly-once callbacks, queued safety refusal |
