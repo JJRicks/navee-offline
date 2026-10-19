@@ -89,7 +89,10 @@ public final class ChargeScheduleController {
     public boolean busy(){return busy;}
     public View view(){Context c=context();reconcile(c);State s=state(c);State shown=s;
         if(s.start==0&&c.wireStart!=null&&c.wireStart>0){shown=s.copy();shown.start=fromWire(c.wireStart,c.zone.getOffset(c.now));
-            if(shown.manualStart==0)shown.manualStart=shown.start;}
+            // Without a prior confirmed start, any readback after an attempted
+            // calculated write may be ours (including an earlier failed attempt).
+            // Only genuinely unowned native times can seed a manual preference.
+            if(shown.manualStart==0&&s.calculatedWire==0)shown.manualStart=shown.start;}
         return new View(shown,c,busy);}
     /** Fresh observations may retire a remembered intention; this method never touches the radio. */
     public void observe(){Context c=context();

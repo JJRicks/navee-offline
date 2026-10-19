@@ -256,6 +256,22 @@ public final class ChargeScheduleControllerTest {
         check(collision.controller.view().manualStartWallMs==sameCalculated,"retired calculated start matching manual by coincidence does not establish manual context");
         Rig clockFailure=withManualOnly();clockFailure.enable();clockFailure.reply(false);clockFailure.c.wireStart=edited/1000+clockFailure.sentOffset;clockFailure.controller.observe();
         check(clockFailure.controller.view().manualStartWallMs==edited,"clock failure before calculated write does not suppress genuine external manual edits");
+        Rig empty=new Rig();empty.enable();empty.reply(true);long firstCalculated=empty.sentTime,firstWire=empty.sentTime/1000+empty.sentOffset;empty.reply(false);
+        empty.c.wireStart=firstWire;empty.recreate();
+        for(int observation=0;observation<3;observation++){empty.controller.observe();check(empty.controller.view().startWallMs==firstCalculated&&empty.controller.view().manualStartWallMs==0,"empty preference never infers failed calculated readback as manual time");}
+        empty.controller.setManualEnabled(true,empty.results::add);
+        check(empty.writes.size()==2&&empty.results.get(1).equals("Choose Charge start first"),"unknown manual time remains unset after failed calculated write");
+        empty.controller.setDoneTime(9,0,empty.results::add);empty.enable();empty.reply(true);long secondWire=empty.sentTime/1000+empty.sentOffset;empty.reply(false);
+        check(secondWire!=firstWire&&empty.controller.view().manualStartWallMs==0,"earlier calculated readback is not inferred after another failed attempt replaces the marker");
+        empty.recreate();empty.c.wireStart=secondWire;
+        check(empty.controller.view().manualStartWallMs==0,"latest calculated readback also remains unknown after repeated attempts and restart");
+        empty.enable();empty.reply(true);empty.c.wireStart=empty.sentTime/1000+empty.sentOffset;empty.reply(true);empty.c.enabled=1;empty.c.charging=0;empty.reply(true);
+        check(empty.controller.view().doneByEnabled&&empty.controller.view().manualStartWallMs==0,"later successful done-by activation cannot persist a synthetic manual preference");
+        int beforeOff=empty.writes.size();empty.controller.setDoneEnabled(false,empty.results::add);empty.c.enabled=0;empty.reply(true);
+        check(empty.writes.size()==beforeOff+1&&empty.writes.get(beforeOff).equals("off"),"cancelling after unknown manual history sends OFF without restoring a calculated time");
+        Rig emptyDropped=new Rig();emptyDropped.enable();emptyDropped.reply(true);long droppedWire=emptyDropped.sentTime/1000+emptyDropped.sentOffset;emptyDropped.c.ready=false;emptyDropped.controller.observe();emptyDropped.recreate();
+        emptyDropped.c.ready=true;emptyDropped.c.generation++;emptyDropped.c.wireStart=droppedWire;emptyDropped.controller.observe();emptyDropped.reply(true);
+        check(emptyDropped.controller.view().manualStartWallMs==0,"disconnect and lost callback with no prior manual preference cannot seed it from a calculated readback");
         String[] invalid=late.saved.get("owner-A").split("\\|",-1);invalid[11]="-1";
         check(ChargeScheduleController.decode(String.join("|",invalid)).mode==0,"invalid calculated wire marker rejected");
     }
