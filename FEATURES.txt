@@ -1,5 +1,5 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
-Current version: 1.4.7 (versionCode 44)
+Current version: 1.4.8 (versionCode 45)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -17,7 +17,16 @@ or sponsored by NAVEE.
 That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
 
-NEW IN 1.4.7
+NEW IN 1.4.8
+------------
+- Refine compatible UT5 MAX stock-charger estimates below 89% using pack voltage
+  and charging current from earlier completed charges.
+- Preserve the existing finishing estimate from 89%, including the 99% taper,
+  and keep fast-charger and unknown-charger estimates on their existing paths.
+- Save new predictions with estimator version ut5-stock-voltage-v4; earlier
+  recordings keep their original saved predictions.
+
+PREVIOUSLY IN 1.4.7
 ------------
 - Edit Charge done by time offline; the saved preference applies next time it is enabled.
 - Connected active time edits recalculate and confirm the native start once, including

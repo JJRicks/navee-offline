@@ -1,5 +1,12 @@
 # Changelog
 
+## 1.4.8 — 2026-10-21
+
+- Refine the experimental UT5 MAX stock-charger time to full below 89% by matching pack voltage and charging current to earlier completed charges, reducing dependence on the displayed battery percentage.
+- Keep the existing estimate from 89% through the final 99% taper, and retain the existing fast-charger and unknown-charger behavior. Incompatible readings fall back to the existing estimate.
+- Record new predictions as estimator `ut5-stock-voltage-v4`, while preserving earlier saved predictions and recordings.
+- Run public-repository CI on GitHub-hosted workers; keep disposable private workers restricted to private-repository runs.
+
 ## 1.4.7 — 2026-10-19
 
 - Edit the Charge done by time without a connected scooter or charger; changes apply when next enabled.

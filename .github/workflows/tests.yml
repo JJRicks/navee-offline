@@ -17,7 +17,7 @@ jobs:
   core-tests:
     # Private workers require trusted collaborators and disabled fork workflows.
     # Job/run labels route eligible work; they are not an authorization boundary.
-    runs-on: ${{ fromJSON((github.actor == 'JJRicks' || github.actor == 'ollies5') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('["self-hosted","Linux","ARM64","volt-ci","volt-job-core-tests","volt-run-{0}-{1}"]', github.run_id, github.run_attempt) || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(github.event.repository.private == true && (github.actor == 'JJRicks' || github.actor == 'ollies5') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('["self-hosted","Linux","ARM64","volt-ci","volt-job-core-tests","volt-run-{0}-{1}"]', github.run_id, github.run_attempt) || '["ubuntu-latest"]') }}
     timeout-minutes: 10
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
@@ -35,7 +35,7 @@ jobs:
   web-setup:
     # Private workers require trusted collaborators and disabled fork workflows.
     # Job/run labels route eligible work; they are not an authorization boundary.
-    runs-on: ${{ fromJSON((github.actor == 'JJRicks' || github.actor == 'ollies5') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('["self-hosted","Linux","ARM64","volt-ci","volt-job-web-setup","volt-run-{0}-{1}"]', github.run_id, github.run_attempt) || '["ubuntu-latest"]') }}
+    runs-on: ${{ fromJSON(github.event.repository.private == true && (github.actor == 'JJRicks' || github.actor == 'ollies5') && (github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository) && format('["self-hosted","Linux","ARM64","volt-ci","volt-job-web-setup","volt-run-{0}-{1}"]', github.run_id, github.run_attempt) || '["ubuntu-latest"]') }}
     timeout-minutes: 10
     defaults:
       run:

@@ -3,7 +3,7 @@ package local.navee.offlinelock;
 /** Fresh battery-side charging measurements, model defaults and optional personal charge curves. */
 public final class ChargingEstimate {
     /** Bump whenever the prediction algorithm/reference changes; independent of app versions. */
-    public static final String ESTIMATOR_VERSION = "ut5-dual-charger-v3";
+    public static final String ESTIMATOR_VERSION = "ut5-stock-voltage-v4";
     public static final double MINIMUM_ETA_CURRENT_A = 0.05;
     /** Short UI label when measured current is too low for a time estimate. */
     public static final String LOW_CURRENT = "Low current";
@@ -51,6 +51,8 @@ public final class ChargingEstimate {
         public final boolean referenceToLimit, referenceToFull;
         public final ChargeSessionStore.Charger referenceCharger;
         public final int learnedSessions;
+        /** A paired-voltage stock reference takes priority over SOC-only personal bulk timing. */
+        public final boolean stockVoltageToFull;
 
         private Result(
                 boolean charging,
@@ -81,6 +83,14 @@ public final class ChargingEstimate {
         private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
                 Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
                 boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger) {
+            this(charging,inputWatts,inputAmps,remainingMinutesToLimit,remainingMinutesToFull,targetPercent,label,status,
+                    learnedToLimit,learnedToFull,learnedSessions,referenceToLimit,referenceToFull,referenceCharger,false);
+        }
+
+        private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
+                Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
+                boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger,boolean stockVoltageToFull) {
+            this.stockVoltageToFull=stockVoltageToFull;
             this.label = label;
             this.learnedToLimit=learnedToLimit;this.learnedToFull=learnedToFull;this.learnedSessions=learnedSessions;
             this.referenceToLimit=referenceToLimit;this.referenceToFull=referenceToFull;
@@ -173,6 +183,18 @@ public final class ChargingEstimate {
         if (personal==null || personal.charger!=selectedCharger) return prior;
         Result learned=withObservedCurve(baseline,soc,personal);
         if (learned==null || !learned.learnedToFull&&!learned.learnedToLimit) return prior;
+        if (prior.stockVoltageToFull) {
+            // The percentage gauge can shift between charges. Do not let an old SOC-only
+            // personal finish replace a matched voltage estimate. Lower cutoffs still use
+            // their existing evidence, bounded by the time to full; 89%+ is unchanged.
+            boolean personalLimit=prior.targetPercent!=null&&prior.targetPercent<100&&learned.learnedToLimit;
+            Double limit=personalLimit?Double.valueOf(Math.min(learned.remainingMinutesToLimit,prior.remainingMinutesToFull))
+                    :prior.remainingMinutesToLimit;
+            String status=prior.status+(personalLimit?" Time to the limit uses personal history, bounded by time to full.":"");
+            return new Result(prior.charging,prior.inputWatts,prior.inputAmps,limit,prior.remainingMinutesToFull,
+                    prior.targetPercent,prior.label,status,personalLimit,false,personalLimit?learned.learnedSessions:0,
+                    !personalLimit&&prior.referenceToLimit,true,ChargeSessionStore.Charger.STOCK,true);
+        }
         boolean referenceFull=!learned.learnedToFull&&prior.referenceToFull;
         boolean referenceLimit=!learned.learnedToLimit&&prior.referenceToLimit;
         String status=learned.learnedSessions==1?"Provisional personal estimate from 1 completed charge. "
@@ -224,14 +246,24 @@ public final class ChargingEstimate {
         Double limit=baseline.targetPercent==null?null:Ut5MaxStockChargeReference.estimate(
                 soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
         if(full==null&&limit==null)return baseline;
+        Double voltageFull=full==null?null:Ut5MaxStockVoltageReference.refine(soc.number,ratedAh.number,
+                baseline.inputAmps,baseline.inputWatts,full);
+        if(voltageFull!=null) {
+            full=voltageFull;
+            if(baseline.targetPercent!=null&&baseline.targetPercent==100)limit=full;
+        }
         String status="Experimental UT5 MAX stock-charger estimate based on observed charges; live power is compatible. ";
-        if(soc.number<89)status+="Bulk time uses rated Ah and current charging rate. ";
+        if(voltageFull!=null)status+="Bulk progress matches pack voltage and charging current. ";
+        else if(soc.number<89)status+="Bulk time uses rated Ah and current charging rate. ";
         if(limit==null&&baseline.targetPercent!=null)status+="Time to the limit uses the current rate. ";
         status+="This does not identify the charger. Time to displayed 100%; balancing may continue.";
         status+=cutoffNote(baseline.targetPercent);
+        Double finalLimit=limit==null?baseline.remainingMinutesToLimit:limit;
+        if(voltageFull!=null&&finalLimit!=null)finalLimit=Math.min(finalLimit,full);
         return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
-                limit==null?baseline.remainingMinutesToLimit:limit,full==null?baseline.remainingMinutesToFull:full,
-                baseline.targetPercent,"Stock reference",status,false,false,0,limit!=null,full!=null);
+                finalLimit,full==null?baseline.remainingMinutesToFull:full,
+                baseline.targetPercent,"Stock reference",status,false,false,0,limit!=null,full!=null,
+                ChargeSessionStore.Charger.STOCK,voltageFull!=null);
     }
 
     private static String cutoffNote(Double target) {

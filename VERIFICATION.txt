@@ -1,3 +1,22 @@
+VOLT 1.4.8 — STANDARD-CHARGER VOLTAGE PROGRESS (versionCode 45)
+October 21, 2026
+
+- Retrospective replay covers 3,948 deidentified charge samples. The frozen
+  previous estimator reproduces all 1,833 warm-recording predictions exactly.
+- Earlier stock voltage/current progress reduces error on the matched warm
+  subset; the full 89%+ finish, taper and high-speed outputs remain unchanged.
+- Unknown/limited targets, freshness, source provenance, boundary continuity
+  and prior-only personal history are covered by focused regression suites.
+- Scope, coverage, residual errors and reproducible checks are documented in
+  docs/validation/stock-voltage-estimates.md. Calibration replays are explicitly
+  distinguished from new warm-charge evidence. A new physical charge has not
+  been performed; this does not promise a particular real-world accuracy.
+- Final independent reviews, CI and release artifact/native smoke verification
+  are recorded with the release. Existing phone data and saved schedules are
+  preserved. No automatic background rescheduling has been added.
+
+--- Previous verification ---
+
 VOLT 1.4.6 — CHARGE DEADLINES AND ROUTE SCRUBBING (versionCode 43)
 October 19, 2026
 
