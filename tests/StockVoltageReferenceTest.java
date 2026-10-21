@@ -12,7 +12,7 @@ public final class StockVoltageReferenceTest {
     private static ChargingEstimate.Result estimate(double soc,double volts,double amps,Double target){
         return ChargingEstimate.forScooter(base(soc,volts,amps,target),value(soc),value(15.3),2538,ChargeSessionStore.Charger.STOCK,null);
     }
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         ChargingEstimate.Result warm=estimate(55,49.702,1.94,100d);
         near(175.8677,warm.remainingMinutesToFull,15,"Conservative current-boundary blending still reduces the former ~36-minute overestimate at 55%");
         check(warm.stockVoltageToFull&&warm.referenceToFull&&warm.referenceToLimit&&!warm.learnedToFull&&warm.learnedSessions==0,"Bundled voltage evidence has honest provenance");
@@ -68,6 +68,30 @@ public final class StockVoltageReferenceTest {
             double now=refined==null?90:refined;
             if(Double.isFinite(last))check(Math.abs(now-last)<1,"No current admission/reference-switch cliff at "+amps);
             last=now;
+        }
+        // Full composition must blend against personal history, not only bundled bulk.
+        ChargeSessionStore.Curve history=StockVoltageReplayTest.history(StockVoltageReplayTrace.WARM_PHYSICAL_CHARGE);
+        for(double[] sweep:new double[][]{{80,1.94,53.75,53.85},{71,1.7,50.85,50.92}}){
+            double prev=Double.NaN;
+            for(double v=sweep[2];v<=sweep[3];v+=.0001){
+                ChargingEstimate.Result r=ChargingEstimate.forScooter(base(sweep[0],v,sweep[1],100d),value(sweep[0]),value(15.3),2538,ChargeSessionStore.Charger.STOCK,history);
+                if(Double.isFinite(prev))check(Math.abs(r.remainingMinutesToFull-prev)<.5,"Full personal composition has no voltage cliff: "+v);
+                near(r.remainingMinutesToFull,r.remainingMinutesToLimit,0,"Personal-edge full cutoff agrees");
+                prev=r.remainingMinutesToFull;
+            }
+        }
+        double prev=Double.NaN;
+        for(double amps=1.645;amps<1.653;amps+=.00001){
+            ChargingEstimate.Result r=ChargingEstimate.forScooter(base(71,52.4,amps,100d),value(71d),value(15.3),2538,ChargeSessionStore.Charger.STOCK,history);
+            if(Double.isFinite(prev))check(Math.abs(r.remainingMinutesToFull-prev)<.5,"Full personal composition has no current-admission cliff: "+amps);
+            prev=r.remainingMinutesToFull;
+        }
+        for(Double target:new Double[]{null,80d,95d,100d}){
+            ChargingEstimate.Result before=ChargingEstimate.forScooter(base(80,53.7999999,1.94,target),value(80d),value(15.3),2538,ChargeSessionStore.Charger.STOCK,history);
+            ChargingEstimate.Result after=ChargingEstimate.forScooter(base(80,53.8000001,1.94,target),value(80d),value(15.3),2538,ChargeSessionStore.Charger.STOCK,history);
+            near(before.remainingMinutesToFull,after.remainingMinutesToFull,.001,"Personal fallback continuous at exact upper coverage boundary");
+            if(target==null)check(before.remainingMinutesToLimit==null&&after.remainingMinutesToLimit==null,"Boundary with unknown cutoff");
+            else near(before.remainingMinutesToLimit,after.remainingMinutesToLimit,.001,"Lower-cutoff cap uses the selected full fallback");
         }
         ChargeSessionStore.Estimate snapshot=ChargingEstimate.recordingSnapshot(warm);
         check(snapshot.version.equals("ut5-stock-voltage-v4")&&snapshot.fullSource==ChargeSessionStore.Source.STOCK_REFERENCE,"New captures identify changed algorithm and source");

@@ -16,7 +16,8 @@ Two older completed standard-charger recordings supply 182 measured knots
 (voltage, current and remaining time). The new warm charge does not enter the
 reference. Inputs outside the observed voltage/current range retain the previous
 method; a different reported capacity also retains it. Voltage entry/exit and
-current compatibility blend toward that previous estimate. Overlapping reference
+current compatibility blend toward the actual selected fallback, including personal
+history when available. Overlapping reference
 curves are weighted by current similarity, avoiding hard switches between them.
 The two tiny marked recording breaks use their nearest measured endpoint, never
 interpolated samples; larger marked holes are unsupported.

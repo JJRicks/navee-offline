@@ -53,6 +53,7 @@ public final class ChargingEstimate {
         public final int learnedSessions;
         /** A paired-voltage stock reference takes priority over SOC-only personal bulk timing. */
         public final boolean stockVoltageToFull;
+        private final Ut5MaxStockVoltageReference.Match stockVoltageMatch;
 
         private Result(
                 boolean charging,
@@ -84,13 +85,14 @@ public final class ChargingEstimate {
                 Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
                 boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger) {
             this(charging,inputWatts,inputAmps,remainingMinutesToLimit,remainingMinutesToFull,targetPercent,label,status,
-                    learnedToLimit,learnedToFull,learnedSessions,referenceToLimit,referenceToFull,referenceCharger,false);
+                    learnedToLimit,learnedToFull,learnedSessions,referenceToLimit,referenceToFull,referenceCharger,null);
         }
 
         private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
                 Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
-                boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger,boolean stockVoltageToFull) {
-            this.stockVoltageToFull=stockVoltageToFull;
+                boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger,Ut5MaxStockVoltageReference.Match stockVoltageMatch) {
+            this.stockVoltageMatch=stockVoltageMatch;
+            this.stockVoltageToFull=stockVoltageMatch!=null;
             this.label = label;
             this.learnedToLimit=learnedToLimit;this.learnedToFull=learnedToFull;this.learnedSessions=learnedSessions;
             this.referenceToLimit=referenceToLimit;this.referenceToFull=referenceToFull;
@@ -187,13 +189,22 @@ public final class ChargingEstimate {
             // The percentage gauge can shift between charges. Do not let an old SOC-only
             // personal finish replace a matched voltage estimate. Lower cutoffs still use
             // their existing evidence, bounded by the time to full; 89%+ is unchanged.
+            double full=learned.learnedToFull?prior.stockVoltageMatch.blend(learned.remainingMinutesToFull)
+                    :prior.remainingMinutesToFull;
             boolean personalLimit=prior.targetPercent!=null&&prior.targetPercent<100&&learned.learnedToLimit;
-            Double limit=personalLimit?Double.valueOf(Math.min(learned.remainingMinutesToLimit,prior.remainingMinutesToFull))
-                    :prior.remainingMinutesToLimit;
+            // Recompute the pre-cap stock/rate cutoff: composition can select a different
+            // full-time fallback, so an earlier cap against bundled full must not survive.
+            Double stockLimit=prior.targetPercent==null?null:Ut5MaxStockChargeReference.estimate(
+                    soc.number,prior.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
+            Double limit=personalLimit?learned.remainingMinutesToLimit
+                    :stockLimit==null?baseline.remainingMinutesToLimit:stockLimit;
+            if(prior.targetPercent!=null&&prior.targetPercent==100)limit=full;
+            else if(limit!=null)limit=Math.min(limit,full);
             String status=prior.status+(personalLimit?" Time to the limit uses personal history, bounded by time to full.":"");
-            return new Result(prior.charging,prior.inputWatts,prior.inputAmps,limit,prior.remainingMinutesToFull,
+            if(learned.learnedToFull&&prior.stockVoltageMatch.weight<1)status+=" Near the reference boundary, full time blends with personal history.";
+            return new Result(prior.charging,prior.inputWatts,prior.inputAmps,limit,full,
                     prior.targetPercent,prior.label,status,personalLimit,false,personalLimit?learned.learnedSessions:0,
-                    !personalLimit&&prior.referenceToLimit,true,ChargeSessionStore.Charger.STOCK,true);
+                    !personalLimit&&prior.referenceToLimit,true,ChargeSessionStore.Charger.STOCK,prior.stockVoltageMatch);
         }
         boolean referenceFull=!learned.learnedToFull&&prior.referenceToFull;
         boolean referenceLimit=!learned.learnedToLimit&&prior.referenceToLimit;
@@ -246,24 +257,24 @@ public final class ChargingEstimate {
         Double limit=baseline.targetPercent==null?null:Ut5MaxStockChargeReference.estimate(
                 soc.number,baseline.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
         if(full==null&&limit==null)return baseline;
-        Double voltageFull=full==null?null:Ut5MaxStockVoltageReference.refine(soc.number,ratedAh.number,
-                baseline.inputAmps,baseline.inputWatts,full);
-        if(voltageFull!=null) {
-            full=voltageFull;
+        Ut5MaxStockVoltageReference.Match voltageMatch=full==null?null:Ut5MaxStockVoltageReference.match(
+                soc.number,ratedAh.number,baseline.inputAmps,baseline.inputWatts);
+        if(voltageMatch!=null) {
+            full=voltageMatch.blend(full);
             if(baseline.targetPercent!=null&&baseline.targetPercent==100)limit=full;
         }
         String status="Experimental UT5 MAX stock-charger estimate based on observed charges; live power is compatible. ";
-        if(voltageFull!=null)status+="Bulk progress matches pack voltage and charging current. ";
+        if(voltageMatch!=null)status+="Bulk progress matches pack voltage and charging current. ";
         else if(soc.number<89)status+="Bulk time uses rated Ah and current charging rate. ";
         if(limit==null&&baseline.targetPercent!=null)status+="Time to the limit uses the current rate. ";
         status+="This does not identify the charger. Time to displayed 100%; balancing may continue.";
         status+=cutoffNote(baseline.targetPercent);
         Double finalLimit=limit==null?baseline.remainingMinutesToLimit:limit;
-        if(voltageFull!=null&&finalLimit!=null)finalLimit=Math.min(finalLimit,full);
+        if(voltageMatch!=null&&finalLimit!=null)finalLimit=Math.min(finalLimit,full);
         return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
                 finalLimit,full==null?baseline.remainingMinutesToFull:full,
                 baseline.targetPercent,"Stock reference",status,false,false,0,limit!=null,full!=null,
-                ChargeSessionStore.Charger.STOCK,voltageFull!=null);
+                ChargeSessionStore.Charger.STOCK,voltageMatch);
     }
 
     private static String cutoffNote(Double target) {

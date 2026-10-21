@@ -198,12 +198,24 @@ public final class Ut5MaxStockVoltageReference {
     };
     private Ut5MaxStockVoltageReference() {}
 
+    /** Immutable match, so composition can blend against the actual selected fallback. */
+    static final class Match {
+        final double minutes, weight;
+        Match(double minutes,double weight){this.minutes=minutes;this.weight=weight;}
+        double blend(double fallback){return fallback+(minutes-fallback)*weight;}
+    }
+
     /** Null retains the existing estimate. Neither SOC nor voltage is extrapolated. */
     public static Double refine(double soc, double ratedAh, double amps, double watts, double fallbackMinutes) {
+        if(!Double.isFinite(fallbackMinutes)||fallbackMinutes<0)return null;
+        Match match=match(soc,ratedAh,amps,watts);
+        return match==null?null:Double.valueOf(match.blend(fallbackMinutes));
+    }
+
+    static Match match(double soc,double ratedAh,double amps,double watts) {
         if (!Double.isFinite(soc) || soc < 0 || soc >= 89 || !Double.isFinite(ratedAh)
                 || Math.abs(ratedAh-15.3) > 1.53 || !Double.isFinite(amps) || amps <= 0
-                || !Double.isFinite(watts) || watts <= 0 || !Double.isFinite(fallbackMinutes)
-                || fallbackMinutes < 0) return null;
+                || !Double.isFinite(watts) || watts <= 0) return null;
         double volts=watts/amps;
         if (!Double.isFinite(volts)) return null;
         double sum=0, weights=0, admission=0;
@@ -235,7 +247,7 @@ public final class Ut5MaxStockVoltageReference {
             }
         }
         if (weights <= 0 || admission <= 0) return null;
-        double result=fallbackMinutes+(sum/weights-fallbackMinutes)*admission;
-        return Double.isFinite(result)&&result>=0?result:null;
+        double minutes=sum/weights;
+        return Double.isFinite(minutes)&&minutes>=0?new Match(minutes,admission):null;
     }
 }
