@@ -59,6 +59,13 @@ public final class ChargeMeasureWindow {
                 : new Decision(Step.NOT_SET, false, ready ? "Charging readings stopped while measuring" : "The scooter disconnected while measuring");
     }
 
+    /** A new finish time: keep the bound, and end no later than the new cautious start. */
+    public void retarget(int minute, long nowMono, long nowWall, long cautiousStartWall) {
+        if (!active || arming || minute < 0 || minute >= 1440) return;
+        this.minute = minute;
+        deadlineMono = Math.min(deadlineMono, nowMono + Math.max(0, cautiousStartWall - nowWall));
+    }
+
     /** Owner's "Schedule now": arm at once with whatever the charge's age is known to be. */
     public void arm() { if (active) arming = true; }
     public void finish() { active = arming = false; profile = ""; startedMono = deadlineMono = 0; }

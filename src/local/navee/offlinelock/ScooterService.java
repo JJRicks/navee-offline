@@ -407,7 +407,7 @@ public final class ScooterService extends Service {
             else{
                 ChargeSessionStore.Frame frame=chargeFrame(mono,wall);
                 ScooterProfiles.Profile active=profiles.active();
-                boolean pause=scheduledChargePause();
+                boolean pause=chargeStore.holdsSchedulePause(scheduledChargePause(),mono);
                 ChargeRecoveryPolicy.Result recovery=chargeRecovery.evaluate(mono,activeProfileId(),active==null?"":active.serial,
                         ble.intentionalDisconnectSequence(),ble.permissions(),ble.bluetoothEnabled(),ble.connected(),ble.ready(),
                         ble.recoverableConnectionLoss(),ble.currentTransportSerial(),frame,pause);
@@ -521,7 +521,9 @@ public final class ScooterService extends Service {
     public ChargeScheduleController.View chargeSchedule(){return schedules().view();}
     private Consumer<String> scheduleCompletion(Consumer<String> completion){return result->{if(!destroyed){changed();if(completion!=null)completion.accept(result);}};}
     public void setChargeDoneByEnabled(boolean enabled,Consumer<String> completion){schedules().setDoneEnabled(enabled,scheduleCompletion(completion));changed();}
-    public void setChargeDoneByTime(int hour,int minute,Consumer<String> completion){schedules().setDoneTime(hour,minute,scheduleCompletion(completion));changed();}
+    public void setChargeDoneByTime(int hour,int minute,Consumer<String> completion){
+        schedules().setDoneTime(hour,minute,scheduleCompletion(result->{if(result==null)retargetChargeMeasure(hour*60+minute);if(completion!=null)completion.accept(result);}));changed();
+    }
     public void setManualChargeEnabled(boolean enabled,Consumer<String> completion){schedules().setManualEnabled(enabled,scheduleCompletion(completion));changed();}
     public void setManualChargeStart(long wallMs,Consumer<String> completion){schedules().setManualStart(wallMs,scheduleCompletion(completion));changed();}
 
@@ -575,6 +577,17 @@ public final class ScooterService extends Service {
         ChargeMeasureWindow.Decision decision=chargeMeasure.evaluate(mono,activeProfileId(),c.ready,c.charging,known);
         if(decision.step==ChargeMeasureWindow.Step.ARM)armMeasured(decision.measured);
         else if(decision.step==ChargeMeasureWindow.Step.NOT_SET)endChargeMeasure(decision.reason);
+    }
+    /**
+     * A finish time edited while measuring: the window can only end sooner, and a plan that must
+     * already start arms at once instead of running on into the next day's deadline.
+     */
+    private void retargetChargeMeasure(int minute){
+        if(!chargeMeasure.active()||chargeMeasure.arming())return;
+        long nowMono=SystemClock.elapsedRealtime(),nowWall=System.currentTimeMillis();Long start=cautiousChargeStart(minute);
+        if(start!=null&&ChargeMeasureWindow.useful(nowWall,start)){chargeMeasure.retarget(minute,nowMono,nowWall,start);updateNotification();changed();return;}
+        ChargeProgressTracker.Progress progress=chargeProgress.progress(chargeMeasure.profile(),nowMono);
+        armMeasured(progress!=null&&(progress.startObserved||progress.ageInferred));
     }
     /** Keeps the bounded connection until the one-shot arming has finished its scooter writes. */
     private void armMeasured(boolean measured){
@@ -982,7 +995,7 @@ public final class ScooterService extends Service {
                                             android.widget.Toast.LENGTH_LONG)
                                     .show();
                         }
-                    } else if (wakeLock.isHeld() && !phoneSaving() && !isChargeRecording()) wakeLock.release();
+                    } else if (wakeLock.isHeld() && !phoneSaving() && !isChargeRecording() && !chargeMeasure.active()) wakeLock.release();
                     // Re-read the clock: a loss seen inside this tick (a failed refresh write) was fed a later time.
                     long autoNow = SystemClock.elapsedRealtime();
                     observeRideAutoStop(autoNow);

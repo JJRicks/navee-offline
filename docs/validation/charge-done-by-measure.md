@@ -48,6 +48,13 @@ while active.
   - The Charge done by row and tile show **Measuring**. Tapping either offers Keep measuring, Schedule
     now or Stop measuring.
   - Backup and simulation wait for the window to end.
+  - The window holds the same wake lock as a recording, so a screen-off phone keeps sampling between
+    ticks.
+- **Finish time edited while measuring.** The window can only end sooner, never later: its deadline
+  becomes the earlier of its own bound and the new cautious start. If the new time is too close to wait,
+  measuring ends at once. Charge done by then follows the existing rule: it is not set, and charging
+  continues ("Charging now — not enough time to wait before the deadline"). Nothing rolls on to the next
+  day's deadline.
 - **Outcomes:**
 
   | Event | Result |
@@ -78,20 +85,29 @@ a fresh charging=off reading like this:
   span the pause;
 - export adds `schedule_pauses` with start and end times;
 - history rows say "paused N min for the schedule";
-- a recording allows at most eight pauses; the eighteen-hour and sample limits are unchanged.
+- a recording allows at most eight pauses; the eighteen-hour and sample limits are unchanged;
+- the schedule can be confirmed off before charging resumes, so an open pause keeps holding for two
+  minutes after its plan is cancelled or starts; a charger that stays off after that ends the recording
+  as before;
+- a recording that ends inside a pause closes it at the last fresh reading, so history shows the real
+  paused time.
 
-Older Volt versions do not read `p` lines. A recording made with this build therefore cannot be restored
-into an older version; earlier recordings are unaffected.
+Older Volt versions do not read `p` lines. Restoring a newer backup into an older version keeps such a
+recording as unreadable: **Replace everything** restores it byte for byte, and a merge skips it. Earlier
+recordings are unaffected.
 
 ## Validation
 
 - **Core suite (`bash tests/run.sh`) passes**, including:
-  - `ChargeMeasureWindowTest`, 19 checks: offer threshold; full window versus the cautious-start cap;
+  - `ChargeMeasureWindowTest`, 24 checks: offer threshold; full window versus the cautious-start cap;
     measured versus cautious arming; arming requested once; recovery from a disconnect before the
-    deadline; unplugging, stale readings, disconnect at the deadline, scooter change and clock reversal.
-  - `ChargeSessionStoreTest`, 555 checks: three-hour pause continuity; heartbeat freshness; exact pause
+    deadline; unplugging, stale readings, disconnect at the deadline, scooter change and clock reversal;
+    a finish-time edit only shortening the window, never during arming.
+  - `ChargeSessionStoreTest`, 562 checks: three-hour pause continuity; heartbeat freshness; exact pause
     duration; gap only on the first resumed sample; curve qualification; export intervals; backup-journal
-    validity; the eight-pause limit; open pauses; seven malformed marker sequences refused.
+    validity; the eight-pause limit; a recording that stops inside its pause keeping its length; the
+    two-minute hold when a plan is confirmed off before charging resumes; seven malformed marker
+    sequences refused.
   - `ChargeRecoveryPolicyTest`, 37 checks: a post-loss charging=off reading resumes into a Volt pause;
     any other state, or no schedule, still ends the capture.
 - **Emulator** (disposable, read-only API 36.1 AVD, simulator and fault injection only, no radio, no
@@ -103,7 +119,9 @@ into an older version; earlier recordings are unaffected.
     - heartbeat freshness;
     - resume into the same journal;
     - the exported pause is closed and not bridged.
-  - `ChargeScheduleValidation` at 344×882 dark/1.0 and 725×604 light/1.4, 179 assertions each, including the new `verifyMeasureWindow`:
+  - `ChargeScheduleValidation` at 344×882 dark/1.0 and 725×604 light/1.4, 185 assertions each, including `verifyStandaloneMeasureTick` and the new `verifyMeasureWindow`:
+    - outside simulation, a standalone window keeps its wake lock through a full service tick;
+    - a finish time edited to one too close to wait ends measuring at once and arms nothing;
     - no offer in simulation;
     - offer dialog wording and buttons, and the fallback when measuring cannot start;
     - a 12-minute bound;

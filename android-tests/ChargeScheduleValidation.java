@@ -58,6 +58,7 @@ public final class ChargeScheduleValidation extends Instrumentation {
         activity=(MainActivity)startActivitySync(new Intent(getTargetContext(),MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
         await(()->activity.service()!=null&&root().getWidth()>0,"App did not launch");service=activity.service();
         verifyOfflinePreference();
+        verifyStandaloneMeasureTick();
         main(()->require(service.setSimulation(true),"Simulation did not start"));settle();
         controls();verifyOrdering();verifyUnplugged();verifyDisabledThumb(false);
         controls();main(()->service.ble.setSimulationCharging(true));settle();
@@ -195,7 +196,8 @@ public final class ChargeScheduleValidation extends Instrumentation {
         });
         controls();
         // The row refreshes on the next redraw after the window starts; wait for it rather than racing it.
-        await(()->String.valueOf(((TextView)field(field(done(false),"row"),"value")).getText()).startsWith("Measuring · 12 min"),"Row does not show measuring");
+        try{await(()->String.valueOf(((TextView)field(field(done(false),"row"),"value")).getText()).startsWith("Measuring · 12 min"),"Row does not show measuring");}
+        catch(IllegalStateException failed){AtomicReference<String> why=new AtomicReference<>();main(()->why.set("row="+((TextView)field(field(done(false),"row"),"value")).getText()+" measuring="+service.isChargeMeasuring()+" left="+service.chargeMeasureMinutesLeft()));throw new IllegalStateException(failed.getMessage()+": "+why.get());}
         main(()->{Object row=done(false);
             require(((View)field(row,"spinner")).getVisibility()==View.VISIBLE&&((Switch)field(row,"toggle")).getVisibility()==View.GONE,"Measuring row still offers the plain switch");});
         screenshot("measuring");
@@ -221,6 +223,30 @@ public final class ChargeScheduleValidation extends Instrumentation {
             require(!service.isChargeMeasuring()&&!service.chargeSchedule().doneByEnabled&&!service.chargeSchedule().busy,"Unplugging while measuring did not end the window unarmed");
             service.ble.setSimulationCharging(true);service.ble.tickSimulation();});settle();
         checks.add("Schedule now and the timeout arm the cautious plan through the same one-shot transaction; unplugging ends the window without arming");
+        // A finish time edited to one too close to wait for ends measuring at once. Charging continues
+        // under the existing not-enough-time rule; nothing rolls on to tomorrow's deadline.
+        AtomicReference<String> edited=new AtomicReference<>("pending");int[] original={0};
+        main(()->{original[0]=service.chargeSchedule().doneByMinuteOfDay;require((Boolean)invoke(service,"beginChargeMeasure",new Class<?>[]{int.class,long.class},service.chargeSchedule().doneByMinuteOfDay,System.currentTimeMillis()+sixHours),"Fifth window did not start");
+            java.util.Calendar soon=java.util.Calendar.getInstance();soon.add(java.util.Calendar.MINUTE,5);
+            service.setChargeDoneByTime(soon.get(java.util.Calendar.HOUR_OF_DAY),soon.get(java.util.Calendar.MINUTE),edited::set);});
+        await(()->!"pending".equals(edited.get())&&!service.isChargeMeasuring()&&!service.chargeSchedule().busy,"An earlier finish time did not end measuring at once");
+        main(()->{ChargeScheduleController.View plan=service.chargeSchedule();
+            require(edited.get()==null&&!plan.doneByEnabled&&!plan.busy,"A too-close finish time armed a plan instead of charging now: result="+edited.get());});
+        AtomicReference<String> restored=new AtomicReference<>("pending");main(()->service.setChargeDoneByTime(original[0]/60,original[0]%60,restored::set));
+        await(()->!"pending".equals(restored.get())&&!service.chargeSchedule().busy,"Original finish time was not restored");require(restored.get()==null,"Restoring the finish time failed");
+        checks.add("Editing the finish time while measuring re-plans at once: a too-close deadline ends measuring and keeps charging instead of arming tomorrow");
+    }
+    /** Outside simulation, a measuring window with no recording must keep the CPU awake between ticks. */
+    private void verifyStandaloneMeasureTick(){
+        main(()->{
+            require(!service.simulating()&&!service.isRecording()&&!service.isChargeRecording(),"Standalone tick check needs a real, idle service");
+            require((Boolean)invoke(service,"beginChargeMeasure",new Class<?>[]{int.class,long.class},service.chargeSchedule().doneByMinuteOfDay,System.currentTimeMillis()+6*60*60_000L),"Standalone window did not start");
+            ((Runnable)field(service,"tick")).run();
+            require(((android.os.PowerManager.WakeLock)field(service,"wakeLock")).isHeld(),"A standalone measuring tick released its wake lock");
+            service.cancelChargeMeasure();
+        });settle();
+        main(()->require(!service.isChargeMeasuring()&&!service.chargeSchedule().doneByEnabled,"Standalone window did not stop cleanly"));
+        checks.add("Outside simulation, a measuring window with no recording keeps its wake lock through a full service tick");
     }
     private void disableDoneBy(){
         AtomicReference<String> response=new AtomicReference<>("pending");main(()->service.setChargeDoneByEnabled(false,response::set));

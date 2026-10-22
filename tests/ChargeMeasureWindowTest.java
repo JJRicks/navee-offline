@@ -54,6 +54,20 @@ public final class ChargeMeasureWindowTest {
         check(w.evaluate(MONO + MIN, "other", true, 1, true).step == ChargeMeasureWindow.Step.NOT_SET, "Another scooter never inherits the window");
         check(at(started(6 * 60 * MIN), -1, true, 1, true).step == ChargeMeasureWindow.Step.NOT_SET, "A clock reversal fails closed");
         check(at(started(6 * 60 * MIN), MIN, true, 1, true).step == ChargeMeasureWindow.Step.ARM, "An age already known arms at the first evaluation");
+        // An edited finish time can only shorten the window, never extend it past its bound.
+        w = started(6 * 60 * MIN);
+        w.retarget(7 * 60 + 30, MONO + MIN, WALL + MIN, WALL + 5 * MIN);
+        check(w.minute() == 7 * 60 + 30 && w.remainingMs(MONO + MIN) == 4 * MIN, "An earlier finish time pulls the deadline to its cautious start");
+        check(at(w, 5 * MIN, true, 1, false).step == ChargeMeasureWindow.Step.ARM, "The shortened window arms at the new cautious start");
+        w = started(5 * MIN);
+        w.retarget(9 * 60, MONO + MIN, WALL + MIN, WALL + 8 * 60 * MIN);
+        check(w.remainingMs(MONO + MIN) == 4 * MIN, "A later finish time never extends the window");
+        w = started(6 * 60 * MIN);
+        w.retarget(7 * 60, MONO + MIN, WALL + MIN, WALL);
+        check(w.remainingMs(MONO + MIN) == 0 && at(w, MIN, true, 1, false).step == ChargeMeasureWindow.Step.ARM, "A start already due arms at the next evaluation");
+        w = started(6 * 60 * MIN); w.arm(); long before = w.remainingMs(MONO);
+        w.retarget(7 * 60, MONO, WALL, WALL + MIN);
+        check(w.remainingMs(MONO) == before && w.minute() == 7 * 60, "Arming in flight is never retargeted");
         System.out.println("ChargeMeasureWindow: " + checks + " checks passed");
     }
 }

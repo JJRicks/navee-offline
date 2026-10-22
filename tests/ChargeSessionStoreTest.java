@@ -165,6 +165,17 @@ public final class ChargeSessionStoreTest {
         File journal=folder.listFiles((d,n)->n.endsWith(".csv"))[0];
         check(ChargeSessionStore.inspectJournal(journal).finished,"A paused journal remains a valid backup journal");
 
+        // The schedule's OFF confirmation can arrive before charging resumes: the open pause holds briefly.
+        ChargeSessionStore grace=store();grace.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        check(grace.holdsSchedulePause(true,MONO+1000),"An armed plan holds the pause");
+        check(!grace.holdsSchedulePause(false,MONO+2000),"Without an open pause there is nothing to hold");
+        grace.holdsSchedulePause(true,MONO+3000);grace.pause(WALL+3000,MONO+3000);
+        check(grace.holdsSchedulePause(false,MONO+4000),"A plan cancelled before charging resumes keeps the recorded pause");
+        check(grace.holdsSchedulePause(false,MONO+3000+ChargeSessionStore.PAUSE_RELEASE_GRACE_MS-1),"The pause holds until its grace ends");
+        check(!grace.holdsSchedulePause(false,MONO+3000+ChargeSessionStore.PAUSE_RELEASE_GRACE_MS),"After the grace an off charger ends the recording as before");
+        grace.stop(ChargeSessionStore.Stop.STOPPED);grace.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO+10_000_000L);
+        check(!grace.holdsSchedulePause(false,MONO+10_000_001L),"A new recording starts with no inherited grace");
+
         ChargeSessionStore limited=store();limited.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
         for(int i=0;i<ChargeSessionStore.MAX_PAUSES;i++){limited.pause(WALL+i*2,MONO+i*2);limited.resume(WALL+i*2+1,MONO+i*2+1);}
         check(limited.active(),"Eight pauses fit one recording");
@@ -172,9 +183,14 @@ public final class ChargeSessionStoreTest {
         check(!limited.active()&&limited.recordings("one").get(0).stop==ChargeSessionStore.Stop.LIMIT,"A ninth pause ends the recording at its limit");
 
         ChargeSessionStore open=store();open.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
-        open.sample(frame(MONO,50));open.pause(WALL+10000,MONO+10000);open.stop(ChargeSessionStore.Stop.STOPPED);
+        open.sample(frame(MONO,50));open.pause(WALL+10000,MONO+10000);
+        long lastHeard=MONO+10000+3*3600000L;for(long h=MONO+10000;h<=lastHeard;h+=10000)open.heartbeat(h);
+        open.stop(ChargeSessionStore.Stop.STOPPED);
+        ChargeSessionStore.HistorySession ended=open.recordings("one").get(0);
+        check(ended.pauses==1&&ended.pausedMs==3*3600000L,"A recording that ends inside its pause keeps the pause length, not 0 min: "+ended.pausedMs);
         StringWriter openJson=new StringWriter();open.exportJson("one",openJson);
-        check(openJson.toString().contains("\"end_wall_ms\":null,\"end_elapsed_ms\":null")&&!open.paused(),"Stopping while paused keeps an open pause");
+        check(openJson.toString().contains("\"end_wall_ms\":"+(WALL+lastHeard-MONO)+",\"end_elapsed_ms\":"+lastHeard)&&!open.paused(),
+                "Stopping while paused closes the pause at its last fresh reading");
 
         for(String bad:new String[]{"charge-v2,a,STOCK,1,1\np,1,1,0\n","charge-v2,a,STOCK,1,1\np,1,2,1\np,1,3,1\n","charge-v1,a,STOCK,1,1\np,1,1,1\n",
                 "charge-v2,a,STOCK,1,1\nend,STOPPED\np,1,1,1\n","charge-v2,a,STOCK,1,1\np,1,9,1\np,1,8,0\n","charge-v2,a,STOCK,1,1\np,0,1,1\n","charge-v2,a,STOCK,1,1\np,1,1,2\n"}){

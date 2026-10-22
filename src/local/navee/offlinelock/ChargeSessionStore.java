@@ -10,6 +10,8 @@ public final class ChargeSessionStore {
     // Estimate metadata keeps the same sample/session limits; even maximum-length rows fit.
     public static final long MAX_SESSION_MS = 18 * 60 * 60 * 1000L, MAX_FILE_BYTES = 3_500_000;
     public static final int MAX_SESSIONS = 20, MAX_SAMPLES = 6500, MAX_PAUSES = 8;
+    /** After its plan is cancelled or starts, a recorded pause waits this long for current to return. */
+    public static final long PAUSE_RELEASE_GRACE_MS = 2 * 60_000L;
     private static final int MIN_BINS = 10;
     public enum Charger { STOCK, HIGH_SPEED }
     public enum Stop { STOPPED, COMPLETE, CHARGING_ENDED, DISCONNECTED, PROFILE_CHANGED, READINGS_STOPPED, LIMIT, ERROR, PROCESS_ENDED, INTERRUPTED, RECOVERY_TIMEOUT, CONNECTION_FAILED, BLUETOOTH_OFF, PERMISSION_LOST, IDENTITY_CHANGED }
@@ -46,7 +48,9 @@ public final class ChargeSessionStore {
             this.id=id;profile=session.profile;charger=session.charger;stop=session.stop;startedWall=session.startedWall;startedMono=session.startedMono;
             List<HistoryPoint> copy=new ArrayList<>();for(Point point:session.points)copy.add(new HistoryPoint(point));points=Collections.unmodifiableList(copy);
             observedCompleteMono=session.observedCompletion();observedCompleteWall=observedCompleteMono==null?null:clockAt(observedCompleteMono);
-            pausedMs=session.pausedMs(startedMono,session.points.isEmpty()?startedMono:session.points.get(session.points.size()-1).mono);pauses=session.pauses.size();
+            long last=session.points.isEmpty()?startedMono:session.points.get(session.points.size()-1).mono;
+            for(long[] pause:session.pauses)last=Math.max(last,pause[3]);// A recording can end inside its pause.
+            pausedMs=session.pausedMs(startedMono,last);pauses=session.pauses.size();
         }
         /** One stable wall-clock anchor avoids artificial jumps when the phone clock changes. */
         public long clockAt(long mono){return startedWall+(mono-startedMono);}
@@ -164,7 +168,7 @@ public final class ChargeSessionStore {
     private File active;
     private String profile;
     private Charger charger;
-    private long startMono,lastWriteMono,lastElectricalMono,lastFreshMono;
+    private long startWall,startMono,lastWriteMono,lastElectricalMono,lastFreshMono,pauseGraceUntilMono;
     private Double lastSoc,lastPower,lastVoltage;
     private int samples,pauses;
     private boolean gap,paused;
@@ -195,7 +199,7 @@ public final class ChargeSessionStore {
         pruneTo(MAX_SESSIONS-1);
         File file=new File(directory,UUID.randomUUID().toString()+".active");
         append(file,"charge-v2,"+profile+","+charger.name()+","+wall+","+mono+"\n");
-        this.active=file;this.profile=profile;this.charger=charger;startMono=mono;lastFreshMono=mono;
+        this.active=file;this.profile=profile;this.charger=charger;startWall=wall;startMono=mono;lastFreshMono=mono;pauseGraceUntilMono=0;
         lastWriteMono=lastElectricalMono=0;lastSoc=lastPower=lastVoltage=null;samples=0;gap=true;paused=false;pauses=0;
         resetElectricalCandidate();
     }
@@ -270,6 +274,14 @@ public final class ChargeSessionStore {
         if(pauses>=MAX_PAUSES||wall<=0||mono<startMono){stop(Stop.LIMIT);return;}
         append(active,"p,"+wall+","+mono+",1\n");paused=true;pauses++;lastFreshMono=Math.max(lastFreshMono,mono);markGap();
     }
+    /**
+     * scheduled: Volt's own plan is holding current off now. A schedule can be confirmed off before
+     * charging resumes, so an open pause keeps holding for PAUSE_RELEASE_GRACE_MS after that.
+     */
+    public synchronized boolean holdsSchedulePause(boolean scheduled,long mono){
+        if(scheduled){pauseGraceUntilMono=mono+PAUSE_RELEASE_GRACE_MS;return true;}
+        return active!=null&&paused&&mono<pauseGraceUntilMono;
+    }
     /** Fresh not-charging readings keep a paused capture alive; nothing is sampled. */
     public synchronized void heartbeat(long mono){if(active!=null&&paused&&mono>lastFreshMono)lastFreshMono=mono;}
     public synchronized void resume(long wall,long mono) throws IOException {
@@ -278,8 +290,10 @@ public final class ChargeSessionStore {
     }
     public synchronized void stop(Stop reason) throws IOException {
         if(active==null)return;
-        File file=active;active=null;profile=null;charger=null;paused=false;
-        resetElectricalCandidate();
+        File file=active;active=null;profile=null;charger=null;
+        // Close an open schedule pause at its last fresh reading so its length survives the stop.
+        if(paused)append(file,"p,"+(startWall+(lastFreshMono-startMono))+","+lastFreshMono+",0\n");
+        paused=false;resetElectricalCandidate();
         append(file,"end,"+reason.name()+"\n");
         if(!file.renameTo(new File(directory,file.getName().replace(".active",".csv"))))throw new IOException("Charge could not be finalized");
         prune();
