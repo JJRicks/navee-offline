@@ -43,7 +43,7 @@ The worker checks **every committed sample** in a single streaming pass per fini
 
 **Energy model.**
 - **Energy per km** applies the same movement, distance-agreement, reset, recovery and clock rules. It allows short gaps while power and speed cover at least 95% of the ride, judged at the last complete reading after an automatic parked stop. It rejects any charging, any unconfirmed-direction interval and a direction change.
-- **Gauge points** stop at every break and are counted only between two exact one-point drops. A gauge that jumps several points at once contributes nothing for those points. Battery readings missing for longer than one sample interval (3 s) also discard the open point, because the drop that ends it could have happened at any time in the gap. Energy per km from the same ride still counts.
+- **Gauge points** stop at every break and are counted only between two exact one-point drops. A gauge that jumps several points at once contributes nothing for those points. More than 3 s (one sample interval) between battery readings also discards the open point, whether the reading is still missing or has just returned, because the drop that ends it could have happened at any time in the gap. Energy per km from the same ride still counts.
 
 Duplicate ride IDs contribute once. Missing intervals and stationary recordings never become traveled distance. The initial evidence threshold is an admission rule, not a statistical confidence guarantee.
 

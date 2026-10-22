@@ -164,6 +164,8 @@ public final class LearnedRangeEstimateTest {
         check(dropout.gaugePoints() == 0, "Readings missing across the drop count no gauge point, not an 83 Wh one: " + dropout.gaugePoints());
         check(dropout.rideWh != null && Math.abs(dropout.rideWh - complete.rideWh) < 1e-9, "Energy per km evidence stays when gauge readings drop out");
         check(blip.gaugePoints() == 1 && Math.abs(blip.bandWh[7] - complete.bandWh[7]) < 1e-6, "A one-sample gap in readings keeps the point");
+        // At a 3 s cadence one missing reading leaves 6 s between readings: beyond the bound, even when it returns.
+        check(stepped("slow_blip").evidence().gaugePoints() == 0, "A returning reading after more than 3 s still breaks the point");
         LearnedRangeEstimate.Evidence sparse = energy("A", 20, 60, 2.5, 600, "sparse_power", NOW).evidence();
         check(sparse.rideWh == null && sparse.gaugePoints() == 0, "Under 95% power coverage gives no energy evidence");
         Fixture streamed = energy("A", 20, 60, 2.5, 600, "normal", NOW);
@@ -188,15 +190,16 @@ public final class LearnedRangeEstimateTest {
         check(few.status == LearnedRangeEstimate.Status.READY && few.likelyLowFactor == null && few.likelyLowKm(50d) == null,
                 "Too few 6 km stretches: forecast only, no band");
     }
-    /** 600 s at 600 W: 80% to second 99, 79% to 199, then 78%. dropout removes 101-599; blip removes 150 only. */
+    /** 600 s at 600 W: 80% to second 99, 79% to 199, then 78%. dropout removes 101-599; blip removes 150 only; slow_blip samples every 3 s and removes 150. */
     private static Fixture stepped(String mode) throws Exception {
         File dir = Files.createTempDirectory("volt-range-stepped-").toFile(); directories.add(dir);
         RideStore store = new RideStore(dir); int seconds = 600; long start = NOW - seconds * 1000L;
         store.setCurrentDirection(RideStore.CurrentDirection.POSITIVE_IS_DRAW);
         String id = store.start("A", "Synthetic", start, 0);
-        for (int sec = 0; sec <= seconds; sec++) {
+        boolean slow = mode.equals("slow_blip");
+        for (int sec = 0; sec <= seconds; sec += slow ? 3 : 1) {
             long mono = sec * 1000L; Map<String,RideStore.Sample> values = new LinkedHashMap<>();
-            boolean missing = mode.equals("dropout") && sec > 100 && sec < seconds || mode.equals("blip") && sec == 150;
+            boolean missing = mode.equals("dropout") && sec > 100 && sec < seconds || mode.equals("blip") && sec == 150 || slow && sec == 150;
             if (!missing) values.put("battery_percent", new RideStore.Sample(sec < 100 ? 80 : sec < 200 ? 79 : 78, mono));
             values.put("odometer_km", new RideStore.Sample(100 + 2.5 * sec / seconds, mono));
             values.put("speed_kmh", new RideStore.Sample(15, mono));

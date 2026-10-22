@@ -235,7 +235,8 @@ public final class LearnedRangeEstimate {
                 long dt = p.elapsedMs - q.elapsedMs; levelMs += dt;
                 if (finite(q.powerW) && finite(p.powerW)) { levelWh += (q.powerW + p.powerW) / 2 * dt / 3600000.0; levelPowerMs += dt; }
             }
-            if (!soc(p.batteryPercent)) broken |= p.elapsedMs - lastSocMs > RideStore.MAX_INTEGRATION_INTERVAL_MS;
+            // Judge the gap since the last battery reading both while missing and when a reading returns.
+            broken |= level >= 0 && p.elapsedMs - lastSocMs > RideStore.MAX_INTEGRATION_INTERVAL_MS;
             if (broken) { level = -1; levelEntered = false; }
             if (!soc(p.batteryPercent)) return;
             lastSocMs = p.elapsedMs;
