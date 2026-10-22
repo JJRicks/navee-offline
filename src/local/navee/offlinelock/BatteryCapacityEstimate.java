@@ -275,8 +275,9 @@ public final class BatteryCapacityEstimate {
                 rejected.put(reason, rejected.getOrDefault(reason, 0) + 1);
                 continue;
             }
-            if (s.directionConfirmed) confirmedRides.add(new Entry(s, s.netConsumptionWh, charge(ride, s.netConsumptionWh, true)));
-            else proxyRides.add(new Entry(s, s.measuredThroughputWh, charge(ride, s.measuredThroughputWh, false)));
+            // A ride whose direction changed has no single sign for its points, so no charge figure.
+            if (s.directionConfirmed) confirmedRides.add(new Entry(s, s.netConsumptionWh, drawSign(s) == 0 ? null : charge(ride, s.netConsumptionWh, drawSign(s))));
+            else proxyRides.add(new Entry(s, s.measuredThroughputWh, charge(ride, s.measuredThroughputWh, 0)));
         }
         pool(confirmedRides, confirmed, rejected);
         pool(proxyRides, proxy, rejected);
@@ -304,9 +305,11 @@ public final class BatteryCapacityEstimate {
 
     /**
      * Battery charge (Ah) for the summary's energy: the analysis points supply the charge-weighted
-     * voltage, so charge stays consistent with the full-resolution journal energy.
+     * voltage, so charge stays consistent with the full-resolution journal energy. Points keep the
+     * scooter's sign: drawSign +1 or -1 turns draw positive and regeneration negative; 0 counts
+     * throughput both ways.
      */
-    static Double charge(Ride ride, double energyWh, boolean signed) {
+    static Double charge(Ride ride, double energyWh, int drawSign) {
         double wh = 0, ah = 0;
         RideStore.Point previous = null;
         for (RideStore.Point point : ride.points) {
@@ -314,7 +317,7 @@ public final class BatteryCapacityEstimate {
                     && finite(previous.voltageV) && previous.voltageV > 0) {
                 long step = point.elapsedMs - previous.elapsedMs;
                 if (step > 0 && step <= MAX_POINT_STEP_MS) {
-                    double hours = step / 3600000d, watts = signed ? previous.powerW : Math.abs(previous.powerW);
+                    double hours = step / 3600000d, watts = drawSign != 0 ? drawSign * previous.powerW : Math.abs(previous.powerW);
                     wh += watts * hours;
                     ah += watts / previous.voltageV * hours;
                 }
@@ -323,6 +326,12 @@ public final class BatteryCapacityEstimate {
         }
         if (!(wh > 0) || !(ah > 0) || !(energyWh > 0)) return null;
         return energyWh * ah / wh;
+    }
+
+    /** +1 or -1 for the recorded convention; 0 when unconfirmed or changed during the ride. */
+    static int drawSign(RideStore.Summary s) {
+        if (s.directionChanges > 0) return 0;
+        return "POSITIVE_IS_DRAW".equals(s.currentDirection) ? 1 : "NEGATIVE_IS_DRAW".equals(s.currentDirection) ? -1 : 0;
     }
 
     private static boolean newer(RideStore.Summary next, RideStore.Summary old) {

@@ -28,6 +28,7 @@ public final class BatteryCapacityEstimateTest {
             evidenceMinimumsAndLabels();
             gaugeJumpsAreSetAside();
             rangeAndCharge();
+            drawConventionsAndRegeneration();
             unavailableIsNotInsufficient();
             System.out.println("BatteryCapacityEstimateTest: " + assertions + " assertions passed");
         } finally {
@@ -90,6 +91,24 @@ public final class BatteryCapacityEstimateTest {
         check(BatteryCapacityEstimate.studentT90(5) > BatteryCapacityEstimate.studentT90(17)
                 && BatteryCapacityEstimate.studentT90(17) > BatteryCapacityEstimate.studentT90(1000)
                 && Math.abs(BatteryCapacityEstimate.studentT90(1000) - 1.671) < 1e-9, "Fewer rides widen the range");
+    }
+
+    /** Points keep the scooter's current sign; charge must follow the recorded draw convention. */
+    private static void drawConventionsAndRegeneration() throws Exception {
+        RideStore.CurrentDirection positive = RideStore.CurrentDirection.POSITIVE_IS_DRAW, negative = RideStore.CurrentDirection.NEGATIVE_IS_DRAW;
+        BatteryCapacityEstimate.Result pos = calculate("A", rides(6, 80, 70, 600, positive, "normal"), 716.04);
+        BatteryCapacityEstimate.Result neg = calculate("A", rides(6, 80, 70, -600, negative, "normal"), 716.04);
+        near(600, pos.estimatedUsableWh, "Positive-is-draw: 60 Wh per 10-point ride");
+        near(600, neg.estimatedUsableWh, "Negative-is-draw gives the same energy");
+        near(12, pos.ahPerGauge, "Positive-is-draw charge: 600 Wh / 50 V");
+        near(12, neg.ahPerGauge, "Negative-is-draw rides keep their charge figure");
+        BatteryCapacityEstimate.Result regenPos = calculate("A", rides(6, 80, 70, 600, positive, "regen"), 716.04);
+        BatteryCapacityEstimate.Result regenNeg = calculate("A", rides(6, 80, 70, -600, negative, "regen"), 716.04);
+        check(regenPos.estimatedUsableWh != null && regenPos.estimatedUsableWh < 600, "Regeneration lowers net energy");
+        near(regenPos.estimatedUsableWh / 50, regenPos.ahPerGauge, "Regeneration lowers charge exactly as it lowers energy");
+        near(regenPos.ahPerGauge, regenNeg.ahPerGauge, "Regeneration has the opposite sign under either convention");
+        check(BatteryCapacityEstimate.drawSign(rides(1, 80, 70, 600, positive, "direction_flip").get(0).summary) == 0,
+                "A ride whose direction changed has no single sign");
     }
 
     private static void unavailableIsNotInsufficient() {
@@ -606,6 +625,8 @@ public final class BatteryCapacityEstimateTest {
         data.put("speed_kmh", new RideStore.Sample(mode.equals("stationary") ? 0.0 : 20.0, mono));
         data.put("battery_percent", new RideStore.Sample(soc, mono));
         data.put("temperature_c", new RideStore.Sample(mode.equals("cold") ? 2.0 : 22.0, mono));
+        // Regeneration flows against the draw, whichever sign the scooter uses for draw.
+        if (mode.equals("regen") && sec >= 120 && sec < 180) data.put("current_a", new RideStore.Sample(-watts / 100, "current", "A", 0x72, mono));
         if ((mode.equals("low_coverage") && sec % 4 == 1)
                 || (mode.equals("small_loss") && sec == 180)) data.remove("current_a");
         return data;

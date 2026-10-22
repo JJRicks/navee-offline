@@ -160,8 +160,11 @@ public final class ChargeSessionStore {
             this.gaugeCharge=Collections.unmodifiableMap(new LinkedHashMap<>(gaugeCharge));
         }
     }
-    /** Longest sample spacing still integrated as continuous charging (recovery gaps keep charging). */
+    /** Longest sample spacing still integrated as continuous charging, unless a gap was recorded there. */
     static final long GAUGE_CHARGE_MAX_STEP_MS = 30*60000L;
+    /** A flagged step longer than this was an outage: charging may have stopped unseen. Shorter
+     *  flags mark rejected frames between normal samples (at most 0.2% of a full stock charge). */
+    static final long GAUGE_CHARGE_GAP_MS = 30000L;
     private final File directory;
     // snapshot() normally primes this on the analysis worker before capture is admitted,
     // avoiding reparsing the full retained history in start()'s bounded pruning step.
@@ -308,24 +311,23 @@ public final class ChargeSessionStore {
     }
     /**
      * {Ah, gauge points} from a completed charge's first percentage change to its first displayed
-     * 100%, including the gauge's late catch-up; null unless it starts below 80% and stays continuous.
+     * 100%, including the gauge's late catch-up; null unless that stretch starts below 80% and stays
+     * continuous. A recorded gap longer than GAUGE_CHARGE_GAP_MS means charge went unobserved,
+     * so counting restarts at the next percentage change after it.
      */
     static double[] gaugeCharge(Session session){
         if(session.stop!=Stop.COMPLETE||session.points.size()<2)return null;
-        List<Point> points=session.points;int start=-1,full=-1;
+        List<Point> points=session.points;int start=-1;double ah=0;
         for(int i=1;i<points.size();i++){
-            if(start<0&&points.get(i).soc>points.get(i-1).soc)start=i;
-            if(start>=0&&points.get(i).soc>=100){full=i;break;}
-        }
-        if(start<0||full<0||points.get(start).soc>=80)return null;
-        double ah=0;
-        for(int i=start+1;i<=full;i++){
-            Point a=points.get(i-1),b=points.get(i);long step=b.mono-a.mono;
+            Point a=points.get(i-1),b=points.get(i);
+            if(b.gap&&b.mono-a.mono>GAUGE_CHARGE_GAP_MS){start=-1;ah=0;continue;}
+            if(start<0){if(b.soc>a.soc)start=i;continue;}
+            long step=b.mono-a.mono;
             if(step<=0||step>GAUGE_CHARGE_MAX_STEP_MS||!Double.isFinite(a.current)||!Double.isFinite(b.current))return null;
             ah+=step/3600000d*(Math.abs(a.current)+Math.abs(b.current))/2;
+            if(b.soc>=100){double from=points.get(start).soc,gaugePoints=100-from;return from<80&&ah>0&&gaugePoints>0?new double[]{ah,gaugePoints}:null;}
         }
-        double gaugePoints=100-points.get(start).soc;
-        return ah>0&&gaugePoints>0?new double[]{ah,gaugePoints}:null;
+        return null;
     }
     /** Call on an analysis worker. Active files are excluded, so each returned session is stable. */
     public List<HistorySession> recordings(String targetProfile)throws IOException {

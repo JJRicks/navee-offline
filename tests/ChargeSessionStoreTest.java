@@ -150,6 +150,26 @@ public final class ChargeSessionStoreTest {
         BatteryCapacityEstimate.ChargeEvidence again=s.snapshot().gaugeCharge.get("one");
         check(again.sessions==1&&Math.abs(again.ah-e.ah)<1e-9,"Stopped charges and starts above 80% are not counted");
         check(s.snapshot().gaugeCharge.get("two").sessions==1,"Each scooter keeps its own charging check");
+        // A four-minute Bluetooth loss at 76%: charging may have stopped and restarted unseen.
+        ChargeSessionStore gap=store();chargeWithGap(gap,"one",40,76);
+        BatteryCapacityEstimate.ChargeEvidence resumed=gap.snapshot().gaugeCharge.get("one");
+        check(resumed!=null&&Math.abs(resumed.points-23)<1e-9,"Counting restarts at the first percentage change after the gap (77%)");
+        check(Math.abs(resumed.ah-2*23*60/3600.0)<1e-6,"The unobserved four minutes add no charge: "+(resumed==null?null:resumed.ah));
+        ChargeSessionStore late=store();chargeWithGap(late,"one",40,85);
+        check(late.snapshot().gaugeCharge.get("one")==null,"A restart above 80% is not counted");
+        // A rejected frame between normal 10 s samples is flagged too, but nothing went unobserved.
+        ChargeSessionStore flagged=store();flagged.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        for(long t=MONO;t<=MONO+60*60000L;t+=10000){if(t==MONO+30*60000L)flagged.markGap();flagged.sample(frame(t,Math.floor(40+(t-MONO)/60000.0)));}
+        flagged.stop(ChargeSessionStore.Stop.COMPLETE);
+        BatteryCapacityEstimate.ChargeEvidence kept=flagged.snapshot().gaugeCharge.get("one");
+        check(kept!=null&&Math.abs(kept.points-59)<1e-9&&Math.abs(kept.ah-2*59*60/3600.0)<1e-6,"A flagged normal-length step keeps the charge");
+    }
+    private static void chargeWithGap(ChargeSessionStore s,String profile,int start,int gapAt)throws Exception{
+        s.start(profile,ChargeSessionStore.Charger.STOCK,WALL,MONO);long t=MONO;double soc=start;
+        for(;soc<gapAt;t+=10000){soc=Math.floor(start+(t-MONO)/60000.0);s.sample(frame(t,soc));}
+        s.markGap();long resume=t+240000;
+        for(t=resume;soc<100;t+=10000){soc=Math.floor(gapAt+(t-resume)/60000.0);s.sample(frame(t,soc));}
+        s.stop(ChargeSessionStore.Stop.COMPLETE);
     }
     private static void charge(ChargeSessionStore s,String profile,int start,ChargeSessionStore.Stop stop)throws Exception{
         s.start(profile,ChargeSessionStore.Charger.STOCK,WALL,MONO);
