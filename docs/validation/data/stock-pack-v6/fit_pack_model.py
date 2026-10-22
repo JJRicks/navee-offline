@@ -439,7 +439,10 @@ def same_numbers(committed, fresh, printed=False, absolute=0.0):
     if len(a) != len(b):
         return False
     for x, y in zip(a, b):
-        decimals = len(x.split('.')[1]) if '.' in x and 'e' not in x.lower() else 0
+        decimals = len(y.split('.')[1]) if '.' in y and 'e' not in y.lower() else 0
+        # Printed constants keep the generator's format, so a shortened committed token fails.
+        if printed and (len(x.split('.')[1]) if '.' in x and 'e' not in x.lower() else 0) != decimals:
+            return False
         tolerance = 1.5 * 10 ** -decimals if printed and decimals else absolute
         if abs(float(x) - float(y)) > tolerance:
             return False
@@ -453,10 +456,23 @@ def same_json(committed, fresh):
     if isinstance(committed, list):
         return isinstance(fresh, list) and len(committed) == len(fresh) and all(same_json(x, y) for x, y in zip(committed, fresh))
     if isinstance(committed, bool) or isinstance(committed, str) or committed is None:
-        return committed == fresh
-    if isinstance(committed, int) and isinstance(fresh, int):
-        return committed == fresh
-    return isinstance(fresh, (int, float)) and abs(committed - fresh) <= 0.0101
+        return type(committed) is type(fresh) and committed == fresh
+    if type(committed) is int or type(fresh) is int:
+        return type(committed) is int and type(fresh) is int and committed == fresh
+    return type(committed) is float and type(fresh) is float and abs(committed - fresh) <= 0.0101
+
+
+def check_helpers():
+    """The comparisons must still reject drift they are meant to catch."""
+    assert same_numbers('K = 0.215000;', 'K = 0.215001;', printed=True)
+    assert not same_numbers('K = 0.2;', 'K = 0.215000;', printed=True)
+    assert not same_numbers('K = 0.215000;', 'K = 0.217000;', printed=True)
+    assert not same_numbers('{1.0, 2.0}', '{1.0, 2.0, 3.0}', absolute=1e-9)
+    assert same_json({'n': 5129, 'mae': 2.90}, {'n': 5129, 'mae': 2.905})
+    assert not same_json({'n': 5129.005}, {'n': 5129})
+    assert not same_json({'n': 5129}, {'n': 5130})
+    assert not same_json({'ok': True}, {'ok': 1})
+    assert not same_json({'mae': 2.90}, {'mae': 2.92})
 
 
 def main():
@@ -475,6 +491,7 @@ def main():
         PARITY.write_text(parity)
         RESULTS.write_text(text)
     if args.check:
+        check_helpers()
         problems = []
         block = re.search(r'    // BEGIN GENERATED.*?// END GENERATED', JAVA.read_text(), flags=re.S)
         if block is None or not same_numbers(block.group(0), generated, printed=True):
