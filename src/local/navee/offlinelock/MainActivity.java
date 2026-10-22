@@ -2347,9 +2347,27 @@ public final class MainActivity extends Activity implements ScreenHost {
                 if(Build.VERSION.SDK_INT>=30)options.get(i).setStateDescription(state);
             }
             String message=scooterService.simulating()?"Exit simulation to use saved rides.":pending?"Checking saved rides…":result==null?"":result.status==LearnedRangeEstimate.Status.UNAVAILABLE?"Couldn't read saved rides. Tap Volt's estimate to retry."
-                    :learned&&result.status==LearnedRangeEstimate.Status.INSUFFICIENT?"Using scooter's estimate for now.":"";
+                    :learned&&result.status==LearnedRangeEstimate.Status.INSUFFICIENT?"Using scooter's estimate for now."
+                    :learned&&ready?learnedSummary():"";
             status.setText(message);progress.setVisibility(pending?View.VISIBLE:View.GONE);
             statusRow.setVisibility(!message.isEmpty()?View.VISIBLE:View.GONE);
+        }
+        /** "About 10 km at 50% · likely 8–12 km": the learned forecast at the last battery reading. */
+        String learnedSummary(){
+            TelemetryHistory.Reading soc=scooterService.displayReadings().get("battery_percent");
+            Double percent=soc==null||soc.value==null?null:soc.number,km=result.remainingKm(percent);
+            if(km==null)return "";
+            Double low=result.likelyLowKm(percent),high=result.likelyHighKm(percent);
+            return "About "+wholeDistance(km,km)+" at "+Math.round(percent)+"%"+(low==null||high==null?"":" · likely "+wholeDistance(low,high));
+        }
+        String wholeDistance(double lowKm,double highKm){
+            String units=preferences.getString("units","mi");
+            String km=span(lowKm,highKm,"km"),mi=span(lowKm/1.609344,highKm/1.609344,"mi");
+            return units.equals("km")?km:units.equals("dual")?mi+" / "+km:mi;
+        }
+        String span(double low,double high,String unit){
+            long a=Math.round(low),b=Math.round(high);
+            return (a==b?Long.toString(a):a+"–"+b)+" "+unit;
         }
     }
 

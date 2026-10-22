@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Make Volt's learned range follow the battery gauge: energy per percentage point is learned across the gauge, so low-battery forecasts are no longer optimistic, and levels below any recorded ride are treated cautiously.
+- Separate riding efficiency from battery energy; rides with a short recording gap now count toward energy per km.
+- Show the learned forecast and its likely range in the Range estimate picker.
+
 ## 1.4.8 — 2026-10-21
 
 - Refine the experimental UT5 MAX stock-charger time to full below 89% by matching pack voltage and charging current to earlier completed charges, reducing dependence on the displayed battery percentage.

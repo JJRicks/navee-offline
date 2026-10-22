@@ -552,8 +552,11 @@ Scooter > Range estimate offers Scooter's estimate (default, following drive
 mode) or Volt's estimate (learned), saved separately for each scooter. Volt's
 estimate uses only that profile's completed ride recordings on this phone;
 no other rider's range baseline ships with Volt.
-It divides total accepted odometer distance by total battery-percentage points
-used, then applies that rate to the displayed battery level.
+With recorded power it forecasts battery energy left at the displayed level
+(energy per gauge point learned in 10-point bands; 10% less than the least seen
+below the lowest band ridden) divided by energy per km; the picker adds a likely
+range from past 6 km stretches. Without power readings it divides total
+accepted odometer distance by total battery-percentage points used.
 
 Needs at least three usable rides, 20 battery points and 3 km within 90 days.
 Every committed sample is checked in a streaming pass for movement, fresh

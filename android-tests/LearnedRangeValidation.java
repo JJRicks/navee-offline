@@ -196,6 +196,10 @@ public final class LearnedRangeValidation extends Instrumentation {
             require(!service.usesLearnedRange()&&service.followsRidingMode(),"Explicit Scooter selection did not restore drive-mode following");
             pickerRoot().findViewWithTag("range-source-volt").performClick();
             require(service.usesLearnedRange()&&!explanationVisible(sheet),"First-use explanation repeated");
+            // Synthetic rides carry no power, so the older distance model answers without a likely range.
+            String units=settings().getString("units","mi"),expected=units.equals("km")?"About 11 km at 50%":units.equals("dual")?"About 7 mi / 11 km at 50%":"About 7 mi at 50%";
+            require(((TextView)pickerRoot().findViewWithTag("range-learning-status")).getText().toString().equals(expected),
+                    "Selected learned range does not state its forecast: "+((TextView)pickerRoot().findViewWithTag("range-learning-status")).getText());
             ((AlertDialog)field(sheet,"dialog")).dismiss();
             invoke(activity,"quickAction",new Class<?>[]{String.class},"feature:range_algorithm");
             require(pickerRoot().findViewWithTag("range-source-sheet")!=null,"Disconnected quick access did not open the same picker");
