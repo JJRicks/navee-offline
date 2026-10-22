@@ -49,7 +49,8 @@ public final class AppDataBackup {
     /** A backup scooter that needs a destination; `suggested` may be null. */
     public static final class Destination {
         public final String source, name, suggested; public final boolean addable;
-        private Destination(BackupArchive.Destination d){source=d.source;name=d.name;suggested=d.suggested;addable=d.addable;}
+        public final List<String> accountMatches;
+        private Destination(BackupArchive.Destination d){source=d.source;name=d.name;suggested=d.suggested;addable=d.addable;accountMatches=d.accountMatches;}
     }
     public static final class Review {
         final BackupArchive.Plan plan; public final List<String> lines; public final boolean replace;

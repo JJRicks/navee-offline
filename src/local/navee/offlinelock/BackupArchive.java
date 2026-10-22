@@ -79,7 +79,12 @@ final class BackupArchive {
     /** Where one backup scooter's data goes. `suggested` is pre-chosen; null needs a choice. */
     static final class Destination {
         final String source, name, suggested; final boolean addable;
-        Destination(String source, String name, String suggested, boolean addable) { this.source = source; this.name = name; this.suggested = suggested; this.addable = addable; }
+        /** Same-account owner profiles are choices, never proof of a physical scooter match. */
+        final List<String> accountMatches;
+        Destination(String source, String name, String suggested, boolean addable, List<String> accountMatches) {
+            this.source = source; this.name = name; this.suggested = suggested; this.addable = addable;
+            this.accountMatches = Collections.unmodifiableList(new ArrayList<>(accountMatches));
+        }
     }
     static final class Plan {
         final Prepared prepared; final Set<String> categories; final boolean replace;
@@ -406,9 +411,11 @@ final class BackupArchive {
         String mac = ownerText(json, "scooter_address", 17, false).toUpperCase(Locale.ROOT);
         if (!mac.isEmpty() && !mac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) throw new IOException("The pairing file has an invalid Bluetooth address.");
         String serial = ownerText(json, "scooter_serial", 128, false);
-        // Old files had no UUID. A stable private ID makes repeat imports idempotent even
-        // before either a serial or address has been discovered; names do not affect it.
-        String id = UUID.nameUUIDFromBytes(("volt-owner-v1\0" + identity + "\0" + role + "\0" + mac + "\0" + serial.toUpperCase(Locale.ROOT)).getBytes(StandardCharsets.UTF_8)).toString();
+        // An account identity may belong to several scooters. Without hardware identifiers,
+        // each import needs a fresh source ID so an old derived UUID cannot silently match
+        // the first scooter. The user resolves same-account imports in the destination step.
+        String id = mac.isEmpty() && serial.isEmpty() ? UUID.randomUUID().toString()
+                : UUID.nameUUIDFromBytes(("volt-owner-v1\0" + identity + "\0" + role + "\0" + mac + "\0" + serial.toUpperCase(Locale.ROOT)).getBytes(StandardCharsets.UTF_8)).toString();
         String raw = "{\"id\":" + BackupJson.quote(id) + ",\"name\":" + BackupJson.quote(name)
                 + ",\"identity\":" + BackupJson.quote(identity) + ",\"role\":" + role
                 + ",\"mac\":" + BackupJson.quote(mac) + ",\"serial\":" + BackupJson.quote(serial) + ",\"lastConnected\":0}";
@@ -515,11 +522,16 @@ final class BackupArchive {
             BackupProfiles.Profile item = BackupProfiles.find(prepared.profiles, source);
             BackupProfiles.Profile match = item == null ? new BackupProfiles.Profile(source, info.name, "", 0, "", info.serial, "") : item;
             String matched = null;
-            for (BackupProfiles.Profile p : local) if (sameScooter(prepared, p, match)) { matched = p.id; break; }
+            List<String> accountMatches = new ArrayList<>();
+            boolean unidentifiedOwner = prepared.kind.equals("owner") && item != null && item.serial.isEmpty() && item.mac.isEmpty();
+            for (BackupProfiles.Profile p : local) {
+                if (p.sameScooter(match) && matched == null) matched = p.id;
+                if (unidentifiedOwner && p.role == item.role && !p.identity.isEmpty() && p.identity.equalsIgnoreCase(item.identity)) accountMatches.add(p.id);
+            }
             // A layout file belongs to no scooter: default to the selected one, as Home's import did.
             if (source.equals(LAYOUT_SOURCE) && !local.isEmpty()) matched = active instanceof String && BackupProfiles.find(local, (String) active) != null ? (String) active : local.get(0).id;
             boolean addable = selected.contains(BackupRegistry.SCOOTERS) && item != null && matched == null;
-            result.add(new Destination(source, info.name, matched != null ? matched : addable ? source : null, addable));
+            result.add(new Destination(source, info.name, !accountMatches.isEmpty() ? null : matched != null ? matched : addable ? source : null, addable, accountMatches));
         }
         return result;
     }
@@ -551,6 +563,8 @@ final class BackupArchive {
                 String target = chosen == null ? null : chosen.get(d.source);
                 if (target == null) throw new IOException("Choose where each scooter's data goes.");
                 if (!target.equals(SKIP) && BackupProfiles.find(local, target) == null && !(d.addable && target.equals(d.source))) throw new IOException("Choose where each scooter's data goes.");
+                if (!d.accountMatches.isEmpty() && !target.equals(SKIP) && !target.equals(d.source) && !d.accountMatches.contains(target))
+                    throw new IOException("Choose a scooter using this setup identity, or add another scooter.");
                 mapping.put(d.source, target);
             }
             Map<String, Integer> uses = new HashMap<>();
@@ -592,7 +606,7 @@ final class BackupArchive {
         List<BackupProfiles.Profile> added = new ArrayList<>(); int here = 0, skipped = 0;
         for (BackupProfiles.Profile p : prepared.profiles) {
             boolean matched = BackupProfiles.find(local, p.id) != null;
-            for (BackupProfiles.Profile mine : local) matched |= sameScooter(prepared, mine, p);
+            for (BackupProfiles.Profile mine : local) matched |= mine.sameScooter(p);
             String target = mapping.get(p.id);
             if (target == null || target.equals(SKIP)) skipped++;
             else if (matched || !target.equals(p.id)) here++;
@@ -615,15 +629,6 @@ final class BackupArchive {
         if (configured && (!prepared.kind.equals("owner") || !alreadyConfigured)) { Map<String, Object> onboarding = result.get("onboarding"); onboarding.clear(); onboarding.put(BackupRegistry.OnboardingKeys.DONE, true); }
         lines.add("Scooters: adds " + added.size() + " · " + here + " already here");
         if (skipped > 0) lines.add(plural(skipped, "scooter") + " skipped · not restored");
-    }
-    private static boolean sameScooter(Prepared prepared, BackupProfiles.Profile mine, BackupProfiles.Profile incoming) {
-        if (mine.sameScooter(incoming)) return true;
-        // Setup helpers omit hardware identifiers even when the local profile learned them
-        // after connecting. Match that same access key and role without replacing any local
-        // credential. Full/category archives and owner files with identifiers stay strict.
-        return prepared.kind.equals("owner") && incoming.serial.isEmpty()
-                && incoming.mac.isEmpty() && mine.role == incoming.role
-                && !mine.identity.isEmpty() && mine.identity.equalsIgnoreCase(incoming.identity);
     }
     /** Dashboards or scooter preferences: each mapped scooter's entries are replaced as a set. */
     private static void perScooter(String category, Prepared prepared, Map<String, String> mapping, Map<String, Integer> uses, Map<String, String> names,

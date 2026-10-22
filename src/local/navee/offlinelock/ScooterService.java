@@ -137,6 +137,16 @@ public final class ScooterService extends Service {
     public void listen(Runnable listener){listeners.add(listener);}public void unlisten(Runnable listener){listeners.remove(listener);}
     public boolean simulating() { return ble != null && ble.simulating(); }
 
+    /** Profile changes must not interrupt recordings, saved sensor data or an in-flight command. */
+    public String scooterChangeUnavailable() {
+        if (destroyed || dataMaintenance || DataMaintenance.active()) return "Wait for backup or restore to finish";
+        if (isRecording() || isChargeRecording()) return "Stop the current recording first";
+        if (phoneSaving()) return "Wait for the ride to finish saving";
+        if ((ble != null && ble.pending() != null) || (chargeScheduleController != null && chargeScheduleController.busy()))
+            return "Wait for the current scooter change to finish";
+        return null;
+    }
+
     /** A full portable backup is deliberately refused while another operation owns app data. */
     public String dataMaintenanceUnavailable() {
         if (destroyed || dataMaintenance || DataMaintenance.active()) return "App data maintenance is already in progress";

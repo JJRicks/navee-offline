@@ -62,6 +62,7 @@ try:
     instrument('legacy-v1-restore', 'FullBackupJourneyValidation', '-e', 'mode', 'legacy-v1')
     clear(); instrument('owner-only-merge', 'FullBackupJourneyValidation', '-e', 'mode', 'owner-only')
     clear(); instrument('owner-existing-profile', 'FullBackupJourneyValidation', '-e', 'mode', 'owner-existing')
+    clear(); instrument('owner-another-profile', 'FullBackupJourneyValidation', '-e', 'mode', 'owner-another')
     clear(); instrument('adapter', 'AppDataBackupValidation')
     clear(); instrument('dashboard-transfer', 'DashboardTransferValidation')
     for case in ('344x882:dark:1', '725x604:light:1.4'):

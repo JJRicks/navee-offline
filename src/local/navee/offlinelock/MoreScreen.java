@@ -85,14 +85,15 @@ public final class MoreScreen implements AppScreen {
     private final List<SegmentedSelector> preferenceSelectors = new ArrayList<>();
     private final List<AlertDialog> dialogs = new ArrayList<>();
     private final List<Row> profileEditActions = new ArrayList<>();
-    private Row renameProfileRow, forgetProfileRow, disconnectProfileRow, chooseProfileRow;
+    private LinearLayout scooterList;
+    private TextView addScooterButton, scooterListNotice;
+    private final Map<String, ScooterCard> scooterCards = new LinkedHashMap<>();
     private Row scootersIndexRow, dataIndexRow;
     private Row setPinRow, bondRow, pinRow, proximityRow;
     private View pinRefresh, pinSpinner, proximitySpinner;
     private TextView proximityPinChip, proximityPairedChip, securityConnect;
     private Row onboardingImport, onboardingNearby, onboardingConnect;
     private final List<Row> lockedProfileRows = new ArrayList<>();
-    private TextView profileUnlock;
     private Row nearbyRow, locationRow, notificationRow;
     private Row developerIndexRow, simulationRow, simulationModelRow;
     /** Developer simulator models: "" is the UT5 MAX simulator; the others are synthetic advertised IDs. */
@@ -107,10 +108,10 @@ public final class MoreScreen implements AppScreen {
     private int developerTaps;
     private long lastDeveloperTap;
     private TextView securityNotice;
-    private LinearLayout indexProfileCard, scootersProfileCard;
-    private ImageView indexPhoto, scootersPhoto;
-    private View indexPhotoFallback, scootersPhotoFallback;
-    private TextView indexProfileName, indexProfileState, scootersName, scootersRole, scootersModel;
+    private LinearLayout indexProfileCard;
+    private ImageView indexPhoto;
+    private View indexPhotoFallback;
+    private TextView indexProfileName, indexProfileState;
     private TextView labCount, labConnect, historyUsage, historyStatus;
     private TextView[] historyCounts;
     private LinearLayout historyBar;
@@ -718,7 +719,8 @@ public final class MoreScreen implements AppScreen {
     private boolean canEditProfiles() {
         ScooterService s = service();
         if (s == null) { host.toast("Your local scooter service is starting."); return false; }
-        if (s.isRecording()) { host.toast("Stop ride first"); return false; }
+        String unavailable = s.scooterChangeUnavailable();
+        if (unavailable != null) { host.toast(unavailable); return false; }
         if (s.ble.state() != BleController.State.DISCONNECTED || s.ble.pending() != null) {
             host.toast("Disconnect first"); return false;
         }
@@ -779,120 +781,117 @@ public final class MoreScreen implements AppScreen {
     // ---- My scooters --------------------------------------------------------------------
 
     private void profiles() {
-        LinearLayout c = ui.card(); c.setOrientation(LinearLayout.HORIZONTAL); c.setGravity(Gravity.CENTER_VERTICAL);
-        c.setPadding(ui.dp(14), ui.dp(14), ui.dp(16), ui.dp(14)); c.setMinimumHeight(ui.dp(96));
-        scootersPhoto = photo();
-        LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(ui.dp(104), ui.dp(120)); pp.rightMargin = ui.dp(14);
-        c.addView(scootersPhoto, pp);
-        scootersPhotoFallback = new RowIcon("scooter");
-        LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(ui.dp(56), ui.dp(56)); fp.rightMargin = ui.dp(14);
-        c.addView(scootersPhotoFallback, fp);
-        LinearLayout words = column();
-        scootersName = ui.text("", 21, true); scootersName.setMaxLines(2); words.addView(scootersName);
-        scootersRole = ui.text("", 13, false); scootersRole.setTextColor(ui.muted); scootersRole.setPadding(0, ui.dp(4), 0, 0);
-        words.addView(scootersRole);
-        scootersModel = ui.text("", 13, false); scootersModel.setTextColor(ui.muted); scootersModel.setPadding(0, ui.dp(2), 0, 0);
-        words.addView(scootersModel);
-        c.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        c.setFocusable(true); scootersProfileCard = c; cardDestination.addView(c);
-
-        LinearLayout profiles = group();
-        chooseProfileRow = lockable(row(profiles, "scooter", "Choose a scooter", null, this::chooseProfile));
-        profileEditActions.add(chooseProfileRow);
-        profileEditActions.add(lockable(row(profiles, "plus", "Add with owner identity", null, this::addProfile)));
-        profileEditActions.add(lockable(row(profiles, "download", "Import owner setup file", null, () -> { if (canEditProfiles()) host.importOwner(); })));
-        renameProfileRow = lockable(row(profiles, "pencil", "Rename active scooter", null, this::renameProfile));
-        // One way out of the lock: end the ride, or disconnect. Shown only while profile changes are blocked.
-        profileUnlock = ui.secondaryButton("Disconnect", () -> {
-            ScooterService s = service(); if (closed || s == null) return;
-            if (s.isRecording()) {
-                s.stopRide();
-                if (s.isRecording()) host.toast("Couldn't stop · still recording");
-            } else s.ble.disconnect();
-            refresh();
-        });
-        LinearLayout.LayoutParams up = new LinearLayout.LayoutParams(-1, -2); up.topMargin = 0; up.bottomMargin = ui.dp(12);
-        cardDestination.addView(profileUnlock, up);
-
-        LinearLayout owner = group();
-        disconnectProfileRow = row(owner, "bluetooth", "Disconnect scooter", null, () -> {
-            if (service().isRecording()) { host.toast("Stop ride first"); return; }
-            service().ble.disconnect(); refresh();
-        });
-        row(owner, "info", "Run setup again", null, () -> { OnboardingScreen.restart(host.activity()); host.rebuild(); });
-        forgetProfileRow = lockable(dangerRow(owner, "Forget active profile", this::forgetProfile));
+        addScooterButton = ui.button("Add a scooter", this::addScooter);
+        ui.decorate(addScooterButton, "plus");
+        addScooterButton.setMinHeight(ui.dp(56));
+        addScooterButton.setTag("scooters-add");
+        LinearLayout.LayoutParams add = new LinearLayout.LayoutParams(-1, -2);
+        add.bottomMargin = ui.dp(18);
+        cardDestination.addView(addScooterButton, add);
+        scooterListNotice = ui.caption("");
+        scooterListNotice.setPadding(ui.dp(2), 0, ui.dp(2), ui.dp(12));
+        scooterListNotice.setTag("scooters-notice");
+        cardDestination.addView(scooterListNotice);
+        scooterList = column(); scooterList.setTag("scooters-list");
+        cardDestination.addView(scooterList);
     }
 
-    private void chooseProfile() {
-        if (!canEditProfiles()) return;
-        List<ScooterProfiles.Profile> all = service().profiles.all();
-        if (all.isEmpty()) { addProfile(); return; }
-        String[] names = new String[all.size()]; int selected = -1;
-        ScooterProfiles.Profile active = active();
-        for (int i = 0; i < all.size(); i++) {
-            ScooterProfiles.Profile p = all.get(i);
-            names[i] = p.name + (p.role == 1 ? " · shared profile" : " · owner")
-                    + (p.mac.isEmpty() ? " · not connected yet" : "");
-            if (active != null && active.id.equals(p.id)) selected = i;
+    private final class ScooterCard {
+        final LinearLayout card;
+        final TextView name, status, model, connect, forget;
+        final View rename;
+        ScooterCard(String id) {
+            card = ui.card(); card.setTag("scooter-card-" + id);
+            card.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(14));
+            LinearLayout top = row(); top.setGravity(Gravity.CENTER_VERTICAL);
+            top.addView(ui.icon("scooter", 28, ui.accent), new LinearLayout.LayoutParams(ui.dp(36), ui.dp(40)));
+            LinearLayout words = column();
+            name = ui.text("", 19, true); name.setMaxLines(3); words.addView(name);
+            status = ui.caption(""); status.setPadding(0, ui.dp(3), 0, 0); words.addView(status);
+            LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1); wp.leftMargin = ui.dp(10);
+            top.addView(words, wp);
+            FrameLayout pencil = new FrameLayout(host.activity());
+            pencil.addView(ui.icon("pencil", 18, ui.muted), new FrameLayout.LayoutParams(ui.dp(18), ui.dp(18), Gravity.CENTER));
+            pencil.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 30)), ui.shape(ui.raised, 14, 0), null));
+            pencil.setFocusable(true); pencil.setClickable(true); pencil.setTag("scooter-rename-" + id);
+            pencil.setOnClickListener(v -> renameScooter(id));
+            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)); pp.leftMargin = ui.dp(8);
+            top.addView(pencil, pp); rename = pencil;
+            card.addView(top);
+            model = ui.caption(""); model.setPadding(0, ui.dp(8), 0, 0); card.addView(model);
+            LinearLayout actions = row(); actions.setPadding(0, ui.dp(12), 0, 0);
+            connect = ui.button("Connect", () -> connectScooter(id)); connect.setTag("scooter-connect-" + id);
+            forget = ui.dangerButton("Forget", () -> forgetScooter(id)); forget.setTag("scooter-forget-" + id);
+            ui.decorate(forget, "trash");
+            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -2, 1); cp.rightMargin = ui.dp(8);
+            actions.addView(connect, cp); actions.addView(forget, new LinearLayout.LayoutParams(-2, -2));
+            card.addView(actions);
         }
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setTitle("Choose scooter")
-                .setSingleChoiceItems(names, selected, (d, which) -> {
-                    if (!canEditProfiles()) return;
-                    service().profiles.select(all.get(which).id); service().ble.profileSelected(); d.dismiss();
-                    host.toast(all.get(which).name + " selected"); host.redraw();
-                }).setNegativeButton("Close", null).create(); show(dialog);
     }
 
-    private void addProfile() {
-        if (!canEditProfiles()) return;
-        LinearLayout box = dialogBox("Add your scooter", "Not your NAVEE password.");
-        EditText name = input("Scooter name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
-        name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)}); box.addView(name);
-        EditText identity = input("Private owner identity or backup text",
-                InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD | InputType.TYPE_TEXT_FLAG_MULTI_LINE, true);
-        identity.setMinLines(2); identity.setMaxLines(4); identity.setVerticalScrollBarEnabled(true);
-        identity.setFilters(new InputFilter[]{new InputFilter.LengthFilter(1048576)}); box.addView(identity);
-        TextView error = ui.caption(""); error.setTextColor(ui.danger); box.addView(error);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Cancel", null)
-                .setPositiveButton("Save profile", null).create(); show(dialog, () -> identity.setText(""));
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (!canEditProfiles()) return;
-            try {
-                OwnerIdentityParser.Result parsed = OwnerIdentityParser.parse(identity.getText().toString());
-                service().profiles.create(name.getText().toString(), parsed.identity, parsed.role);
-                dialog.dismiss(); host.toast("Scooter added"); host.redraw();
-            } catch (IllegalArgumentException invalid) { error.setText(invalid.getMessage()); }
-        });
+    private ScooterProfiles.Profile findScooter(String id) {
+        if (service() != null) for (ScooterProfiles.Profile p : service().profiles.all()) if (p.id.equals(id)) return p;
+        return null;
     }
-    private void renameProfile() {
-        if (!canEditProfiles()) return;
-        ScooterProfiles.Profile p = active(); if (p == null) { addProfile(); return; }
+    /** One guard for switching, adding and forgetting; none can silently end a recording. */
+    private boolean canChangeScooter() {
+        ScooterService s = service();
+        String unavailable = s == null ? "Your local scooter service is starting." : s.scooterChangeUnavailable();
+        if (unavailable != null) { host.toast(unavailable); return false; }
+        return !closed;
+    }
+    private void addScooter() {
+        if (!canChangeScooter()) return;
+        if (service().simulating()) service().setSimulation(false);
+        service().ble.disconnect();
+        OnboardingScreen.restart(host.activity());
+        host.rebuild();
+    }
+    private void connectScooter(String id) {
+        if (!canChangeScooter()) return;
+        ScooterService s = service(); ScooterProfiles.Profile p = findScooter(id), selected = active();
+        if (p == null) { host.redraw(); return; }
+        boolean current = selected != null && id.equals(selected.id);
+        if (current && s.ble.state() != BleController.State.DISCONNECTED) {
+            s.ble.disconnect(); refresh(); return;
+        }
+        // End the old transport before changing its selected identity or cached readings.
+        if (s.simulating()) s.setSimulation(false);
+        s.ble.disconnect(); s.profiles.select(id); s.ble.profileSelected();
+        host.connect(); host.redraw();
+    }
+    private void renameScooter(String id) {
+        ScooterProfiles.Profile p = findScooter(id); if (closed || p == null) return;
         LinearLayout box = dialogBox("Rename scooter", null);
         EditText name = input("Scooter name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
-        name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)}); name.setText(p.name); box.addView(name);
+        name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)}); name.setText(p.name); name.selectAll(); box.addView(name);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Cancel", null)
                 .setPositiveButton("Save name", null).create(); show(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (!canEditProfiles()) return;
+            ScooterProfiles.Profile target = findScooter(id); if (closed || target == null) { dialog.dismiss(); return; }
             String value = name.getText().toString().trim(); if (value.isEmpty()) { name.setError("Enter a scooter name"); return; }
-            p.name = value; p.nameDefault = false; service().profiles.update(p); dialog.dismiss(); host.redraw();
+            target.name = value; target.nameDefault = false; service().profiles.update(target); dialog.dismiss(); host.redraw();
         });
+        name.requestFocus();
+        if (dialog.getWindow() != null) dialog.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_ALWAYS_VISIBLE);
     }
-    private void backupBeforeForgetting() {
-        host.dataBackup(false, null);
-    }
-    private void forgetProfile() {
-        if (!canEditProfiles()) return;
-        ScooterProfiles.Profile p = active(); if (p == null) return;
-        LinearLayout box = dialogBox("Forget scooter?", "Removes " + p.name + "'s setup. Rides stay.");
+    private void forgetScooter(String id) {
+        if (!canChangeScooter()) return;
+        ScooterProfiles.Profile p = findScooter(id); if (p == null) return;
+        LinearLayout box = dialogBox("Forget " + p.name + "?", "Removes its connection setup from this phone. Saved rides and charge recordings stay.");
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
-        if (p.configured()) {
-            TextView backup = ui.secondaryButton("Save backup first", () -> { dialog.dismiss(); backupBeforeForgetting(); });
-            box.addView(backup);
-        }
+        TextView backup = ui.secondaryButton("Save backup first", () -> { dialog.dismiss(); host.dataBackup(false, null); });
+        box.addView(backup);
         dialogButtons(box, "Cancel", dialog::dismiss, "Forget", () -> {
-            dialog.dismiss();
-            if (!canEditProfiles()) return; service().profiles.remove(p.id); host.redraw();
+            if (!canChangeScooter()) return;
+            ScooterService s = service(); ScooterProfiles.Profile target = findScooter(id), selected = active();
+            if (target == null) { dialog.dismiss(); return; }
+            boolean current = selected != null && selected.id.equals(id);
+            if (current && s.simulating()) s.setSimulation(false);
+            if (current) s.ble.disconnect();
+            s.profiles.remove(id);
+            if (current) s.ble.profileSelected();
+            dialog.dismiss(); host.redraw();
         });
         show(dialog);
     }
@@ -1910,29 +1909,44 @@ public final class MoreScreen implements AppScreen {
         boolean photo = recognised && scooterPhoto != null;
         indexPhoto.setVisibility(photo ? View.VISIBLE : View.GONE);
         indexPhotoFallback.setVisibility(photo ? View.GONE : View.VISIBLE);
-        scootersPhoto.setVisibility(photo ? View.VISIBLE : View.GONE);
-        scootersPhotoFallback.setVisibility(photo ? View.GONE : View.VISIBLE);
         String role = p == null ? "" : p.role == 0 ? "Owner" : "Shared";
         BleController.State state = s.ble.state();
-        String link = state == BleController.State.READY ? "connected"
+        String link = s.ble.ready() ? "connected"
                 : state == BleController.State.DISCONNECTED ? "disconnected" : "connecting";
         String name = p == null ? "No scooter yet" : p.name;
-        String status = p == null ? "Add an owner profile to begin" : role + " · " + link;
+        String status = p == null ? "Add a scooter to begin" : role + " · " + link;
         indexProfileName.setText(name); indexProfileState.setText(status);
         indexProfileCard.setContentDescription(name + ", " + status + ". Open My scooters");
-        int count = s.profiles.all().size();
-        scootersIndexRow.value(count == 0 ? "" : String.valueOf(count));
-        scootersName.setText(name);
-        scootersRole.setText(p == null ? "Add an owner profile to begin"
-                : "Active · " + (p.role == 0 ? "owner" : "shared") + " profile");
-        // The model line appears once a connection has reported it; the UT5 MAX is shown by name.
-        String modelLine = ModelRegistry.modelLine(saved);
-        boolean modelKnown = !modelLine.isEmpty();
-        scootersModel.setText(modelLine);
-        scootersModel.setVisibility(modelKnown ? View.VISIBLE : View.GONE);
-        scootersProfileCard.setContentDescription(name + ", " + scootersRole.getText()
-                + (modelKnown ? ", " + scootersModel.getText() : ""));
-        chooseProfileRow.value(count == 0 ? "" : count + (count == 1 ? " profile" : " profiles"));
+        List<ScooterProfiles.Profile> all = s.profiles.all();
+        scootersIndexRow.value(all.isEmpty() ? "" : String.valueOf(all.size()));
+        String unavailable = s.scooterChangeUnavailable();
+        scooterListNotice.setText(unavailable != null ? unavailable : all.isEmpty() ? "Your saved scooters will appear here." : "");
+        scooterListNotice.setVisibility(scooterListNotice.getText().length() == 0 ? View.GONE : View.VISIBLE);
+        // Keep blocked actions tappable so their reason is available, including to screen readers.
+        addScooterButton.setAlpha(unavailable == null ? 1f : .5f);
+        List<String> ids = new ArrayList<>(); for (ScooterProfiles.Profile item : all) ids.add(item.id);
+        if (!ids.equals(new ArrayList<>(scooterCards.keySet()))) {
+            scooterList.removeAllViews(); scooterCards.clear();
+            for (String id : ids) { ScooterCard card = new ScooterCard(id); scooterCards.put(id, card); scooterList.addView(card.card); }
+        }
+        for (ScooterProfiles.Profile item : all) {
+            ScooterCard card = scooterCards.get(item.id);
+            boolean selected = p != null && p.id.equals(item.id);
+            boolean connected = selected && s.ble.ready();
+            boolean connecting = selected && state != BleController.State.DISCONNECTED && !connected;
+            card.name.setText(item.name);
+            String detail = selected ? "Selected · " + (connected ? "Connected" : connecting ? "Connecting…" : "Disconnected") : "Not selected";
+            card.status.setText(detail); card.status.setTextColor(selected ? ui.accent : ui.muted);
+            String model = ModelRegistry.modelLine(item.savedDescriptor());
+            if (item.role == 1) model = model.isEmpty() ? "Shared access" : model + " · Shared access";
+            card.model.setText(model); card.model.setVisibility(model.isEmpty() ? View.GONE : View.VISIBLE);
+            card.card.setBackground(ui.shape(ui.surface, 22, selected ? Ui.withAlpha(ui.accent, 150) : ui.outline));
+            card.rename.setContentDescription("Rename " + item.name); card.rename.setTooltipText("Rename scooter");
+            String action = connected ? "Disconnect" : connecting ? "Cancel" : "Connect";
+            card.connect.setText(action); card.connect.setContentDescription(action + " " + item.name);
+            card.connect.setAlpha(unavailable == null ? 1f : .5f);
+            card.forget.setAlpha(unavailable == null ? 1f : .5f); card.forget.setContentDescription("Forget " + item.name);
+        }
     }
     private void refreshPermissions(ScooterService s) {
         boolean nearby = s.ble.permissions();
@@ -1963,22 +1977,15 @@ public final class MoreScreen implements AppScreen {
         ScooterProfiles.Profile p = active();
         boolean configured = p != null && p.configured();
         onboardingCard.setVisibility(configured ? View.GONE : View.VISIBLE);
-        boolean profilesEditable = !s.isRecording() && s.ble.state() == BleController.State.DISCONNECTED && s.ble.pending() == null;
+        boolean profilesEditable = s.scooterChangeUnavailable() == null && s.ble.state() == BleController.State.DISCONNECTED;
         for (Row action : profileEditActions) action.enabled(profilesEditable);
-        renameProfileRow.enabled(profilesEditable && p != null);
-        forgetProfileRow.enabled(profilesEditable && p != null);
         for (Row row : lockedProfileRows) row.locked(!profilesEditable);
-        boolean recording = s.isRecording(), linked = s.ble.state() != BleController.State.DISCONNECTED;
-        profileUnlock.setVisibility(recording || linked ? View.VISIBLE : View.GONE);
-        profileUnlock.setText(recording ? "Stop ride" : "Disconnect");
-        profileUnlock.setContentDescription(recording ? "Stop ride to change profiles" : "Disconnect to change profiles");
         checklistStep(onboardingImport, 1, configured);
         checklistStep(onboardingNearby, 2, s.ble.permissions());
         checklistStep(onboardingConnect, 3, s.ble.ready());
         // Connect needs the owner setup first; the row stays tappable to say so.
         onboardingConnect.title.setTextColor(configured ? ui.text : ui.muted);
         onboardingConnect.icon.setEnabled(configured); onboardingConnect.icon.invalidate();
-        disconnectProfileRow.enabled(!s.isRecording() && s.ble.state() != BleController.State.DISCONNECTED);
         refreshProfiles(s, p);
         refreshPermissions(s);
         ScooterCommands.PinState pin = s.ble.pinState(); boolean owner = ownerReady(), busy = s.ble.pending() != null;

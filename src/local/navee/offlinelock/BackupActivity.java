@@ -334,21 +334,29 @@ public final class BackupActivity extends Activity {
         busy=false;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         reset("Scooters");
         LinkedHashMap<String,Spinner> choices=new LinkedHashMap<>();LinkedHashMap<String,List<String>> targets=new LinkedHashMap<>();boolean onlySkip=true;
+        Runnable updateReady=()->{
+            boolean resolved=true;
+            for(Map.Entry<String,Spinner> e:choices.entrySet())resolved&=targets.get(e.getKey()).get(e.getValue().getSelectedItemPosition())!=null;
+            if(action!=null)action.setEnabled(resolved);
+        };
         for(AppDataBackup.Destination d:needed){
-            paragraph(d.source.equals(BackupArchive.LAYOUT_SOURCE)?"Layout goes to:":"Data from “"+d.name+"” goes to:");
+            boolean accountChoice=!d.accountMatches.isEmpty();
+            paragraph(accountChoice?"Which scooter is this setup for?":d.source.equals(BackupArchive.LAYOUT_SOURCE)?"Layout goes to:":"Data from “"+d.name+"” goes to:");
+            if(accountChoice)paragraph("More than one scooter can use this setup file. Choose an existing scooter or add another.").setTag("restore-owner-choice");
             List<String> ids=new ArrayList<>(),names=new ArrayList<>();
-            for(Map.Entry<String,String> scooter:local.entrySet()){ids.add(scooter.getKey());names.add(scooter.getValue());}
-            if(d.addable){ids.add(d.source);names.add("Add from backup");}
+            if(accountChoice){ids.add(null);names.add("Choose a scooter…");}
+            for(Map.Entry<String,String> scooter:local.entrySet())if(!accountChoice||d.accountMatches.contains(scooter.getKey())){ids.add(scooter.getKey());names.add(scooter.getValue());}
+            if(d.addable){ids.add(d.source);names.add(accountChoice?"Add another scooter":"Add from backup");}
             ids.add(AppDataBackup.SKIP);names.add("Don't restore");
             onlySkip&=ids.size()==1;
             Spinner choice=new Spinner(this);ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,names);
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);choice.setAdapter(adapter);choice.setMinimumHeight(ui.dp(56));
             choice.setContentDescription("Destination for "+d.name);choice.setTag("restore-destination");
-            choice.setSelection(d.suggested==null?ids.size()-1:Math.max(0,ids.indexOf(d.suggested)));
+            choice.setSelection(accountChoice?0:d.suggested==null?ids.size()-1:Math.max(0,ids.indexOf(d.suggested)));
             // A description replaces the spoken value, so it carries the current choice too.
             final String source=d.name;
             choice.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
-                public void onItemSelected(AdapterView<?> parent,View view,int position,long id){parent.setContentDescription("Destination for "+source+": "+names.get(position));}
+                public void onItemSelected(AdapterView<?> parent,View view,int position,long id){parent.setContentDescription("Destination for "+source+": "+names.get(position));updateReady.run();}
                 public void onNothingSelected(AdapterView<?> parent){}});
             choice.setContentDescription("Destination for "+source+": "+names.get(choice.getSelectedItemPosition()));
             content.addView(choice,new LinearLayout.LayoutParams(-1,-2));choices.put(d.source,choice);targets.put(d.source,ids);
@@ -356,9 +364,13 @@ public final class BackupActivity extends Activity {
         if(onlySkip)paragraph("Include Scooters or set up a scooter first.");
         footer("Review","restore-review",()->{
             Map<String,String> chosen=new LinkedHashMap<>();
-            for(Map.Entry<String,Spinner> e:choices.entrySet())chosen.put(e.getKey(),targets.get(e.getKey()).get(e.getValue().getSelectedItemPosition()));
+            for(Map.Entry<String,Spinner> e:choices.entrySet()){
+                String target=targets.get(e.getKey()).get(e.getValue().getSelectedItemPosition());
+                if(target==null){status.setText("Choose a scooter first.");return;}chosen.put(e.getKey(),target);
+            }
             review(categories,false,chosen);
         });
+        updateReady.run();
     }
     private void review(Set<String> categories,boolean replace,Map<String,String> chosen){review(categories,replace,chosen,null);}
     /** A non-null note means saved data changed after the last review: the new one replaces it, or the choices start over. */

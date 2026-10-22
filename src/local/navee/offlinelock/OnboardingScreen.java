@@ -155,6 +155,14 @@ public final class OnboardingScreen implements AppScreen {
         prefs(context).edit().clear().putBoolean(KEY_DONE, true).commit();
     }
 
+    /** Only this setup attempt may reuse an unidentified profile; Add a scooter clears these IDs. */
+    ScooterProfiles.Profile ownerImportProfile() {
+        if (closed) return null;
+        ScooterProfiles store = profiles();
+        ScooterProfiles.Profile profile = find(store, prefs.getString(KEY_PROFILE, ""));
+        return profile != null ? profile : find(store, prefs.getString(KEY_CREATED, ""));
+    }
+
     /**
      * MainActivity reports the owner-file picker outcome here: true after the picked file was
      * applied as the active profile, false when it was unreadable or rejected.
@@ -168,15 +176,19 @@ public final class OnboardingScreen implements AppScreen {
         }
         ScooterProfiles store = profiles();
         ScooterProfiles.Profile active = store == null ? null : store.active();
+        if (active == null) throw new IllegalStateException("Imported scooter is unavailable");
         SharedPreferences.Editor edit = prefs.edit().putBoolean(KEY_IMPORT_FAILED, false);
-        if (active != null) edit.putString(KEY_PROFILE, active.id);
-        edit.apply();
-        applyPendingName();
-        if (step < IMPORT || step == IDENTITY) {
+        edit.putString(KEY_PROFILE, active.id);
+        boolean moveToImport = step < IMPORT || step == IDENTITY;
+        if (moveToImport) {
             // A Shizuku capture returns here before its Import page is shown; it keeps its own path.
-            if ((step == IDENTITY || step <= PATH) && !SHIZUKU.equals(path())) prefs.edit().putString(KEY_PATH, BACKUP).apply();
-            go(IMPORT);
-        } else refresh();
+            if ((step == IDENTITY || step <= PATH) && !SHIZUKU.equals(path())) edit.putString(KEY_PATH, BACKUP);
+            edit.putInt(KEY_STEP, IMPORT);
+        }
+        // MainActivity keeps the recovery file until this profile/step binding is durable.
+        if (!edit.commit()) throw new IllegalStateException("Could not save setup progress");
+        applyPendingName();
+        if (moveToImport) go(IMPORT); else refresh();
     }
 
     /**
@@ -203,7 +215,9 @@ public final class OnboardingScreen implements AppScreen {
                 // A re-run from More returns to the tabs instead of closing the app.
                 if (prefs.getBoolean(KEY_RERUN, false)) { finish(true); return true; }
                 return false;
-            case PATH: go(WELCOME); return true;
+            case PATH:
+                if (prefs.getBoolean(KEY_RERUN, false)) { finish(true); return true; }
+                go(WELCOME); return true;
             case PREPARE: go(PATH); return true;
             case IMPORT: go(isComputerCapture() ? HELPER : PATH); return true;
             case IDENTITY: go(PATH); return true;
@@ -308,8 +322,8 @@ public final class OnboardingScreen implements AppScreen {
     private boolean prepareProfileChange() {
         ScooterService service = host.service();
         if (service == null) return true;
-        if (service.isRecording()) { host.toast("Stop recording first"); return false; }
-        if (service.ble.pending() != null) { host.toast("Scooter busy. Try again."); return false; }
+        String unavailable = service.scooterChangeUnavailable();
+        if (unavailable != null) { host.toast(unavailable); return false; }
         if (service.ble.state() != BleController.State.DISCONNECTED) service.ble.disconnect();
         return true;
     }
@@ -558,9 +572,11 @@ public final class OnboardingScreen implements AppScreen {
         row.addView(progress, bar);
         TextView end;
         if (step == PATH) {
-            end = link("Skip", () -> confirmSkip());
+            end = link(prefs.getBoolean(KEY_RERUN, false) ? "Cancel" : "Skip", () -> {
+                if (prefs.getBoolean(KEY_RERUN, false)) finish(true); else confirmSkip();
+            });
             end.setTextColor(ui.muted);
-            end.setContentDescription("Skip setup for now");
+            end.setContentDescription(prefs.getBoolean(KEY_RERUN, false) ? "Cancel adding a scooter" : "Skip setup for now");
             end.setPadding(ui.dp(8), 0, ui.dp(4), 0);
         } else {
             end = ui.text(n > 0 ? n + "/7" : "", 12.5f, false);

@@ -2715,8 +2715,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         name=name.trim();if(name.isEmpty())name=IMPORTED_NAME;if(name.length()>80)name=name.substring(0,80);
         if(!mac.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"))mac="";else mac=mac.toUpperCase(Locale.ROOT);if(!serial.matches("[A-Za-z][A-Za-z0-9]{16}"))serial="";
         JSONObject normalized=new JSONObject();normalized.put("format","navee-private-pending-owner-v1");normalized.put("import_id",UUID.randomUUID().toString());normalized.put("owner_identity",parsed.identity);normalized.put("role",parsed.role);normalized.put("name",name);normalized.put("scooter_address",mac);normalized.put("scooter_serial",serial);
+        writePendingOwnerImport(normalized);importWaitNotified=false;
+    }
+    private void writePendingOwnerImport(JSONObject normalized)throws java.io.IOException{
         File temporary=new File(getFilesDir(),"pending-owner-import.tmp");try(FileOutputStream out=new FileOutputStream(temporary)){out.write(normalized.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}
-        if(!temporary.renameTo(pendingOwnerFile())){temporary.delete();throw new java.io.IOException("Could not stage owner setup");}importWaitNotified=false;
+        if(!temporary.renameTo(pendingOwnerFile())){temporary.delete();throw new java.io.IOException("Could not stage owner setup");}
     }
     /** The document the rider picked for the last owner import, so its Downloads copy can be removed. */
     private Uri pickedOwnerUri;
@@ -2742,29 +2745,63 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void maybeApplyOwnerImport(){
         File pending=pendingOwnerFile();if(destroyed||!resumed||applyingOwnerImport||!pending.isFile())return;
         if(scooterService==null){if(hasBluetoothPermission())ensureService();return;}
-        if(scooterService.isRecording()||scooterService.ble.pending()!=null){if(!importWaitNotified){toast(scooterService.isRecording()?"Import waits for recording":"Import waits for scooter change");importWaitNotified=true;}return;}
+        String unavailable=scooterService.scooterChangeUnavailable();
+        if(unavailable!=null){if(!importWaitNotified){toast(unavailable);importWaitNotified=true;}return;}
         applyingOwnerImport=true;
         try(InputStream in=new FileInputStream(pending)){
             String text=readLimited(in);OwnerIdentityParser.Result parsed=OwnerIdentityParser.parse(text);JSONObject json=new JSONObject(text);String importId=json.getString("import_id");
-            if(!"navee-private-pending-owner-v1".equals(json.optString("format"))||!importId.matches("[0-9a-fA-F-]{36}"))throw new IllegalArgumentException("Import failed. Pick file again.");
-            if(importId.equals(preferences.getString("owner_import_applied",""))){pending.delete();return;}
+            if(!"navee-private-pending-owner-v1".equals(json.optString("format")))throw new IllegalArgumentException("Import failed. Pick file again.");
+            String newProfileId=ScooterProfiles.ownerImportProfileId(importId),targetId=json.optString("target_profile_id","");
+            boolean applied=importId.equals(preferences.getString("owner_import_applied",""));
             String name=json.optString("name",IMPORTED_NAME),mac=json.optString("scooter_address",""),serial=json.optString("scooter_serial","");
+            // NAVEE's owner identity belongs to the account, not the physical scooter. An earlier
+            // unconnected scooter with the same identity must not absorb a fresh Add a scooter flow.
+            ScooterProfiles.Profile match=null;
+            for(ScooterProfiles.Profile profile:scooterService.profiles.all()){
+                if(profile.id.equals(targetId.isEmpty()?newProfileId:targetId)){match=profile;break;}
+            }
+            if(match!=null&&!ownerImportCompatible(match,parsed,mac,serial))throw new IllegalArgumentException("Saved setup no longer matches. Pick file again.");
+            if(match==null&&!targetId.isEmpty()&&!targetId.equals(newProfileId))throw new IllegalArgumentException("That scooter was removed. Pick file again.");
+            if(match==null&&targetId.isEmpty()){
+                for(ScooterProfiles.Profile profile:scooterService.profiles.all()){
+                    if(!ownerImportCompatible(profile,parsed,mac,serial))continue;
+                    if((!serial.isEmpty()&&serial.equals(profile.serial))||(!mac.isEmpty()&&mac.equalsIgnoreCase(profile.mac))){match=profile;break;}
+                }
+                if(match==null&&onboarding!=null){
+                    ScooterProfiles.Profile earlier=onboarding.ownerImportProfile();
+                    if(ownerImportCompatible(earlier,parsed,mac,serial))match=earlier;
+                }
+            }
+            if(applied&&match==null)throw new IllegalArgumentException("Imported scooter is unavailable. Pick file again.");
+            if(applied&&onboarding==null){pending.delete();return;}
+            // Bind an existing target in the private recovery file before changing it. Newly
+            // created targets use the request's deterministic ID from their very first save.
+            String selectedId=match==null?newProfileId:match.id;
+            if(!selectedId.equals(targetId)){json.put("target_profile_id",selectedId);writePendingOwnerImport(json);}
             // A picker return can trigger automatic reconnect. Cancel that session before
             // selecting a profile, after checking recording and pending-command state.
             scooterService.ble.disconnect();
-            ScooterProfiles.Profile match=null;for(ScooterProfiles.Profile profile:scooterService.profiles.all())if(profile.identity.equalsIgnoreCase(parsed.identity)&&profile.role==parsed.role&&((!serial.isEmpty()&&serial.equals(profile.serial))||(!mac.isEmpty()&&mac.equalsIgnoreCase(profile.mac))||(profile.mac.isEmpty()&&profile.serial.isEmpty()))){match=profile;break;}
             // Volt's own fallback stays a default name, so a later model name can replace it.
-            if(match==null){match=scooterService.profiles.create(name,parsed.identity,parsed.role);if(name.trim().isEmpty()||IMPORTED_NAME.equals(name.trim()))match.nameDefault=true;}else{scooterService.profiles.select(match.id);scooterService.ble.profileSelected();}
+            if(match==null)match=scooterService.profiles.createForOwnerImport(importId,name,parsed.identity,parsed.role);
+            else{scooterService.profiles.select(match.id);scooterService.ble.profileSelected();}
+            if(match.id.equals(newProfileId)&&(match.name.trim().isEmpty()||IMPORTED_NAME.equals(match.name.trim())))match.nameDefault=true;
             if(!mac.isEmpty())match.mac=mac;if(!serial.isEmpty())match.serial=serial;scooterService.profiles.update(match);
             // Commit the existing profile snapshot before deleting its recovery staging file.
             SharedPreferences profilePrefs=getSharedPreferences("profiles",MODE_PRIVATE);String savedProfiles=profilePrefs.getString("items","[]");if(!profilePrefs.edit().putString("items",savedProfiles).commit())throw new java.io.IOException();
-            if(!preferences.edit().putString("owner_import_applied",importId).commit())throw new java.io.IOException();pending.delete();importWaitNotified=false;
+            if(!preferences.edit().putString("owner_import_applied",importId).commit())throw new java.io.IOException();
             // During first-run setup the flow connects at its own step, after Nearby devices.
-            if(onboarding!=null){onboarding.onOwnerImported(true);return;}
+            if(onboarding!=null){onboarding.onOwnerImported(true);pending.delete();importWaitNotified=false;return;}
+            pending.delete();importWaitNotified=false;
             selectedPage="home";scrollPositions.put("home",0);scrollPage="home";if(scroll!=null)scroll.scrollTo(0,0);rebuild();toast("Owner setup imported");scooterService.ble.connectLast();if(match.mac.isEmpty())showScanner(false);
         }catch(IllegalArgumentException e){pending.delete();if(onboarding==null)toast(e.getMessage());else onboarding.onOwnerImported(false);}
         catch(Exception e){if(!importWaitNotified){toast("Import paused. Will retry.");importWaitNotified=true;}}
         finally{applyingOwnerImport=false;}
+    }
+    /** Missing hardware identifiers are not matches, but known contradictions forbid reuse. */
+    private static boolean ownerImportCompatible(ScooterProfiles.Profile profile,OwnerIdentityParser.Result parsed,String mac,String serial){
+        return profile!=null&&profile.identity.equalsIgnoreCase(parsed.identity)&&profile.role==parsed.role
+                &&(serial.isEmpty()||profile.serial.isEmpty()||serial.equals(profile.serial))
+                &&(mac.isEmpty()||profile.mac.isEmpty()||mac.equalsIgnoreCase(profile.mac));
     }
     private static String readLimited(InputStream in)throws java.io.IOException{ByteArrayOutputStream buffer=new ByteArrayOutputStream();byte[] chunk=new byte[8192];int count;while((count=in.read(chunk))!=-1){if(buffer.size()+count>1048576)throw new IllegalArgumentException("Setup files must be smaller than 1 MiB.");buffer.write(chunk,0,count);}return new String(buffer.toByteArray(),StandardCharsets.UTF_8);}
     private static void copy(InputStream in,OutputStream out)throws java.io.IOException{byte[] buffer=new byte[65536];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);}

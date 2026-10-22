@@ -274,9 +274,11 @@ public final class BleController {
         // A dropped lock or setting change is a safety fact; otherwise say whether a retry follows.
         // Error codes stay in the event log and diagnostics, never in the shown state.
         boolean dropped=mutation!=null;
-        boolean reconnect=retry&&wanted&&workAllowed();close(reconnect?State.WAITING:State.DISCONNECTED);
+        // A first-time connection has no verified saved address yet. Do not leave
+        // onboarding waiting for a retry that cannot be scheduled: let it offer Try again.
+        boolean reconnect=retry&&wanted&&workAllowed()&&profile!=null&&!profile.mac.isEmpty();close(reconnect?State.WAITING:State.DISCONNECTED);
         String shown=text+(dropped?" · change cancelled":reconnect?" · retrying":"");notice(shown,code==-1?shown:shown+" ("+code+")");
-        if(reconnect&&profile!=null&&!profile.mac.isEmpty()){
+        if(reconnect){
             int session=generation;long delay=Math.min(60000,1000L<<Math.min(6,retries++));event("Reconnect in "+delay/1000+"s");
             handler.postDelayed(()->{if(session==generation&&wanted&&gatt==null&&workAllowed())connect(profile,profile.mac);},delay);
         }
