@@ -6,7 +6,10 @@
 - Prevent shorter percentage-only charge history from overriding uncertain early full-time estimates; preserve existing lower-cutoff calculations.
 - Wait for automatic charger identification or manual selection before enabling Charge done by during UT5 MAX charging.
 - Increase the Charge done by scheduling buffer from ten to twenty minutes for newly enabled or explicitly updated plans.
-- Record new predictions as estimator `ut5-stock-startup-v5`; preserve earlier recordings and saved predictions.
+- Estimate UT5 MAX standard-charger time below 89% from pack voltage, live current and charge age, instead of the battery percentage alone. The gauge's late catch-up and the charger's first-hour current decline no longer make early estimates, especially for lower limits such as 80%, optimistic.
+- Give Charge done by a separate cautious estimate (largest observed catch-up, strongest observed current decline, longest observed finish) before its twenty-minute buffer; the dashboard shows the most likely time.
+- Track when charging starts, or infer it from about ten minutes of current readings, without saving anything.
+- Record new predictions as estimator `ut5-stock-pack-v6`; preserve earlier recordings and saved predictions.
 
 ## 1.4.8 — 2026-10-21
 
