@@ -152,8 +152,16 @@ public final class ChargeSessionStore {
     }
     public static final class Snapshot {
         public final Map<String,Curve> curves; public final int sessions; public final long bytes;
-        Snapshot(Map<String,Curve> curves,int sessions,long bytes){this.curves=Collections.unmodifiableMap(curves);this.sessions=sessions;this.bytes=bytes;}
+        /** Per profile: charge accepted per gauge point in completed charges (any charger). */
+        public final Map<String,BatteryCapacityEstimate.ChargeEvidence> gaugeCharge;
+        Snapshot(Map<String,Curve> curves,int sessions,long bytes){this(curves,sessions,bytes,Collections.emptyMap());}
+        Snapshot(Map<String,Curve> curves,int sessions,long bytes,Map<String,BatteryCapacityEstimate.ChargeEvidence> gaugeCharge){
+            this.curves=Collections.unmodifiableMap(curves);this.sessions=sessions;this.bytes=bytes;
+            this.gaugeCharge=Collections.unmodifiableMap(new LinkedHashMap<>(gaugeCharge));
+        }
     }
+    /** Longest sample spacing still integrated as continuous charging (recovery gaps keep charging). */
+    static final long GAUGE_CHARGE_MAX_STEP_MS = 30*60000L;
     private final File directory;
     // snapshot() normally primes this on the analysis worker before capture is admitted,
     // avoiding reparsing the full retained history in start()'s bounded pruning step.
@@ -280,17 +288,44 @@ public final class ChargeSessionStore {
         final List<File> source;final File current;
         synchronized(this){source=files();current=active;}
         Map<String,List<Evidence>> eligible=new LinkedHashMap<>();Map<String,Session> subjects=new LinkedHashMap<>();int sessions=0;long bytes=0;
+        Map<String,double[]> gauge=new LinkedHashMap<>();
         for(File file:source) {
             bytes+=file.length();if(file.equals(current)||!file.getName().endsWith(".csv"))continue;
             Session session=read(file);Evidence bins=session==null?null:session.evidence();rememberRetention(file,session,bins);
             if(session==null)continue;sessions++;
+            double[] accepted=gaugeCharge(session);
+            if(accepted!=null){double[] sum=gauge.computeIfAbsent(session.profile,ignored->new double[3]);sum[0]+=accepted[0];sum[1]+=accepted[1];sum[2]++;}
             if(bins==null)continue;
             String key=key(session.profile,session.charger);eligible.computeIfAbsent(key,ignored->new ArrayList<>()).add(bins);subjects.put(key,session);
         }
         Map<String,Curve> curves=new LinkedHashMap<>();for(Map.Entry<String,List<Evidence>> item:eligible.entrySet()){
             Session session=subjects.get(item.getKey());curves.put(item.getKey(),new Curve(session.profile,session.charger,item.getValue()));
         }
-        return new Snapshot(curves,sessions,bytes);
+        Map<String,BatteryCapacityEstimate.ChargeEvidence> charge=new LinkedHashMap<>();
+        for(Map.Entry<String,double[]> item:gauge.entrySet())
+            charge.put(item.getKey(),new BatteryCapacityEstimate.ChargeEvidence(item.getValue()[0],item.getValue()[1],(int)item.getValue()[2]));
+        return new Snapshot(curves,sessions,bytes,charge);
+    }
+    /**
+     * {Ah, gauge points} from a completed charge's first percentage change to its first displayed
+     * 100%, including the gauge's late catch-up; null unless it starts below 80% and stays continuous.
+     */
+    static double[] gaugeCharge(Session session){
+        if(session.stop!=Stop.COMPLETE||session.points.size()<2)return null;
+        List<Point> points=session.points;int start=-1,full=-1;
+        for(int i=1;i<points.size();i++){
+            if(start<0&&points.get(i).soc>points.get(i-1).soc)start=i;
+            if(start>=0&&points.get(i).soc>=100){full=i;break;}
+        }
+        if(start<0||full<0||points.get(start).soc>=80)return null;
+        double ah=0;
+        for(int i=start+1;i<=full;i++){
+            Point a=points.get(i-1),b=points.get(i);long step=b.mono-a.mono;
+            if(step<=0||step>GAUGE_CHARGE_MAX_STEP_MS||!Double.isFinite(a.current)||!Double.isFinite(b.current))return null;
+            ah+=step/3600000d*(Math.abs(a.current)+Math.abs(b.current))/2;
+        }
+        double gaugePoints=100-points.get(start).soc;
+        return ah>0&&gaugePoints>0?new double[]{ah,gaugePoints}:null;
     }
     /** Call on an analysis worker. Active files are excluded, so each returned session is stable. */
     public List<HistorySession> recordings(String targetProfile)throws IOException {

@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Rename Capacity experiment to Usable ride energy; an untouched old default title follows the rename and custom titles are kept. It is not a battery-health test.
+- Require 60 battery points across six rides before estimating, set aside rides whose gauge corrected itself mid-ride, and show a 90% range.
+- Show charge per full gauge (Ah) and a charging check from completed charge recordings.
+
 ## 1.4.8 — 2026-10-21
 
 - Refine the experimental UT5 MAX stock-charger time to full below 89% by matching pack voltage and charging current to earlier completed charges, reducing dependence on the displayed battery percentage.

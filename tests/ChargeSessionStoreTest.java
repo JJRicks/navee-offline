@@ -137,7 +137,30 @@ public final class ChargeSessionStoreTest {
         }
         boolean refused=false;try{ChargeSessionStore.reassignJournal(saved,"bad/profile");}catch(IOException expected){refused=true;}check(refused,"invalid destination refused");
     }
+    /** Completed charges below 80% give the charge accepted per gauge point, catch-up included. */
+    static void gaugeChargeCheck()throws Exception{
+        ChargeSessionStore s=store();
+        charge(s,"one",40,ChargeSessionStore.Stop.COMPLETE);
+        BatteryCapacityEstimate.ChargeEvidence e=s.snapshot().gaugeCharge.get("one");
+        check(e!=null&&e.sessions==1&&Math.abs(e.points-59)<1e-9,"Counted from the first percentage change (41%) to 100%");
+        check(Math.abs(e.ah-2*59*60/3600.0)<1e-6,"2 A for 59 one-minute percentage steps: "+(e==null?null:e.ah));
+        charge(s,"one",40,ChargeSessionStore.Stop.STOPPED);
+        charge(s,"one",85,ChargeSessionStore.Stop.COMPLETE);
+        charge(s,"two",40,ChargeSessionStore.Stop.COMPLETE);
+        BatteryCapacityEstimate.ChargeEvidence again=s.snapshot().gaugeCharge.get("one");
+        check(again.sessions==1&&Math.abs(again.ah-e.ah)<1e-9,"Stopped charges and starts above 80% are not counted");
+        check(s.snapshot().gaugeCharge.get("two").sessions==1,"Each scooter keeps its own charging check");
+    }
+    private static void charge(ChargeSessionStore s,String profile,int start,ChargeSessionStore.Stop stop)throws Exception{
+        s.start(profile,ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        for(long t=MONO;t<=MONO+(100-start)*60000L;t+=10000){
+            double soc=Math.floor(start+(t-MONO)/60000.0);
+            s.sample(frame(t,soc));
+        }
+        s.stop(stop);
+    }
     public static void main(String[] args)throws Exception{
+        gaugeChargeCheck();
         ChargeSessionStore a=store();
         session(a,"one",ChargeSessionStore.Charger.STOCK,40,100,60000,false,false);
         ChargeSessionStore.Curve first=curve(a,"one",ChargeSessionStore.Charger.STOCK);

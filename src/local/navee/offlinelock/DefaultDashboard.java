@@ -30,13 +30,13 @@ final class DefaultDashboard {
         add(result, "ride", "Ride recorder",
                 "power_w", 86400000L, stack(8, 1, 3, 3, 3, 1));
         // Six columns need to clear the overview/lock stack before spanning the whole grid.
-        add(result, "capacity", "Capacity experiment",
+        add(result, "capacity", "Usable ride energy",
                 "power_w", 90 * 86400000L, stack(9, 4, 0, 5, 6, 4));
         setExpandedLayouts(result);
         return result;
     }
 
-    /** Wide Home: overview/readings above full-width controls and Capacity experiment. */
+    /** Wide Home: overview/readings above full-width controls and Usable ride energy. */
     private static void setExpandedLayouts(ArrayList<DashboardConfig.Widget> widgets) {
         for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++) {
             if (columns == 1) {

@@ -25,11 +25,71 @@ public final class BatteryCapacityEstimateTest {
             initialAndMidRideDirectionChanges();
             scopeAndEnvironmentalCautions();
             analysisSnapshotsAreReadOnlyAndConsistent();
+            evidenceMinimumsAndLabels();
+            gaugeJumpsAreSetAside();
+            rangeAndCharge();
             unavailableIsNotInsufficient();
             System.out.println("BatteryCapacityEstimateTest: " + assertions + " assertions passed");
         } finally {
             for (File directory : directories) remove(directory);
         }
+    }
+
+    private static void evidenceMinimumsAndLabels() throws Exception {
+        // 5 rides x 15 points = 75 points: enough points, too few rides.
+        BatteryCapacityEstimate.Result r = calculate("A", rides(5, 80, 65, 750, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"), 716.04);
+        check(r.estimatedUsableWh == null && "5 / 6 rides".equals(r.label),
+                "Points alone cannot produce an estimate; the label counts rides");
+        // 6 rides x 9 points = 54 points: enough rides, too few points.
+        r = calculate("A", rides(6, 80, 71, 450, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"), 716.04);
+        check(r.estimatedUsableWh == null && "54 / 60 pts".equals(r.label),
+                "Rides alone cannot produce an estimate; the label counts points");
+        r = calculate("A", rides(6, 80, 70, 600, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"), 716.04);
+        check(r.estimatedUsableWh != null && r.qualifiedRides == BatteryCapacityEstimate.MIN_RIDES
+                && r.batteryDropPoints >= BatteryCapacityEstimate.MIN_TOTAL_DROP, "Six 10-point rides meet both minimums");
+    }
+
+    private static void gaugeJumpsAreSetAside() throws Exception {
+        List<BatteryCapacityEstimate.Ride> normal = rides(6, 80, 70, 600, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal");
+        // 20 points for only 80 Wh (400 Wh per gauge, a third below the others): the gauge corrected itself.
+        Fixture jumped = fixture("A", 80, 60, 800, 360, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal", false);
+        BatteryCapacityEstimate.Result r = calculate("A", with(normal, jumped.ride()), 716.04);
+        near(600, r.estimatedUsableWh, "A gauge jump cannot pull the pooled estimate");
+        check(r.qualifiedRides == 6 && r.rejectedRides == 1 && "Gauge jumped".equals(r.reason)
+                        && r.rejectionReasons.get(BatteryCapacityEstimate.GAUGE_JUMP) == 1,
+                "The set-aside ride is counted and named");
+        // 700 Wh per gauge is within tolerance and stays.
+        Fixture high = fixture("A", 80, 60, 1400, 360, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal", false);
+        r = calculate("A", with(normal, high.ride()), 716.04);
+        check(r.qualifiedRides == 7 && r.rejectedRides == 0, "Ordinary ride-to-ride variation is kept");
+        // A 5-point ride may differ by one point of rounding (20%) on top of the tolerance.
+        Fixture rounded = fixture("A", 80, 75, 400, 360, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal", false);
+        r = calculate("A", with(normal, rounded.ride()), 716.04);
+        check(r.qualifiedRides == 7, "Short rides get one point of rounding tolerance (800 Wh per gauge, +33%)");
+        // Below OUTLIER_MIN_RIDES there is no reliable median, so nothing is set aside.
+        r = calculate("A", with(rides(3, 80, 70, 600, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"), jumped.ride()), 716.04);
+        check(r.qualifiedRides == 4 && r.rejectedRides == 0, "Too few rides to judge a jump keep every ride");
+    }
+
+    private static void rangeAndCharge() throws Exception {
+        List<BatteryCapacityEstimate.Ride> mixed = rides(3, 80, 70, 600, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal");
+        mixed.addAll(rides(3, 80, 70, 660, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"));
+        BatteryCapacityEstimate.Result r = calculate("A", mixed, 716.04);
+        near(630, r.estimatedUsableWh, "Pooled between the two groups");
+        check(r.estimatedLowWh < 630 && r.estimatedHighWh > 630 && r.estimatedHighWh - r.estimatedLowWh < 60,
+                "The 90% range brackets the estimate and reflects the spread");
+        check(Math.abs((r.estimatedUsableWh - r.estimatedLowWh) - (r.estimatedHighWh - r.estimatedUsableWh)) < 1e-9,
+                "The range is symmetric around the pooled ratio");
+        near(630 / 50.0, r.ahPerGauge, "Charge per gauge uses the charge-weighted voltage");
+        check(r.ahPerGaugeLow < r.ahPerGauge && r.ahPerGaugeHigh > r.ahPerGauge, "Charge has its own range");
+        check(r.chargingAhPerGauge == null && r.chargingSessions == 0, "No charge evidence, no charging check");
+        r = BatteryCapacityEstimate.calculate("A", mixed, 716.04, NOW, 90, new BatteryCapacityEstimate.ChargeEvidence(26.6, 200, 4));
+        near(13.3, r.chargingAhPerGauge, "Charging check reports charge per full gauge");
+        check(r.chargingSessions == 4, "Charging check counts its charges");
+        near(630, r.estimatedUsableWh, "The charging check never changes the ride-based estimate");
+        check(BatteryCapacityEstimate.studentT90(5) > BatteryCapacityEstimate.studentT90(17)
+                && BatteryCapacityEstimate.studentT90(17) > BatteryCapacityEstimate.studentT90(1000)
+                && Math.abs(BatteryCapacityEstimate.studentT90(1000) - 1.671) < 1e-9, "Fewer rides widen the range");
     }
 
     private static void unavailableIsNotInsufficient() {
@@ -63,36 +123,42 @@ public final class BatteryCapacityEstimateTest {
                         RideStore.CurrentDirection.POSITIVE_IS_DRAW,
                         "normal",
                         false);
+        List<BatteryCapacityEstimate.Ride> baseline = rides(4, 80, 70, 600, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal");
         BatteryCapacityEstimate.Result r =
-                calculate("A", Arrays.asList(a.ride(), b.ride(), a.ride()), 716.04);
-        near(600, r.estimatedUsableWh, "Energy-weighted20/10pp rides agree at600Wh");
+                calculate("A", with(baseline, a.ride(), b.ride(), a.ride()), 716.04);
+        near(600, r.estimatedUsableWh, "Energy-weighted 20/10pp rides agree at 600 Wh");
         near(
                 600 / 716.04 * 100,
                 r.percentOfAdvertised,
                 "Reference ratio is arithmetic, not battery-health clamp");
         check(
-                r.qualifiedRides == 2 && r.proxyRides == 0 && r.throughputEquivalentWh == null,
+                r.qualifiedRides == 6 && r.proxyRides == 0 && r.throughputEquivalentWh == null,
                 "IDs deduplicated and pool identities retained");
-        near(30, r.batteryDropPoints, "SOC drops summed rather than ratio-average");
+        near(70, r.batteryDropPoints, "SOC drops summed rather than ratio-average");
+        near(600, r.estimatedLowWh, "Agreeing rides have no spread");
+        near(600, r.estimatedHighWh, "Agreeing rides have no spread");
+        near(12, r.ahPerGauge, "Charge per gauge follows the 50 V pack: 600 Wh / 50 V");
         Fixture differentRatio =
                 fixture(
                         "A",
                         90,
                         70,
-                        1800,
+                        1400,
                         360,
                         RideStore.CurrentDirection.POSITIVE_IS_DRAW,
                         "normal",
                         false);
-        r = calculate("A", Arrays.asList(a.ride(), differentRatio.ride()), 500.0);
+        r = calculate("A", with(baseline, a.ride(), differentRatio.ride()), 500.0);
         near(
-                800,
+                440.0 / 70 * 100,
                 r.estimatedUsableWh,
-                "Aggregate sums energy anddrop, does not average600/900 ratios");
+                "Aggregate sums energy and drop, does not average 600/700 ratios");
         near(
-                160,
+                440.0 / 70 * 100 / 500 * 100,
                 r.percentOfAdvertised,
-                "Implausibly high result remains visible instead of clipping to100%");
+                "Implausibly high result remains visible instead of clipping to 100%");
+        check(r.estimatedLowWh < r.estimatedUsableWh && r.estimatedHighWh > r.estimatedUsableWh,
+                "Disagreeing rides widen the range around the pooled estimate");
     }
 
     private static void unconfirmedProxyAndSeparatePools() throws Exception {
@@ -107,7 +173,7 @@ public final class BatteryCapacityEstimateTest {
                         "normal",
                         false);
         BatteryCapacityEstimate.Result r =
-                calculate("A", Collections.singletonList(proxy.ride()), 716.04);
+                calculate("A", with(rides(5, 80, 60, 1000, RideStore.CurrentDirection.UNCONFIRMED, "normal"), proxy.ride()), 716.04);
         near(
                 500,
                 r.throughputEquivalentWh,
@@ -120,7 +186,7 @@ public final class BatteryCapacityEstimateTest {
                 r.estimatedUsableWh == null
                         && r.percentOfAdvertised == null
                         && r.qualifiedRides == 0
-                        && r.proxyRides == 1,
+                        && r.proxyRides == 6,
                 "Proxy never promoted to confirmed capacity");
         check("Proxy · not health".equals(r.label), "Proxy keeps a short honesty label");
         Fixture confirmed =
@@ -143,10 +209,14 @@ public final class BatteryCapacityEstimateTest {
                         RideStore.CurrentDirection.UNCONFIRMED,
                         "normal",
                         false);
-        r = calculate("A", Arrays.asList(confirmed.ride(), smallProxy.ride()), 716.04);
+        List<BatteryCapacityEstimate.Ride> mixed = new ArrayList<>(rides(2, 80, 70, 600, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"));
+        mixed.add(confirmed.ride());
+        mixed.addAll(rides(2, 80, 70, 500, RideStore.CurrentDirection.UNCONFIRMED, "normal"));
+        mixed.add(smallProxy.ride());
+        r = calculate("A", mixed, 716.04);
         check(
                 r.estimatedUsableWh == null && r.throughputEquivalentWh == null,
-                "Separate10pp pools cannot manufacture20pp evidence");
+                "Separate 3-ride pools cannot manufacture 6-ride evidence");
         Fixture returned =
                 fixture(
                         "A",
@@ -181,15 +251,15 @@ public final class BatteryCapacityEstimateTest {
                     sec * 1000L,
                     values(sec * 1000L, 600, 80 - 20 * sec / 720.0, "normal", sec));
         BatteryCapacityEstimate.Ride later = active.ride();
-        BatteryCapacityEstimate.Result r = calculate("A", Arrays.asList(earlier, later), 716.04);
+        BatteryCapacityEstimate.Result r = calculate("A", with(rides(5, 80, 70, 600, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"), earlier, later), 716.04);
         check(
-                r.qualifiedRides == 1 && r.includesActive,
+                r.qualifiedRides == 6 && r.includesActive,
                 "Active ride replaces its earlier snapshot");
         near(
                 600,
                 r.estimatedUsableWh,
                 "Active energy/SOC continuously updates without double counting");
-        near(20, r.batteryDropPoints, "Active replacement retains only the latest battery drop");
+        near(70, r.batteryDropPoints, "Active replacement retains only the latest battery drop");
     }
 
     private static void endpointAndGaugeQuality() throws Exception {
@@ -294,7 +364,7 @@ public final class BatteryCapacityEstimateTest {
                         "small_loss",
                         false);
         BatteryCapacityEstimate.Result r =
-                calculate("A", Collections.singletonList(tinyLoss.ride()), 716.04);
+                calculate("A", with(rides(5, 80, 60, 1000, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"), tinyLoss.ride()), 716.04);
         check(
                 r.estimatedUsableWh != null
                         && r.electricalCoverage >= .95
@@ -346,7 +416,7 @@ public final class BatteryCapacityEstimateTest {
                 "Initial pre-sample choice is not a midride direction change");
         near(
                 500,
-                calculate("A", Collections.singletonList(initial.ride()), 716.04).estimatedUsableWh,
+                calculate("A", with(rides(5, 80, 60, 1000, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "normal"), initial.ride()), 716.04).estimatedUsableWh,
                 "Initial configured direction permits estimate");
         Fixture flip =
                 fixture(
@@ -386,25 +456,25 @@ public final class BatteryCapacityEstimateTest {
                         RideStore.CurrentDirection.POSITIVE_IS_DRAW,
                         "cold",
                         false);
-        BatteryCapacityEstimate.Result r =
-                calculate("A", Collections.singletonList(cold.ride()), 716.04);
+        List<BatteryCapacityEstimate.Ride> colds = with(rides(5, 100, 80, 1000, RideStore.CurrentDirection.POSITIVE_IS_DRAW, "cold"), cold.ride());
+        BatteryCapacityEstimate.Result r = calculate("A", colds, 716.04);
         check(
                 r.estimatedUsableWh != null
-                        && r.qualifiedRides == 1
+                        && r.qualifiedRides == 6
                         && r.rejectedRides == 0,
                 "Cold/full start remains usable evidence");
         near(500, r.estimatedUsableWh, "Cold/full start does not invent a capacity correction");
         near(2, r.minimumTemperatureC, "Actual observed packtemperature preserved");
         check(
-                calculate("B", Collections.singletonList(cold.ride()), 716.04).qualifiedRides == 0,
+                calculate("B", colds, 716.04).qualifiedRides == 0,
                 "Other scooter profile never contributes");
         r =
                 BatteryCapacityEstimate.calculate(
-                        "A", Collections.singletonList(cold.ride()), 716.04, NOW + 100 * DAY, 90);
+                        "A", colds, 716.04, NOW + 100 * DAY, 90);
         check(
                 r.qualifiedRides == 0 && r.estimatedUsableWh == null,
                 "Oldrides excluded from chosenwindow");
-        r = calculate("A", Collections.singletonList(cold.ride()), Double.NaN);
+        r = calculate("A", colds, Double.NaN);
         check(
                 r.advertisedWh == null && r.percentOfAdvertised == null,
                 "Invalid modelreference doesnot fabricate comparison");
@@ -431,7 +501,8 @@ public final class BatteryCapacityEstimateTest {
                     "net measured energy is not positive",
                     "endpoint power and battery readings are missing",
                     "power and battery readings do not align with both ride ends",
-                    "battery gauge rebounded or rose while recording"
+                    "battery gauge rebounded or rose while recording",
+                    BatteryCapacityEstimate.GAUGE_JUMP
                 }) {
             String label = BatteryCapacityEstimate.shortReason(reason);
             check(
@@ -538,6 +609,22 @@ public final class BatteryCapacityEstimateTest {
         if ((mode.equals("low_coverage") && sec % 4 == 1)
                 || (mode.equals("small_loss") && sec == 180)) data.remove("current_a");
         return data;
+    }
+
+    /** More completed rides shaped like a template, so one evidence group can reach MIN_RIDES. */
+    private static List<BatteryCapacityEstimate.Ride> rides(
+            int count, double start, double end, double watts, RideStore.CurrentDirection direction, String mode)
+            throws Exception {
+        List<BatteryCapacityEstimate.Ride> result = new ArrayList<>();
+        for (int i = 0; i < count; i++) result.add(fixture("A", start, end, watts, 360, direction, mode, false).ride());
+        return result;
+    }
+
+    private static List<BatteryCapacityEstimate.Ride> with(
+            List<BatteryCapacityEstimate.Ride> more, BatteryCapacityEstimate.Ride... rides) {
+        List<BatteryCapacityEstimate.Ride> result = new ArrayList<>(Arrays.asList(rides));
+        result.addAll(more);
+        return result;
     }
 
     private static BatteryCapacityEstimate.Result calculate(

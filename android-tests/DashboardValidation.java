@@ -1922,7 +1922,7 @@ public final class DashboardValidation extends Instrumentation {
     }
     private void verifyCapacityExperiment() {
         String id = widget("capacity").id;
-        require(widgetById(id).title.equals("Capacity experiment"), "Capacity widget default title is missing");
+        require(widgetById(id).title.equals("Usable ride energy"), "Capacity widget default title is missing");
         await(() -> "Not enough ride data".contentEquals(((TextView)field(tileById(id), "capacityValue")).getText()),
                 5000, "Capacity widget invented an estimate without recorded rides");
         openOptions(id);

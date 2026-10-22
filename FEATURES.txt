@@ -378,7 +378,7 @@ editing Home.
 
 Home supports 15 widget types: Lock & connection, Your scooter, Battery overview,
 Big reading, Gauge, Live trend, History chart, Reading list, Trip overview,
-Battery health, Capacity experiment, Charging, Quick access, Ride recorder and
+Battery health, Usable ride energy, Charging, Quick access, Ride recorder and
 Note. Each profile has its own dashboard, with separate saved layouts for
 adaptive/selected column counts. A rounded column selector offers Adaptive and
 one through six, with a sliding red highlight and horizontal scrolling when
@@ -474,7 +474,7 @@ Lock bar). Customize titles, colors, selected parameters/readings, gauge
 scales, chart windows and notes where applicable. New widgets remain drafts
 until Save. New/reset dashboards use a six-widget Home: Scooter overview, Lock
 bar, Reading tiles (power, pack temperature, health), Setting tiles (top speed,
-charge schedule), Ride recorder and Capacity experiment (90 days). Compact
+charge schedule), Ride recorder and Usable ride energy (90 days). Compact
 layouts stack full width, with a two-column arrangement at six columns. Expanded
 layouts put the overview beside readings and full-width controls/capacity below. The header status line carries "last
 seen"; the new cards grey stale values instead of a per-card footer. Older
@@ -596,7 +596,7 @@ reopens, including after cancellation. See docs/unified-backup.md,
 docs/app-data-backup.md and docs/user-guide.md.
 
 
-EXPERIMENTAL CAPACITY WIDGET
+USABLE RIDE ENERGY (EXPERIMENTAL; FORMERLY CAPACITY EXPERIMENT)
 
 Analyzes explicit rides for the selected scooter using:
   100 x summed recorded Wh / summed battery-percentage points used.
@@ -609,8 +609,11 @@ Rides need at least one minute, 30 seconds of measured movement, a five-point
 battery drop, 95% electrical coverage, and aligned battery/power end readings.
 Recording gaps/recovery, detected clock or current-direction changes, missing
 endpoints and visible gauge rebounds over one point exclude a ride. Each
-separate evidence group needs at least 20 accepted percentage points before a
-result appears. Sampled trends may miss brief rebounds. Active rides replace
+separate evidence group needs at least 60 accepted percentage points across six
+rides before a result appears. With five or more rides, a ride more than 25%
+from the median energy per point (plus one point of rounding) is set aside as a
+gauge jump. Results show a 90% range from the ride-to-ride spread, the charge
+per gauge (Ah), and a charging check from completed charge recordings. Sampled trends may miss brief rebounds. Active rides replace
 their previous contribution and remain provisional.
 
 Updates about every ten seconds while viewed. Uses a 90-day window by default;
@@ -642,7 +645,7 @@ Only compatible live power enables the reference; this does not identify a
 charger. Unknown models and incompatible readings keep the current-rate fallback.
 Brief boundary fluctuations have bounded tolerance to avoid abrupt ETA switching;
 stale readings and sustained or larger power mismatches still discard the reference.
-The optional ride-capacity experiment never changes charging estimates.
+Usable ride energy never changes charging estimates.
 
 Scooter → Battery → Charger for estimates offers Stock / High-speed without
 Developer options, including while disconnected. This per-scooter manual choice
