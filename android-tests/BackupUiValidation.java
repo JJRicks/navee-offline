@@ -38,11 +38,13 @@ public final class BackupUiValidation extends Instrumentation {
     private int assertions;
     private final ArrayList<String> checks = new ArrayList<>();
     private final CountDownLatch releaseWork = new CountDownLatch(1);
-    @Override public void onCreate(Bundle args) { start(); }
+    private String theme = "dark";
+    @Override public void onCreate(Bundle args) { if(args!=null)theme=args.getString("theme","dark");start(); }
     @Override public void onStart() {
         Bundle result = new Bundle();
         try {
             admit();
+            require(settings().edit().putString("theme",theme).commit(),"Fixture theme did not save");
             ActivityMonitor monitor = addMonitor(MainActivity.class.getName(), null, false);
             MainActivity activity = (MainActivity)startActivitySync(new Intent(getTargetContext(), MainActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -54,13 +56,17 @@ public final class BackupUiValidation extends Instrumentation {
             }
             removeMonitor(monitor);
             MainActivity main=activity;
-            await(()->text(root(main),"Restore a backup")!=null,"Welcome backup link missing");
-            onMain(()->clickText(root(main),"Restore a backup"));
+            await(()->root(main).findViewWithTag("onboarding-restore-backup")!=null,"Welcome backup link missing");
+            require(main.service()==null,"Welcome started Bluetooth before permissions");
+            require(text(root(main),"Restore Volt backup")!=null,"Welcome restore label is not distinct from owner setup");
+            onMain(()->root(main).findViewWithTag("onboarding-restore-backup").performClick());
             AlertDialog consent=(AlertDialog)field(main,"controlDialog");
             require(consent!=null&&consent.isShowing(),"Welcome restore did not open consent");
             require(!DataMaintenance.active(),"Opening consent started maintenance");
             onMain(()->consent.getButton(AlertDialog.BUTTON_NEGATIVE).performClick());
             require(!DataMaintenance.active(),"Cancelling consent paused app data");
+            require(getTargetContext().getSharedPreferences("profiles",0).getAll().isEmpty()
+                    &&!getTargetContext().getSharedPreferences("onboarding",0).getBoolean("onboarding_done",false),"Cancelled restore completed setup or wrote a scooter");
             checks.add("Restore is available directly from welcome without owner setup; cancel leaves app running and data unchanged");
 
             if(Build.VERSION.SDK_INT>=31){
@@ -69,20 +75,22 @@ public final class BackupUiValidation extends Instrumentation {
             }
             onMain(()->invoke(main,"ensureService",new Class<?>[]{}));
             await(()->main.service()!=null,"Local workspace did not initialize after emulator permissions");
+            verifySetupSuccessBackup(main);
             onMain(()->{OnboardingScreen.markDone(getTargetContext());main.rebuild();invoke(main,"select",new Class<?>[]{String.class},"more");});
             MoreScreen more=(MoreScreen)field(main,"screen");
             onMain(()->invoke(more,"selectSection",new Class<?>[]{String.class},"App"));
             require(text(root(main),"Dashboard backups")==null,"Settings no longer carry a separate dashboard backup");
-            onMain(()->invoke(more,"selectSection",new Class<?>[]{String.class},"About"));
-            await(()->root(main).findViewWithTag("data-backup")!=null,"Back up & restore missing from Your data");
+            onMain(()->invoke(more,"selectSection",new Class<?>[]{String.class},""));
+            await(()->root(main).findViewWithTag("data-backup")!=null&&root(main).findViewWithTag("data-backup").isShown(),"Back up & restore missing from the More menu");
+            require(text(root(main),"Save private owner backup")==null,"Confusing separate owner backup export remains");
             require(text(root(main),"Back up & restore")!=null,"Back up & restore label missing");
             onMain(()->{settings().edit().putBoolean("developer_options",true).putString("more_section","Developer").commit();main.rebuild();});
             await(()->root(main).findViewWithTag("developer-example-slot")!=null,"Developer section did not rebuild");
             require(root(main).findViewWithTag("developer-full-export")==null&&root(main).findViewWithTag("developer-full-restore")==null,"Developer options no longer duplicate the backup");
-            checks.add("One Back up & restore entry in Your data; no settings dashboard backup and no developer full backup; slot 3 example kept");
+            checks.add("One obvious Back up & restore entry in More; no separate owner, settings dashboard or developer full export; slot 3 example kept");
 
-            onMain(()->{settings().edit().putString("more_section","About").commit();main.rebuild();});
-            await(()->root(main).findViewWithTag("data-backup")!=null,"Your data did not rebuild");
+            onMain(()->{settings().edit().putString("more_section","").commit();main.rebuild();});
+            await(()->root(main).findViewWithTag("data-backup")!=null,"More backup menu did not rebuild");
             onMain(()->root(main).findViewWithTag("data-backup").performClick());
             AlertDialog chooser=(AlertDialog)field(main,"controlDialog");
             require(chooser.isShowing()&&chooser.getWindow().getDecorView().findViewWithTag("data-backup-create")!=null&&chooser.getWindow().getDecorView().findViewWithTag("data-backup-restore")!=null,"Back up and Restore offered");
@@ -98,10 +106,16 @@ public final class BackupUiValidation extends Instrumentation {
             await(()->root(backup).findViewWithTag("backup-create")!=null,"Back up categories missing");
             require(DataMaintenance.active(),"Back up did not enter maintenance");
             require(root(backup).findViewWithTag("backup-select-all")!=null,"Select all missing");
+            require(((TextView)root(backup).findViewWithTag("backup-scope")).getText().toString().startsWith("Full backup"),"Export does not default to a clearly labeled full backup");
+            require(((java.util.Set<?>)invoke(backup,"selected",new Class<?>[]{})).containsAll(local.navee.offlinelock.AppDataBackup.CATEGORIES),"Default export omits a category");
             for(String category:local.navee.offlinelock.AppDataBackup.CATEGORIES){View box=root(backup).findViewWithTag("backup-category-"+category);
                 if(box!=null)await(()->box.isLaidOut(),"Category row "+category+" was not laid out");
                 require(box instanceof android.widget.CheckBox&&((android.widget.CheckBox)box).getMinHeight()>=dp(backup,48)&&box.getHeight()>=dp(backup,48)&&box.getContentDescription()!=null,"Category row "+category+" is a 48 dp checkbox with a spoken label");}
             require(!((android.widget.CheckBox)root(backup).findViewWithTag("backup-category-rides")).isEnabled(),"An empty category is disabled");
+            onMain(()->root(backup).findViewWithTag("backup-category-preferences").performClick());
+            require(((TextView)root(backup).findViewWithTag("backup-scope")).getText().toString().startsWith("Selected data only"),"Partial selection still claims a full backup");
+            onMain(()->root(backup).findViewWithTag("backup-select-all").performClick());
+            require(((java.util.Set<?>)invoke(backup,"selected",new Class<?>[]{})).containsAll(local.navee.offlinelock.AppDataBackup.CATEGORIES),"Select all did not restore full scope");
             require(textContaining(root(backup),"Permissions and Bluetooth pairing aren't included.")!=null,"Exclusions are stated");
             render(root(backup),"backup-categories.png");
             EditText secret=(EditText)field(backup,"password");
@@ -122,6 +136,8 @@ public final class BackupUiValidation extends Instrumentation {
                 ((EditText)field(backup,"repeat")).setText("Synthetic backup UI test");
                 root(backup).findViewWithTag("backup-create").performClick();
                 require(!((TextView)field(backup,"closeAction")).isEnabled(),"Close Volt stayed enabled while encrypting");
+                require(!root(backup).findViewWithTag("backup-select-all").isEnabled(),"Select all stayed interactive after the export contents were fixed");
+                require(((TextView)root(backup).findViewWithTag("backup-scope")).getText().toString().startsWith("Full backup"),"Encryption changed the selected full-backup description");
             });
             await(()->savePicker.getHits()>0&&!Boolean.TRUE.equals(field(backup,"waitingForPicker")),"Encrypted backup did not reach the cancelled save picker");
             require(((TextView)field(backup,"closeAction")).isEnabled(),"Close Volt stayed disabled after cancelling save picker");
@@ -161,6 +177,32 @@ public final class BackupUiValidation extends Instrumentation {
         finally{releaseWork.countDown();if(current!=null)try{onMain(current::finish);}catch(Throwable ignored){}
             result.putInt("assertions",assertions);result.putStringArrayList("checks",checks);result.putInt("scooter_mutations",0);
             finish("PASS".equals(result.getString("result"))?0:1,result);}
+    }
+    /** The success screen must route to the same encrypted, all-category backup, not plaintext pairing export. */
+    private void verifySetupSuccessBackup(MainActivity main){
+        final Object[][] requested={null};final int[] requests={0};final OnboardingScreen[] success={null};
+        onMain(()->{
+            settings().edit().putBoolean("auto_connect",false).putBoolean("background_connection",false).commit();
+            main.service().profiles.create("Synthetic completed setup","AABBCCDDEEFF",0);
+            local.navee.offlinelock.ScreenHost host=(local.navee.offlinelock.ScreenHost)java.lang.reflect.Proxy.newProxyInstance(
+                    local.navee.offlinelock.ScreenHost.class.getClassLoader(),new Class<?>[]{local.navee.offlinelock.ScreenHost.class},(proxy,method,args)->{
+                        if(method.getName().equals("saveText"))throw new AssertionError("Setup success still exports a plaintext owner file");
+                        if(method.getName().equals("dataBackup")){requested[0]=args;requests[0]++;}
+                        return method.invoke(main,args);
+                    });
+            success[0]=new OnboardingScreen(host,()->{});invoke(success[0],"done",new Class<?>[]{});
+            View backup=success[0].view().findViewWithTag("onboarding-create-backup");
+            require(backup instanceof TextView&&"Back up Volt".contentEquals(((TextView)backup).getText()),"Success screen does not offer a clearly named full backup");
+            require(text(success[0].view(),"Save private owner backup")==null,"Success screen still offers separate owner export");
+            require(backup.performClick(),"Success backup action did not respond");
+        });
+        require(requests[0]==1&&requested[0]!=null&&Boolean.FALSE.equals(requested[0][0])&&requested[0][1]==null,"Success backup did not request the default all-category export");
+        AlertDialog consent=(AlertDialog)field(main,"controlDialog");
+        require(consent!=null&&consent.isShowing()&&textContaining(consent.getWindow().getDecorView(),"Volt pauses until you reopen it.")!=null,"Success backup bypassed unified consent");
+        require(!DataMaintenance.active(),"Success backup entered maintenance before consent");
+        onMain(()->{consent.getButton(AlertDialog.BUTTON_NEGATIVE).performClick();success[0].close();});
+        require(!DataMaintenance.active(),"Cancelling success backup paused app data");
+        checks.add("Setup success Back up Volt uses unified consent and full-default export; no plaintext owner export; cancel leaves the app usable");
     }
     private void admit(){
         String hardware=Build.HARDWARE.toLowerCase(Locale.ROOT);

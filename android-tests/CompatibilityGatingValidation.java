@@ -52,7 +52,7 @@ import local.navee.offlinelock.ScooterService;
  * OEM group, an unknown model) to check that every UI gate follows the same resolver decisions as
  * the write gate: Scooter rows, the limited-model banner, the clock row, the lock switch and Quick
  * access tiles (muted, never removed from the saved layout). The simulator builds no frames.
- * More › Compatibility runs the read-only check on each model and exports the report through the
+ * More › Developer options › Compatibility runs the read-only check on each model and exports the report through the
  * preview's Share and Save file paths (intercepted in-process; the saved file is a synthetic file in
  * the app cache, copied next to the screenshots). The UT5 MAX connection read policy is compared
  * with the 1.3.1 arrays.
@@ -305,7 +305,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
     }
 
     /**
-     * More › Compatibility on the simulator: the check holds every write except the lock, changes
+     * More › Developer options › Compatibility on the simulator: the check holds every write except the lock, changes
      * no simulated setting, finishes within its bounds and offers the report only as a preview.
      */
     private void verifyCompatibility(String pid, String label) throws Exception {

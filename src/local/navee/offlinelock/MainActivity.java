@@ -473,7 +473,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         return registerDashboardLock(content);
     }
     /**
-     * Lock bar: one 48 dp row. Offline it shows the unknown state with Connect (or Cancel);
+     * Lock bar: one 48 dp row. Offline it shows the last known state with Connect (or Cancel);
      * connected, the same tap-or-slide switch fills the row with its state drawn inside.
      */
     private View makeCompactLock(boolean showDisconnect){
@@ -898,11 +898,16 @@ public final class MainActivity extends Activity implements ScreenHost {
                 // The scooter name is already in the Home header; repeating it can fill
                 // a narrow card and push Cancel out of view at larger system font sizes.
                 String unknown=compactLock?"Lock state unknown":"Lock state unverified";
-                offlineTitle.setText(connecting?(compactLock?"Connecting…":"Connecting"):unknown);
-                offlineTitle.setContentDescription(connecting?"Connecting to "+scooterName:unknown);
-                // Only the age of the lock state needs words: the row is tappable and Connect sits beside it.
-                String verified=!connecting&&last>0?"Last verified "+(compactLock?shortRecent(last):DisplayTime.recent(this,preferences,last,System.currentTimeMillis())):"";
-                offlineDetail.setText(verified);offlineDetail.setVisibility(verified.isEmpty()?View.GONE:View.VISIBLE);
+                String known=shownLock==null?null:shownLock?"Locked":"Unlocked";
+                offlineTitle.setText(connecting?(compactLock?"Connecting…":"Connecting"):known==null?unknown:known);
+                offlineTitle.setTextColor(design.muted);
+                String description=known==null?unknown:"Last known lock state: "+known.toLowerCase(java.util.Locale.ROOT)+". Reconnect to verify.";
+                offlineTitle.setContentDescription(connecting?"Connecting to "+scooterName+". "+description:description);
+                // The feature cache contains scooter readbacks, never a requested lock change.
+                // Keep its stale label visible even during reconnect; it does not enable the switch.
+                // A past connection alone cannot verify the lock; its age is already in the header.
+                String detail=known==null?"":connecting?"Last known: "+known.toLowerCase(java.util.Locale.ROOT):"Last known";
+                offlineDetail.setText(detail);offlineDetail.setVisibility(detail.isEmpty()?View.GONE:View.VISIBLE);
             }
         }
         }
@@ -924,22 +929,6 @@ public final class MainActivity extends Activity implements ScreenHost {
     private static boolean lockOffered(BleController ble,Boolean shownLock){
         if(ble==null)return false;CapabilityResolver.Decision d=ble.decision("lock",shownLock==null||!shownLock?1:0);
         return d.available()||d.blockedByRide();
-    }
-    /**
-     * Lock bar detail time, short enough for a 320 dp phone: the clock today, the weekday and clock
-     * within the last week ("Tue 3:02 PM"), otherwise a short date and the clock ("14 Oct 3:02 PM").
-     */
-    private String shortRecent(long wall){
-        java.util.Calendar then=java.util.Calendar.getInstance(),day=java.util.Calendar.getInstance();
-        then.setTimeInMillis(wall);
-        String clock=DisplayTime.clock(this,preferences,wall);
-        // Midnight today, then step back: a calendar-day comparison that stays right across DST changes.
-        day.set(java.util.Calendar.HOUR_OF_DAY,0);day.set(java.util.Calendar.MINUTE,0);
-        day.set(java.util.Calendar.SECOND,0);day.set(java.util.Calendar.MILLISECOND,0);
-        if(!then.before(day))return clock;
-        day.add(java.util.Calendar.DAY_OF_MONTH,-6);
-        String date=!then.before(day)?"EEE":"d MMM";
-        return new java.text.SimpleDateFormat(date,java.util.Locale.ENGLISH).format(new java.util.Date(wall))+" "+clock;
     }
     /** Updates the action presentation without changing the Bluetooth transport. */
     private void updateConnectionAction(boolean ready,boolean connecting){
@@ -1296,7 +1285,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
         private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private final LinearLayout lightsHeader,banner,readOnlyBanner,testBanner;private TextView identifyAction,checkAction,testBannerText,testReviewAction;private String offeredKeys="";
+        private final LinearLayout lightsHeader,banner,readOnlyBanner,testBanner;private TextView identifyAction,testBannerText,testReviewAction;private String offeredKeys="";
         private final View headlightRow,zonesRow,clockSpinner;
         private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
@@ -1329,8 +1318,6 @@ public final class MainActivity extends Activity implements ScreenHost {
             readOnlyBanner.addView(design.icon("lock",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
             TextView readOnlyText=design.text(BleController.LIMITED_MODEL,13,false);LinearLayout.LayoutParams readOnlyWords=new LinearLayout.LayoutParams(0,-2,1);readOnlyWords.leftMargin=design.dp(10);readOnlyWords.rightMargin=design.dp(8);readOnlyBanner.addView(readOnlyText,readOnlyWords);
             identifyAction=pill("Identify",()->{if(scooterService!=null){scooterService.ble.identifyModel();toast(scooterService.ble.message());redraw();}});identifyAction.setContentDescription("Identify scooter model");identifyAction.setTag("scooter-identify-model");readOnlyBanner.addView(identifyAction);
-            checkAction=pill("Check",()->openMoreSection("Compatibility"));checkAction.setContentDescription("Check compatibility");checkAction.setTag("scooter-compatibility-check");
-            LinearLayout.LayoutParams checkSpacing=new LinearLayout.LayoutParams(-2,-2);checkSpacing.leftMargin=design.dp(6);readOnlyBanner.addView(checkAction,checkSpacing);
             readOnlyBanner.setVisibility(View.GONE);view.addView(readOnlyBanner,new LinearLayout.LayoutParams(-1,-2));
             ((LinearLayout.LayoutParams)readOnlyBanner.getLayoutParams()).bottomMargin=design.dp(10);
             // An unfinished guided test (restoration outstanding) stays visible until the owner reviews it.
@@ -1492,11 +1479,19 @@ public final class MainActivity extends Activity implements ScreenHost {
             readOnlyBanner.setVisibility(ble!=null&&ble.limitedModel()?View.VISIBLE:View.GONE);
             java.util.List<TestJournal.Entry> unfinished=ble==null?java.util.Collections.<TestJournal.Entry>emptyList():ble.unresolvedTests();
             boolean recordsLost=ble!=null&&!ble.testRecordsHealthy();
-            testBanner.setVisibility(unfinished.isEmpty()&&!recordsLost?View.GONE:View.VISIBLE);
-            if(recordsLost||!unfinished.isEmpty()){String text=recordsLost?"Test records unavailable":"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"");if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);testReviewAction.setContentDescription(recordsLost?"Review test records":"Review unfinished test");}
+            int elsewhere=ble==null?0:ble.unresolvedTestsElsewhere(),orphaned=ble==null?0:ble.orphanedTests().size();
+            boolean testing=ble!=null&&ble.testing();
+            boolean reviewNeeded=recordsLost||!unfinished.isEmpty()||elsewhere>0||orphaned>0||testing;
+            testBanner.setVisibility(reviewNeeded?View.VISIBLE:View.GONE);
+            if(reviewNeeded){
+                String text=recordsLost?"Test records unavailable"
+                        :!unfinished.isEmpty()?"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"")
+                        :orphaned>0?"Unfinished test · removed scooter"
+                        :elsewhere>0?"Unfinished test · another scooter":"Setting test in progress";
+                if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);
+                testReviewAction.setContentDescription(recordsLost?"Review test records":testing?"Review setting test":"Review unfinished test");
+            }
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
-            // One pill at a time keeps the banner readable on narrow screens: Identify first, then Check.
-            checkAction.setVisibility(ble!=null&&!ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // Rows follow the model's decisions; re-filter when the set of mapped controls changes.
             StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(rowOffered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(topSpeedCard()?'1':'0');
             if(!offered.toString().equals(offeredKeys)){offeredKeys=offered.toString();applyFilter();}
@@ -2624,6 +2619,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(enteringMaintenance||destroyed)return;
         if(restore==null){
             LinearLayout box=new LinearLayout(dialogContext());box.setOrientation(LinearLayout.VERTICAL);box.setPadding(design.dp(22),design.dp(18),design.dp(22),design.dp(4));
+            TextView summary=design.caption(preselect!=null&&preselect.equals("rides")
+                    ?"Save or restore your recorded rides."
+                    :"One backup for scooter access, rides, charges, history, dashboards and settings. Choose what to include next.");
+            summary.setPadding(0,0,0,design.dp(12));box.addView(summary);
             TextView backUp=design.button("Back up",null),restoreButton=design.secondaryButton("Restore",null);
             backUp.setTag("data-backup-create");restoreButton.setTag("data-backup-restore");box.addView(backUp);box.addView(restoreButton);
             AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(preselect!=null&&preselect.equals("rides")?"Ride backups":"Back up & restore").setView(box).setNegativeButton("Cancel",null).create();
@@ -2631,7 +2630,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_NEGATIVE);return;
         }
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(restore?"Restore?":"Back up?")
-                .setMessage((restore?"You’ll review before anything changes. ":"")+"Volt pauses until you reopen it.")
+                .setMessage((restore?"Choose a backup, review its contents, then confirm. Nothing changes before you approve. ":"")+"Volt pauses until you reopen it.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->beginBackup(restore,preselect)).create();
         controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }

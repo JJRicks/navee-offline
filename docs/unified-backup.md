@@ -148,7 +148,7 @@ The app must be reopened after any transfer, including cancel. Derived models ar
 
 Copy is short. The screen keeps FLAG_SECURE, follows the user's theme and text size (as RideBackupActivity does), uses 48 dp rows with checkbox semantics and spoken counts, and a polite live region for status. It has no decorative animation, and any expand honours `Ui.motionEnabled()`.
 
-**Entry.** More → About & permissions → **Your data** → **Back up & restore** opens a dialog with **Back up** and **Restore**. Then a confirm: "Volt pauses until you reopen it." / Continue. Onboarding's "Restore a backup" goes straight to Restore.
+**Entry.** More → **Back up & restore** opens a dialog with **Back up** and **Restore**. Then a confirm: "Volt pauses until you reopen it." / Continue. Onboarding’s prominent **Restore Volt backup** button and setup-path option go straight to Restore, before pairing or Bluetooth permission. The former owner-only export now uses this same full-default flow.
 
 **Back up** (BackupActivity):
 
@@ -194,7 +194,7 @@ A note under the category list: "Permissions and Bluetooth pairing aren't includ
 - Rides → **Ride backups**: a shortcut into the unified flow with only Rides preselected (decision 2).
 - Home → Edit → Layout → Export/Import: kept as a plain layout-file sharing tool (decision 1).
 - MainActivity `fullBackup`/`rideBackup` collapse into `dataBackup(Boolean restore, String preselect)` on `ScreenHost` (a null direction shows the Back up / Restore dialog). RideBackupActivity and its manifest entry are removed, and its mapping UI moves into BackupActivity. `BackupExportCache` keeps the `volt-encrypted-*.voltbackup` pattern for prepared exports.
-- Profile → **Save private owner backup** (plain owner JSON for the desktop helper and onboarding import) is not a data backup and is unchanged (decision 8).
+- Profile/onboarding → **Save private owner backup** is now replaced by the unified full-default backup. Legacy owner setup files still import with an access-only notice (supersedes original decision 8).
 
 ## Implementation plan
 
@@ -274,7 +274,7 @@ Recorded answers to the open questions of the first draft:
 5. `map_basemap_enabled` and `map_basemap_explained` restore as the user's recorded choice. The preview shows "Online map: on" whenever the restored result has it on.
 6. A merged history that would exceed the 24 MiB limit is pruned with TelemetryHistory's own retention rules (`applyRetention`) before it replaces history; if it is still too large the restore stops before any change.
 7. No per-scooter export filter.
-8. The plaintext **Save private owner backup** profile action is unchanged (desktop-helper interchange; out of scope).
+8. **Superseded by the backup discovery follow-up:** the plaintext owner-only export is retired from profile and onboarding screens. Both now use the unified encrypted backup. Legacy owner-file import remains supported.
 9. `control_evidence` keeps transferring, assigned to Scooter preferences. It never authorizes a control.
 10. A complete backup onto a phone with scooters, rides, charges or history defaults to Merge; onto an empty phone the Replace everything switch starts on.
 
@@ -314,3 +314,9 @@ Disposable emulators only (`ranchu`/`goldfish`/`sdk_gphone`), Bluetooth off, nev
 3. `python3 android-tests/run-backup-scenario.py … --render` seeds a synthetic source phone (two scooters, 3 rides, 15 charges), writes complete, single-category, truncated and corrupted `.voltbackup` files, seeds a target phone (another scooter, 12 charges) and renders the restore screens at both default cases: a refused damaged file with **Choose another file**, the category list (Merge by default), the two-scooter destination step and the merge review with the 20-charge limit line. FLAG_SECURE keeps these screens out of screenshots, so the renders are drawn in-process. Without `--render` it leaves the files in `Download/volt-scenario/` for driving the system picker by hand, and `--inspect` reports scooters, rides, charges and settings afterwards.
 
 All three runners passed on emulator-5560 and emulator-5558: every `run-backups.py` journey, both `run-ride-backups.py` cases plus the cold reopen, and `run-backup-scenario.py --render` at both sizes. Inspect the mapping, preview, category and restore renders. Physical-phone restore has not been exercised: real owner data, cloud document providers in the system picker, and the screens seen directly (FLAG_SECURE) still need a phone. Power loss during a restore is not simulated.
+
+## Backup discovery follow-up
+
+The More index now exposes Back up & restore directly. New backups select every available category; a live scope label and `volt-full` / `volt-selected` filename distinguish complete copies from subsets. The old private owner-only export is removed from My scooters, including its Save backup first route.
+
+Restore also accepts strictly validated `navee-offline-owner-v1` JSON through the existing staged, reviewed, transactional merge. These files are marked `owner`, contain only Scooters & setup keys, and are never complete or eligible for Replace everything. Both category preview and final approval explicitly say that rides, history, dashboards and settings are absent. Ordinary pairing-file imports retain their setup role and use the same clear access-only wording. No backup format or encryption change is required.

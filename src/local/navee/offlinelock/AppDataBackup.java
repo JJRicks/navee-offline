@@ -14,7 +14,7 @@ import org.json.JSONObject;
  * Password-protected, local category backup and restore (docs/unified-backup.md). OS permissions,
  * cached map tiles, pending setup/export operations and physical scooter settings are outside
  * every backup. The target's owner-capture cleanup journal is never read, exported, cleared or
- * replaced. Older full backups, .voltrides and dashboard layout files still import.
+ * replaced. Older full backups, .voltrides, dashboard layouts and pairing-only owner files still import.
  *
  * All methods perform disk/crypto work and belong on a worker. Before write/apply, the caller
  * must stop app writers, drain history/recording queues and close every database. After apply,
@@ -37,7 +37,7 @@ public final class AppDataBackup {
         public final long createdAtMs, totalBytes;
         public final int fileCount, preferenceCount, profileCount;
         public final boolean complete, encrypted;
-        /** v2, v1, rides or layout. */
+        /** v2, v1, rides, layout or owner (pairing access only; never a complete backup). */
         public final String format;
         /** Categories in the file with a preview count, in display order. */
         public final Map<String,Integer> categories;

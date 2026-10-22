@@ -60,6 +60,7 @@ try:
     # The committed Volt 1.3.1 file restores after Clear storage.
     clear(); run('push', str(args.fixture.resolve()), external + 'legacy-v1.voltbackup')
     instrument('legacy-v1-restore', 'FullBackupJourneyValidation', '-e', 'mode', 'legacy-v1')
+    clear(); instrument('owner-only-merge', 'FullBackupJourneyValidation', '-e', 'mode', 'owner-only')
     clear(); instrument('adapter', 'AppDataBackupValidation')
     clear(); instrument('dashboard-transfer', 'DashboardTransferValidation')
     for case in ('344x882:dark:1', '725x604:light:1.4'):
@@ -73,7 +74,7 @@ try:
         if 'Not Responding' in run('shell', 'dumpsys', 'window', 'displays', check=False).split('mCurrentFocus', 1)[-1].split('\n', 1)[0]:
             raise SystemExit('A system "isn\'t responding" dialog has focus on ' + args.serial + '; dismiss it and run again')
         name = 'ui-' + case.replace(':', '-')
-        instrument(name, 'BackupUiValidation')
+        instrument(name, 'BackupUiValidation', '-e', 'theme', theme)
         run('pull', external + 'backup-categories.png', str(args.out / (name + '.png')), check=False)
     clear()
     # The maintenance journey binds the real service; Bluetooth itself stays disabled.

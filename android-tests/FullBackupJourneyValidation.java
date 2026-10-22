@@ -1,14 +1,25 @@
 package local.navee.offlinelock.tests;
 
 import android.Manifest;
+import android.app.Activity;
+import android.app.AlertDialog;
 import android.app.Instrumentation;
 import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
 import android.os.Bundle;
+import android.os.SystemClock;
+import android.view.View;
+import android.widget.EditText;
+import android.widget.Switch;
+import android.widget.TextView;
+import java.lang.reflect.Field;
+import java.util.function.BooleanSupplier;
 import java.io.*;
 import java.nio.charset.StandardCharsets;
 import java.nio.file.Files;
@@ -37,7 +48,9 @@ public final class FullBackupJourneyValidation extends Instrumentation {
     private static final String[] C1_FW={"2.0.1.2","1.4.0.7","3.1","0.9.2","u1"}; // meter, controller, BMS, screen, UWB
     /** Device and pending keys planted before export; a backup never carries them. */
     private static final String[] EXCLUDED={"app_settings/last_page","app_settings/more_away_boot","app_settings/owner_import_applied","app_settings/notification_prompted","onboarding/nearby_asked"};
-    private String mode;private int assertions;private Context app;
+    /** Real launch creates these target-local navigation keys; exact restore intentionally retains them. */
+    private static final String[] LOCAL_NAVIGATION={"more_section","stats_section"};
+    private String mode;private int assertions;private Context app;private Activity current;
     @Override public void onCreate(Bundle args){mode=args==null?null:args.getString("mode");start();}
     @Override public void onStart(){
         Bundle result=new Bundle();
@@ -53,12 +66,8 @@ public final class FullBackupJourneyValidation extends Instrumentation {
                 result.putString("phase","EXPORTED");result.putLong("archive_bytes",archive.length());
             } else if("restore-check".equals(mode)) {
                 require(archive.isFile(),"Push the previously exported archive back after clearing storage");
-                AppDataBackup.PreparedRestore prepared;
-                try(InputStream in=new FileInputStream(archive)){prepared=AppDataBackup.stage(app,in,PASSWORD);}
-                require(prepared.profileCount==1&&prepared.fileCount==5,"Unexpected authenticated backup inventory");
-                require(prefs("profiles").getAll().isEmpty()&&!app.getDatabasePath("telemetry-history.db").exists(),"Import staging changed the fresh installation before approval");
-                AppDataBackup.apply(app,prepared);verifyRestored();
-                result.putString("phase","RESTORED_AFTER_CLEAR_STORAGE");result.putInt("restored_files",prepared.fileCount);
+                int files=restoreFromWelcome(archive);verifyRestored();
+                result.putString("phase","RESTORED_FROM_ONBOARDING_AFTER_CLEAR_STORAGE");result.putInt("restored_files",files);
             } else if("legacy-v1".equals(mode)) {
                 File legacy=new File(external,"legacy-v1.voltbackup");require(legacy.isFile(),"Push tests/fixtures/legacy/full-v1.voltbackup after clearing storage");
                 AppDataBackup.PreparedRestore prepared;
@@ -66,13 +75,110 @@ public final class FullBackupJourneyValidation extends Instrumentation {
                 require("v1".equals(prepared.format)&&prepared.complete&&prepared.categories.size()==7,"A 1.3.1 full backup is a complete backup");
                 AppDataBackup.apply(app,prepared);verifyLegacy();
                 result.putString("phase","LEGACY_V1_RESTORED");
-            } else throw new IllegalArgumentException("Use mode export, restore-check or legacy-v1");
+            } else if("owner-only".equals(mode)) {
+                populate();restoreOwnerOnly();result.putString("phase","OWNER_FILE_MERGED_WITHOUT_DATA_LOSS");
+            } else throw new IllegalArgumentException("Use mode export, restore-check, legacy-v1 or owner-only");
             result.putString("result","PASS");result.putString("archive_path",archive.getAbsolutePath());
             result.putBoolean("nearby_granted",app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED);
             result.putInt("scooter_mutations",0);
         } catch(Throwable failure){result.putString("result","FAIL");result.putString("error",failure.getClass().getSimpleName()+": "+failure.getMessage());}
+        finally{if(current!=null)try{runOnMainSync(current::finish);}catch(Throwable ignored){}}
         result.putInt("assertions",assertions);result.putString("fixture","Disposable fresh emulator; real app directories and preferences; synthetic credentials/readings; no service, Bluetooth or sensors");
         finish("PASS".equals(result.getString("result"))?0:1,result);
+    }
+    /** Exercise the actual first-run entry, picker, password and approval instead of bypassing UI. */
+    private int restoreFromWelcome(File archive)throws Exception {
+        if(Build.VERSION.SDK_INT>=31)require(app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)!=PackageManager.PERMISSION_GRANTED
+                &&app.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)!=PackageManager.PERMISSION_GRANTED,"Restore journey must start without Nearby permission");
+        ActivityMonitor mainMonitor=addMonitor(MainActivity.class.getName(),null,false);
+        MainActivity launched=(MainActivity)startActivitySync(new Intent(app,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));current=launched;
+        long until=SystemClock.elapsedRealtime()+8000;
+        while(Boolean.TRUE.equals(field(launched,"startupRedirect"))&&SystemClock.elapsedRealtime()<until){
+            Activity replacement=waitForMonitorWithTimeout(mainMonitor,500);
+            if(replacement instanceof MainActivity){launched=(MainActivity)replacement;current=launched;}
+        }
+        removeMonitor(mainMonitor);final MainActivity main=launched;
+        await(()->view(main,"onboarding-restore-backup")!=null,"Welcome restore entry missing");
+        require(main.service()==null&&!prefs("onboarding").getBoolean("onboarding_done",false),"Restore required pairing or prematurely completed onboarding");
+        click(main,"onboarding-restore-backup");
+        AlertDialog consent=(AlertDialog)field(main,"controlDialog");
+        require(consent!=null&&consent.isShowing()&&!DataMaintenance.active(),"Restore consent was bypassed");
+        ActivityMonitor backupMonitor=addMonitor(BackupActivity.class.getName(),null,false);
+        runOnMainSync(()->consent.getButton(AlertDialog.BUTTON_POSITIVE).performClick());
+        Activity opened=waitForMonitorWithTimeout(backupMonitor,10000);removeMonitor(backupMonitor);
+        require(opened instanceof BackupActivity,"Onboarding did not open the full-data restore");
+        BackupActivity backup=(BackupActivity)opened;current=backup;
+        await(()->view(backup,"restore-choose")!=null,"Restore file picker entry missing");
+        require(DataMaintenance.active(),"Restore did not pause app data");
+        String before=preferenceDigest();
+        Map<String,Object> localNavigation=new LinkedHashMap<>();
+        for(String key:LOCAL_NAVIGATION)if(prefs("app_settings").contains(key))localNavigation.put(key,prefs("app_settings").getAll().get(key));
+        IntentFilter files=new IntentFilter(Intent.ACTION_OPEN_DOCUMENT);files.addCategory(Intent.CATEGORY_OPENABLE);files.addDataType("*/*");
+        ActivityMonitor picker=addMonitor(files,new ActivityResult(Activity.RESULT_OK,new Intent().setData(android.net.Uri.fromFile(archive))),true);
+        click(backup,"restore-choose");
+        await(()->view(backup,"restore-open")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Encrypted backup did not request a password");
+        require(picker.getHits()==1,"Restore bypassed the user file picker");removeMonitor(picker);
+        runOnMainSync(()->((EditText)field(backup,"password")).setText(new String(PASSWORD)));click(backup,"restore-open");
+        await(()->view(backup,"restore-next")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Backup did not reach its content preview");
+        AppDataBackup.PreparedRestore staged=(AppDataBackup.PreparedRestore)field(backup,"staged");
+        require(staged.complete&&staged.profileCount==1&&staged.fileCount==5&&staged.categories.size()==7,"Unexpected full backup inventory");
+        require(before.equals(preferenceDigest())&&prefs("profiles").getAll().isEmpty()&&!app.getDatabasePath("telemetry-history.db").exists(),"Staging changed saved app data before approval");
+        Switch replace=(Switch)view(backup,"restore-replace-all");require(replace!=null,"Full backup cannot restore everything");
+        runOnMainSync(()->replace.setChecked(true));click(backup,"restore-next");
+        await(()->view(backup,"restore-apply")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Final restore review missing");
+        require("Replace everything".contentEquals(((TextView)view(backup,"restore-apply")).getText()),"Full replacement is not explicitly labeled");
+        require(before.equals(preferenceDigest())&&!prefs("onboarding").getBoolean("onboarding_done",false),"Review applied data or completed onboarding before approval");
+        click(backup,"restore-apply");
+        await(()->Boolean.TRUE.equals(field(backup,"terminal")),"Approved restore did not finish");
+        require("Restored. Reopen Volt.".contentEquals(((TextView)field(backup,"status")).getText()),"Restore ended with an error");
+        for(String key:LOCAL_NAVIGATION)require(Objects.equals(localNavigation.get(key),prefs("app_settings").getAll().get(key)),"Restore changed target-local navigation: "+key);
+        return staged.fileCount;
+    }
+    private View view(Activity activity,String tag){return activity.getWindow().getDecorView().findViewWithTag(tag);}
+    private void click(Activity activity,String tag){runOnMainSync(()->{View v=view(activity,tag);require(v!=null&&v.performClick(),"Missing action "+tag);});waitForIdleSync();}
+    private Object field(Object target,String name){try{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(target);}catch(Exception e){throw new IllegalStateException(name,e);}}
+    private void await(BooleanSupplier condition,String message){long until=SystemClock.elapsedRealtime()+20000;while(!condition.getAsBoolean()&&SystemClock.elapsedRealtime()<until)SystemClock.sleep(30);require(condition.getAsBoolean(),message);waitForIdleSync();}
+    /** Legacy pairing files must never look like, or be allowed to perform, a full-data replacement. */
+    private void restoreOwnerOnly()throws Exception {
+        File ownerFile=new File(app.getExternalFilesDir(null),"legacy-owner.json");
+        String owner="{\"format\":\"navee-offline-owner-v1\",\"owner_identity\":\"AABBCCDDEEFF\",\"role\":0,\"name\":\"Additional synthetic scooter\",\"scooter_serial\":\"OTHER-SYNTHETIC-OWNER\"}";
+        Files.write(ownerFile.toPath(),owner.getBytes(StandardCharsets.UTF_8));
+        MainActivity main=(MainActivity)startActivitySync(new Intent(app,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));current=main;
+        await(()->!Boolean.TRUE.equals(field(main,"startupRedirect")),"Main activity did not initialize");
+        runOnMainSync(()->main.dataBackup(true,null));waitForIdleSync();
+        AlertDialog consent=(AlertDialog)field(main,"controlDialog");require(consent!=null&&consent.isShowing(),"Restore consent missing");
+        ActivityMonitor monitor=addMonitor(BackupActivity.class.getName(),null,false);
+        runOnMainSync(()->consent.getButton(AlertDialog.BUTTON_POSITIVE).performClick());
+        Activity opened=waitForMonitorWithTimeout(monitor,10000);removeMonitor(monitor);
+        require(opened instanceof BackupActivity,"Unified restore did not open");BackupActivity backup=(BackupActivity)opened;current=backup;
+        await(()->view(backup,"restore-choose")!=null,"Restore form missing");
+        Map<String,Map<String,?>> before=new LinkedHashMap<>();for(String name:PREFS)if(!name.equals("profiles"))before.put(name,new LinkedHashMap<>(prefs(name).getAll()));
+        String profileId=prefs("app_settings").getString("fixture_profile_id","");
+        Map<String,String> filesBefore=new LinkedHashMap<>();for(File file:durableFiles())filesBefore.put(relative(file),hash(Files.readAllBytes(file.toPath())));
+        IntentFilter filter=new IntentFilter(Intent.ACTION_OPEN_DOCUMENT);filter.addCategory(Intent.CATEGORY_OPENABLE);filter.addDataType("*/*");
+        ActivityMonitor picker=addMonitor(filter,new ActivityResult(Activity.RESULT_OK,new Intent().setData(android.net.Uri.fromFile(ownerFile))),true);
+        click(backup,"restore-choose");await(()->view(backup,"restore-next")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Owner file was not accepted by unified restore");
+        require(picker.getHits()==1,"Owner file skipped the picker");removeMonitor(picker);
+        AppDataBackup.PreparedRestore prepared=(AppDataBackup.PreparedRestore)field(backup,"staged");
+        require(prepared.format.equals("owner")&&!prepared.complete&&prepared.categories.keySet().equals(Collections.singleton("scooters")),"Owner file advertised data it does not contain");
+        require(view(backup,"restore-replace-all")==null&&view(backup,"restore-owner-only")!=null,"Owner file offers full replacement or lacks a scope warning");
+        require(((TextView)view(backup,"restore-owner-only")).getText().toString().contains("no rides"),"Owner file warning does not explain missing rides");
+        require(new ScooterProfiles(app).all().size()==1,"Owner staging changed profiles before approval");
+        click(backup,"restore-next");await(()->view(backup,"restore-review")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Owner destination review missing");
+        android.widget.Spinner destination=(android.widget.Spinner)view(backup,"restore-destination");require(destination!=null,"Owner import destination missing");
+        int add=-1;for(int i=0;i<destination.getCount();i++)if("Add from backup".equals(String.valueOf(destination.getItemAtPosition(i))))add=i;
+        require(add>=0,"No explicit add-scooter choice");final int selection=add;runOnMainSync(()->destination.setSelection(selection));click(backup,"restore-review");
+        await(()->view(backup,"restore-apply")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Owner final preview missing");
+        require("Restore".contentEquals(((TextView)view(backup,"restore-apply")).getText())&&view(backup,"restore-owner-only")!=null,"Owner final preview is presented as full replacement");
+        require(new ScooterProfiles(app).all().size()==1,"Owner review changed profiles before approval");
+        click(backup,"restore-apply");await(()->Boolean.TRUE.equals(field(backup,"terminal")),"Owner merge did not finish");
+        require("Restored. Reopen Volt.".contentEquals(((TextView)field(backup,"status")).getText()),"Owner merge failed");
+        ScooterProfiles profiles=new ScooterProfiles(app);require(profiles.all().size()==2,"Owner file did not add exactly one scooter");
+        ScooterProfiles.Profile original=null;for(ScooterProfiles.Profile p:profiles.all())if(p.id.equals(profileId))original=p;
+        require(original!=null&&original.identity.equals("000000000000")&&original.name.equals("Synthetic clear-storage scooter"),"Owner import replaced the original scooter");
+        for(Map.Entry<String,Map<String,?>> e:before.entrySet())require(e.getValue().equals(prefs(e.getKey()).getAll()),"Owner import changed unrelated preferences: "+e.getKey());
+        require(filesBefore.size()==durableFiles().size(),"Owner import changed the saved file inventory");
+        for(File file:durableFiles())require(filesBefore.get(relative(file)).equals(hash(Files.readAllBytes(file.toPath()))),"Owner import changed "+relative(file));
     }
     private void admitFresh() {
         String hardware=Build.HARDWARE.toLowerCase(Locale.ROOT);
@@ -155,7 +261,7 @@ public final class FullBackupJourneyValidation extends Instrumentation {
         require(history.closeAndAwait(10000)&&!AppDataBackup.needsRecovery(app),"Legacy restore completed");
     }
     private void verifyRestored()throws Exception {
-        SharedPreferences settings=prefs("app_settings");require(settings.getString(DIGEST,"").equals(preferenceDigest()),"Exact full preference inventory differs after clear-storage restore");
+        SharedPreferences settings=prefs("app_settings");require(settings.getString(DIGEST,"").equals(preferenceDigest()),"Exact full preference inventory differs after clear-storage restore; keys: "+preferenceKeys());
         for(String key:EXCLUDED){String[] part=key.split("/");require(!prefs(part[0]).contains(part[1]),"Excluded key restored: "+key);}
         JSONObject hashes=new JSONObject(settings.getString("fixture_file_hashes","{}"));List<File> files=durableFiles();require(hashes.length()==5&&files.size()==5,"Restored durable file inventory differs");
         for(File file:files)require(hashes.getString(relative(file)).equals(hash(Files.readAllBytes(file.toPath()))),"Restored file byte hash differs: "+relative(file));
@@ -185,10 +291,11 @@ public final class FullBackupJourneyValidation extends Instrumentation {
     private String preferenceDigest()throws Exception {
         ByteArrayOutputStream bytes=new ByteArrayOutputStream();DataOutputStream out=new DataOutputStream(bytes);
         for(String name:PREFS){text(out,name);Map<String,?> all=new TreeMap<>(prefs(name).getAll());for(Map.Entry<String,?> e:all.entrySet()){
-            if(e.getKey().equals(DIGEST)||Arrays.asList(EXCLUDED).contains(name+"/"+e.getKey()))continue;text(out,e.getKey());Object v=e.getValue();text(out,v.getClass().getSimpleName());
+            if(e.getKey().equals(DIGEST)||Arrays.asList(EXCLUDED).contains(name+"/"+e.getKey())||(name.equals("app_settings")&&Arrays.asList(LOCAL_NAVIGATION).contains(e.getKey())))continue;text(out,e.getKey());Object v=e.getValue();text(out,v.getClass().getSimpleName());
             if(v instanceof Set){for(String s:new TreeSet<>((Set<String>)v))text(out,s);}else text(out,String.valueOf(v));
         }}out.flush();return hash(bytes.toByteArray());
     }
+    private String preferenceKeys(){Map<String,Set<String>> result=new LinkedHashMap<>();for(String name:PREFS)result.put(name,new TreeSet<>(prefs(name).getAll().keySet()));return result.toString();}
     private static void text(DataOutputStream out,String s)throws Exception{byte[] bytes=s.getBytes(StandardCharsets.UTF_8);out.writeInt(bytes.length);out.write(bytes);}
     private static String hash(byte[] bytes)throws Exception{StringBuilder text=new StringBuilder();for(byte b:MessageDigest.getInstance("SHA-256").digest(bytes))text.append(String.format(Locale.ROOT,"%02x",b&255));return text.toString();}
     private void require(boolean okay,String message){assertions++;if(!okay)throw new AssertionError(message);}

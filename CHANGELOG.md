@@ -1,5 +1,12 @@
 # Changelog
 
+## Unreleased
+
+- Show the last confirmed lock state while disconnected or reconnecting, clearly marked as last known.
+- Move the compatibility checker into Developer options; keep unfinished test recovery accessible.
+- Put Back up & restore directly in More, replacing the separate owner-only export. New backups include all saved app data by default and clearly identify partial selections.
+- Make full backup restore prominent during onboarding. Older owner setup files import through the same restore flow with an explicit scooter-access-only notice.
+
 ## 1.4.8 — 2026-10-21
 
 - Refine the experimental UT5 MAX stock-charger time to full below 89% by matching pack voltage and charging current to earlier completed charges, reducing dependence on the displayed battery percentage.

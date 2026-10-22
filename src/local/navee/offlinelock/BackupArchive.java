@@ -13,12 +13,12 @@ import javax.crypto.SecretKey;
 /**
  * Category backups (`.voltbackup` payload version 2) and the read-only restore plan, without
  * Android APIs. Every new file uses the version 1 record encryption unchanged. Staging also
- * accepts the older full backup, `.voltrides` and dashboard layout files. Nothing here changes
+ * accepts the older full backup, `.voltrides`, dashboard layouts and pairing-only owner files. Nothing here changes
  * live data: BackupTransaction applies an approved Plan. The caller pauses every app writer first.
  */
 final class BackupArchive {
     static final String FORMAT = "volt-app-data", LAYOUT_SOURCE = "layout-file", SKIP = "", NO_SCOOTER = "unconfigured";
-    static final int VERSION = 2, MAX_MANIFEST = 1024 * 1024, MAX_LAYOUT = 1024 * 1024;
+    static final int VERSION = 2, MAX_MANIFEST = 1024 * 1024, MAX_LAYOUT = 1024 * 1024, MAX_OWNER = 16 * 1024;
     static final long HISTORY_BYTES = 64L * 1024 * 1024;
     /** File kinds recognised by content, never by name. */
     static final int UNSUPPORTED = 0, ENCRYPTED = 1, RIDE_FILE = 2, LAYOUT_FILE = 3;
@@ -54,7 +54,7 @@ final class BackupArchive {
         }
     }
     static final class Prepared {
-        final String kind; // v2, v1, rides or layout
+        final String kind; // v2, v1, rides, layout or owner (pairing access only)
         final File directory, data;
         final long createdAtMs; final boolean complete;
         /** Categories in the file, in registry order, with an item count for the preview. */
@@ -236,7 +236,7 @@ final class BackupArchive {
         switch (sniff(head, length)) {
             case ENCRYPTED: return encrypted(storage, in, password);
             case RIDE_FILE: return rides(storage, in);
-            case LAYOUT_FILE: return layout(storage, in);
+            case LAYOUT_FILE: return jsonFile(storage, in);
             default: throw new IOException("Choose a Volt backup file.");
         }
     }
@@ -360,11 +360,18 @@ final class BackupArchive {
             return finish(storage, "rides", rides.directory, data, rides.createdAtMs, false, Collections.singleton(BackupRegistry.RIDES), new LinkedHashMap<>(), table, count, rides.bytes);
         } catch (Exception failure) { throw failed(rides.directory, failure); }
     }
-    private static Prepared layout(Storage storage, InputStream in) throws IOException {
+    private static Prepared jsonFile(Storage storage, InputStream in) throws IOException {
         byte[] bytes = AppDataArchive.readBounded(in, MAX_LAYOUT); String json;
         try { json = StandardCharsets.UTF_8.newDecoder().onMalformedInput(CodingErrorAction.REPORT).onUnmappableCharacter(CodingErrorAction.REPORT).decode(ByteBuffer.wrap(bytes)).toString(); }
         catch (IOException bad) { throw new IOException("Choose a Volt backup file.", bad); }
         if (json.startsWith("﻿")) json = json.substring(1);
+        // Strict parsing rejects duplicate keys and excessive nesting before either Android
+        // layout parsing or credentials are considered. File names never select an import mode.
+        Map<String, Object> parsed = BackupJson.object(BackupJson.parse(json, 12));
+        if ("navee-offline-owner-v1".equals(parsed.get("format"))) return owner(storage, parsed, bytes.length);
+        return layout(storage, json, bytes.length);
+    }
+    private static Prepared layout(Storage storage, String json, int length) throws IOException {
         String[] layout = storage.dashboardLayout(json);
         if (layout == null || layout.length != 5 || layout[0] == null || layout[1] == null) throw new IOException("Not a dashboard layout file.");
         Map<String, Object> app = new LinkedHashMap<>();
@@ -376,8 +383,47 @@ final class BackupArchive {
         Map<String, Map<String, Object>> prefs = new LinkedHashMap<>(); prefs.put("app_settings", app);
         LinkedHashMap<String, Source> table = new LinkedHashMap<>(); table.put(LAYOUT_SOURCE, new Source(LAYOUT_SOURCE, "Layout file", ""));
         File directory = newStage(storage);
-        try { File data = new File(directory, "data"); AppDataArchive.mkdir(data); return finish(storage, "layout", directory, data, 0, false, Collections.singleton(BackupRegistry.DASHBOARDS), prefs, table, 0, bytes.length); }
+        try { File data = new File(directory, "data"); AppDataArchive.mkdir(data); return finish(storage, "layout", directory, data, 0, false, Collections.singleton(BackupRegistry.DASHBOARDS), prefs, table, 0, length); }
         catch (Exception failure) { throw failed(directory, failure); }
+    }
+    /** Old owner exports contain one access key, not app data. Convert to a Scooters-only
+     * staged profile so the ordinary preview, add-only merge and transaction apply unchanged. */
+    private static Prepared owner(Storage storage, Map<String, Object> json, int length) throws IOException {
+        if (length > MAX_OWNER) throw new IOException("The pairing file is too large.");
+        Set<String> allowed = new HashSet<>(Arrays.asList("format", "owner_identity", "role", "name", "scooter_address", "scooter_serial", "model_name", "captured_at_utc", "note"));
+        if (!allowed.containsAll(json.keySet())) throw new IOException("The pairing file contains unsupported fields.");
+        String identity = ownerText(json, "owner_identity", 12, true).toUpperCase(Locale.ROOT);
+        if (!identity.matches("[0-9A-F]{12}")) throw new IOException("The pairing file has an invalid owner identity.");
+        Object roleValue = json.get("role");
+        if (!(roleValue instanceof Number) || (((Number)roleValue).doubleValue() != 0 && ((Number)roleValue).doubleValue() != 1))
+            throw new IOException("The pairing file has an invalid owner role.");
+        int role = ((Number)roleValue).intValue();
+        // The command-line and browser setup helpers emit this metadata rather than a
+        // user's profile name. It is display text only, never model capability evidence.
+        String model = ownerText(json, "model_name", 80, false).trim();
+        ownerText(json, "captured_at_utc", 64, false); ownerText(json, "note", 1024, false);
+        String name = ownerText(json, "name", 80, false).trim(); if (name.isEmpty()) name = model.isEmpty() ? "Scooter" : model;
+        String mac = ownerText(json, "scooter_address", 17, false).toUpperCase(Locale.ROOT);
+        if (!mac.isEmpty() && !mac.matches("([0-9A-F]{2}:){5}[0-9A-F]{2}")) throw new IOException("The pairing file has an invalid Bluetooth address.");
+        String serial = ownerText(json, "scooter_serial", 128, false);
+        // Old files had no UUID. A stable private ID makes repeat imports idempotent even
+        // before either a serial or address has been discovered; names do not affect it.
+        String id = UUID.nameUUIDFromBytes(("volt-owner-v1\0" + identity + "\0" + role + "\0" + mac + "\0" + serial.toUpperCase(Locale.ROOT)).getBytes(StandardCharsets.UTF_8)).toString();
+        String raw = "{\"id\":" + BackupJson.quote(id) + ",\"name\":" + BackupJson.quote(name)
+                + ",\"identity\":" + BackupJson.quote(identity) + ",\"role\":" + role
+                + ",\"mac\":" + BackupJson.quote(mac) + ",\"serial\":" + BackupJson.quote(serial) + ",\"lastConnected\":0}";
+        Map<String, Object> profile = new LinkedHashMap<>(); profile.put("items", "[" + raw + "]"); profile.put("active", id);
+        Map<String, Map<String, Object>> prefs = new LinkedHashMap<>(); prefs.put("profiles", profile);
+        File directory = newStage(storage);
+        try { File data = new File(directory, "data"); AppDataArchive.mkdir(data); return finish(storage, "owner", directory, data, 0, false, Collections.singleton(BackupRegistry.SCOOTERS), prefs, null, 0, length); }
+        catch (Exception failure) { throw failed(directory, failure); }
+    }
+    private static String ownerText(Map<String, Object> json, String key, int max, boolean required) throws IOException {
+        Object value = json.get(key);
+        if (!json.containsKey(key) && !required) return "";
+        if (!(value instanceof String) || ((String)value).length() > max || ((String)value).matches("(?s).*[\\x00-\\x1f\\x7f].*"))
+            throw new IOException("The pairing file has an invalid " + key.replace('_', ' ') + ".");
+        return (String)value;
     }
     /** Validate everything staged and describe it. Unreadable recordings are kept for an exact
      * Replace everything (as older versions copied them) but are never merged. */
@@ -469,7 +515,7 @@ final class BackupArchive {
             BackupProfiles.Profile item = BackupProfiles.find(prepared.profiles, source);
             BackupProfiles.Profile match = item == null ? new BackupProfiles.Profile(source, info.name, "", 0, "", info.serial, "") : item;
             String matched = null;
-            for (BackupProfiles.Profile p : local) if (p.sameScooter(match)) { matched = p.id; break; }
+            for (BackupProfiles.Profile p : local) if (sameScooter(prepared, p, match)) { matched = p.id; break; }
             // A layout file belongs to no scooter: default to the selected one, as Home's import did.
             if (source.equals(LAYOUT_SOURCE) && !local.isEmpty()) matched = active instanceof String && BackupProfiles.find(local, (String) active) != null ? (String) active : local.get(0).id;
             boolean addable = selected.contains(BackupRegistry.SCOOTERS) && item != null && matched == null;
@@ -546,7 +592,7 @@ final class BackupArchive {
         List<BackupProfiles.Profile> added = new ArrayList<>(); int here = 0, skipped = 0;
         for (BackupProfiles.Profile p : prepared.profiles) {
             boolean matched = BackupProfiles.find(local, p.id) != null;
-            for (BackupProfiles.Profile mine : local) matched |= mine.sameScooter(p);
+            for (BackupProfiles.Profile mine : local) matched |= sameScooter(prepared, mine, p);
             String target = mapping.get(p.id);
             if (target == null || target.equals(SKIP)) skipped++;
             else if (matched || !target.equals(p.id)) here++;
@@ -564,10 +610,19 @@ final class BackupArchive {
         if (!local.isEmpty() || !added.isEmpty()) profiles.put("legacy_migrated", true);
         boolean configured = false;
         for (BackupProfiles.Profile p : local) configured |= p.configured();
+        boolean alreadyConfigured = configured;
         for (BackupProfiles.Profile p : added) configured |= p.configured();
-        if (configured) { Map<String, Object> onboarding = result.get("onboarding"); onboarding.clear(); onboarding.put(BackupRegistry.OnboardingKeys.DONE, true); }
+        if (configured && (!prepared.kind.equals("owner") || !alreadyConfigured)) { Map<String, Object> onboarding = result.get("onboarding"); onboarding.clear(); onboarding.put(BackupRegistry.OnboardingKeys.DONE, true); }
         lines.add("Scooters: adds " + added.size() + " · " + here + " already here");
         if (skipped > 0) lines.add(plural(skipped, "scooter") + " skipped · not restored");
+    }
+    private static boolean sameScooter(Prepared prepared, BackupProfiles.Profile mine, BackupProfiles.Profile incoming) {
+        if (mine.sameScooter(incoming)) return true;
+        // Only legacy pairing imports may lack both identifiers. Do not change the matching
+        // rules for full/category archives, and never replace an existing credential.
+        return prepared.kind.equals("owner") && mine.serial.isEmpty() && incoming.serial.isEmpty()
+                && mine.mac.isEmpty() && incoming.mac.isEmpty() && mine.role == incoming.role
+                && !mine.identity.isEmpty() && mine.identity.equalsIgnoreCase(incoming.identity);
     }
     /** Dashboards or scooter preferences: each mapped scooter's entries are replaced as a set. */
     private static void perScooter(String category, Prepared prepared, Map<String, String> mapping, Map<String, Integer> uses, Map<String, String> names,

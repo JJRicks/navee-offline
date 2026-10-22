@@ -21,7 +21,7 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--app', type=Path, required=True)
 parser.add_argument('--runner', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
-parser.add_argument('--mode', default='all', choices=('all', 'guided', 'interrupt', 'queue'))
+parser.add_argument('--mode', default='all', choices=('all', 'guided', 'interrupt', 'queue', 'recovery-navigation'))
 parser.add_argument('--case', action='append', help='widthxheight:theme:system-font-scale[:app-text-scale]')
 args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
@@ -83,6 +83,12 @@ try:
             run('pull', REMOTE, str(destination.resolve()), check=False)
             passed['guided'] = 'result=PASS' in output and 'result=FAIL' not in output
             if not passed['guided']: print(output, flush=True)
+        if args.mode in ('all', 'recovery-navigation'):
+            fresh()
+            output = instrument('recovery-navigation', theme, text, variant)
+            (destination / 'recovery-navigation-result.txt').write_text(output)
+            passed['recovery_navigation'] = 'result=PASS' in output and 'result=FAIL' not in output
+            if not passed['recovery_navigation']: print(output, flush=True)
         if args.mode in ('all', 'interrupt'):
             fresh()
             output = instrument('interrupt-start', theme, text, variant)

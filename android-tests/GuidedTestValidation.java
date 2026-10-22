@@ -82,6 +82,7 @@ public final class GuidedTestValidation extends Instrumentation {
             admit(mode); admitted = true;
             if (!mode.equals("interrupt-resume")) {
                 require(settings().edit().putBoolean("auto_connect", false).putBoolean("background_connection", false)
+                        .putBoolean("developer_options", true)
                         .putString("theme", arguments.getString("theme", "dark")).putString("units", "mi")
                         .putFloat("text_scale", Float.parseFloat(arguments.getString("text_scale", "1"))).commit(), "Fixture settings failed");
                 seed();
@@ -91,6 +92,7 @@ public final class GuidedTestValidation extends Instrumentation {
             else if (mode.equals("queue")) queueLifecycle();
             else if (mode.equals("interrupt-start")) interruptStart();
             else if (mode.equals("interrupt-resume")) interruptResume();
+            else if (mode.equals("recovery-navigation")) recoveryNavigation();
             else throw new IllegalArgumentException("Unknown mode " + mode);
             result.putString("result", "PASS");
         } catch (Throwable error) {
@@ -156,6 +158,47 @@ public final class GuidedTestValidation extends Instrumentation {
         String serial = null; for (String[] m : MODELS) if (m[0].equals(label)) serial = m[1];
         for (ScooterProfiles.Profile p : activity.service().profiles.all()) if (p.serial.equals(serial)) return p;
         throw new IllegalStateException("No profile " + label);
+    }
+
+    /** Other-profile and forgotten-profile journals still have an ordinary recovery entry with dev tools hidden. */
+    private void recoveryNavigation()throws Exception {
+        ScooterProfiles.Profile other=profileFor("mapped");
+        main(()->{
+            settings().edit().putBoolean("developer_options",false).commit();
+            TestJournal.Entry entry=new TestJournal.Entry();entry.testId="0123456789abcdef";entry.profileId=other.id;
+            entry.feature="display_units";entry.variantId="display_units.ut5";entry.phase="OUTSTANDING";entry.baseline=1;entry.target=0;
+            entry.createdWall=entry.updatedWall=System.currentTimeMillis();
+            try{((TestJournal)field(activity.service().ble,"testJournal")).commit(entry);}catch(Exception e){throw new IllegalStateException(e);}
+            require(activity.service().ble.unresolvedTests().isEmpty()&&activity.service().ble.unresolvedTestsElsewhere()==1,"Elsewhere-only fixture is invalid");
+            invoke(activity,"select",new Class<?>[]{String.class},"controls");
+        });settle();
+        awaitText("Unfinished test · another scooter");openRecoveryFromBanner();
+        awaitText("1 unfinished test on another scooter. Select it to review.");
+        requireRecoveryOnly();
+        main(()->{
+            activity.service().profiles.remove(other.id);activity.service().ble.profileSelected();
+            require(activity.service().ble.unresolvedTestsElsewhere()==0&&activity.service().ble.orphanedTests().size()==1,"Orphan-only fixture is invalid");
+            invoke(activity,"select",new Class<?>[]{String.class},"controls");
+        });settle();
+        awaitText("Unfinished test · removed scooter");openRecoveryFromBanner();
+        awaitText("Its scooter was forgotten, so Volt can't check this setting or set it back. Check it on the scooter itself.");
+        requireRecoveryOnly();
+        tapDescription("Dismiss the unfinished Dashboard units test of a forgotten scooter","orphan recovery");
+        awaitText("No unfinished tests.");requireRecoveryOnly();
+        main(()->{
+            require(activity.service().ble.orphanedTests().isEmpty(),"Orphan dismissal did not resolve the journal");
+            require(((Number)field(activity.service().ble,"mutationSequence")).longValue()==0,"Recovery navigation wrote a scooter command");
+            invoke(activity,"select",new Class<?>[]{String.class},"controls");
+        });settle();
+        main(()->require(!root().findViewWithTag("scooter-review-test").isShown(),"Resolved recovery banner remains visible"));
+        checks.add("With Developer options hidden, other-profile and forgotten-profile tests retain Scooter Review access; recovery exposes no checker or new tests, and orphan dismissal sends no command");
+    }
+    private void openRecoveryFromBanner(){
+        main(()->{View review=root().findViewWithTag("scooter-review-test");require(review!=null&&review.isShown(),"Recovery entry is hidden");review.performClick();});settle();
+    }
+    private void requireRecoveryOnly(){
+        main(()->{String shown=texts(root());require(!shown.contains("Run check")&&!shown.contains("Run again")&&!shown.toLowerCase(Locale.ROOT).contains("try a setting")
+                &&root().findViewWithTag("developer-compatibility-check")==null,"Recovery exposed developer checker tools");});
     }
 
     // ---- guided -------------------------------------------------------------------------------
@@ -686,6 +729,8 @@ public final class GuidedTestValidation extends Instrumentation {
         require(before.length == 4 && before[1].equals("OBSERVE") && before[2].equals("1") && before[3].equals("0"), "interrupt marker " + m);
         ScooterProfiles.Profile p = profileFor("ut5");
         main(() -> {
+            // A pre-upgrade unfinished test must remain recoverable with Developer options hidden.
+            require(settings().edit().putBoolean("developer_options", false).commit(), "Could not hide Developer options for recovery");
             BleController ble = activity.service().ble;
             require(!ble.testing() && ble.guidedTest() == null, "a test resumed after process death");
             List<TestJournal.Entry> open = ble.unresolvedTests();
@@ -696,6 +741,9 @@ public final class GuidedTestValidation extends Instrumentation {
         awaitText("Unfinished test · Dashboard units"); screenshot("interrupt-2-relaunch-banner");
         main(() -> { View review = root().findViewWithTag("scooter-review-test"); require(review != null && review.isShown(), "no Review pill"); require("Review unfinished test".contentEquals(review.getContentDescription()), "Review pill label " + review.getContentDescription()); review.performClick(); }); settle();
         awaitText("Unfinished test · Dashboard units");
+        main(() -> require(!texts(root()).contains("Run check") && !texts(root()).contains("Run again")
+                && !texts(root()).contains("Try a setting") && root().findViewWithTag("developer-compatibility-check") == null,
+                "Recovery opened the developer checker"));
         main(() -> require(texts(root()).contains("Connect to this scooter to review.") && texts(root()).contains("Setting confirmed · Interrupted/no response"), "offline review " + texts(root()).replace('\n', '|')));
         revealText("Unfinished test · Dashboard units"); screenshot("interrupt-3-relaunch-review-offline");
         // The synthetic scooter kept the test value through the app's death.
@@ -718,6 +766,8 @@ public final class GuidedTestValidation extends Instrumentation {
         });
         awaitText("Restoration confirmed"); revealText("Test · Dashboard units"); screenshot("interrupt-5-restored");
         closeCard("ut5");
+        main(() -> require(texts(root()).contains("No unfinished tests.") && !texts(root()).contains("Try a setting")
+                && !texts(root()).contains("Run check"), "Recovery completion exposed new developer work"));
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "controls")); settle();
         main(() -> require(byText(root(), "Unfinished test · Dashboard units") == null, "banner after restore"));
         checks.add("Process killed after the target was confirmed: on relaunch the journal reads OUTSTANDING (Setting confirmed · Interrupted/no response), the Scooter page shows the banner, "

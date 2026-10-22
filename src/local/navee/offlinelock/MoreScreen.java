@@ -67,13 +67,13 @@ public final class MoreScreen implements AppScreen {
     private LinearLayout cardDestination, onboardingCard, sectionMenu, indexView, sectionHeader;
     private View sectionBack;
     private TextView sectionTitle, sectionBackLabel;
-    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Compatibility", "Data", "About", "Developer"};
+    private static final String[] SECTIONS = {"App", "Scooters", "Security", "Lab", "Data", "About", "Developer"};
     private static final String[] SECTION_LABELS = {"App preferences", "My scooters", "PIN & proximity unlock",
-            "Experimental controls", "Compatibility", "Data & history", "About & permissions", "Developer options"};
+            "Experimental controls", "Data & history", "About & permissions", "Developer options"};
     private static final String[] SECTION_TITLES = {"App preferences", "My scooters", "PIN & proximity",
-            "Firmware lab", "Compatibility", "Data & history", "About & permissions", "Developer options"};
-    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "check", "history", "info", "lab"};
-    /** More › Compatibility: the read-only model check and its report preview. */
+            "Firmware lab", "Data & history", "About & permissions", "Developer options"};
+    private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "history", "info", "lab"};
+    /** More › Developer options › Compatibility; legacy unfinished tests retain a recovery-only route. */
     private CompatibilityPanel compatibilityPanel;
     /** TelemetryHistory's database file; only its size on disk is read here, never its contents. */
     private static final String HISTORY_DATABASE = "telemetry-history.db";
@@ -85,7 +85,7 @@ public final class MoreScreen implements AppScreen {
     private final List<SegmentedSelector> preferenceSelectors = new ArrayList<>();
     private final List<AlertDialog> dialogs = new ArrayList<>();
     private final List<Row> profileEditActions = new ArrayList<>();
-    private Row renameProfileRow, forgetProfileRow, backupProfileRow, disconnectProfileRow, chooseProfileRow;
+    private Row renameProfileRow, forgetProfileRow, disconnectProfileRow, chooseProfileRow;
     private Row scootersIndexRow, dataIndexRow;
     private Row setPinRow, bondRow, pinRow, proximityRow;
     private View pinRefresh, pinSpinner, proximitySpinner;
@@ -156,11 +156,12 @@ public final class MoreScreen implements AppScreen {
         onboarding();
         sectionMenu = group();
         if (wide) sectionMenu.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
+        row(sectionMenu, "download", "Back up & restore", null,
+                () -> host.dataBackup(null, null)).view.setTag("data-backup");
         for (int i = 0; i < SECTIONS.length; i++) {
             final String section = SECTIONS[i];
             if (!knownSection(section)) continue;
-            Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i],
-                    section.equals("Compatibility") ? "Model check & report" : null, () -> selectSection(section));
+            Row row = row(sectionMenu, SECTION_ICONS[i], SECTION_LABELS[i], null, () -> selectSection(section));
             // Room for the selected row's red tint to frame its icon in the wide menu.
             if (wide) row.view.setPadding(ui.dp(8), ui.dp(9), ui.dp(8), ui.dp(9));
             menuRows[i] = row;
@@ -195,7 +196,6 @@ public final class MoreScreen implements AppScreen {
             else if (section.equals("Scooters")) profiles();
             else if (section.equals("Security")) security();
             else if (section.equals("Lab")) lab();
-            else if (section.equals("Compatibility")) compatibilityPanel = new CompatibilityPanel(host, cardDestination);
             else if (section.equals("Data")) dataHistory();
             else if (section.equals("Developer")) developerOptions();
             else privacy();
@@ -203,6 +203,11 @@ public final class MoreScreen implements AppScreen {
         cardDestination = column(); sections.put("Units", cardDestination);
         sectionParent.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
         units();
+        if (knownSection("Compatibility")) {
+            cardDestination = column(); sections.put("Compatibility", cardDestination);
+            sectionParent.addView(cardDestination, new LinearLayout.LayoutParams(-1, -2));
+            compatibilityPanel = new CompatibilityPanel(host, cardDestination, !developerEnabled());
+        }
         cardDestination = content;
         showSelectedSection();
         refresh();
@@ -257,17 +262,26 @@ public final class MoreScreen implements AppScreen {
     /** Units returns to its parent; otherwise wide Back leaves the tab, keeping its selected pane. */
     public boolean back() {
         if ("Units".equals(selectedSection)) { selectSection("App"); return true; }
+        if ("Compatibility".equals(selectedSection) && !standalone) {
+            selectSection(developerEnabled() ? "Developer" : ""); return true;
+        }
         if (standalone || wide || selectedSection.isEmpty()) return false;
         selectSection(""); return true;
     }
 
     private boolean knownSection(String section) {
         if ("Units".equals(section)) return true;
+        if ("Compatibility".equals(section)) return developerEnabled() || testRecoveryNeeded();
         if ("Developer".equals(section) && !developerEnabled()) return false;
         for (String candidate : SECTIONS) if (candidate.equals(section)) return true;
         return false;
     }
     private boolean developerEnabled() { return settings().getBoolean("developer_options", false); }
+    private boolean testRecoveryNeeded() {
+        BleController ble = service() == null ? null : service().ble;
+        return ble != null && (!ble.testRecordsHealthy() || !ble.unresolvedTests().isEmpty()
+                || ble.unresolvedTestsElsewhere() > 0 || !ble.orphanedTests().isEmpty() || ble.testing());
+    }
     /**
      * The submenu on screen. Wide mode always shows one: with none chosen (first visit, or one expired
      * after a minute away) it opens App preferences without storing it, so the retention rules are unchanged.
@@ -279,17 +293,20 @@ public final class MoreScreen implements AppScreen {
         boolean index = shown.isEmpty();
         indexView.setVisibility(index || wide ? View.VISIBLE : View.GONE);
         boolean units = "Units".equals(shown);
+        boolean compatibility = "Compatibility".equals(shown);
         sectionHeader.setVisibility(index || (standalone && !units) ? View.GONE : View.VISIBLE);
-        sectionBack.setVisibility(units || !wide ? View.VISIBLE : View.GONE);
-        sectionBackLabel.setText(units ? "App preferences" : "More");
-        sectionBack.setContentDescription(units ? "Back to App preferences" : "Back to More");
+        sectionBack.setVisibility(units || compatibility || !wide ? View.VISIBLE : View.GONE);
+        String parent = units ? "App preferences" : compatibility && developerEnabled() ? "Developer options" : "More";
+        sectionBackLabel.setText(parent);
+        sectionBack.setContentDescription("Back to " + parent);
         if (units) sectionTitle.setText("Units");
+        if (compatibility) sectionTitle.setText(developerEnabled() ? "Compatibility" : "Unfinished test");
         for (int i = 0; i < SECTIONS.length; i++) if (SECTIONS[i].equals(shown)) sectionTitle.setText(SECTION_TITLES[i]);
         for (Map.Entry<String,LinearLayout> section : sections.entrySet())
             section.getValue().setVisibility(section.getKey().equals(shown) ? View.VISIBLE : View.GONE);
         if (index || wide) dataIndexRow.value(historyFileSize());
         if (wide) for (int i = 0; i < SECTIONS.length; i++)
-            if (menuRows[i] != null) markMenuRow(menuRows[i], SECTIONS[i].equals(units ? "App" : shown));
+            if (menuRows[i] != null) markMenuRow(menuRows[i], SECTIONS[i].equals(units ? "App" : compatibility ? "Developer" : shown));
     }
     /** Wide menu: the row whose submenu is open on the right gets a red tint and the selected state. */
     private void markMenuRow(Row row, boolean selected) {
@@ -312,8 +329,8 @@ public final class MoreScreen implements AppScreen {
     }
     /** Deeper levels arrive from the right and leave the same way back; wide panes simply crossfade. */
     private int sectionDirection(String from, String to) {
-        if ("Units".equals(to)) return 1;
-        if ("Units".equals(from)) return -1;
+        if ("Units".equals(to) || "Compatibility".equals(to)) return 1;
+        if ("Units".equals(from) || "Compatibility".equals(from)) return -1;
         if (wide) return 0;
         return to.isEmpty() ? -1 : 1;
     }
@@ -416,7 +433,8 @@ public final class MoreScreen implements AppScreen {
         link.addView(label, lp);
         link.setContentDescription("Back to More"); link.setFocusable(true);
         link.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 30)), null, ui.shape(Color.WHITE, 10, 0)));
-        link.setOnClickListener(v -> selectSection("Units".equals(selectedSection) ? "App" : ""));
+        link.setOnClickListener(v -> selectSection("Units".equals(selectedSection) ? "App"
+                : "Compatibility".equals(selectedSection) && developerEnabled() ? "Developer" : ""));
         return link;
     }
     /** Group label; keeps natural case in its text so screen readers say words, not letters. */
@@ -801,7 +819,6 @@ public final class MoreScreen implements AppScreen {
             if (service().isRecording()) { host.toast("Stop ride first"); return; }
             service().ble.disconnect(); refresh();
         });
-        backupProfileRow = row(owner, "shield", "Save private owner backup", null, this::backupProfile);
         row(owner, "info", "Run setup again", null, () -> { OnboardingScreen.restart(host.activity()); host.rebuild(); });
         forgetProfileRow = lockable(dangerRow(owner, "Forget active profile", this::forgetProfile));
     }
@@ -862,13 +879,7 @@ public final class MoreScreen implements AppScreen {
         });
     }
     private void backupProfile() {
-        ScooterProfiles.Profile p = active(); if (p == null || !p.configured()) { host.toast("Add an owner profile first."); return; }
-        LinearLayout box = dialogBox("Private owner backup", "Controls " + p.name + ". Keep it private.");
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Cancel", null)
-                .setPositiveButton("Save private backup", (d, which) -> {
-                    String name = p.name.replaceAll("[^a-zA-Z0-9._-]+", "-");
-                    host.saveText("navee-owner-" + name + ".json", "application/json", ScooterProfiles.privateBackup(p));
-                }).create(); show(dialog);
+        host.dataBackup(false, null);
     }
     private void forgetProfile() {
         if (!canEditProfiles()) return;
@@ -1608,9 +1619,7 @@ public final class MoreScreen implements AppScreen {
         notificationRow = row(permissions, "sound", "Notifications", "Recording notification with Stop", ()->openAndroidSettings(android.provider.Settings.ACTION_APP_NOTIFICATION_SETTINGS));
         label("Your data");
         LinearLayout data = ui.card(); cardDestination.addView(data);
-        note(data, "All data stays on this phone. Owner backups include your scooter key.");
-        LinearLayout backups = group();
-        row(backups, "download", "Back up & restore", "Encrypted · choose what to include", () -> host.dataBackup(null, null)).view.setTag("data-backup");
+        note(data, "All data stays on this phone. Back up & restore is in More.");
         LinearLayout maps = group();
         Row online = row(maps, "map", "Online map", null, this::mapSettings);
         valueRefreshers.add(() -> online.value(basemapSummary()));
@@ -1643,6 +1652,9 @@ public final class MoreScreen implements AppScreen {
     }
 
     private void developerOptions() {
+        LinearLayout diagnostics = group();
+        row(diagnostics, "check", "Compatibility checker", "Model check & report",
+                () -> selectSection("Compatibility")).view.setTag("developer-compatibility-check");
         LinearLayout controls = group();
         simulationRow = toggleRow(controls, "scooter", "Simulate scooter as connected", null, enabled -> {
             ScooterService s = service();
@@ -1726,6 +1738,7 @@ public final class MoreScreen implements AppScreen {
             if (closed) return;
             ScooterService s = service();
             if(s!=null&&s.isChargeRecording()){host.toast("Stop charge recording before hiding developer options");return;}
+            if(s!=null&&s.ble.testing()){host.toast("Finish or cancel the test first");return;}
             if (s != null && !s.setSimulation(false)) { refreshDeveloper(); return; }
             selectedSection = "";
             settings().edit().putBoolean("developer_options", false).putString("more_section", "").apply();
@@ -1965,7 +1978,6 @@ public final class MoreScreen implements AppScreen {
         // Connect needs the owner setup first; the row stays tappable to say so.
         onboardingConnect.title.setTextColor(configured ? ui.text : ui.muted);
         onboardingConnect.icon.setEnabled(configured); onboardingConnect.icon.invalidate();
-        backupProfileRow.enabled(configured);
         disconnectProfileRow.enabled(!s.isRecording() && s.ble.state() != BleController.State.DISCONNECTED);
         refreshProfiles(s, p);
         refreshPermissions(s);
