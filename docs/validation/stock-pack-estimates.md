@@ -72,7 +72,8 @@ Below 89%, with an admitted standard charger:
 **Display and planning.**
 - **Display:** the dashboard shows the most likely time.
 - **Planning:** Charge done by uses a cautious time that assumes:
-  - a catch-up larger than the fitted trend by the largest deviation observed, plus 1%;
+  - a smaller catch-up than the fitted trend, by the largest deviation observed plus 1%, so more
+    charge is still needed before 99%;
   - the strongest current decay observed, plus 0.02;
   - the longest finish observed, plus 2 minutes;
   - the latest milestones observed.

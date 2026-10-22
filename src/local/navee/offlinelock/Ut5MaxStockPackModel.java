@@ -8,9 +8,9 @@ package local.navee.offlinelock;
  * of that catch-up. The standard charger also starts about 15-20% above its settled current and
  * decays over roughly the first hour, so the live current alone is optimistic early in a charge.
  *
- * Display estimates aim for the most likely finish. Planning estimates use the largest observed
- * catch-up, the strongest observed current decay and the longest observed finish, for Charge done
- * by. Constants are fitted from the anonymized public measurements by
+ * Display estimates aim for the most likely finish. Planning estimates, for Charge done by, assume
+ * less help from the gauge's catch-up than observed (more charge still needed before 99%), the
+ * strongest observed current decay and the longest observed finish. Constants are fitted from the anonymized public measurements by
  * docs/validation/data/stock-pack-v6/fit_pack_model.py. Times are to the first displayed 100%.
  */
 public final class Ut5MaxStockPackModel {
