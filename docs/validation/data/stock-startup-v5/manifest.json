@@ -1,0 +1,125 @@
+{
+  "schema": 1,
+  "purpose": "Anonymous measured charge inputs for retrospective v4/v5 replay",
+  "scooter_a": {
+    "journals": 10,
+    "samples": 5618,
+    "complete_physical_charges": 6,
+    "incomplete_journals": [
+      0,
+      1,
+      5
+    ],
+    "same_physical_charge": [
+      7,
+      8
+    ]
+  },
+  "scooter_b": {
+    "raw_state_events": 19628,
+    "paired_samples": 2077,
+    "complete_physical_charges": 1
+  },
+  "clocks": "All real absolute dates removed; Scooter A journal absolute clocks are synthetic; sample/event elapsed times preserved.",
+  "inputs": {
+    "scooter-a/journal-0.csv": {
+      "sha256": "6229317512f631933cb2059d512951341110b5b25d343e5d94d2e80289a5362c",
+      "records": 168
+    },
+    "scooter-a/journal-1.csv": {
+      "sha256": "2f2ca104973a8f597291073cd6efa88291fb048fdfd99394ca737d5daa2eda06",
+      "records": 228
+    },
+    "scooter-a/journal-2.csv": {
+      "sha256": "eaae4e29c18f18998cd67314e7cdf6a347c786be2fd32bf39b7e71995942b784",
+      "records": 339
+    },
+    "scooter-a/journal-3.csv": {
+      "sha256": "f53f3481527ff17ee343a178b1e2cc08d8f7d3d6472eb67d26816b40a66c5115",
+      "records": 1072
+    },
+    "scooter-a/journal-4.csv": {
+      "sha256": "73d944e5a4b61f99cbef0ce2d3ab1e6fe5c54795dad749157fc8ec59dd56eab6",
+      "records": 534
+    },
+    "scooter-a/journal-5.csv": {
+      "sha256": "a901051f582f3fd2597b1044cd01aa68a4773305b47301f963cb39d3bb00df0a",
+      "records": 23
+    },
+    "scooter-a/journal-6.csv": {
+      "sha256": "11f8b2d35cdfe1bf13993932c60ab6ce16dc543a57ffd97f3ea922c4710f2024",
+      "records": 174
+    },
+    "scooter-a/journal-7.csv": {
+      "sha256": "f89467044a91354df89ad387aa85c6046fae22eadc23234785303759e9036983",
+      "records": 669
+    },
+    "scooter-a/journal-8.csv": {
+      "sha256": "ce3a2334641f20d0a8e92e8d922c3e8379bd6046b53d53f96ccf2a9a4f4ccae9",
+      "records": 1166
+    },
+    "scooter-a/journal-9.csv": {
+      "sha256": "2382e8af9e57eb6b40b882a56343fe4bac83d172f9d49b96423128526da02be3",
+      "records": 1255
+    },
+    "scooter-a/points-0.csv": {
+      "sha256": "58956a909a0e55e5807ef2d72e53aee6a99c179a3c3b22da2ce6587140d5c6b2",
+      "records": 167
+    },
+    "scooter-a/points-1.csv": {
+      "sha256": "9cec58af0bde1cbd28dcea2595caadcc589cef943b844225940f6cfac1f3d27b",
+      "records": 227
+    },
+    "scooter-a/points-2.csv": {
+      "sha256": "85eb75401895fc2f322dba7753ace94f4ed7485fcaaa86a68ba3c13038c6691e",
+      "records": 338
+    },
+    "scooter-a/points-3.csv": {
+      "sha256": "4f226b1a8fcc9346f7d358eb39c7dd13e0bca61b547c463842782f7537543ba1",
+      "records": 1071
+    },
+    "scooter-a/points-4.csv": {
+      "sha256": "3b4b0c712360ab88cdc9925b43870c9aa0b4620cc3bb563f1b2b2d09da8f8fe8",
+      "records": 533
+    },
+    "scooter-a/points-5.csv": {
+      "sha256": "35d9ef381bbc1d6bc72636b19bac05a728141518b54956eef25d6889cc8a7f21",
+      "records": 22
+    },
+    "scooter-a/points-6.csv": {
+      "sha256": "e5249f23025b5755c8a5f0c4c4682171284f6f8d0530da6c6a0516d68ff714b9",
+      "records": 173
+    },
+    "scooter-a/points-7.csv": {
+      "sha256": "f2a400919e9a5c9396ca6f375ecafe4799119dd09b66ccc345f27dab74abed13",
+      "records": 668
+    },
+    "scooter-a/points-8.csv": {
+      "sha256": "499bbf82b9d866827819d3ec162936b6c64ff1016441e65385162beb1197cca3",
+      "records": 1165
+    },
+    "scooter-a/points-9.csv": {
+      "sha256": "2a430a9acc86630b7ace5aed240d22afd8deb291cb8cef106c230a9aaa617d86",
+      "records": 1254
+    },
+    "scooter-b/paired-input.csv": {
+      "sha256": "aee3736bbd172e1a8e2c26040826726a90d3a4e3c86b056f4507d6bc7f1e9b41",
+      "records": 2077
+    },
+    "scooter-b/state-events.csv": {
+      "sha256": "293a94382c07cf5c89498cce22e652002be2bf5cb5d3de036aa315c6f250c3ab",
+      "records": 19628
+    }
+  },
+  "support_files_sha256": {
+    ".gitignore": "eb3e29849645696e1a0627cd4ac1774baedf741a13e2e8fcbc9d7e3f2f594d89",
+    "README.md": "3e6c2ca10aaf0d2d65f549ad48dd57cf9c9ec33a4a70cc953fa2cc275ce4ca54",
+    "SecondScooterReplay.java": "defd90ec7add43968f6ff0a31c5fb827f0dfa832f0f3d931a60acaa591711c53",
+    "StartupReplay.java": "457f262b2ee98278521d9a27cc21fc8cbb25cbbc1872745729a72ea04a02014f",
+    "expected-results.json": "63a04ce58f28abe3ec14e39f87ccb24ed9165d758e15fc257c05e9f660753606",
+    "finish-error.png": "0e7c37af9f5646b860ae249edc58b23cfc0e2e82680d288b3f7d296f73172bc4",
+    "plot.py": "b007ce4fcab8977c0ef4cd8dfbef5beccfac1f0b12e5f5246c54a0aec9ba68b8",
+    "rebuild_paired_input.py": "b8cfeb83f7d70df36eb6645dd30edbed4fb4d52d8a3f6092ac5d5e18b795b148",
+    "replay.py": "87bac1cc0f2de118c4d10f51f52075678ec4df6c2112470e407ef897ae799c46"
+  }
+}

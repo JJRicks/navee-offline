@@ -67,7 +67,20 @@ event. Three gaps total about 67 seconds. Approximately 10-second sampling yield
 2,077 replay points; these are hypothetical paired estimator inputs, not proof
 that the export preserves Bluetooth frame freshness. No personal history from
 another owner is applied. Temperature units are inferred, not used by the model.
-Raw exports and identities remain outside the source repository.
+The [reproducible evidence bundle](data/stock-startup-v5/README.md) includes
+anonymized measurements, preserved gaps, recorded estimate fields, replay
+programs and before/after summaries. Personal identities and original calendar
+timestamps remain outside the source repository. Reviewers can replay the released
+v4 implementation and this candidate without either owner's phone or private files.
+
+The two completed high-speed charges are also included. The 16% start predicts
+92.07 minutes against 89.13 observed. The 73% start has a bad initial low-power
+fallback: 125.18 minutes against 43.25 observed, followed by a 14m42s recording
+gap. The continuous portion after that gap has 0.88-minute mean absolute error.
+Both predictions are unchanged by this standard-charger refinement. Three other
+partial journals have no observed completion and cannot establish finish accuracy.
+
+![Full-charge finish errors over all seven completed physical charges](data/stock-startup-v5/finish-error.png)
 
 ## Limits and regression coverage
 
