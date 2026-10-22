@@ -158,6 +158,12 @@ public final class LearnedRangeEstimateTest {
         check(charging.rideWh == null, "Charging during a ride gives no energy per km");
         LearnedRangeEstimate.Evidence jump = energy("A", 20, 60, 2.5, 600, "jump", NOW).evidence();
         check(jump.gaugePoints() < 19, "A skipped gauge point is never counted: " + jump.gaugePoints());
+        // Battery readings that vanish across a drop leave its timing unknown (Codex's #77 reproduction).
+        LearnedRangeEstimate.Evidence complete = stepped("complete").evidence(), dropout = stepped("dropout").evidence(), blip = stepped("blip").evidence();
+        check(complete.gaugePoints() == 1 && Math.abs(complete.bandWh[7] - 100 * 600 / 3600.0) < 1e-6, "Complete readings count the 79% point at 16.67 Wh: " + complete.bandWh[7]);
+        check(dropout.gaugePoints() == 0, "Readings missing across the drop count no gauge point, not an 83 Wh one: " + dropout.gaugePoints());
+        check(dropout.rideWh != null && Math.abs(dropout.rideWh - complete.rideWh) < 1e-9, "Energy per km evidence stays when gauge readings drop out");
+        check(blip.gaugePoints() == 1 && Math.abs(blip.bandWh[7] - complete.bandWh[7]) < 1e-6, "A one-sample gap in readings keeps the point");
         LearnedRangeEstimate.Evidence sparse = energy("A", 20, 60, 2.5, 600, "sparse_power", NOW).evidence();
         check(sparse.rideWh == null && sparse.gaugePoints() == 0, "Under 95% power coverage gives no energy evidence");
         Fixture streamed = energy("A", 20, 60, 2.5, 600, "normal", NOW);
@@ -181,6 +187,26 @@ public final class LearnedRangeEstimateTest {
         LearnedRangeEstimate.Result few = LearnedRangeEstimate.calculate("A", rides.subList(0, 4), NOW);
         check(few.status == LearnedRangeEstimate.Status.READY && few.likelyLowFactor == null && few.likelyLowKm(50d) == null,
                 "Too few 6 km stretches: forecast only, no band");
+    }
+    /** 600 s at 600 W: 80% to second 99, 79% to 199, then 78%. dropout removes 101-599; blip removes 150 only. */
+    private static Fixture stepped(String mode) throws Exception {
+        File dir = Files.createTempDirectory("volt-range-stepped-").toFile(); directories.add(dir);
+        RideStore store = new RideStore(dir); int seconds = 600; long start = NOW - seconds * 1000L;
+        store.setCurrentDirection(RideStore.CurrentDirection.POSITIVE_IS_DRAW);
+        String id = store.start("A", "Synthetic", start, 0);
+        for (int sec = 0; sec <= seconds; sec++) {
+            long mono = sec * 1000L; Map<String,RideStore.Sample> values = new LinkedHashMap<>();
+            boolean missing = mode.equals("dropout") && sec > 100 && sec < seconds || mode.equals("blip") && sec == 150;
+            if (!missing) values.put("battery_percent", new RideStore.Sample(sec < 100 ? 80 : sec < 200 ? 79 : 78, mono));
+            values.put("odometer_km", new RideStore.Sample(100 + 2.5 * sec / seconds, mono));
+            values.put("speed_kmh", new RideStore.Sample(15, mono));
+            values.put("charging_state", new RideStore.Sample(0, mono));
+            values.put("voltage_v", new RideStore.Sample(50.0, "50V", "V", 0x72, mono));
+            values.put("current_a", new RideStore.Sample(12.0, "current", "A", 0x72, mono));
+            store.sample(start + mono, mono, values);
+        }
+        store.stop(NOW, seconds * 1000L);
+        return new Fixture(store, id, dir);
     }
     private static Fixture energy(String profile, double drop, double soc0, double km, double watts, String mode, long end) throws Exception {
         // soc0 is the end level: the ride runs from soc0 + drop down to soc0 over 600 s.

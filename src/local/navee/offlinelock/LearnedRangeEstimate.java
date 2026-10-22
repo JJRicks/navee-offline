@@ -202,7 +202,7 @@ public final class LearnedRangeEstimate {
         private boolean charged;
         // The gauge point being counted: entered by a one-point drop, closed by the next.
         private int level = -1; private boolean levelEntered;
-        private double levelWh; private long levelMs, levelPowerMs;
+        private double levelWh; private long levelMs, levelPowerMs, lastSocMs;
         private final double[] bandWh = new double[BANDS]; private final int[] bandPoints = new int[BANDS];
         void accept(RideStore.Point p) {
             if (first == null) { first = p; lowest = p.batteryPercent == null ? Double.NaN : p.batteryPercent; }
@@ -222,7 +222,11 @@ public final class LearnedRangeEstimate {
             }
             if (finite(p.speedKmh) && soc(p.batteryPercent) && finite(p.odometerKm)) { complete = p; completeCount = count; completeValidSoc = validSocSamples; }
         }
-        /** Energy per fully counted gauge point; any break (gap, charging, rise, skipped point) discards the open point. */
+        /**
+         * Energy per fully counted gauge point. Any break discards the open point: a gap, charging, a
+         * rise, a skipped point, or battery readings missing for longer than a sample interval, since
+         * the drop that closes it could then have happened at any time in between.
+         */
         private void gauge(RideStore.Point p) {
             RideStore.Point q = previousPoint;
             boolean broken = q == null || p.segment != q.segment || p.elapsedMs <= q.elapsedMs
@@ -231,8 +235,10 @@ public final class LearnedRangeEstimate {
                 long dt = p.elapsedMs - q.elapsedMs; levelMs += dt;
                 if (finite(q.powerW) && finite(p.powerW)) { levelWh += (q.powerW + p.powerW) / 2 * dt / 3600000.0; levelPowerMs += dt; }
             }
+            if (!soc(p.batteryPercent)) broken |= p.elapsedMs - lastSocMs > RideStore.MAX_INTEGRATION_INTERVAL_MS;
             if (broken) { level = -1; levelEntered = false; }
             if (!soc(p.batteryPercent)) return;
+            lastSocMs = p.elapsedMs;
             int now = (int) Math.ceil(p.batteryPercent - 1e-9);
             if (level < 0) { level = now; levelEntered = false; levelWh = 0; levelMs = 0; levelPowerMs = 0; return; }
             if (now == level) return;
