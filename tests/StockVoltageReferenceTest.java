@@ -14,7 +14,9 @@ public final class StockVoltageReferenceTest {
     }
     public static void main(String[] args) throws Exception {
         ChargingEstimate.Result warm=estimate(55,49.702,1.94,100d);
-        near(175.8677,warm.remainingMinutesToFull,15,"Conservative current-boundary blending still reduces the former ~36-minute overestimate at 55%");
+        check(warm.remainingMinutesToFull>=175.8677&&warm.remainingMinutesToFull<175.8677+20
+                &&warm.remainingMinutesToFull<base(55,49.702,1.94,100d).remainingMinutesToFull-15,
+                "Partial current-boundary matching stays conservative while improving raw-rate error by at least15minutes");
         check(warm.stockVoltageToFull&&warm.referenceToFull&&warm.referenceToLimit&&!warm.learnedToFull&&warm.learnedSessions==0,"Bundled voltage evidence has honest provenance");
         near(warm.remainingMinutesToFull,warm.remainingMinutesToLimit,0,"Full and 100% cutoff agree");
         near(warm.remainingMinutesToFull,estimate(55,49.702,1.94,null).remainingMinutesToFull,0,"Unknown cutoff does not change hypothetical full");
@@ -94,7 +96,7 @@ public final class StockVoltageReferenceTest {
             else near(before.remainingMinutesToLimit,after.remainingMinutesToLimit,.001,"Lower-cutoff cap uses the selected full fallback");
         }
         ChargeSessionStore.Estimate snapshot=ChargingEstimate.recordingSnapshot(warm);
-        check(snapshot.version.equals("ut5-stock-voltage-v4")&&snapshot.fullSource==ChargeSessionStore.Source.STOCK_REFERENCE,"New captures identify changed algorithm and source");
+        check(snapshot.version.equals("ut5-stock-startup-v5")&&snapshot.fullSource==ChargeSessionStore.Source.STOCK_REFERENCE,"New captures identify changed algorithm and source");
         System.out.println("StockVoltageReference: "+checks+" checks passed");
     }
 }

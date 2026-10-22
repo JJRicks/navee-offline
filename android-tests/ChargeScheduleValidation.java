@@ -61,6 +61,7 @@ public final class ChargeScheduleValidation extends Instrumentation {
         main(()->require(service.setSimulation(true),"Simulation did not start"));settle();
         controls();verifyOrdering();verifyUnplugged();verifyDisabledThumb(false);
         controls();main(()->service.ble.setSimulationCharging(true));settle();
+        verifyStartupEstimateGuard();
         verifyPickers();verifyStalePicker();verifyPlanAndPausedControls();verifyManualAndQuickRefresh();
         assertNoRadio();
         main(()->require(service.setSimulation(false),"Simulation did not stop"));
@@ -130,6 +131,21 @@ public final class ChargeScheduleValidation extends Instrumentation {
         await(()->taps.get()==1,"Disabled switch thumb swallowed the parent row explanation");settle();
         require(taps.get()==1,"Disabled switch thumb delivered more than one parent row action");
         checks.add((manual?"Blocked Scheduled charging":"Unplugged done-by")+" switch thumb touch reaches its explanatory row action");
+    }
+    private void verifyStartupEstimateGuard(){
+        main(()->{
+            String reason="Wait for charger detection or select a charger";
+            require(service.chargerBasis()==ScooterService.ChargerBasis.UNKNOWN,"Startup fixture already knows a charger family");
+            require(service.chargingEstimate(service.displayReadings()).remainingMinutesToLimit!=null,"Unknown charger lost the dashboard's current-rate estimate");
+            ChargeScheduleController.View state=service.chargeSchedule();
+            require(reason.equals(state.doneByBlockedReason)&&state.timeBlockedReason==null,"Unknown startup estimate did not block only the done-by switch");
+            AtomicReference<String> result=new AtomicReference<>();
+            service.setChargeDoneByEnabled(true,result::set);
+            require(reason.equals(result.get())&&!service.chargeSchedule().busy&&!service.chargeSchedule().doneByEnabled,"Startup estimate attempted to arm a schedule");
+            require(service.setChargeCharger(ChargeSessionStore.Charger.STOCK),"Could not select the simulated standard charger");
+            require(service.chargeSchedule().doneByBlockedReason==null,"Manual charger choice did not release the startup guard");
+        });settle();
+        checks.add("Automatic startup keeps the dashboard rate estimate but requires charger detection or an explicit choice before arming done-by");
     }
     private void verifyPickers(){
         for(boolean is24:new boolean[]{true,false}){

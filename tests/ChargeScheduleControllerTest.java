@@ -35,7 +35,7 @@ public final class ChargeScheduleControllerTest {
         void recreate(){controller=new ChargeScheduleController(this,this);}
     }
     public static void main(String[] args){
-        planner();transactions();reconciliation();gating();persistence();preferences();restoration();externalManualEdits();connectedPlanEdits();
+        planner();transactions();reconciliation();gating();startupEstimateGuard();persistence();preferences();restoration();externalManualEdits();connectedPlanEdits();
         System.out.println("ChargeScheduleControllerTest: "+checks+" assertions passed");
     }
     private static void planner(){
@@ -127,6 +127,44 @@ public final class ChargeScheduleControllerTest {
         check(noTime.controller.view().manualBlockedReason==null&&noTime.controller.view().manualTimeBlockedReason.equals("Time setting unavailable"),"time gate independent from switch gate");
         noTime.controller.setManualStart(noTime.c.now+3600_000,noTime.results::add);check(noTime.writes.isEmpty()&&noTime.results.get(0).equals("Time setting unavailable"),"time refusal before clock write");
         Rig invalid=new Rig();invalid.controller.setDoneTime(30,0,invalid.results::add);check(invalid.results.get(0).contains("valid"),"invalidpickerrejected");
+    }
+    private static void startupEstimateGuard(){
+        String reason="Wait for charger detection or select a charger";
+        Rig pending=new Rig();pending.c.estimateUnavailableReason=reason;
+        check(reason.equals(pending.controller.view().doneByBlockedReason),"Startup estimate reason is visible despite a usable raw-rate ETA");
+        pending.enable();
+        check(pending.writes.isEmpty()&&pending.results.size()==1&&reason.equals(pending.results.get(0)),"Unknown automatic family cannot write a done-by schedule");
+        pending.controller.setDoneTime(9,15,pending.results::add);
+        check(pending.results.get(1)==null&&pending.controller.view().doneByMinuteOfDay==555&&pending.writes.isEmpty(),"Startup guard still permits choosing a finish-time preference");
+        check(pending.controller.view().manualBlockedReason==null&&pending.controller.view().manualTimeBlockedReason==null,"Startup guard does not block manual controls");
+        pending.c.ready=false;pending.controller.observe();pending.c.ready=true;pending.c.generation++;pending.recreate();pending.controller.observe();
+        check(pending.writes.isEmpty(),"Blocked startup and reconnect never arm a schedule automatically");
+        pending.c.estimateUnavailableReason=null;pending.controller.observe();
+        check(pending.writes.isEmpty(),"Detection becoming ready does not retry a refused schedule");
+        pending.results.clear();pending.arm();
+        check(pending.controller.view().doneByEnabled,"Explicit activation proceeds once the charger family is available");
+
+        Rig manual=new Rig();manual.c.estimateUnavailableReason=reason;
+        manual.controller.setManualStart(manual.c.now+3600_000,manual.results::add);manual.reply(true);manual.reply(true);
+        manual.controller.setManualEnabled(true,manual.results::add);manual.reply(true);manual.reply(true);manual.reply(true);
+        check(manual.controller.view().manualEnabled,"Manual start and enable remain usable during charger identification");
+        manual.controller.setManualEnabled(false,manual.results::add);manual.reply(true);
+        check(!manual.controller.view().manualEnabled,"Manual cancellation remains usable during charger identification");
+
+        Rig active=new Rig();active.arm();long deadline=active.controller.view().doneByWallMs;
+        active.c.charging=1;active.c.estimateUnavailableReason=reason;
+        active.controller.setDoneTime(9,0,active.results::add);
+        check(active.writes.size()==3&&reason.equals(active.results.get(1))&&active.controller.view().doneByWallMs==deadline,
+                "Active charging update refuses an unidentified fresh estimate without changing the existing plan");
+        active.controller.setDoneEnabled(false,active.results::add);
+        check(active.writes.size()==4&&active.writes.get(3).equals("off"),"Estimate guard does not prevent done-by cancellation");
+        active.reply(true);check(!active.controller.view().doneByEnabled,"Done-by cancellation completes during identification");
+
+        Rig paused=new Rig();paused.arm();paused.c.estimateUnavailableReason=reason;paused.c.estimateMinutes=null;
+        paused.controller.setDoneTime(9,30,paused.results::add);paused.reply(true);
+        check(paused.sentTime==time("2026-10-20T13:50:00Z"),"Paused explicit edit still reuses the verified saved duration");
+        paused.c.wireStart=paused.sentTime/1000+paused.sentOffset;paused.reply(true);paused.reply(true);
+        check(paused.results.get(1)==null&&paused.controller.view().doneByEnabled,"Paused edit completes without requiring charger identification");
     }
     private static void persistence(){
         Rig r=new Rig();r.arm();String encoded=r.saved.get("owner-A");ChargeScheduleController.State decoded=ChargeScheduleController.decode(encoded);

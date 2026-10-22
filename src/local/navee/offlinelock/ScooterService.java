@@ -536,6 +536,11 @@ public final class ScooterService extends Service {
         if(Integer.valueOf(1).equals(c.charging)){
             ChargingEstimate.Result estimate=chargingEstimate(displayReadings());
             c.estimateMinutes=estimate.remainingMinutesToLimit;
+            // A raw current-rate estimate remains useful on the dashboard while automatic
+            // identification gathers its first frames, but must not freeze a finish plan yet.
+            if(ModelRegistry.chargeReferenceProduct(active.savedDescriptor())==Ut5MaxStockChargeReference.PRODUCT_ID
+                    &&effectiveChargeCharger()==null)
+                c.estimateUnavailableReason="Wait for charger detection or select a charger";
         }
         return c;
     }

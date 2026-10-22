@@ -3,12 +3,22 @@ package local.navee.offlinelock;
 /**
  * Experimental UT5 MAX stock-charger reference, available without personal charge recordings.
  * Relative measurements from two owner-observed finishes; no identity, date or location metadata.
- * Below the observed finish, rated Ah and live current model the bulk stage. This is neither a
+ * Below the observed finish, rated Ah and live current model the bulk stage, with a small
+ * uncertainty allowance for full-charge planning. This is neither a
  * fixed-watt charger assumption nor a measured battery-capacity correction.
  */
 public final class Ut5MaxStockChargeReference {
     public static final int PRODUCT_ID = 2538;
     private static final int FIRST_SOC = 89;
+    // Stock chargers settle at different currents across observed scooters. Keep the
+    // measured rate instead of imposing one fixed current. Ten minutes is a bounded,
+    // empirical full-charge allowance, not a guarantee or a battery-capacity correction.
+    // Fade both this allowance and the history floor into the unchanged 89% finish.
+    static double bulkPlanningWeight(double soc,double ratedAh) {
+        if (!finiteRange(soc,0,89) || !Double.isFinite(ratedAh)
+                || Math.abs(ratedAh-15.3)>1.53) return 0;
+        return Math.min(1,(FIRST_SOC-soc)/10d);
+    }
     // Keep the existing admission envelope: a second finish refines timing, not charger detection.
     private static final double[] LOW_WATTS = {
         115.79724, 114.89688, 113.99566, 114.00636, 114.02990, 114.07056,
@@ -120,7 +130,8 @@ public final class Ut5MaxStockChargeReference {
             // evidence. Earlier low-power bulk may use both tails without inventing 89% data.
             if (!reference.compatible(stage,watts,tolerance) && (soc >= FIRST_SOC || anyCompatible)) continue;
             Double remaining;
-            if (soc < FIRST_SOC) remaining = ratedAh*((FIRST_SOC-soc)/100d)/amps*60 + reference.remaining[0];
+            if (soc < FIRST_SOC) remaining = ratedAh*((FIRST_SOC-soc)/100d)/amps*60 + reference.remaining[0]
+                    + (target==100 ? 10*bulkPlanningWeight(soc,ratedAh) : 0);
             else if (soc < 99) remaining = reference.remaining[stage];
             else remaining = ChargeTaperMatcher.estimate(watts,volts,reference.taper,tolerance);
             if (remaining == null) continue;
