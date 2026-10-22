@@ -41,7 +41,7 @@ COMPAT_TESTS=(DeviceDescriptor AdvertisedIdentity StatusFields WireCommands Mode
 for name in "${COMPAT_TESTS[@]}"; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java"); done
 sources+=("$APP_DIR/src/local/navee/offlinelock/FeatureVariant.java" "$TEST_DIR/OemControlsTest.java")
 # Standard-charger pack model (ut5-stock-pack-v6), its generated parity table and charge-age tracking.
-for name in Ut5MaxStockPackModel ChargeProgressTracker; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java"); done
+for name in Ut5MaxStockPackModel ChargeProgressTracker ChargeMeasureWindow; do sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java"); done
 sources+=("$TEST_DIR/StockPackParity.java")
 javac --release 8 -encoding UTF-8 -d "$TEST_BUILD_DIR/classes" "${sources[@]}"
 for name in ChargeScheduleController ChargerDetection Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
@@ -50,6 +50,7 @@ done
 
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.Ut5MaxStockPackModelTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeProgressTrackerTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeMeasureWindowTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.CompletedChargeEstimateTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockStartupReferenceTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceTest

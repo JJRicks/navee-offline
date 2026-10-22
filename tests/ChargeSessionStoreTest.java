@@ -137,6 +137,52 @@ public final class ChargeSessionStoreTest {
         }
         boolean refused=false;try{ChargeSessionStore.reassignJournal(saved,"bad/profile");}catch(IOException expected){refused=true;}check(refused,"invalid destination refused");
     }
+    /** Volt's own charging schedule holds current off; the journal waits, marks it and stays one session. */
+    static void schedulePause()throws Exception{
+        File folder=Files.createTempDirectory("charge-pause-test-").toFile();ChargeSessionStore store=new ChargeSessionStore(folder);
+        store.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        long t=MONO;for(;t<MONO+30*60000L;t+=10000)check(store.sample(frame(t,40+(t-MONO)/60000)),"Charging before the pause samples");
+        long pauseAt=t,hours=3*3600000L;
+        store.pause(WALL+pauseAt-MONO,pauseAt);
+        check(store.paused()&&store.active(),"A scheduled pause keeps the journal open");
+        check(!store.sample(new ChargeSessionStore.Frame(WALL+pauseAt-MONO+10000,pauseAt+10000,value(0d,pauseAt+10000),value(70d,pauseAt+10000),value(52d,pauseAt+10000),value(0d,pauseAt+10000),null)),"Paused off readings are never sampled");
+        for(long h=pauseAt;h<pauseAt+hours;h+=10000)store.heartbeat(h);
+        check(store.lastFreshMono()==pauseAt+hours-10000&&store.sampleCount()==180,"Fresh off readings keep a paused capture alive without samples");
+        store.pause(WALL+pauseAt-MONO+hours,pauseAt+hours);
+        check(store.paused(),"A repeated pause call adds no second marker");
+        long resumeAt=pauseAt+hours;store.resume(WALL+resumeAt-MONO,resumeAt);
+        check(!store.paused(),"Resume reopens sampling");
+        for(t=resumeAt;t<resumeAt+30*60000L;t+=10000)check(store.sample(frame(t,70+(t-resumeAt)/60000)),"Charging after the pause samples");
+        store.stop(ChargeSessionStore.Stop.STOPPED);
+        ChargeSessionStore.HistorySession saved=store.recordings("one").get(0);
+        check(store.recordings("one").size()==1&&saved.pauses==1&&saved.pausedMs==hours,"One recording keeps the exact pause interval");
+        check(saved.points.size()==360&&saved.points.get(180).gap&&!saved.points.get(181).gap&&!saved.points.get(179).gap,"Only the first resumed sample starts a new segment");
+        ChargeSessionStore.Curve curve=store.snapshot().curves.get(ChargeSessionStore.key("one",ChargeSessionStore.Charger.STOCK));
+        check(curve!=null&&curve.qualifiedSessions==1,"Coverage is judged on charging time, so a paused charge still qualifies");
+        StringWriter json=new StringWriter();store.exportJson("one",json);
+        check(json.toString().contains("\"schedule_pauses\":[{\"start_wall_ms\":"+(WALL+pauseAt-MONO)+",\"start_elapsed_ms\":"+pauseAt
+                +",\"end_wall_ms\":"+(WALL+resumeAt-MONO)+",\"end_elapsed_ms\":"+resumeAt+"}]"),"Export names the paused interval");
+        File journal=folder.listFiles((d,n)->n.endsWith(".csv"))[0];
+        check(ChargeSessionStore.inspectJournal(journal).finished,"A paused journal remains a valid backup journal");
+
+        ChargeSessionStore limited=store();limited.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        for(int i=0;i<ChargeSessionStore.MAX_PAUSES;i++){limited.pause(WALL+i*2,MONO+i*2);limited.resume(WALL+i*2+1,MONO+i*2+1);}
+        check(limited.active(),"Eight pauses fit one recording");
+        limited.pause(WALL+100,MONO+100);
+        check(!limited.active()&&limited.recordings("one").get(0).stop==ChargeSessionStore.Stop.LIMIT,"A ninth pause ends the recording at its limit");
+
+        ChargeSessionStore open=store();open.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        open.sample(frame(MONO,50));open.pause(WALL+10000,MONO+10000);open.stop(ChargeSessionStore.Stop.STOPPED);
+        StringWriter openJson=new StringWriter();open.exportJson("one",openJson);
+        check(openJson.toString().contains("\"end_wall_ms\":null,\"end_elapsed_ms\":null")&&!open.paused(),"Stopping while paused keeps an open pause");
+
+        for(String bad:new String[]{"charge-v2,a,STOCK,1,1\np,1,1,0\n","charge-v2,a,STOCK,1,1\np,1,2,1\np,1,3,1\n","charge-v1,a,STOCK,1,1\np,1,1,1\n",
+                "charge-v2,a,STOCK,1,1\nend,STOPPED\np,1,1,1\n","charge-v2,a,STOCK,1,1\np,1,9,1\np,1,8,0\n","charge-v2,a,STOCK,1,1\np,0,1,1\n","charge-v2,a,STOCK,1,1\np,1,1,2\n"}){
+            File file=new File(folder,UUID.randomUUID()+".csv");Files.write(file.toPath(),bad.getBytes(StandardCharsets.UTF_8));
+            boolean refused=false;try{ChargeSessionStore.inspectJournal(file);}catch(IOException expected){refused=true;}
+            check(refused,"malformed pause markers refused: "+bad.replace('\n','|'));file.delete();
+        }
+    }
     public static void main(String[] args)throws Exception{
         ChargeSessionStore a=store();
         session(a,"one",ChargeSessionStore.Charger.STOCK,40,100,60000,false,false);
@@ -309,7 +355,7 @@ public final class ChargeSessionStoreTest {
         StringWriter resumedJson=new StringWriter();reconnected.exportJson("one",resumedJson);
         check(resumedJson.toString().contains("\"battery_percent\":54.0,\"voltage_v\":56.0,\"current_a\":-0.2,\"power_w\":-11.200000000000001,\"temperature_c\":null,\"gap_before\":true"),"First post-loss sample keeps gap and real measurements");
         check(reconnected.snapshot().sessions==1,"Transient recovery remains one journal, not a second session");
-        sustainedElectricalChanges();journals();
+        sustainedElectricalChanges();journals();schedulePause();
         System.out.println("ChargeSessionStore: "+checks+" checks passed");
     }
 }

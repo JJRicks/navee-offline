@@ -92,7 +92,7 @@ final class ChargeHistoryDialog {
             row.addView(ui.text(dateTime(session.startedWall), 16, true));
             TextView details = ui.caption(charger(session.charger) + " · " + batterySpan(session));
             details.setPadding(0, ui.dp(5), 0, 0); row.addView(details);
-            TextView state = ui.caption(session.observedCompleteMono == null ? "Finish not observed" : "100% observed");
+            TextView state = ui.caption((session.observedCompleteMono == null ? "Finish not observed" : "100% observed") + paused(session));
             state.setPadding(0, ui.dp(4), 0, 0); row.addView(state);
             row.setTag("charge-history-session:" + session.id); row.setClickable(true); row.setFocusable(true);
             row.setContentDescription(dateTime(session.startedWall) + ", " + details.getText() + ", " + state.getText());
@@ -114,6 +114,12 @@ final class ChargeHistoryDialog {
         Panel panel = new Panel(session, false);
         contents.addView(panel, new LinearLayout.LayoutParams(-1, -2));
         body.addView(scroller(contents), new LinearLayout.LayoutParams(-1, 0, 1));
+    }
+    /** A Volt charging schedule held current off; the chart shows it as a gap. */
+    private static String paused(ChargeSessionStore.HistorySession session) {
+        if (session.pauses == 0) return "";
+        long minutes = Math.round(session.pausedMs / 60000d);
+        return " · paused " + (minutes >= 60 ? minutes / 60 + " h " + minutes % 60 + " min" : minutes + " min") + " for the schedule";
     }
     private String batterySpan(ChargeSessionStore.HistorySession session) {
         Double first = null, last = null;

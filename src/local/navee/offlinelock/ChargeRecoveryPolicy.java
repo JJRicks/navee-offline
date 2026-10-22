@@ -34,6 +34,16 @@ public final class ChargeRecoveryPolicy {
     public Result evaluate(long now, String selectedProfile, String savedSerial, long intentionalDisconnects,
             boolean permissions, boolean bluetoothOn, boolean connected, boolean ready, boolean recoverable,
             String transportSerial, ChargeSessionStore.Frame frame) {
+        return evaluate(now, selectedProfile, savedSerial, intentionalDisconnects, permissions, bluetoothOn, connected, ready,
+                recoverable, transportSerial, frame, false);
+    }
+    /**
+     * scheduledPause: Volt's own armed charging schedule may be holding current off. A fresh
+     * charging=off packet after a loss then resumes the capture so the pause can be marked.
+     */
+    public Result evaluate(long now, String selectedProfile, String savedSerial, long intentionalDisconnects,
+            boolean permissions, boolean bluetoothOn, boolean connected, boolean ready, boolean recoverable,
+            String transportSerial, ChargeSessionStore.Frame frame, boolean scheduledPause) {
         if (intentionalDisconnects != disconnectSequence) return stop(ChargeSessionStore.Stop.STOPPED);
         if (!Objects.equals(profile, selectedProfile)) return stop(ChargeSessionStore.Stop.PROFILE_CHANGED);
         if (!Objects.equals(serial, savedSerial)) return stop(ChargeSessionStore.Stop.IDENTITY_CHANGED);
@@ -57,8 +67,11 @@ public final class ChargeRecoveryPolicy {
             // A fresh post-loss charging=off packet may end a capture, but a 100% endpoint
             // still requires its paired electrical packet. Neither path fills the missing time.
             if (afterLoss(frame.state, now) && frame.state.value != 1
-                    && afterLoss(frame.soc, now) && frame.soc.value < 99)
-                return stop(ChargeSessionStore.Stop.CHARGING_ENDED);
+                    && afterLoss(frame.soc, now) && frame.soc.value < 99) {
+                if (!scheduledPause || frame.state.value != 0) return stop(ChargeSessionStore.Stop.CHARGING_ENDED);
+                interruptedMono = 0;
+                return new Result(null, true, false, true);
+            }
             if ((!frame.usable() && !frame.usableCompletion() && !(frame.usableChargingEnded() && frame.soc.value>=99)) || !afterLoss(frame.state, now)
                     || !afterLoss(frame.soc, now) || !afterLoss(frame.voltage, now) || !afterLoss(frame.current, now))
                 return new Result(null, false, false, false);
