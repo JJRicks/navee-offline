@@ -20,7 +20,7 @@ public final class StockStartupReferenceTest {
         for(double[] row:new double[][]{{60,49.411,2.3,179.544233},{22,46.971,2.3,325.798033},{51,48.696,2.3,210.015733},{1,45.496,2.43,381.988}}){
             for(ChargeSessionStore.Curve personal:new ChargeSessionStore.Curve[]{null,history}){
                 ChargingEstimate.Result result=estimate(row[0],row[1],row[2],100d,personal);
-                check(result.remainingMinutesToFull+10>=row[3],"Observed starts fit within the existing ten-minute scheduling buffer");
+                check(result.remainingMinutesToFull+10>=row[3],"Observed starts fit within the original ten-minute comparison threshold");
                 check(Math.abs(result.remainingMinutesToFull-row[3])<=12,"First full guesses remain within twelve minutes in these retrospective cases");
                 near(result.remainingMinutesToFull,result.remainingMinutesToLimit,0,"Full cutoff uses full timing");
             }

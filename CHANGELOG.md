@@ -5,6 +5,7 @@
 - Make uncertain UT5 MAX standard-charger estimates to full more conservative, while preserving voltage matching and the final taper.
 - Prevent shorter percentage-only charge history from overriding uncertain early full-time estimates; preserve existing lower-cutoff calculations.
 - Wait for automatic charger identification or manual selection before enabling Charge done by during UT5 MAX charging.
+- Increase the Charge done by scheduling buffer from ten to twenty minutes for newly enabled or explicitly updated plans.
 - Record new predictions as estimator `ut5-stock-startup-v5`; preserve earlier recordings and saved predictions.
 
 ## 1.4.8 — 2026-10-21

@@ -25,7 +25,10 @@ statistical confidence bound. Displayed power/current remain actual measurements
 High-speed estimates and all stock behavior at 89% or above remain unchanged.
 New samples record estimator v5; saved estimates and recordings are not rewritten.
 
-The existing Charge done by ten-minute safety buffer is additional. Active UT5
+Charge done by now adds a separate twenty-minute safety buffer when calculating
+the charge-start time. This replaces its former ten-minute scheduling buffer;
+the estimator's up-to-ten-minute startup allowance above is unchanged. Displayed
+and recorded ETAs exclude the scheduling buffer. Active UT5
 charging with an unknown automatic charger family cannot arm or update a plan
 until identification completes or the user selects a charger. Automatic stock
 identification is unavailable above its existing 85% cutoff, so an explicit
@@ -36,7 +39,10 @@ There is no automatic rescheduling or background connection-policy change.
 ## Recorded-session comparisons
 
 Positive error means the estimate was longer than the observed time to first
-displayed 100%. These figures exclude the separate ten-minute scheduling buffer.
+displayed 100%. These figures exclude the separate twenty-minute scheduling buffer.
+The published replay metrics named `10min` retain the historical ten-minute
+scheduling threshold for an unchanged before/after benchmark; their values are
+not relabeled as twenty-minute results.
 
 | Start | Previous full estimate | New full estimate | Observed time | New error |
 |---|---:|---:|---:|---:|
@@ -52,8 +58,10 @@ The later 51% capture's maximum optimism in its first 30 minutes falls from
 the warm charge's whole-charge error rises from 12.89 to 16.97 minutes, and the
 second scooter's rises from 21.63 to 27.12 minutes, mostly through longer estimates.
 All observed full-charge predictions in these five completed physical charges fit
-inside the existing scheduling buffer. This is retrospective model selection, not
-a prospective guarantee or a test of a scooter paused until a scheduled start.
+inside even the former ten-minute scheduling buffer. The current buffer is twenty
+minutes; the ETA calculations and replay evidence remain unchanged. This is
+retrospective model selection, not a prospective guarantee or a test of a scooter
+paused until a scheduled start.
 
 The first dataset comprises ten journals and 5,618 samples, replayed both with
 bundled references alone and with only preceding personal charges. Two split warm
@@ -86,9 +94,9 @@ partial journals have no observed completion and cannot establish finish accurac
 
 Lower cutoff calculations are deliberately unchanged. In particular, low-start
 80% predictions can remain substantially optimistic: observed worst errors were
-about 38 and 42 minutes on the warm and second-scooter charges. The ten-minute
-scheduling buffer does not cover those cases. A full-charge timing improvement
-must not be presented as a guarantee for every Charge done by target; lower
+about 38 and 42 minutes on the warm and second-scooter charges. Even the increased
+twenty-minute scheduling buffer does not cover those cases. A full-charge timing
+improvement must not be presented as a guarantee for every Charge done by target; lower
 cutoffs need their own calibration. The percentage gauge's rapid late rise makes
 a linear percentage-to-time conversion unreliable.
 

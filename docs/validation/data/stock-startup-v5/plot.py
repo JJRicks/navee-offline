@@ -56,8 +56,9 @@ fig.text(.075, .935, 'Above zero: predicts a later finish (conservative). Below 
 fig.legend(handles=[Line2D([], [], color='#8b96a5', lw=2, ls='--', label='Released v4'),
     Line2D([], [], color='#e52631', lw=2, label='Proposed v5'),
     Line2D([], [], color='#34495e', lw=1.3, label='Observed finish (zero)'),
-    Line2D([], [], color='#b88a31', lw=1.3, ls=':', label='−10 min: scheduling buffer exhausted')],
+    Line2D([], [], color='#b88a31', lw=1.3, ls=':', label='−10 min: historical benchmark')],
     loc='upper left', bbox_to_anchor=(.068, .916), ncol=4, frameon=False, fontsize=11)
+fig.text(.075, .87, 'Charge done by now uses a 20-minute buffer. ETA curves and the historical 10-minute benchmark are unchanged.', fontsize=11, color='#44515e')
 
 def vectors(rows, field, time):
     x, y = [], []
@@ -112,7 +113,7 @@ axes.flat[-1].text(0, .78,
     'Completion means the first reported 100%.\n'
     'This is retrospective testing, including calibration recordings;\n'
     'it is not an independent scheduled-charging trial.', fontsize=10.5, va='top', linespacing=1.45)
-fig.text(.075, .025, 'v5 improves conservative full-charge planning. Some mid-charge estimates become longer and less accurate.\n80% / 95% target estimates are unchanged; the 10-minute buffer does not cover every lower-target error.', fontsize=11, color='#44515e')
+fig.text(.075, .025, 'v5 improves conservative full-charge planning. Some mid-charge estimates become longer and less accurate.\n80% / 95% target estimates are unchanged; even the 20-minute buffer does not cover every lower-target error.', fontsize=11, color='#44515e')
 for extension in ['png', 'pdf']:
     fig.savefig(OUT / f'charge-finish-replay.{extension}', dpi=150)
 print(OUT / 'charge-finish-replay.png')

@@ -15,7 +15,7 @@ import java.util.function.Consumer;
 
 /** One-shot charging intentions. Reconciliation never sends commands or arms another day. */
 public final class ChargeScheduleController {
-    public static final long BUFFER_MS = 10 * 60_000L;
+    public static final long BUFFER_MS = 20 * 60_000L;
     private static final long SETTLE_MS = 30_000L, START_GRACE_MS = 120_000L;
     public interface Store { String read(String scope); void write(String scope, String value); }
     public interface Driver {

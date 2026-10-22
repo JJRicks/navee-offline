@@ -42,16 +42,19 @@ public final class ChargeScheduleControllerTest {
         TimeZone boise=TimeZone.getTimeZone("America/Boise");long now=time("2026-10-20T05:00:00Z");
         ChargeScheduleController.Plan plan=ChargeScheduleController.plan(now,8*60,90,boise,false);
         check(plan.deadlineWallMs==time("2026-10-20T14:00:00Z"),"11 PM -> next 8 AM");
-        check(plan.startWallMs==time("2026-10-20T12:20:00Z"),"90 minutes plus10 buffer starts6:20");
+        check(plan.startWallMs==time("2026-10-20T12:10:00Z"),"90 minutes plus 20 minute buffer starts at 6:10");
         check(!plan.startNow&&plan.offsetSeconds==-6*3600,"fixed clock offset");
         ChargeScheduleController.Plan whole=ChargeScheduleController.plan(now,8*60,90,boise,true);
         check(whole.startWallMs==time("2026-10-20T12:00:00Z"),"whole-hour models round earlier");
         check(ChargeScheduleController.plan(time("2026-10-20T13:00:00Z"),8*60,90,boise,false).startNow,"insufficient time charges now");
-        check(ChargeScheduleController.plan(now,8*60,90.01,boise,false).startWallMs==time("2026-10-20T12:19:00Z"),"fractional minutes round earlier");
+        check(ChargeScheduleController.plan(now,8*60,90.01,boise,false).startWallMs==time("2026-10-20T12:09:00Z"),"fractional minutes round earlier");
+        check(!ChargeScheduleController.plan(time("2026-10-20T12:09:00Z"),8*60,90,boise,false).startNow,"one minute before buffered start remains scheduled");
+        check(ChargeScheduleController.plan(time("2026-10-20T12:10:00Z"),8*60,90,boise,false).startNow,"exact buffered start charges now");
+        check(ChargeScheduleController.plan(time("2026-10-20T12:15:00Z"),8*60,90,boise,false).startNow,"inside added ten-minute reserve charges now rather than waiting");
         check(ChargeScheduleController.nextOccurrence(time("2026-10-20T14:00:00Z"),8*60,boise)==time("2026-10-21T14:00:00Z"),"exact same minute chooses tomorrow");
         ChargeScheduleController.Plan spring=ChargeScheduleController.plan(time("2027-03-14T06:00:00Z"),8*60,90,boise,false);
         check(spring.deadlineWallMs==time("2027-03-14T14:00:00Z"),"DST next day uses chosen localdeadline");
-        check(spring.startWallMs==time("2027-03-14T12:20:00Z")&&spring.offsetSeconds==-7*3600,"DST keeps fixed scooter-clock offset, correct elapsed duration");
+        check(spring.startWallMs==time("2027-03-14T12:10:00Z")&&spring.offsetSeconds==-7*3600,"DST keeps fixed scooter-clock offset, correct elapsed duration");
         check(ChargeScheduleController.nextOccurrence(time("2027-03-14T10:00:00Z"),150,boise)==time("2027-03-15T08:30:00Z"),"past spring gap does not shift tomorrow's chosen time");
         check(ChargeScheduleController.nextOccurrence(time("2027-03-14T08:00:00Z"),150,boise)==time("2027-03-14T09:30:00Z"),"today's nonexistent time advances through the gap");
         check(ChargeScheduleController.nextOccurrence(time("2026-11-01T07:00:00Z"),90,boise)==time("2026-11-01T07:30:00Z"),"fall overlap selects first future occurrence");
@@ -60,7 +63,7 @@ public final class ChargeScheduleControllerTest {
         check(fall.deadlineWallMs==time("2026-11-01T15:00:00Z"),"fall deadline uses next local8AM");
         ChargeScheduleController.Plan halfDst=ChargeScheduleController.plan(time("2026-10-03T12:00:00Z"),8*60,90,TimeZone.getTimeZone("Australia/Lord_Howe"),true);
         check((halfDst.startWallMs/1000+halfDst.offsetSeconds)%3600==0,"half-hour DST respects the wire whole-hour domain");
-        check(halfDst.deadlineWallMs-halfDst.startWallMs>=100*60_000,"rounding never starts later than the buffered estimate");
+        check(halfDst.deadlineWallMs-halfDst.startWallMs>=110*60_000,"rounding preserves the 90 minute estimate plus 20 minute reserve");
         for(double bad:new double[]{Double.NaN,Double.POSITIVE_INFINITY,-1,0,3000}){
             boolean rejected=false;try{ChargeScheduleController.plan(now,480,bad,boise,false);}catch(IllegalArgumentException expected){rejected=true;}check(rejected,"reject bad duration");
         }
@@ -89,7 +92,7 @@ public final class ChargeScheduleControllerTest {
         check(changedCap.writes.size()==2&&!changedCap.controller.view().doneByEnabled&&changedCap.results.get(0).startsWith("Charge limit changed"),"ceiling change before enable aborts stale estimate");
         Rig finalCap=new Rig();finalCap.enable();finalCap.reply(true);finalCap.reply(true);finalCap.c.target=85d;finalCap.reply(true);
         check(!finalCap.controller.view().doneByEnabled&&finalCap.controller.view().manualEnabled,"ceiling change after enable preserves actual schedule without false deadline");
-        Rig cap=new Rig();cap.c.target=85d;cap.c.estimateMinutes=20d;cap.arm();check(cap.sentTime==time("2026-10-20T13:30:00Z"),"uses ETAtoactual85percentcap");
+        Rig cap=new Rig();cap.c.target=85d;cap.c.estimateMinutes=20d;cap.arm();check(cap.sentTime==time("2026-10-20T13:20:00Z"),"uses ETA to actual 85 percent cap plus 20 minute reserve");
         Rig manual=new Rig();manual.controller.setManualStart(time("2026-10-20T12:00:00Z"),manual.results::add);manual.reply(true);manual.reply(true);
         check(manual.writes.size()==2&&!manual.controller.view().manualEnabled,"time edit does not enable");
         manual.controller.setManualEnabled(true,manual.results::add);manual.reply(true);manual.reply(true);manual.reply(true);check(manual.controller.view().manualEnabled,"manual active persisted");
@@ -162,13 +165,20 @@ public final class ChargeScheduleControllerTest {
 
         Rig paused=new Rig();paused.arm();paused.c.estimateUnavailableReason=reason;paused.c.estimateMinutes=null;
         paused.controller.setDoneTime(9,30,paused.results::add);paused.reply(true);
-        check(paused.sentTime==time("2026-10-20T13:50:00Z"),"Paused explicit edit still reuses the verified saved duration");
+        check(paused.sentTime==time("2026-10-20T13:40:00Z"),"Paused explicit edit still reuses the verified saved duration");
         paused.c.wireStart=paused.sentTime/1000+paused.sentOffset;paused.reply(true);paused.reply(true);
         check(paused.results.get(1)==null&&paused.controller.view().doneByEnabled,"Paused edit completes without requiring charger identification");
     }
     private static void persistence(){
         Rig r=new Rig();r.arm();String encoded=r.saved.get("owner-A");ChargeScheduleController.State decoded=ChargeScheduleController.decode(encoded);
         check(decoded.mode==2&&decoded.minute==480&&decoded.target==100&&decoded.start==r.sentTime,"persistallownedfields");
+        // A schedule saved by the ten-minute-buffer release is already on the scooter.
+        // Recreating the controller must preserve that start until an explicit edit.
+        decoded.start+=10*60_000L;decoded.wire+=600;decoded.calculatedWire+=600;
+        r.saved.put("owner-A",ChargeScheduleController.encode(decoded));r.c.wireStart=decoded.wire;
+        int writes=r.writes.size();r.recreate();r.controller.observe();
+        check(r.controller.view().doneByEnabled&&r.controller.view().startWallMs==decoded.start,"existing ten-minute-buffer schedule survives upgrade without moving its start");
+        check(r.writes.size()==writes,"upgrade does not reprogram a saved schedule");
         for(String bad:new String[]{"", "2|2|480|0|0|0|0|100|90|false", "1|2|480|0|0|0|0|100|90|false", "1|2|480|1|2|3|4|NaN|90|false", "1|2|1500|1|2|3|4|100|90|false", "garbage"})
             check(ChargeScheduleController.decode(bad).mode==0,"malformedrecordcannotarm");
         r.c.scope="owner-B";check(!r.controller.view().doneByEnabled,"profilesisolated");r.c.scope="simulation:owner-A";check(!r.controller.view().doneByEnabled,"simulationisolated");
@@ -289,7 +299,7 @@ public final class ChargeScheduleControllerTest {
         check(dropped.controller.view().manualStartWallMs==preferred,"disconnect/restart during calculated write cannot corrupt manual preference from delayed readback");
         Rig active=armedWithManual();preferred=active.controller.view().manualStartWallMs;active.c.wireStart+=1800;active.controller.observe();
         check(active.controller.view().manualStartWallMs==preferred,"changed native time during owned done-by never replaces separate manual preference");
-        Rig collision=new Rig();long sameCalculated=time("2026-10-20T12:20:00Z");collision.controller.setManualStart(sameCalculated,collision.results::add);collision.reply(true);collision.c.wireStart=collision.sentTime/1000+collision.sentOffset;collision.reply(true);
+        Rig collision=new Rig();long sameCalculated=time("2026-10-20T12:10:00Z");collision.controller.setManualStart(sameCalculated,collision.results::add);collision.reply(true);collision.c.wireStart=collision.sentTime/1000+collision.sentOffset;collision.reply(true);
         collision.writes.clear();collision.results.clear();collision.arm();collision.c.soc=100d;collision.controller.observe();collision.c.wireStart+=1800;collision.controller.observe();
         check(collision.controller.view().manualStartWallMs==sameCalculated,"retired calculated start matching manual by coincidence does not establish manual context");
         Rig clockFailure=withManualOnly();clockFailure.enable();clockFailure.reply(false);clockFailure.c.wireStart=edited/1000+clockFailure.sentOffset;clockFailure.controller.observe();
@@ -317,14 +327,14 @@ public final class ChargeScheduleControllerTest {
         Rig paused=armedWithManual();long manual=paused.controller.view().manualStartWallMs;long oldDeadline=paused.controller.view().doneByWallMs;
         paused.controller.setDoneTime(9,30,paused.results::add);
         check(paused.writes.get(3).equals("clock")&&paused.controller.view().doneByMinuteOfDay==480,"active connected edit starts confirmation without prematurely saving new deadline");
-        paused.reply(true);check(paused.sentTime==time("2026-10-20T13:50:00Z"),"paused plan reuses verified 90 minute estimate plus buffer");
+        paused.reply(true);check(paused.sentTime==time("2026-10-20T13:40:00Z"),"paused plan reuses verified 90 minute estimate plus buffer");
         paused.c.wireStart=paused.sentTime/1000+paused.sentOffset;paused.reply(true);paused.reply(true);
         check(paused.results.get(1)==null&&paused.controller.view().doneByMinuteOfDay==570&&paused.controller.view().doneByWallMs==time("2026-10-20T15:30:00Z"),"connected active edit applies and displays confirmed new deadline");
         check(paused.controller.view().manualStartWallMs==manual,"active update preserves separate manual preference");
         paused.recreate();paused.controller.setDoneTime(10,0,paused.results::add);paused.reply(true);
-        check(paused.sentTime==time("2026-10-20T14:20:00Z"),"captured ETA and SOC survive restart for explicit paused edit");paused.c.wireStart=paused.sentTime/1000+paused.sentOffset;paused.reply(true);paused.reply(true);
+        check(paused.sentTime==time("2026-10-20T14:10:00Z"),"captured ETA and SOC survive restart for explicit paused edit");paused.c.wireStart=paused.sentTime/1000+paused.sentOffset;paused.reply(true);paused.reply(true);
         Rig live=armedWithManual();live.c.charging=1;live.c.soc=80d;live.c.estimateMinutes=60d;live.controller.setDoneTime(10,0,live.results::add);live.reply(true);
-        check(live.sentTime==time("2026-10-20T14:50:00Z"),"active charging uses fresh live estimate rather than older capture");live.c.wireStart=live.sentTime/1000+live.sentOffset;live.reply(true);live.reply(true);
+        check(live.sentTime==time("2026-10-20T14:40:00Z"),"active charging uses fresh live estimate rather than older capture");live.c.wireStart=live.sentTime/1000+live.sentOffset;live.reply(true);live.reply(true);
         check(ChargeScheduleController.decode(live.saved.get("owner-A")).capturedSoc==80,"fresh update captures current SOC for next paused edit");
         Rig offline=armedWithManual();offline.c.ready=false;offline.controller.setDoneTime(11,0,offline.results::add);int commands=offline.writes.size();offline.c.ready=true;offline.c.generation++;offline.controller.observe();
         check(offline.writes.size()==commands&&offline.controller.view().doneByWallMs==oldDeadline&&offline.controller.view().doneByMinuteOfDay==660,"reconnect does not auto-apply offline preference to active plan");

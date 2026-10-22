@@ -127,7 +127,11 @@ known recording type; this bundle does not simulate automatic family detection.
 
 All times below are minutes. Positive error means the predicted finish is later
 than the actual first displayed 100%; negative means it predicts too soon. The
-separate **10-minute Charge done by buffer is not included** in the estimates.
+separate **20-minute Charge done by buffer is not included** in the estimates.
+The scheduler previously used ten minutes. Published JSON metrics whose names
+contain `10min` and the plot's −10-minute reference line intentionally retain that
+historical benchmark. They are not twenty-minute metrics. The full-time
+estimator's separate up-to-ten-minute startup allowance remains unchanged.
 Scooter A uses preceding-personal-history/runtime mode here.
 
 | Charge | First v4 ETA | First v5 ETA | Actual remaining | v5 first error | Whole-charge MAE v4 → v5 |
@@ -154,17 +158,18 @@ are about 50.24 and 50.60 minutes, respectively. This is the deliberate cost of
 the conservative fallback, not a universal accuracy improvement.
 
 All five completed standard charges' observed full-charge predictions fit within
-the separate 10-minute scheduling buffer. The worst remaining full-charge
-optimism is 8.53 minutes, in the unchanged finishing region. This retrospective
-statement assumes charging follows the same measured trajectory after a delay;
+even the former 10-minute scheduling buffer. The scheduler now uses twenty
+minutes; none of these recorded ETA curves or golden results changed. The worst
+remaining full-charge optimism is 8.53 minutes, in the unchanged finishing region.
+This retrospective statement assumes charging follows the same measured trajectory after a delay;
 it is **not a tested paused-until-start experiment or a delivery guarantee**.
 
 ### Known limitation: lower cutoff targets
 
 Every 80% and 95% estimate is numerically unchanged. For low-start charges the
 existing 80% estimate can be roughly 37.58 minutes too optimistic on the warm
-charge and 42.17 minutes on Scooter B. The 10-minute buffer cannot cover those
-cases. This full-charge refinement must not be claimed to fix every Charge done
+charge and 42.17 minutes on Scooter B. Even the increased 20-minute buffer cannot
+cover those cases. This full-charge refinement must not be claimed to fix every Charge done
 by target; a lower-target refinement requires separate calibration and validation.
 
 ## Field dictionary
