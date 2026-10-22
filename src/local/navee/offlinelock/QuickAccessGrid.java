@@ -137,8 +137,8 @@ final class QuickAccessGrid extends ViewGroup {
             }
             cell.setEnabled(!editing);
             String description = (tiles ? tileLabel(cell.entry) : cell.entry.label) + (state.isEmpty() ? "" : ", " + state)
-                    + (chargeControl && chargeBlocked != null ? ", " + chargeBlocked
-                            : unmapped ? ", not on this model" : feature != null && !featureLive ? ", last seen" : "")
+                    + (unmapped ? ", not on this model" : chargeControl && chargeBlocked != null ? ", " + chargeBlocked
+                            : feature != null && !featureLive ? ", last seen" : "")
                     + (toggle ? ", toggle" : ", open");
             cell.setContentDescription(description);
             if (android.os.Build.VERSION.SDK_INT >= 30) cell.setStateDescription(state);
