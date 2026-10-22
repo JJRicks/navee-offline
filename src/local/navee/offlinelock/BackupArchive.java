@@ -618,10 +618,11 @@ final class BackupArchive {
     }
     private static boolean sameScooter(Prepared prepared, BackupProfiles.Profile mine, BackupProfiles.Profile incoming) {
         if (mine.sameScooter(incoming)) return true;
-        // Only legacy pairing imports may lack both identifiers. Do not change the matching
-        // rules for full/category archives, and never replace an existing credential.
-        return prepared.kind.equals("owner") && mine.serial.isEmpty() && incoming.serial.isEmpty()
-                && mine.mac.isEmpty() && incoming.mac.isEmpty() && mine.role == incoming.role
+        // Setup helpers omit hardware identifiers even when the local profile learned them
+        // after connecting. Match that same access key and role without replacing any local
+        // credential. Full/category archives and owner files with identifiers stay strict.
+        return prepared.kind.equals("owner") && incoming.serial.isEmpty()
+                && incoming.mac.isEmpty() && mine.role == incoming.role
                 && !mine.identity.isEmpty() && mine.identity.equalsIgnoreCase(incoming.identity);
     }
     /** Dashboards or scooter preferences: each mapped scooter's entries are replaced as a set. */

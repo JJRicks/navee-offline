@@ -878,7 +878,7 @@ public final class MoreScreen implements AppScreen {
             p.name = value; p.nameDefault = false; service().profiles.update(p); dialog.dismiss(); host.redraw();
         });
     }
-    private void backupProfile() {
+    private void backupBeforeForgetting() {
         host.dataBackup(false, null);
     }
     private void forgetProfile() {
@@ -887,7 +887,7 @@ public final class MoreScreen implements AppScreen {
         LinearLayout box = dialogBox("Forget scooter?", "Removes " + p.name + "'s setup. Rides stay.");
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
         if (p.configured()) {
-            TextView backup = ui.secondaryButton("Save backup first", () -> { dialog.dismiss(); backupProfile(); });
+            TextView backup = ui.secondaryButton("Save backup first", () -> { dialog.dismiss(); backupBeforeForgetting(); });
             box.addView(backup);
         }
         dialogButtons(box, "Cancel", dialog::dismiss, "Forget", () -> {

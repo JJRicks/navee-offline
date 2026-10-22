@@ -76,8 +76,10 @@ public final class FullBackupJourneyValidation extends Instrumentation {
                 AppDataBackup.apply(app,prepared);verifyLegacy();
                 result.putString("phase","LEGACY_V1_RESTORED");
             } else if("owner-only".equals(mode)) {
-                populate();restoreOwnerOnly();result.putString("phase","OWNER_FILE_MERGED_WITHOUT_DATA_LOSS");
-            } else throw new IllegalArgumentException("Use mode export, restore-check, legacy-v1 or owner-only");
+                populate();restoreOwnerOnly(false);result.putString("phase","OWNER_FILE_MERGED_WITHOUT_DATA_LOSS");
+            } else if("owner-existing".equals(mode)) {
+                populate();restoreOwnerOnly(true);result.putString("phase","HELPER_OWNER_FILE_MATCHED_CONNECTED_PROFILE");
+            } else throw new IllegalArgumentException("Use mode export, restore-check, legacy-v1, owner-only or owner-existing");
             result.putString("result","PASS");result.putString("archive_path",archive.getAbsolutePath());
             result.putBoolean("nearby_granted",app.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED);
             result.putInt("scooter_mutations",0);
@@ -139,9 +141,16 @@ public final class FullBackupJourneyValidation extends Instrumentation {
     private Object field(Object target,String name){try{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);return f.get(target);}catch(Exception e){throw new IllegalStateException(name,e);}}
     private void await(BooleanSupplier condition,String message){long until=SystemClock.elapsedRealtime()+20000;while(!condition.getAsBoolean()&&SystemClock.elapsedRealtime()<until)SystemClock.sleep(30);require(condition.getAsBoolean(),message);waitForIdleSync();}
     /** Legacy pairing files must never look like, or be allowed to perform, a full-data replacement. */
-    private void restoreOwnerOnly()throws Exception {
+    private void restoreOwnerOnly(boolean existing)throws Exception {
         File ownerFile=new File(app.getExternalFilesDir(null),"legacy-owner.json");
-        String owner="{\"format\":\"navee-offline-owner-v1\",\"owner_identity\":\"AABBCCDDEEFF\",\"role\":0,\"name\":\"Additional synthetic scooter\",\"scooter_serial\":\"OTHER-SYNTHETIC-OWNER\"}";
+        if(existing){
+            ScooterProfiles local=new ScooterProfiles(app);ScooterProfiles.Profile original=local.active();
+            original.mac="00:11:22:33:44:55";local.update(original);
+            require(!original.serial.isEmpty(),"Existing owner regression requires a connected scooter with both identifiers");
+        }
+        String owner=existing
+                ?"{\"format\":\"navee-offline-owner-v1\",\"owner_identity\":\"000000000000\",\"role\":0,\"model_name\":\"NAVEE scooter\",\"captured_at_utc\":\"2026-01-01T00:00:00.000Z\",\"note\":\"Private Bluetooth owner identity; not a NAVEE password or cloud login token.\"}"
+                :"{\"format\":\"navee-offline-owner-v1\",\"owner_identity\":\"AABBCCDDEEFF\",\"role\":0,\"name\":\"Additional synthetic scooter\",\"scooter_serial\":\"OTHER-SYNTHETIC-OWNER\"}";
         Files.write(ownerFile.toPath(),owner.getBytes(StandardCharsets.UTF_8));
         MainActivity main=(MainActivity)startActivitySync(new Intent(app,MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));current=main;
         await(()->!Boolean.TRUE.equals(field(main,"startupRedirect")),"Main activity did not initialize");
@@ -152,7 +161,7 @@ public final class FullBackupJourneyValidation extends Instrumentation {
         Activity opened=waitForMonitorWithTimeout(monitor,10000);removeMonitor(monitor);
         require(opened instanceof BackupActivity,"Unified restore did not open");BackupActivity backup=(BackupActivity)opened;current=backup;
         await(()->view(backup,"restore-choose")!=null,"Restore form missing");
-        Map<String,Map<String,?>> before=new LinkedHashMap<>();for(String name:PREFS)if(!name.equals("profiles"))before.put(name,new LinkedHashMap<>(prefs(name).getAll()));
+        Map<String,Map<String,?>> before=new LinkedHashMap<>();for(String name:PREFS)if(existing||!name.equals("profiles"))before.put(name,new LinkedHashMap<>(prefs(name).getAll()));
         String profileId=prefs("app_settings").getString("fixture_profile_id","");
         Map<String,String> filesBefore=new LinkedHashMap<>();for(File file:durableFiles())filesBefore.put(relative(file),hash(Files.readAllBytes(file.toPath())));
         IntentFilter filter=new IntentFilter(Intent.ACTION_OPEN_DOCUMENT);filter.addCategory(Intent.CATEGORY_OPENABLE);filter.addDataType("*/*");
@@ -167,13 +176,23 @@ public final class FullBackupJourneyValidation extends Instrumentation {
         click(backup,"restore-next");await(()->view(backup,"restore-review")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Owner destination review missing");
         android.widget.Spinner destination=(android.widget.Spinner)view(backup,"restore-destination");require(destination!=null,"Owner import destination missing");
         int add=-1;for(int i=0;i<destination.getCount();i++)if("Add from backup".equals(String.valueOf(destination.getItemAtPosition(i))))add=i;
-        require(add>=0,"No explicit add-scooter choice");final int selection=add;runOnMainSync(()->destination.setSelection(selection));click(backup,"restore-review");
+        if(existing){
+            require(add<0,"Existing helper owner file offers a duplicate profile");
+            require("Synthetic clear-storage scooter".equals(String.valueOf(destination.getSelectedItem())),"Existing scooter was not suggested by default");
+            List<AppDataBackup.Destination> choices=AppDataBackup.destinations(app,prepared,Collections.singleton("scooters"));
+            require(choices.size()==1&&!choices.get(0).addable&&profileId.equals(choices.get(0).suggested),"Existing profile mapping is not preserved");
+            AppDataBackup.Review review=AppDataBackup.review(app,prepared,Collections.singleton("scooters"),false,Collections.singletonMap(choices.get(0).source,profileId));
+            require(review.lines.contains("Scooters: adds 0 · 1 already here"),"Existing owner preview does not explain the no-op");
+        }else{
+            require(add>=0,"No explicit add-scooter choice");final int selection=add;runOnMainSync(()->destination.setSelection(selection));
+        }
+        click(backup,"restore-review");
         await(()->view(backup,"restore-apply")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Owner final preview missing");
         require("Restore".contentEquals(((TextView)view(backup,"restore-apply")).getText())&&view(backup,"restore-owner-only")!=null,"Owner final preview is presented as full replacement");
         require(new ScooterProfiles(app).all().size()==1,"Owner review changed profiles before approval");
         click(backup,"restore-apply");await(()->Boolean.TRUE.equals(field(backup,"terminal")),"Owner merge did not finish");
         require("Restored. Reopen Volt.".contentEquals(((TextView)field(backup,"status")).getText()),"Owner merge failed");
-        ScooterProfiles profiles=new ScooterProfiles(app);require(profiles.all().size()==2,"Owner file did not add exactly one scooter");
+        ScooterProfiles profiles=new ScooterProfiles(app);require(profiles.all().size()==(existing?1:2),existing?"Existing owner import added a duplicate scooter":"Owner file did not add exactly one scooter");
         ScooterProfiles.Profile original=null;for(ScooterProfiles.Profile p:profiles.all())if(p.id.equals(profileId))original=p;
         require(original!=null&&original.identity.equals("000000000000")&&original.name.equals("Synthetic clear-storage scooter"),"Owner import replaced the original scooter");
         for(Map.Entry<String,Map<String,?>> e:before.entrySet())require(e.getValue().equals(prefs(e.getKey()).getAll()),"Owner import changed unrelated preferences: "+e.getKey());

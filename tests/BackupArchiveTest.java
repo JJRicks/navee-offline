@@ -299,6 +299,51 @@ public final class BackupArchiveTest {
                     generator[0] + " metadata cannot become timestamps, model evidence or stored arbitrary state");
             rejects(() -> helper.stage(generated.replace(BackupJson.quote(generator[1]), "{}").getBytes(StandardCharsets.UTF_8)), "helper model metadata must be text");
             rejects(() -> helper.stage(generated.replace(BackupJson.quote(generator[2]), "false").getBytes(StandardCharsets.UTF_8)), "helper date metadata must be text");
+
+            // Real helper files omit hardware identifiers even after this phone has learned them.
+            // The same key must map back to that existing profile, not split its recordings.
+            BackupTestStore connected = phone(new File(root, "legacy-owner-connected-" + generator[0]));
+            connected.put("onboarding", "step", 3);
+            if (generator[0].equals("web")) {
+                Map<String, Map<String, Object>> lower = connected.preferences();
+                lower.get("profiles").put("items", ((String)lower.get("profiles").get("items")).replace("0123456789AB", "0123456789ab"));
+                connected.write(lower);
+            }
+            Map<String, Map<String, Object>> connectedPrefs = connected.preferences();
+            Map<String, String> connectedFiles = connected.fileHashes();
+            byte[] matchingHelper = generated.replace("AABBCCDDEEFF", "0123456789ab").getBytes(StandardCharsets.UTF_8);
+            for (int repeat = 0; repeat < 2; repeat++) {
+                BackupArchive.Prepared matching = connected.stage(matchingHelper);
+                List<BackupArchive.Destination> matches = BackupArchive.destinations(connected, matching, scooters);
+                check(matches.size() == 1 && C.equals(matches.get(0).suggested) && !matches.get(0).addable,
+                        generator[0] + " helper suggests the connected local profile on import " + repeat);
+                BackupArchive.Plan unchanged = connected.plan(matching, scooters, false, null);
+                check(unchanged.lines.contains("Scooters: adds 0 · 1 already here"), generator[0] + " preview reports the existing scooter");
+                BackupTransaction.apply(connected, unchanged);
+                check(connected.preferences().equals(connectedPrefs) && connected.fileHashes().equals(connectedFiles),
+                        generator[0] + " repeated helper import preserves profiles, preferences and every recording byte");
+            }
+        }
+
+        // Identity-only matching is restricted to owner files with neither hardware identifier.
+        BackupTestStore strict = phone(new File(root, "legacy-owner-strict-matching"));
+        for (byte[] distinct : new byte[][] {
+                ownerFile("Other identity", "111111111111", 0, "", ""),
+                ownerFile("Other role", "0123456789AB", 1, "", ""),
+                ownerFile("Other serial", "0123456789AB", 0, "", "SERIAL-OTHER"),
+                ownerFile("Other address", "0123456789AB", 0, "02:00:00:00:00:ff", "")}) {
+            BackupArchive.Prepared other = strict.stage(distinct);
+            List<BackupArchive.Destination> matches = BackupArchive.destinations(strict, other, scooters);
+            check(matches.size() == 1 && matches.get(0).addable && !C.equals(matches.get(0).suggested),
+                    "different role, key or explicit hardware identifier is not identity-only matched");
+        }
+        BackupTestStore identifierless = new BackupTestStore(new File(root, "legacy-owner-archive-source"));
+        identifierless.restore(ownerFile("Archive profile", "0123456789AB", 0, "", ""), scooters, false, null);
+        for (Set<String> categories : Arrays.asList(scooters, BackupTestStore.all())) {
+            BackupArchive.Prepared archive = strict.stage(identifierless.export(categories));
+            List<BackupArchive.Destination> matches = BackupArchive.destinations(strict, archive, scooters);
+            check(matches.size() == 1 && matches.get(0).addable && !C.equals(matches.get(0).suggested),
+                    "full/category archive retains strict hardware-identifier matching");
         }
 
         String valid = new String(owner, StandardCharsets.UTF_8);

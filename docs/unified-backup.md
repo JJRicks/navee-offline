@@ -317,6 +317,6 @@ All three runners passed on emulator-5560 and emulator-5558: every `run-backups.
 
 ## Backup discovery follow-up
 
-The More index now exposes Back up & restore directly. New backups select every available category; a live scope label and `volt-full` / `volt-selected` filename distinguish complete copies from subsets. The old private owner-only export is removed from My scooters, including its Save backup first route.
+The More index now exposes Back up & restore directly. New backups select every available category; a live scope label and `volt-full` / `volt-selected` filename distinguish complete copies from subsets. The old private owner-only export is removed from My scooters. The forget dialog keeps Save backup first, which now opens the same full-default encrypted backup flow.
 
 Restore also accepts strictly validated `navee-offline-owner-v1` JSON through the existing staged, reviewed, transactional merge. These files are marked `owner`, contain only Scooters & setup keys, and are never complete or eligible for Replace everything. Both category preview and final approval explicitly say that rides, history, dashboards and settings are absent. Ordinary pairing-file imports retain their setup role and use the same clear access-only wording. No backup format or encryption change is required.
