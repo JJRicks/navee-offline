@@ -155,7 +155,9 @@ New samples save the same estimator result used by the dashboard, even with the 
 
 ### Charge done by
 
-In **Scooter → Battery**, choose **Charge done by**, then enable its switch while the scooter is plugged in and freshly reporting charging. Volt uses the current estimate to your selected charge limit, adds a ten-minute buffer, and saves a start time on the scooter. For example, an 8 AM deadline with a 90-minute estimate schedules charging for 6:20 AM. If there is no time to wait, Volt requests charging now instead. An unavailable estimate leaves the schedule unchanged.
+In **Scooter → Battery**, choose **Charge done by**, then enable its switch while the scooter is plugged in and freshly reporting charging. Volt uses the current estimate to your selected charge limit, adds a twenty-minute buffer, and saves a start time on the scooter. For example, an 8 AM deadline with a 90-minute estimate schedules charging for 6:10 AM. If there is no time to wait, Volt requests charging now instead. An unavailable estimate leaves the schedule unchanged.
+
+Full-charge plans favor finishing early and can finish more than an hour before the chosen time. Estimates for lower limits such as 80%, especially when starting with a low battery, are less reliable and can still finish late despite the buffer. See the [recorded-charge comparisons and limits](validation/stock-startup-estimates.md).
 
 This is a **one-time schedule for the next occurrence of that time**, not a daily alarm. Once the change is confirmed, you can disconnect or close Volt; the scooter's own clock handles the start. Volt does not stay connected, keep recalculating, or change your background-connection preference. The estimate remains approximate. Some models only accept whole-hour starts; Volt rounds earlier on those models.
 
