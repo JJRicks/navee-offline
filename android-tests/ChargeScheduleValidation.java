@@ -177,7 +177,7 @@ public final class ChargeScheduleValidation extends Instrumentation {
         main(()->invoke(activity,"offerChargeMeasure"));settle();
         main(()->{AlertDialog dialog=(AlertDialog)field(activity,"controlDialog");require(dialog.isShowing(),"Measure offer did not open");
             String text=texts(dialog.getWindow().getDecorView());
-            require(text.contains("up to 10 minutes")&&text.contains("20-minute buffer")&&text.contains("even in the background")&&text.contains("notification"),"Offer does not explain the bounded background connection: "+text);
+            require(text.contains("about 10 minutes")&&text.contains("20-minute buffer")&&text.contains("even in the background")&&text.contains("notification"),"Offer does not explain the bounded background connection: "+text);
             require("Measure first".contentEquals(dialog.getButton(AlertDialog.BUTTON_POSITIVE).getText())&&"Schedule now".contentEquals(dialog.getButton(AlertDialog.BUTTON_NEGATIVE).getText()),"Offer buttons are not Measure first / Schedule now");
             dialog.getButton(AlertDialog.BUTTON_POSITIVE).performClick();});
         await(()->service.chargeSchedule().doneByEnabled&&!service.chargeSchedule().busy&&!service.isChargeMeasuring(),"Measure first without a usable window did not fall back to scheduling");
@@ -194,7 +194,9 @@ public final class ChargeScheduleValidation extends Instrumentation {
             require(notice.actions!=null&&notice.actions.length==1&&"Schedule now".contentEquals(notice.actions[0].title),"Notification lacks Schedule now");
         });
         controls();
-        main(()->{Object row=done(false);require(String.valueOf(((TextView)field(field(row,"row"),"value")).getText()).startsWith("Measuring · 12 min"),"Row does not show measuring");
+        // The row refreshes on the next redraw after the window starts; wait for it rather than racing it.
+        await(()->String.valueOf(((TextView)field(field(done(false),"row"),"value")).getText()).startsWith("Measuring · 12 min"),"Row does not show measuring");
+        main(()->{Object row=done(false);
             require(((View)field(row,"spinner")).getVisibility()==View.VISIBLE&&((Switch)field(row,"toggle")).getVisibility()==View.GONE,"Measuring row still offers the plain switch");});
         screenshot("measuring");
         main(()->((View)field(field(done(false),"row"),"line")).performClick());settle();

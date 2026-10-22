@@ -1817,7 +1817,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         boolean background=preferences.getBoolean("background_connection",false);
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Measure this charge first?")
                 .setMessage("Volt didn't see this charge begin, so it would plan for a fresh charger, which usually finishes early. "
-                        +"Watching the charger for up to 10 minutes lets it plan closer to your time, still with the 20-minute buffer. "
+                        +"Watching the charger for about 10 minutes lets it plan closer to your time, still with the 20-minute buffer. "
                         +"Volt stays connected"+(background?"":", even in the background,")+" and shows a notification until the schedule is set.")
                 .setPositiveButton("Measure first",(d,which)->{
                     if(scooterService==null)return;
