@@ -296,8 +296,14 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         main(() -> {
             // The model line describes the saved profile; the simulated model never reaches it.
             ScooterProfiles.Profile profile = activity.service().profiles.active();
-            TextView model = (TextView)field(more(), "scootersModel");
-            require(model.getText().toString().equals(ModelRegistry.modelLine(profile.savedDescriptor())) && model.getText().toString().equals("UT5 MAX"), label + ": model line " + model.getText());
+            Object card = ((Map<?, ?>)field(more(), "scooterCards")).get(profile.id);
+            require(card != null, label + ": selected saved profile has no scooter card");
+            TextView model = (TextView)field(card, "model");
+            String savedModel = ModelRegistry.modelName(profile.savedDescriptor());
+            if (savedModel.isEmpty()) savedModel = "Model not identified";
+            require(model.getText().toString().equals(savedModel) && model.getText().toString().equals("UT5 MAX"), label + ": saved card model line " + model.getText());
+            require(((TextView)field(card, "name")).getText().toString().equals(profile.name), label + ": simulated model changed the saved card identity");
+            require(((View)field(card, "photo")).isShown() && !((View)field(card, "photoFallback")).isShown(), label + ": saved UT5 MAX card photo followed the simulated model");
             require(profile.advertisedPid.isEmpty(), label + ": simulation wrote an advertised model ID to the profile");
         });
         screenshot(label + "-more-scooters");

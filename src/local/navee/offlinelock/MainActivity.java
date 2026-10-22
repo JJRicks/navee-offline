@@ -1168,20 +1168,22 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(!present){scanSelected=null;for(ScanResult result:scanResults)if(!mine.isEmpty()&&result.getDevice().getAddress().equalsIgnoreCase(mine))scanSelected=result.getDevice().getAddress();}
         scanStatus.setText(scanning?"Searching…":scanResults.isEmpty()?"No scooter found. Is it on?":scanResults.size()==1?"1 scooter found":scanResults.size()+" scooters found");
         scanSpinner.setVisibility(scanning?View.VISIBLE:View.GONE);
-        StringBuilder signature=new StringBuilder(String.valueOf(scanSelected));
-        for(ScanResult result:scanResults){String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();signature.append('|').append(result.getDevice().getAddress()).append(':').append(signalRank(result.getRssi())).append(':').append(name);}
+        StringBuilder signature=new StringBuilder(String.valueOf(scanSelected)).append(':').append(profile==null?"":profile.id);
+        for(ScanResult result:scanResults){String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();ScooterProfiles.Profile saved=scooterService.profiles.hardwareMatch(null,result.getDevice().getAddress(),null);signature.append('|').append(result.getDevice().getAddress()).append(':').append(signalRank(result.getRssi())).append(':').append(name).append(':').append(saved==null?"":saved.id+":"+saved.name);}
         if(!signature.toString().equals(scanSignature)){
             scanSignature=signature.toString();scanList.removeAllViews();
             for(ScanResult result:scanResults){
-                String address=result.getDevice().getAddress();boolean match=!mine.isEmpty()&&address.equalsIgnoreCase(mine);
-                scanList.addView(scanOption(result,match,address.equals(scanSelected)));
+                String address=result.getDevice().getAddress();ScooterProfiles.Profile saved=scooterService.profiles.hardwareMatch(null,address,null);
+                scanList.addView(scanOption(result,saved,address.equals(scanSelected)));
             }
         }
         scanConnect.setEnabled(scanSelected!=null);
     }
     /** Nearby scooter row (ph/10): scooter icon, name, signal bars; the selected scooter has a red outline. */
-    private View scanOption(ScanResult result,boolean match,boolean selected){
+    private View scanOption(ScanResult result,ScooterProfiles.Profile saved,boolean selected){
         String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();if(name==null||name.isEmpty())name="Navee scooter";
+        if(saved!=null)name=saved.name;
+        ScooterProfiles.Profile active=scooterService.profiles.active();boolean match=saved!=null&&active!=null&&saved.id.equals(active.id);
         String address=result.getDevice().getAddress(),suffix=address.substring(Math.max(0,address.length()-5));
         int rank=signalRank(result.getRssi());String strength=rank==4?"Strong signal":rank==3?"Good signal":rank==2?"Fair signal":"Weak signal";
         LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);option.setPadding(design.dp(12),design.dp(10),design.dp(14),design.dp(10));option.setMinimumHeight(design.dp(64));
@@ -1191,10 +1193,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         option.addView(design.iconSquare("scooter",design.accent),new LinearLayout.LayoutParams(design.dp(40),design.dp(40)));
         LinearLayout words=column();
         TextView title=design.text(name,15,true);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);words.addView(title);
-        // Signal bars show the strength and a Yours chip marks the profile's scooter; TalkBack keeps both in words.
+        // Every known address uses its saved name and label, including another profile's scooter.
         LinearLayout detail=row();detail.setGravity(Gravity.CENTER_VERTICAL);detail.setPadding(0,design.dp(3),0,0);
-        if(match){
-            TextView yours=design.text("Yours",11,true);yours.setTextColor(design.ok);yours.setPadding(design.dp(8),design.dp(1),design.dp(8),design.dp(2));
+        if(saved!=null){
+            TextView yours=design.text(match?"Yours":"Saved",11,true);yours.setTextColor(design.ok);yours.setPadding(design.dp(8),design.dp(1),design.dp(8),design.dp(2));
             yours.setBackground(design.shape(Ui.withAlpha(design.ok,design.dark?40:30),100,0));
             LinearLayout.LayoutParams chip=new LinearLayout.LayoutParams(-2,-2);chip.setMarginEnd(design.dp(8));detail.addView(yours,chip);
         }
@@ -1203,7 +1205,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         SignalBars bars=new SignalBars(rank);int color=rank>=3?design.ok:design.orange;bars.set(rank,color,design.raised);
         option.addView(bars,new LinearLayout.LayoutParams(design.dp(18),design.dp(14)));
         option.setClickable(true);option.setFocusable(true);option.setSelected(selected);
-        option.setContentDescription(name+", "+strength+(match?", your scooter":"")+", address ending "+suffix);
+        option.setContentDescription(name+", "+strength+(saved==null?"":match?", your scooter":", saved scooter in My scooters")+", address ending "+suffix);
         if(Build.VERSION.SDK_INT>=30)option.setStateDescription(selected?"Selected":"");
         option.setOnClickListener(v->{scanSelected=address;scanSignature="";updateScan();});
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.bottomMargin=design.dp(8);option.setLayoutParams(params);
@@ -1963,14 +1965,18 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         private void refreshChargeSchedule(){
             ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
+            BleController ble=scooterService==null?null:scooterService.ble;
+            CapabilityResolver.Decision decision=ble==null?null:ble.decision(feature.key);
+            String note=rowNote(ble,decision,decision!=null&&decision.blockedByRide());
             String blocked=charge==null?"Connect your scooter first":toggle==null?charge.manualTimeBlockedReason:charge.manualBlockedReason;
             boolean pending=charge!=null&&charge.busy,on=charge!=null&&charge.manualEnabled;
             String shown=toggle!=null?(on?"On":"Off"):charge==null||charge.manualStartWallMs<=0?"Not scheduled"
                     :DisplayTime.clock(MainActivity.this,preferences,charge.manualStartWallMs);
-            name.setTextColor(blocked==null?design.text:design.muted);value.setText(shown);row.setSub(null);
+            name.setTextColor(blocked==null?design.text:design.muted);value.setText(shown);row.setSub(note);
             action.setEnabled(true);row.line.setAlpha(blocked==null?1f:.5f);parkedBlocked=false;
             spinner.setVisibility(pending?View.VISIBLE:View.GONE);result.setVisibility(View.GONE);
-            action.setContentDescription(shortLabel(feature)+", "+shown+(blocked==null?"":", "+blocked));
+            action.setContentDescription(shortLabel(feature)+", "+shown+(blocked==null?"":", "+blocked)
+                    +(note==null||note.equals(blocked)?"":", "+note));
             if(toggle!=null){toggle.setVisibility(pending?View.GONE:View.VISIBLE);toggle.setChecked(on);toggle.setEnabled(blocked==null&&!pending);toggle.setClickable(blocked==null&&!pending);toggle.setFocusable(blocked==null&&!pending);}
         }
         /**

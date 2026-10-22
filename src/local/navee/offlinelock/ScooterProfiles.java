@@ -36,6 +36,15 @@ public final class ScooterProfiles {
         if(!profiles.isEmpty())prefs.edit().putBoolean("legacy_migrated",true).apply();
     }
     public synchronized List<Profile> all(){return new ArrayList<>(profiles);}
+    /** Hardware belongs to one profile; the same owner identity may belong to several scooters. */
+    public synchronized Profile hardwareMatch(String excludedProfileId,String mac,String serial){
+        for(Profile p:profiles){
+            if(p.id.equals(excludedProfileId))continue;
+            if(mac!=null&&!mac.isEmpty()&&mac.equalsIgnoreCase(p.mac)
+                    ||serial!=null&&!serial.isEmpty()&&serial.equalsIgnoreCase(p.serial))return p;
+        }
+        return null;
+    }
     public synchronized Profile active(){String id=prefs.getString("active","");for(Profile p:profiles)if(p.id.equals(id))return p;return profiles.isEmpty()?null:profiles.get(0);}
     public synchronized void select(String id){prefs.edit().putString("active",id).apply();}
     public synchronized Profile create(String name,String identity,int role){return createWithId(UUID.randomUUID().toString(),name,identity,role);}

@@ -26,6 +26,7 @@ import android.text.InputType;
 import android.text.SpannableString;
 import android.text.Spanned;
 import android.text.TextWatcher;
+import android.text.format.DateUtils;
 import android.text.style.ForegroundColorSpan;
 import android.view.ActionMode;
 import android.view.Gravity;
@@ -781,7 +782,7 @@ public final class MoreScreen implements AppScreen {
     // ---- My scooters --------------------------------------------------------------------
 
     private void profiles() {
-        addScooterButton = ui.button("Add a scooter", this::addScooter);
+        addScooterButton = ui.secondaryButton("Add a scooter", this::addScooter);
         ui.decorate(addScooterButton, "plus");
         addScooterButton.setMinHeight(ui.dp(56));
         addScooterButton.setTag("scooters-add");
@@ -797,34 +798,45 @@ public final class MoreScreen implements AppScreen {
     }
 
     private final class ScooterCard {
-        final LinearLayout card;
-        final TextView name, status, model, connect, forget;
-        final View rename;
+        final LinearLayout card, stateLine;
+        final TextView name, current, status, model, lastSeen, connect, use;
+        final View edit, photoFallback;
+        final ImageView photo;
         ScooterCard(String id) {
             card = ui.card(); card.setTag("scooter-card-" + id);
             card.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(14));
             LinearLayout top = row(); top.setGravity(Gravity.CENTER_VERTICAL);
-            top.addView(ui.icon("scooter", 28, ui.accent), new LinearLayout.LayoutParams(ui.dp(36), ui.dp(40)));
+            FrameLayout picture = new FrameLayout(host.activity());
+            photo = photo(); picture.addView(photo, new FrameLayout.LayoutParams(-1, -1));
+            photoFallback = ui.icon("scooter", 28, ui.muted);
+            picture.addView(photoFallback, new FrameLayout.LayoutParams(ui.dp(28), ui.dp(28), Gravity.CENTER));
+            top.addView(picture, new LinearLayout.LayoutParams(ui.dp(52), ui.dp(58)));
             LinearLayout words = column();
             name = ui.text("", 19, true); name.setMaxLines(3); words.addView(name);
-            status = ui.caption(""); status.setPadding(0, ui.dp(3), 0, 0); words.addView(status);
             LinearLayout.LayoutParams wp = new LinearLayout.LayoutParams(0, -2, 1); wp.leftMargin = ui.dp(10);
             top.addView(words, wp);
             FrameLayout pencil = new FrameLayout(host.activity());
             pencil.addView(ui.icon("pencil", 18, ui.muted), new FrameLayout.LayoutParams(ui.dp(18), ui.dp(18), Gravity.CENTER));
             pencil.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 30)), ui.shape(ui.raised, 14, 0), null));
-            pencil.setFocusable(true); pencil.setClickable(true); pencil.setTag("scooter-rename-" + id);
-            pencil.setOnClickListener(v -> renameScooter(id));
+            pencil.setFocusable(true); pencil.setClickable(true); pencil.setTag("scooter-edit-" + id);
+            pencil.setOnClickListener(v -> editScooter(id));
             LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(ui.dp(48), ui.dp(48)); pp.leftMargin = ui.dp(8);
-            top.addView(pencil, pp); rename = pencil;
+            top.addView(pencil, pp); edit = pencil;
             card.addView(top);
+            stateLine = row(); stateLine.setPadding(0, ui.dp(8), 0, 0);
+            current = ui.text("Current", 11, true); current.setTextColor(ui.text);
+            current.setPadding(ui.dp(8), ui.dp(4), ui.dp(8), ui.dp(4));
+            current.setBackground(ui.shape(ui.raised, 100, ui.outline));
+            LinearLayout.LayoutParams chip = new LinearLayout.LayoutParams(-2, -2); chip.rightMargin = ui.dp(8);
+            stateLine.addView(current, chip);
+            status = ui.caption(""); stateLine.addView(status, new LinearLayout.LayoutParams(0, -2, 1)); card.addView(stateLine);
             model = ui.caption(""); model.setPadding(0, ui.dp(8), 0, 0); card.addView(model);
+            lastSeen = ui.caption(""); lastSeen.setPadding(0, ui.dp(5), 0, 0); card.addView(lastSeen);
             LinearLayout actions = row(); actions.setPadding(0, ui.dp(12), 0, 0);
             connect = ui.button("Connect", () -> connectScooter(id)); connect.setTag("scooter-connect-" + id);
-            forget = ui.dangerButton("Forget", () -> forgetScooter(id)); forget.setTag("scooter-forget-" + id);
-            ui.decorate(forget, "trash");
-            LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(0, -2, 1); cp.rightMargin = ui.dp(8);
-            actions.addView(connect, cp); actions.addView(forget, new LinearLayout.LayoutParams(-2, -2));
+            use = ui.secondaryButton("Use this scooter", () -> useScooter(id)); use.setTag("scooter-use-" + id);
+            actions.addView(connect, new LinearLayout.LayoutParams(-1, -2));
+            actions.addView(use, new LinearLayout.LayoutParams(-1, -2));
             card.addView(actions);
         }
     }
@@ -852,21 +864,41 @@ public final class MoreScreen implements AppScreen {
         ScooterService s = service(); ScooterProfiles.Profile p = findScooter(id), selected = active();
         if (p == null) { host.redraw(); return; }
         boolean current = selected != null && id.equals(selected.id);
-        if (current && s.ble.state() != BleController.State.DISCONNECTED) {
+        // A stale button must never connect a scooter that is no longer current.
+        if (!current) { refresh(); return; }
+        if (s.ble.state() != BleController.State.DISCONNECTED) {
             s.ble.disconnect(); refresh(); return;
         }
-        // End the old transport before changing its selected identity or cached readings.
-        if (s.simulating()) s.setSimulation(false);
-        s.ble.disconnect(); s.profiles.select(id); s.ble.profileSelected();
         host.connect(); host.redraw();
     }
-    private void renameScooter(String id) {
+    private void useScooter(String id) {
+        if (!canChangeScooter()) return;
+        ScooterService s = service(); ScooterProfiles.Profile p = findScooter(id), selected = active();
+        if (p == null) { host.redraw(); return; }
+        if (selected != null && id.equals(selected.id)) { refresh(); return; }
+        // End the old transport before changing its selected identity or cached readings.
+        // Selection also works offline: only the current scooter's Connect button starts Bluetooth.
+        if (s.simulating()) s.setSimulation(false);
+        s.ble.disconnect(); s.profiles.select(id); s.ble.profileSelected();
+        host.redraw();
+    }
+    private void editScooter(String id) {
         ScooterProfiles.Profile p = findScooter(id); if (closed || p == null) return;
-        LinearLayout box = dialogBox("Rename scooter", null);
+        LinearLayout box = dialogBox("Edit scooter", null);
         EditText name = input("Scooter name", InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_FLAG_CAP_SENTENCES, false);
+        name.setContentDescription("Scooter name");
         name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)}); name.setText(p.name); name.selectAll(); box.addView(name);
+        String modelDetail = ModelRegistry.modelLine(p.savedDescriptor());
+        if (!modelDetail.isEmpty()) note(box, modelDetail);
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Cancel", null)
-                .setPositiveButton("Save name", null).create(); show(dialog);
+                .setPositiveButton("Save name", null).create();
+        TextView forget = ui.dangerButton("Forget this scooter", () -> {
+            if (!canChangeScooter()) return;
+            dialog.dismiss(); forgetScooter(id);
+        });
+        forget.setTag("scooter-forget-" + id); forget.setContentDescription("Forget " + p.name);
+        ui.decorate(forget, "trash"); box.addView(forget);
+        show(dialog);
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
             ScooterProfiles.Profile target = findScooter(id); if (closed || target == null) { dialog.dismiss(); return; }
             String value = name.getText().toString().trim(); if (value.isEmpty()) { name.setError("Enter a scooter name"); return; }
@@ -1935,17 +1967,28 @@ public final class MoreScreen implements AppScreen {
             boolean connected = selected && s.ble.ready();
             boolean connecting = selected && state != BleController.State.DISCONNECTED && !connected;
             card.name.setText(item.name);
-            String detail = selected ? "Selected · " + (connected ? "Connected" : connecting ? "Connecting…" : "Disconnected") : "Not selected";
-            card.status.setText(detail); card.status.setTextColor(selected ? ui.accent : ui.muted);
-            String model = ModelRegistry.modelLine(item.savedDescriptor());
-            if (item.role == 1) model = model.isEmpty() ? "Shared access" : model + " · Shared access";
-            card.model.setText(model); card.model.setVisibility(model.isEmpty() ? View.GONE : View.VISIBLE);
-            card.card.setBackground(ui.shape(ui.surface, 22, selected ? Ui.withAlpha(ui.accent, 150) : ui.outline));
-            card.rename.setContentDescription("Rename " + item.name); card.rename.setTooltipText("Rename scooter");
+            String detail = connected ? "Connected" : connecting ? "Connecting…" : "Offline";
+            card.stateLine.setVisibility(selected ? View.VISIBLE : View.GONE);
+            card.status.setText(detail); card.status.setTextColor(ui.muted);
+            DeviceDescriptor descriptor = item.savedDescriptor();
+            boolean hasPhoto = ModelRegistry.showsPhoto(descriptor) && scooterPhoto != null;
+            card.photo.setVisibility(hasPhoto ? View.VISIBLE : View.GONE);
+            card.photoFallback.setVisibility(hasPhoto ? View.GONE : View.VISIBLE);
+            String model = ModelRegistry.modelName(descriptor);
+            if (model.isEmpty()) model = "Model not identified";
+            if (item.role == 1) model += " · Shared access";
+            card.model.setText(model);
+            card.lastSeen.setVisibility(item.lastConnected > 0 && !connected ? View.VISIBLE : View.GONE);
+            if (item.lastConnected > 0) card.lastSeen.setText("Last connected " + DateUtils.getRelativeTimeSpanString(
+                    item.lastConnected, System.currentTimeMillis(), DateUtils.MINUTE_IN_MILLIS));
+            card.card.setBackground(ui.shape(ui.surface, 22, ui.outline));
+            card.edit.setContentDescription("Edit " + item.name); card.edit.setTooltipText("Edit scooter");
             String action = connected ? "Disconnect" : connecting ? "Cancel" : "Connect";
             card.connect.setText(action); card.connect.setContentDescription(action + " " + item.name);
-            card.connect.setAlpha(unavailable == null ? 1f : .5f);
-            card.forget.setAlpha(unavailable == null ? 1f : .5f); card.forget.setContentDescription("Forget " + item.name);
+            card.connect.setVisibility(selected ? View.VISIBLE : View.GONE);
+            card.use.setVisibility(selected ? View.GONE : View.VISIBLE);
+            card.use.setContentDescription("Use " + item.name + ". View saved data without connecting");
+            card.connect.setAlpha(unavailable == null ? 1f : .5f); card.use.setAlpha(unavailable == null ? 1f : .5f);
         }
     }
     private void refreshPermissions(ScooterService s) {

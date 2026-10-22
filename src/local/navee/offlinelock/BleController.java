@@ -56,6 +56,8 @@ public final class BleController {
     private State state=State.DISCONNECTED;private String message="Not connected",serial="";private boolean authenticated,wanted,scanning,writing,mtuRequested,discovered,subscribing,subscribed,challengePending,visible,recording;
     private int generation,writeOperation,authRounds,retries,pollTicks,mtu=23;private long statusMs,lastFrameMs,motionMs,warningMs;private int speedRaw=-1,driving=-1,warning;
     private Protocol.Frame statusFrame;private Mutation mutation;private ScooterCommands.PinState pinState;private long pinStateMs,mutationSequence,pinReadToken,pinReadSequence;private boolean pinReadPending;
+    /** Handshake responses stay private until the transport's hardware belongs to this profile. */
+    private Protocol.Frame pendingStatusFrame,pendingSerialFrame;private long pendingStatusMs;
     private long savedProfileMs,lastBatteryPollMs,scanSequence,backgroundDeadlineMs;private ScanCallback scanCallback;private Runnable scanTimeout;
     private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;MutationGate.Request request;FeatureVariant variant;Consumer<Boolean> completion;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
     public BleController(Context c,ScooterProfiles p){context=c.getApplicationContext();profiles=p;diagnostics=ConnectionEventLog.open(new File(context.getNoBackupFilesDir(),"connection-events"));testJournal=new TestJournal(TestJournal.file(new File(context.getNoBackupFilesDir(),"compat-tests")));BluetoothManager m=context.getSystemService(BluetoothManager.class);adapter=m==null?null:m.getAdapter();IntentFilter filter=new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);if(Build.VERSION.SDK_INT>=33)context.registerReceiver(bluetoothReceiver,filter,Context.RECEIVER_EXPORTED);else context.registerReceiver(bluetoothReceiver,filter);}
@@ -236,7 +238,7 @@ public final class BleController {
         scanCallback=new ScanCallback(){@Override public void onScanResult(int t,ScanResult r){handler.post(()->{
             if(!scanning||session!=generation||token!=scanSequence||!workAllowed()||r.getScanRecord()==null)return;String mac=r.getDevice().getAddress(),name=r.getScanRecord().getDeviceName();List<ParcelUuid> services=r.getScanRecord().getServiceUuids();
             if(!only.isEmpty()&&!only.equals(mac))return;
-            ScooterProfiles.Profile active=profiles.active();boolean known=active!=null&&mac.equals(active.mac);if(!known&&(services==null||!services.contains(new ParcelUuid(SERVICE)))&&(name==null||!name.toLowerCase(Locale.ROOT).contains("navee")))return;
+            boolean known=profiles.hardwareMatch(null,mac,null)!=null;if(!known&&(services==null||!services.contains(new ParcelUuid(SERVICE)))&&(name==null||!name.toLowerCase(Locale.ROOT).contains("navee")))return;
             // Raw AD walk only (see AdvertisedIdentity): the model ID, never the MAC bytes after it.
             AdvertisedIdentity.Result id=AdvertisedIdentity.parse(r.getScanRecord().getBytes());if(id!=null)advertised.put(mac,id);else advertised.remove(mac);
             if(!only.isEmpty()){if(id!=null){stopScan();connectDiscovered(r);}return;} // Identify waits for a packet with the model ID; the timeout reconnects
@@ -266,7 +268,7 @@ public final class BleController {
         if(test!=null&&!test.terminal()){test.onDisconnect(now());event("Guided test interrupted");}testParked=false;
         readPolicy=null;authVariant="";
         ++generation;++writeOperation;stopScan();BluetoothGatt old=gatt;gatt=null;writer=null;if(old!=null){try{old.disconnect();}catch(Exception ignored){}try{old.close();}catch(Exception ignored){}}
-        queue.clear();discoveryQueue.clear();outstandingStatusReads=0;decoder.reset();if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=null;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
+        queue.clear();discoveryQueue.clear();outstandingStatusReads=0;decoder.reset();if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=pendingStatusFrame=pendingSerialFrame=null;pendingStatusMs=0;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
     }
     private void failed(String text,boolean retry,ConnectionEventLog.Reason reason,int code){
         if(simulating())return;
@@ -368,9 +370,13 @@ public final class BleController {
                 if(f.cmd==0x70&&outstandingStatusReads>0)outstandingStatusReads--;
                 if(readPolicy!=null)readPolicy.responded(f.cmd,f.error(),f.data.length-1,now());
                 if(discovering)discovery.onFrame(f.cmd,f.error(),f.data.length-1,now());
+                if(f.cmd==0x74&&f.error()==0&&f.data.length>=2){String received=new String(Arrays.copyOfRange(f.data,1,Math.min(18,f.data.length)),StandardCharsets.US_ASCII).replace("\u0000","").trim();if(!received.matches("[A-Za-z][A-Za-z0-9]{16}")){failed("Unrecognised scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}if(!profile.serial.isEmpty()&&!profile.serial.equals(received)){failed("Not the saved scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}serial=received;if(state!=State.READY)pendingSerialFrame=f;if(!remember())return;}
+                if(f.cmd==0x70&&f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1){if(state==State.READY){statusFrame=f;statusMs=now();}else{pendingStatusFrame=f;pendingStatusMs=now();}if(!remember())return;}
+                // connected() also covers the owner handshake. Neither telemetry nor public
+                // status/features/motion may expose this account's other scooter during it.
+                if(state!=State.READY){changed();continue;}
                 if(f.cmd!=0x7a&&f.cmd!=0x63)telemetry.accept(f.cmd,f.data,now());if(f.cmd==0x73)sessionFirmware=null;
-                if(f.cmd==0x74&&f.error()==0&&f.data.length>=2){String received=new String(Arrays.copyOfRange(f.data,1,Math.min(18,f.data.length)),StandardCharsets.US_ASCII).replace("\u0000","").trim();if(!received.matches("[A-Za-z][A-Za-z0-9]{16}")){failed("Unrecognised scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}if(!profile.serial.isEmpty()&&!profile.serial.equals(received)){failed("Not the saved scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}serial=received;profile.serial=received;remember();}
-                if(f.cmd==0x70&&f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1){statusFrame=f;statusMs=now();remember();confirmMutation(f);}
+                if(f.cmd==0x70&&f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1)confirmMutation(f);
                 if(f.cmd==0x70&&test!=null&&!test.terminal()){boolean sane=f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1;test.onStatus(sane?StatusFields.of(f,now()):StatusFields.NONE,now());stepTest();}
                 if(f.cmd==0x90&&f.error()==0&&f.data.length>=9){warning=f.data[1]&255;warningMs=now();}
                 if((f.cmd==0x91||f.cmd==0x92)&&f.error()==0&&f.data.length>=(f.cmd==0x91?4:5)){driving=f.data[2]&255;speedRaw=(f.data[3]&255)*(f.cmd==0x91?10:1)+(f.cmd==0x92?(f.data[4]&255)<<8:0);motionMs=now();}
@@ -387,12 +393,30 @@ public final class BleController {
             changed();
         }
     }
-    private void remember(){if(simulating())return;if(authenticated&&gatt!=null&&!serial.isEmpty()&&statusMs>0){String address=gatt.getDevice().getAddress();boolean changed=!address.equals(profile.mac);profile.mac=address;
+    private boolean remember(){if(simulating())return true;if(authenticated&&gatt!=null&&!serial.isEmpty()){String address=gatt.getDevice().getAddress();
+        // Owner authentication identifies the account, not its scooter. Check both hardware
+        // identifiers before changing the live Profile object (save() serializes every profile).
+        ScooterProfiles.Profile saved=profiles.hardwareMatch(profile.id,address,serial);
+        if(saved!=null){wanted=false;identifying=false;pendingAdvertised=null;pendingAdvertisedMac="";telemetry.clear();
+            failed("This is "+saved.name+". Select it in My scooters, or scan for your new scooter.",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return false;}
+        if(statusMs<=0&&pendingStatusFrame==null)return true;
+        boolean changed=!address.equals(profile.mac)||!serial.equals(profile.serial);profile.mac=address;profile.serial=serial;
         // Authenticated, serial verified on this MAC: the advertised model ID becomes evidence (a conflict is kept too; the resolver handles it).
         boolean captured=pendingAdvertised!=null&&address.equals(pendingAdvertisedMac)&&serial.equals(profile.serial);
         if(captured){profile.advertisedPid=pendingAdvertised.pid;profile.advertisedPidWall=System.currentTimeMillis();pendingAdvertised=null;pendingAdvertisedMac="";changed=true;event("Model ID captured");}
         if(profile.nameDefault){String name=ModelRegistry.modelName(profile.savedDescriptor());if(name.isEmpty())name="NAVEE scooter";if(!name.equals(profile.name)){profile.name=name;changed=true;}}
-        if(changed||now()-savedProfileMs>60000||profile.lastConnected==0){profile.lastConnected=System.currentTimeMillis();profiles.update(profile);savedProfileMs=now();}boolean justReady=state!=State.READY;recoverableConnectionLoss=false;state=State.READY;if(justReady)recordDiagnostic(ConnectionEventLog.Reason.AUTHENTICATED_READY,0);retries=0;if(mutation==null)message="Connected";if(identifying){identifying=false;notice(captured?"Model ID captured":"Model ID not captured");}}}
+        if(changed||now()-savedProfileMs>60000||profile.lastConnected==0){profile.lastConnected=System.currentTimeMillis();profiles.update(profile);savedProfileMs=now();}
+        if(pendingStatusFrame!=null){statusFrame=pendingStatusFrame;statusMs=pendingStatusMs;pendingStatusFrame=null;pendingStatusMs=0;}
+        boolean justReady=state!=State.READY;recoverableConnectionLoss=false;state=State.READY;
+        if(justReady){
+            // Publish only the two verified handshake responses. Other early reads and pushes
+            // were discarded; request fresh model-appropriate readings for this bound scooter.
+            telemetry.accept(0x70,statusFrame.data,statusMs);
+            if(pendingSerialFrame!=null){telemetry.accept(0x74,pendingSerialFrame.data,now());pendingSerialFrame=null;}
+            recordDiagnostic(ConnectionEventLog.Reason.AUTHENTICATED_READY,0);int session=generation;
+            handler.post(()->{if(session==generation&&state==State.READY&&authenticated&&gatt!=null)refresh(true);});
+        }
+        retries=0;if(mutation==null)message="Connected";if(identifying){identifying=false;notice(captured?"Model ID captured":"Model ID not captured");}}return true;}
     public void refresh(boolean full){if(simulating()){tickSimulation();changed();return;}if(!workAllowed()||!authenticated)return;
         // UT5 MAX: today's bundle, or 0x70 + 0x72 + 0x79. A running check sends its own reads, so only the core status read joins it.
         if(discovering||testing()){send(Protocol.frame(0x70,null));return;}
