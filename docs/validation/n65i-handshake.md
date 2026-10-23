@@ -31,5 +31,5 @@ The capture showed:
 - `FirstConnectionValidation` on a disposable emulator: 1,707 assertions. It drives a synthetic N65i handshake (header-free owner-check success, serial, ten-byte settings) to a saved binding, and reads the lock state from the short settings. It also checks two refusals:
   - a mixed-checksum reply is reported and ignored;
   - a short settings read does not bind a saved UT5 MAX, which still connects with its full read.
-- No physical N65i has connected through this change yet. The capture shows only the handshake. Telemetry and controls beyond the shared lock still need an on-scooter check.
+- **Physical:** the tester installed a release-signed test build of this change over Volt 1.5.0 (commit 6c140e6, versionName `1.5.0-n65i-test`) and reported that their N65i now connects. Telemetry accuracy and controls, including the shared lock, have not been checked on the scooter.
 - The capture itself stays private: it contains the tester's owner identity. Only the non-secret reply above and aggregate counts are published.
