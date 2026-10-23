@@ -225,7 +225,7 @@ public final class Telemetry {
             if (code == 2.0) return "ECO";
             if (code == 3.0) return "SPORT";
         }
-        // GT5 Max owner report (October 2026): the same codes, but 2 is Drive, not Eco.
+        // GT5 Max owner report (October 2026): the same codes, but 2 is Drive, not Eco. The N65i is assumed to match.
         if (productId == 25462) {
             if (code == 11.0) return "WALK";
             if (code == 2.0) return "DRIVE";
