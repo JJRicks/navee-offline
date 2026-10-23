@@ -1,7 +1,7 @@
 <h1 align="center">⚡ Volt</h1>
 <p align="center"><strong>Your scooter. Your connection.</strong></p>
 <p align="center">
-  <a href="https://github.com/JJRicks/navee-offline/releases/latest"><strong>Download for Android</strong></a>
+  <a href="https://github.com/JJRicks/volt/releases/latest"><strong>Download for Android</strong></a>
   &nbsp; · &nbsp;
   <a href="docs/getting-started.md">Setup guide</a>
   &nbsp; · &nbsp;
@@ -29,7 +29,7 @@ An Android companion for **NAVEE scooters**. Connect over Bluetooth, control you
 
 **You'll need:** Android **8.0+** with Bluetooth LE and an already activated, owner-bound **NAVEE scooter**. Available controls depend on the model; the US UT5 MAX is physically verified, while other models use mappings from the official app. [Compatibility details →](docs/user-guide.md#other-navee-models)
 
-1. **Install Volt.** Download the `.apk` from [Releases](https://github.com/JJRicks/navee-offline/releases/latest), open it on your phone and allow installation when Android asks.
+1. **Install Volt.** Download the `.apk` from [Releases](https://github.com/JJRicks/volt/releases/latest), open it on your phone and allow installation when Android asks.
 2. **Pair once.** Keep your powered-on scooter nearby and safely parked, and confirm it connects in NAVEE. Follow Volt's onboarding and the [setup guide](docs/getting-started.md): computer ADB is the established route; Chrome/USB is a testing preview, and on-phone Shizuku has limited validation. You can also import an existing setup or full backup.
 3. **Connect.** Grant the requested Bluetooth permissions (Location on Android 8–11), close NAVEE to release its connection, and connect in Volt.
 
@@ -48,7 +48,7 @@ First-time capture needs your working NAVEE account and Android debugging access
 | Pairing options or setup help | [Getting started](docs/getting-started.md) |
 | Dashboard, settings, rides and backups | [User guide](docs/user-guide.md) |
 | Supported controls and test evidence | [Feature availability](FEATURES.txt) · [Verification history](VERIFICATION.txt) |
-| A bug report or an idea | [Issues](https://github.com/JJRicks/navee-offline/issues) · [Contributing](CONTRIBUTING.md) |
+| A bug report or an idea | [Issues](https://github.com/JJRicks/volt/issues) · [Contributing](CONTRIBUTING.md) |
 | A source build | [Build guide](docs/building.md) · [Development notes](docs/development-notes.md) |
 | A security concern | [Security reporting](SECURITY.md) |
 
@@ -58,4 +58,4 @@ Previously **Navee Offline**. Version 1.5.0 has a new Android app ID; move from 
 
 [MIT-licensed source](LICENSE) · [Third-party and image notices](NOTICE) · [Public-release preparation](docs/public-release.md).
 
-The manufacturer-sourced scooter photo is a temporary placeholder; redistribution permission has not been established, so it must be replaced or cleared before public distribution (see [NOTICE](NOTICE)). Protocol research builds on [pepperonas/navee-st3-pro](https://github.com/pepperonas/navee-st3-pro).
+Protocol research builds on [pepperonas/navee-st3-pro](https://github.com/pepperonas/navee-st3-pro).

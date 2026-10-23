@@ -106,7 +106,7 @@ Original v1.2.0 validation, October 15, 2026:
   against the built-in simulation for Off/On, pending and edit-mode guards, plus
   disconnected appearance. The runner reports zero real scooter mutations.
 - App and native runner built and passed APK signature/alignment verification.
-- Independent Astra Ultra and Sol Ultra reviews completed, with numeric-range
+- Independent reviews completed, with numeric-range
   follow-up fixes verified before handoff.
 
 Unified-chart follow-up, October 15, 2026:
@@ -118,7 +118,7 @@ Unified-chart follow-up, October 15, 2026:
   725×604 dp light/140%, and 600×344 dp dark/140%. Covers the actual plot area,
   category selection, fullscreen state retention, pinch zoom, raw inspection,
   accessible sample stepping, midnight labels, 12/24-hour clocks and Fahrenheit.
-- Independent Astra Ultra and Sol Ultra reviews completed; verified feedback
+- Independent reviews completed; verified feedback
   about accessibility, backup validation and clock labels was addressed.
 - Existing ride analysis: 181 assertions each at 344×882 dp dark/100% and
   725×604 dp light/140%, including full-detail loading, raw inspection, axis

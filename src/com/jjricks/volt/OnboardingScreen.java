@@ -90,7 +90,7 @@ public final class OnboardingScreen implements AppScreen {
     private static final String CAPTURE = "capture", WEBADB = "webadb", BACKUP = "backup", RESTORE = "restore", TYPED = "identity", SHIZUKU = "shizuku";
     private static final String WEBADB_URL = "https://pairscooter.jjricks.com/";
     private static final String PLATFORM_TOOLS_URL = "https://developer.android.com/tools/releases/platform-tools";
-    private static final String SOURCE_URL = "https://github.com/JJRicks/navee-offline/releases/latest";
+    private static final String SOURCE_URL = "https://github.com/JJRicks/volt/releases/latest";
     private static final String SHIZUKU_PACKAGE = "moe.shizuku.privileged.api";
     private static final String[] STEP_NAMES = {"Prepare", "USB debugging", "Connect computer",
             "Run helper", "Import", "Nearby devices", "Connect scooter"};

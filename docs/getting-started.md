@@ -1,6 +1,6 @@
 # Get started with Volt
 
-[Download the APK](https://github.com/JJRicks/navee-offline/releases/latest) · [Owner setup website (testing preview)](https://pairscooter.jjricks.com/) · [User guide](user-guide.md)
+[Download the APK](https://github.com/JJRicks/volt/releases/latest) · [Owner setup website (testing preview)](https://pairscooter.jjricks.com/) · [User guide](user-guide.md)
 
 ## Before you install
 
@@ -16,7 +16,7 @@ Volt is an independent community project, not affiliated with, endorsed by, spon
 
 ## Install and connect
 
-1. Download the APK attached to [this project's latest release](https://github.com/JJRicks/navee-offline/releases/latest), then open it on your phone. If Android asks, allow your browser or file manager to install this APK.
+1. Download the APK attached to [this project's latest release](https://github.com/JJRicks/volt/releases/latest), then open it on your phone. If Android asks, allow your browser or file manager to install this APK.
 2. Keep the scooter powered on, safely parked and within Bluetooth range. Check that NAVEE can connect to it.
 3. Open Volt and follow onboarding. Choose an owner-setup method below, or restore an existing setup file or full backup.
 4. Allow the requested Bluetooth permissions. Android 12+ uses **Nearby devices**; Android 8–11 requires precise **Location** permission for Bluetooth discovery. Optional GPS ride recording is separate.
@@ -58,7 +58,7 @@ After setup, revoke temporary debugging access and disable USB/wireless debuggin
 
 ## Updates and backups
 
-Install newer APKs from [project Releases](https://github.com/JJRicks/navee-offline/releases) over the current app. Updates signed with the same project key retain app data. Volt was previously named **Navee Offline**.
+Install newer APKs from [project Releases](https://github.com/JJRicks/volt/releases) over the current app. Updates signed with the same project key retain app data. Volt was previously named **Navee Offline**.
 
 ### Moving from Volt 1.4.x to 1.5.0
 

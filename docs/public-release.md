@@ -12,8 +12,8 @@ Since 1.5.0 the Android app ID is `com.jjricks.volt` and the map User-Agent is
 their data with Back up & restore ([how](getting-started.md#moving-from-volt-14x-to-150)).
 NAVEE names remain only where they describe compatible hardware, NAVEE's own app,
 or legacy file formats that must keep importing (`navee-offline-owner-v1`,
-`navee-offline-diagnostics-v1`). Links still use the `navee-offline` repository
-name, which GitHub redirects after a repository rename.
+`navee-offline-diagnostics-v1`). The repository is `JJRicks/volt` (formerly
+`navee-offline`; GitHub redirects old links).
 
 ## Preparation audit — 14 October 2026
 
