@@ -39,17 +39,25 @@ System.out.println("ExperimentalControls tests passed: "+assertions+" assertions
     private static void split() {
         String[] ut5Lab={"acceleration","speed_limit","dual_drive","drive_speed_limit","long_range_mode","overspeed_control","prompt_tone"};
         expect("UT5 MAX",ut5(),ut5Lab);
-        expect("N65i 22131",model("22131"),"start_speed","traction_control","hill_start_assist","parking_assist","hill_descent_control","turn_sound","prompt_tone");
-        expect("ST3 Pro 23452",model("23452"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone");
-        expect("Group S 24431",model("24431"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone");
+        expect("N65i 22131",model("22131"),"start_speed","traction_control","hill_start_assist","parking_assist","hill_descent_control","turn_sound","prompt_tone","speed_limit");
+        expect("ST3 Pro 23452",model("23452"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit");
+        expect("Group S 24431",model("24431"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit");
         // GT5 Max (25462, group 2545): the official app offers kick-start speed there, so Standing start stays an ordinary Scooter row.
-        expect("GT5 Max 25462",model("25462"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone");
+        expect("GT5 Max 25462",model("25462"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit");
         CapabilityResolver.Decision gt5Start=ordinary("start_speed",model("25462"));
         check(gt5Start.available()&&gt5Start.allows(0)&&!gt5Start.variant.lab&&ModelRegistry.modelName(model("25462")).equals("GT5 Max"),"GT5 Max keeps Standing start in Scooter settings: "+gt5Start);
         expect("2573",model("25731"),"cruise_control","traction_control","hill_start_assist","parking_assist","hill_descent_control","turn_sound","prompt_tone");
         expect("Group M 25041",model("25041"),"cruise_control","traction_control","headlight","auto_sensor","turn_sound","hill_start_assist","parking_assist",
             "hill_descent_control","prompt_tone");
-        expect("Group Q 25851",model("25851"));
+        // The custom speed cap (owner decision): a Lab copy of the official app's widest cap, 8–32 km/h, where it hides one.
+        expect("Group Q 25851",model("25851"),"speed_limit");
+        ModelRegistry.Rule ultraCap=ModelRegistry.experimentalRule("speed_limit",model("25852"),null,null);
+        check(ultraCap.support==CapabilityResolver.Support.KNOWN_ENCODING&&ultraCap.variant.lab&&ultraCap.variant.cmd==0x6b&&ultraCap.variant.allows(0)&&ultraCap.variant.allows(8)
+            &&ultraCap.variant.allows(32)&&!ultraCap.variant.allows(33)&&!ultraCap.variant.allows(7),"UT5 Ultra X custom speed cap: Off or 8–32 km/h, as a try: "+ultraCap);
+        check(ModelRegistry.experimentalCaution("speed_limit",20)!=null&&ModelRegistry.experimentalCaution("speed_limit",0)==null,"A cap says it limits riding speed; Off needs no caution");
+        for(String pid:new String[]{"25731","25041"}){ModelRegistry.Rule offered=ModelRegistry.rule("speed_limit",model(pid),null,null);
+            check(offered.support==CapabilityResolver.Support.KNOWN_ENCODING&&offered.evidence==CapabilityResolver.Evidence.OEM_MAPPED&&!offered.variant.lab,
+                "Where the official app offers a cap ("+pid+"), it stays an ordinary row: "+offered);}
         // Nothing new: unmapped, serial-only, conflicting, golf cart, e-bike, wearable, no identity.
         expect("unmapped 39991",ModelRegistryTest.advertised("39991"));
         expect("serial only",ModelRegistryTest.serial("Q2443ZZ9US7777777"));
@@ -90,8 +98,9 @@ System.out.println("ExperimentalControls tests passed: "+assertions+" assertions
     private static void sweep() {
         Set<String> allowed=set(ModelRegistry.EXPERIMENTAL),never=set(ModelRegistry.NEVER_EXPERIMENTAL);
         for(String key:allowed)check(!never.contains(key),"Allowed and never overlap: "+key);
-        for(String key:new String[]{"lock","lock_expiry","pin","proximity_key","maximum_speed","speed_limit","drive_speed_limit","charge_limit","timed_charging","charge_start","clock_sync"})
-            check(never.contains(key),"Speed, charging, lock, PIN, proximity and clock are never added: "+key);
+        for(String key:new String[]{"lock","lock_expiry","pin","proximity_key","maximum_speed","drive_speed_limit","charge_limit","timed_charging","charge_start","clock_sync"})
+            check(never.contains(key),"Top speed, the drive-mode cap, charging, lock, PIN, proximity and clock are never added: "+key);
+        check(allowed.contains("speed_limit")&&!never.contains("speed_limit"),"The custom speed cap, which only lowers speed, may be tried");
         int models=0;
         for(String prefix:ModelRegistry.LISTED){
             for(String pid:new String[]{prefix,prefix.length()==4?prefix+"1":prefix,prefix.length()==4?prefix+"2":prefix}){
@@ -161,10 +170,14 @@ System.out.println("ExperimentalControls tests passed: "+assertions+" assertions
         check(CapabilityResolver.admitExperimental("start_speed",6,n65i,status(data()),parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"Outside 0-5 refused");
         check(CapabilityResolver.admitExperimental("prompt_tone",5,n65i,status(data()),parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"Outside the five sounds refused");
         // An offered control is never tried this way (it lives in Scooter settings), nor is anything the experimental rule leaves out.
-        for(String key:new String[]{"display_units","cruise_control","energy_recovery","maximum_speed","charge_limit","lock","pin","proximity_key","lock_expiry","low_power","acceleration","dual_drive","speed_limit","overspeed_control"}){
+        for(String key:new String[]{"display_units","cruise_control","energy_recovery","maximum_speed","charge_limit","lock","pin","proximity_key","lock_expiry","low_power","acceleration","dual_drive","overspeed_control"}){
             CapabilityResolver.Decision d=tryNow(key,n65i,data(),parked());
             check(!d.experimental()&&!d.available(),"N65i "+key+" not tried experimentally: "+d);
         }
+        // The custom speed cap is tried within the official app's widest range: Off or 8–32 km/h.
+        check(CapabilityResolver.admitExperimental("speed_limit",20,n65i,status(data()),parked()).available()
+            &&CapabilityResolver.admitExperimental("speed_limit",0,n65i,status(data()),parked()).available(),"N65i speed cap tried at 20 km/h or Off");
+        for(int out:new int[]{7,33})check(CapabilityResolver.admitExperimental("speed_limit",out,n65i,status(data()),parked()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"Speed cap outside 8–32 refused: "+out);
         check(tryNow("turn_sound",ModelRegistryTest.advertised("39991"),data(),parked()).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"Unmapped model keeps its reason");
         check(tryNow("turn_sound",ModelRegistryTest.serial("Q2443ZZ9US7777777"),data(),parked()).reason==CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED,"Serial-only keeps its reason");
         check(tryNow("turn_sound",ModelRegistryTest.both("Q2443ZZ9US7777777","25851"),data(),parked()).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict keeps its reason");

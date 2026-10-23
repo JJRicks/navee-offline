@@ -555,23 +555,25 @@ public final class ModelRegistry {
      * with the wire and readback the official app uses where it offers it. Anything the official app offers for
      * the model keeps its ordinary rule and place; controls Volt has not mapped stay hidden (Volt can't tell
      * whether the official app offers them); unidentified, conflicting, unmapped and incompatible models get nothing.
+     * The custom speed cap joined in October 2026 (owner decision): it only lowers speed below the owner's Top speed,
+     * reads back from its own byte, and Set back restores the previous setting (a cap or Off).
      */
     static final String[] EXPERIMENTAL={"cruise_control","traction_control","start_speed","hill_start_assist","parking_assist",
-        "hill_descent_control","headlight","auto_sensor","turn_sound","prompt_tone"};
+        "hill_descent_control","headlight","auto_sensor","turn_sound","prompt_tone","speed_limit"};
     /**
      * Never tried this way on any OEM-group model, as the guided tests: the lock, lock time, PIN and proximity
-     * unlock; every speed limit (maximum speed, custom and drive-mode caps) and overspeed control, which acts on
-     * speed while riding; Eco/Turbo, whose readback is the riding-mode byte, and dual motor drive, which shares the
+     * unlock; maximum speed, which can raise speed, the drive-mode cap, which shares the 0x6e speed and mode command,
+     * and overspeed control, which acts on speed while riding; Eco/Turbo, whose readback is the riding-mode byte, and dual motor drive, which shares the
      * 0x6e speed and mode command; the 0x6f block (charging, Low Battery Mode, long range mode, clock); and the
      * light zones, whose status byte 10 means line lights on some models and ambient light on others.
      */
-    static final String[] NEVER_EXPERIMENTAL={"lock","lock_expiry","pin","proximity_key","maximum_speed","speed_limit","drive_speed_limit",
+    static final String[] NEVER_EXPERIMENTAL={"lock","lock_expiry","pin","proximity_key","maximum_speed","drive_speed_limit",
         "overspeed_control","acceleration","dual_drive","charge_limit","timed_charging","charge_start","low_power","long_range_mode","clock_sync",
         "energy_recovery","display_units","range_algorithm","ambient_light_mode","logo_light","daytime_light"};
-    /** Lab copies of the variants the official app uses where it offers each EXPERIMENTAL control (0–5 km/h kick-start). */
+    /** Lab copies of the variants the official app uses where it offers each EXPERIMENTAL control (0–5 km/h kick-start; its widest speed cap, 8–32 km/h). */
     private static final Map<String,FeatureVariant> TRY=new LinkedHashMap<>();
     static{
-        for(FeatureVariant v:new FeatureVariant[]{OEM_CRUISE,OEM_TCS,START_0_5,OEM_WALK_ASSIST,OEM_POWER_ASSIST,OEM_DESCENT,OEM_TAIL,OEM_AUTO,OEM_TURN,OEM_PROMPT_TONE})
+        for(FeatureVariant v:new FeatureVariant[]{OEM_CRUISE,OEM_TCS,START_0_5,OEM_WALK_ASSIST,OEM_POWER_ASSIST,OEM_DESCENT,OEM_TAIL,OEM_AUTO,OEM_TURN,OEM_PROMPT_TONE,LIMIT_8_32})
             TRY.put(v.feature,v.lab());
         if(!TRY.keySet().equals(new HashSet<>(java.util.Arrays.asList(EXPERIMENTAL))))throw new IllegalStateException("Experimental table mismatch");
         for(String f:NEVER_EXPERIMENTAL)if(TRY.containsKey(f))throw new IllegalStateException("Never experimental: "+f);
@@ -820,6 +822,7 @@ public final class ModelRegistry {
             case "traction_control": return value==0?"Turns traction control off. Ride gently on wet or loose ground until you know how it behaves.":null;
             case "start_speed": return value<3?"Below 3 km/h, the motor can pull from a standstill as soon as you use the throttle.":null;
             case "energy_recovery": return value==0?"Turns motor braking off, so your brakes do more of the stopping.":null;
+            case "speed_limit": return value!=0?"Caps your speed while riding, below your Top speed setting. Set back restores your previous setting.":null;
             default: return null;
         }
     }

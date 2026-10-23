@@ -28,8 +28,10 @@ NEW IN 1.6.0
   doesn't offer it (for example kick-start speed, turn signal sound, traction
   control, the hill assists) can be tried while parked. Volt reads each try back
   (Worked here, No change seen, Refused, Unconfirmed) and sets it back in one tap.
-  Speed limits, charging, the lock, PIN, proximity unlock and the clock are never
-  added for another model this way; the UT5 MAX keeps its existing Lab controls.
+  Where the official app hides the custom speed cap, it can be tried too (Off or
+  8-32 km/h; a cap only lowers speed). Top speed, the drive-mode cap, overspeed
+  control, charging, the lock, PIN, proximity unlock and the clock are never added
+  for another model this way; the UT5 MAX keeps its existing Lab controls.
 - Home follows the model: default Setting tiles use controls the model offers
   (Top speed and Cruise control on the GT5 Max), and a reading outside the
   model's choices shows "—".
