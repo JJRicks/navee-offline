@@ -1,0 +1,337 @@
+{
+ "charges": {
+  "A:SESSION_2": {
+   "samples": 338,
+   "start_soc": 88.0
+  },
+  "A:SESSION_3": {
+   "samples": 1071,
+   "start_soc": 60.0
+  },
+  "A:SESSION_9": {
+   "samples": 1254,
+   "start_soc": 51.0
+  },
+  "A:WARM_PHYSICAL": {
+   "samples": 1833,
+   "start_soc": 22.0
+  },
+  "B": {
+   "samples": 2077,
+   "start_soc": 1.0
+  }
+ },
+ "estimator": "ut5-stock-pack-v6",
+ "in_sample_production_constants": {
+  "display": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 1.86,
+    "points": 5129,
+    "worst_long": 10.1,
+    "worst_short": -6.5
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.49,
+    "points": 4590,
+    "worst_long": 8.29,
+    "worst_short": -8.31
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 1.95,
+    "points": 5129,
+    "worst_long": 9.25,
+    "worst_short": -8.15
+   }
+  },
+  "planning": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 8.37,
+    "points": 5129,
+    "worst_long": 38.66,
+    "worst_short": 2.08
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.64,
+    "points": 4590,
+    "worst_long": 27.11,
+    "worst_short": -2.14
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 6.33,
+    "points": 5129,
+    "worst_long": 34.74,
+    "worst_short": -0.81
+   }
+  }
+ },
+ "leave_one_charge_out": {
+  "display": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.9,
+    "points": 5129,
+    "worst_long": 22.88,
+    "worst_short": -9.53
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.22,
+    "points": 4590,
+    "worst_long": 20.8,
+    "worst_short": -5.74
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.57,
+    "points": 5129,
+    "worst_long": 21.02,
+    "worst_short": -6.55
+   }
+  },
+  "planning": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 8.24,
+    "points": 5129,
+    "worst_long": 39.75,
+    "worst_short": 0.22
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.65,
+    "points": 4590,
+    "worst_long": 27.11,
+    "worst_short": -2.14
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 5.88,
+    "points": 5129,
+    "worst_long": 34.74,
+    "worst_short": -2.06
+   }
+  }
+ },
+ "leave_one_charge_out_first_estimates": {
+  "A:SESSION_2": {
+   "display": {
+    "95": 0.69,
+    "100": 5.77
+   },
+   "planning": {
+    "95": 5.14,
+    "100": 11.41
+   }
+  },
+  "A:SESSION_3": {
+   "display": {
+    "80": 0.44,
+    "95": -2.32,
+    "100": -5.3
+   },
+   "planning": {
+    "80": 3.07,
+    "95": 7.93,
+    "100": 7.59
+   }
+  },
+  "A:SESSION_9": {
+   "display": {
+    "80": 0.43,
+    "95": 6.67,
+    "100": 4.25
+   },
+   "planning": {
+    "80": 4.86,
+    "95": 17.78,
+    "100": 18.21
+   }
+  },
+  "A:WARM_PHYSICAL": {
+   "display": {
+    "80": -3.25,
+    "95": 6.46,
+    "100": 5.85
+   },
+   "planning": {
+    "80": 6.82,
+    "95": 27.43,
+    "100": 29.23
+   }
+  },
+  "B": {
+   "display": {
+    "80": 20.8,
+    "95": 21.02,
+    "100": 22.88
+   },
+   "planning": {
+    "80": 27.11,
+    "95": 34.74,
+    "100": 39.75
+   }
+  }
+ },
+ "leave_one_charge_out_first_sight_after_10_min": {
+  "display": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 5.43,
+    "points": 483,
+    "worst_long": 20.44,
+    "worst_short": -8.73
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.54,
+    "points": 437,
+    "worst_long": 16.82,
+    "worst_short": -6.03
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 4.93,
+    "points": 483,
+    "worst_long": 21.05,
+    "worst_short": -5.81
+   }
+  },
+  "planning": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 11.17,
+    "points": 483,
+    "worst_long": 40.59,
+    "worst_short": -1.17
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 2.91,
+    "points": 437,
+    "worst_long": 21.35,
+    "worst_short": -4.32
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 8.74,
+    "points": 483,
+    "worst_long": 38.79,
+    "worst_short": -0.83
+   }
+  }
+ },
+ "leave_one_charge_out_first_sight_mid_charge": {
+  "display": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 22.35,
+    "points": 496,
+    "worst_long": 54.46,
+    "worst_short": -6.93
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 16.86,
+    "points": 460,
+    "worst_long": 50.4,
+    "worst_short": -3.25
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 22.49,
+    "points": 496,
+    "worst_long": 52.6,
+    "worst_short": -3.95
+   }
+  },
+  "planning": {
+   "100": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 34.47,
+    "points": 496,
+    "worst_long": 73.61,
+    "worst_short": 3.94
+   },
+   "80": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 20.24,
+    "points": 460,
+    "worst_long": 56.16,
+    "worst_short": 0.55
+   },
+   "95": {
+    "late_beyond_20_min_buffer": 0,
+    "mae": 32.04,
+    "points": 496,
+    "worst_long": 71.8,
+    "worst_short": 1.55
+   }
+  }
+ },
+ "leave_one_charge_out_mae_by_charge": {
+  "A:SESSION_2": {
+   "display": {
+    "100": 4.02,
+    "95": 1.1
+   },
+   "planning": {
+    "100": 9.44,
+    "95": 3.17
+   }
+  },
+  "A:SESSION_3": {
+   "display": {
+    "100": 6.25,
+    "80": 2.02,
+    "95": 3.29
+   },
+   "planning": {
+    "100": 1.88,
+    "80": 2.45,
+    "95": 2.23
+   }
+  },
+  "A:SESSION_9": {
+   "display": {
+    "100": 1.74,
+    "80": 1.94,
+    "95": 0.8
+   },
+   "planning": {
+    "100": 5.77,
+    "80": 2.53,
+    "95": 5.35
+   }
+  },
+  "A:WARM_PHYSICAL": {
+   "display": {
+    "100": 2.72,
+    "80": 1.76,
+    "95": 3.27
+   },
+   "planning": {
+    "100": 11.42,
+    "80": 2.07,
+    "95": 9.61
+   }
+  },
+  "B": {
+   "display": {
+    "100": 2.23,
+    "80": 2.78,
+    "95": 2.63
+   },
+   "planning": {
+    "100": 9.53,
+    "80": 3.25,
+    "95": 4.6
+   }
+  }
+ }
+}

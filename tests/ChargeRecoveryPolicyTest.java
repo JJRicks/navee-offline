@@ -54,6 +54,13 @@ public final class ChargeRecoveryPolicyTest {
         p=policy();lose(p);
         resumed=evaluate(p,LOST+1000,true,true,true,frame(LOST+1000,0,99));
         check(resumed.resumed&&resumed.record,"Fresh 99 percent cutoff goes through existing final-packet grace window");
+        p=policy();lose(p);
+        resumed=p.evaluate(LOST+1000,PROFILE,SERIAL,7,true,true,true,true,true,SERIAL,frame(LOST+1000,0,75),true);
+        check(resumed.resumed&&resumed.record&&resumed.stop==null&&!p.recovering(),"A Volt schedule pause seen after a loss resumes into the pause");
+        p=policy();lose(p);
+        check(p.evaluate(LOST+1000,PROFILE,SERIAL,7,true,true,true,true,true,SERIAL,frame(LOST+1000,2,75),true).stop==ChargeSessionStore.Stop.CHARGING_ENDED,"Only charging=off counts as the scheduled pause");
+        p=policy();lose(p);
+        check(p.evaluate(LOST+1000,PROFILE,SERIAL,7,true,true,true,true,true,SERIAL,frame(LOST+1000,0,75),false).stop==ChargeSessionStore.Stop.CHARGING_ENDED,"Without a schedule, charging=off still ends the capture");
         p=policy();
         check(evaluate(p,START+ChargeSessionStore.MAX_SESSION_MS-1,false,false,true,null).beganRecovery,"Loss near session limit starts recovery");
         check(evaluate(p,START+ChargeSessionStore.MAX_SESSION_MS,false,false,true,null).stop==ChargeSessionStore.Stop.LIMIT,"Total eighteen-hour limit also applies while disconnected");

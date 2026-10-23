@@ -14,14 +14,17 @@ public final class StockVoltageReplayTest {
     static ChargingEstimate.Value live(Double value,long time) {
         return new ChargingEstimate.Value(value,true,time);
     }
-    static ChargingEstimate.Result estimate(StockVoltageReplayTrace.Case trace,
+    static ChargingEstimate.Result estimate(StockVoltageReplayTrace.Case trace,StockVoltageReplayTrace.Part part,
             StockVoltageReplayTrace.Point point,Double target,ChargeSessionStore.Curve personal,
             ChargeReferenceGate gate) {
         long time=point.elapsed+1000;
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(live(1d,time),live(point.volts,time),
                 live(point.amps,time),live(point.soc,time),live(15.3,time),live(target,time));
+        // The app observed each recorded charge from its start, as ChargeProgressTracker would.
+        ChargeProgressTracker.Progress progress=new ChargeProgressTracker.Progress(
+                (part.physicalOffset+point.elapsed)/60000d,trace.parts[0].points.get(0).soc,true,false);
         return ChargingEstimate.forScooter(baseline,live(point.soc,time),live(15.3,time),2538,
-                trace.charger,personal,gate,trace.name,time,time);
+                trace.charger,personal,gate,trace.name,time,time,progress);
     }
     static ChargeSessionStore.Curve history(StockVoltageReplayTrace.Case trace) throws IOException {
         if(trace==StockVoltageReplayTrace.STOCK_BULK)
@@ -59,11 +62,6 @@ public final class StockVoltageReplayTest {
             Files.delete(directory.toPath());
         }
     }
-    static boolean voltageMatched(ChargingEstimate.Result result)throws Exception {
-        // Reflection keeps the offline harness compilable against the frozen v3 sources.
-        try {return result.getClass().getField("stockVoltageToFull").getBoolean(result);}
-        catch(NoSuchFieldException oldEstimator) {return false;}
-    }
     public static void main(String[] args)throws Exception {
         StockVoltageReplayTrace.Case warm=StockVoltageReplayTrace.WARM_PHYSICAL_CHARGE;
         check(warm.parts.length==2,"Both warm recordings remain one physical charge");
@@ -86,26 +84,27 @@ public final class StockVoltageReplayTest {
                 ChargeReferenceGate gate=new ChargeReferenceGate();
                 for(StockVoltageReplayTrace.Point point:part.points) {
                     if(point.gap)gate.reset();
-                    ChargingEstimate.Result full=estimate(trace,point,100d,personal,gate);
+                    ChargingEstimate.Result full=estimate(trace,part,point,100d,personal,gate);
                     check(full.remainingMinutesToFull!=null&&full.remainingMinutesToFull>=0,
                             trace.name+" finite nonnegative full time");
                     check(full.remainingMinutesToFull.equals(full.remainingMinutesToLimit),
                             trace.name+" full target agrees with full time");
                     if(point.soc==100)check(full.remainingMinutesToFull==0d,trace.name+" displayed completion is zero");
-                    ChargingEstimate.Result unknown=estimate(trace,point,null,personal,gate);
+                    ChargingEstimate.Result unknown=estimate(trace,part,point,null,personal,gate);
                     check(unknown.remainingMinutesToLimit==null&&unknown.targetPercent==null,
                             trace.name+" unknown cutoff remains unknown");
                     check(unknown.remainingMinutesToFull.equals(full.remainingMinutesToFull),
                             trace.name+" unknown cutoff preserves the same hypothetical full time");
-                    boolean matched=voltageMatched(full);
+                    boolean matched=full.stockPackModel;
                     if(matched) {
                         check(trace.charger==ChargeSessionStore.Charger.STOCK&&point.soc<89,
-                                "Voltage progress stays within the stock bulk scope");
+                                "The pack model stays within the stock bulk scope");
                         check(full.referenceToFull&&!full.learnedToFull&&full.referenceToLimit&&!full.learnedToLimit,
-                                "Percentage-only personal evidence cannot replace the voltage full estimate");
+                                "Percentage-only personal evidence cannot replace the pack-model estimate");
+                        check(full.planningMinutesToFull>=full.remainingMinutesToFull,"Planning is never shorter than display");
                     }
                     for(double target:new double[]{80,95}) {
-                        ChargingEstimate.Result limit=estimate(trace,point,target,personal,gate);
+                        ChargingEstimate.Result limit=estimate(trace,part,point,target,personal,gate);
                         check(limit.remainingMinutesToLimit!=null&&limit.remainingMinutesToLimit>=0,
                                 trace.name+" valid lower-cutoff estimate");
                         check(limit.remainingMinutesToFull.equals(full.remainingMinutesToFull),
@@ -122,21 +121,26 @@ public final class StockVoltageReplayTest {
                             selectedError+=error; selectedSavedError+=Math.abs(point.saved-warm.truth(part,point));
                             selectedSamples++;
                         } else {
-                            check(point.saved.equals(full.remainingMinutesToFull),
-                                    "Uncovered warm samples and the established finishing taper retain v3 behavior");
+                            if(point.soc>=89)check(point.saved.equals(full.remainingMinutesToFull),
+                                    "The established finishing taper retains recorded v3 behavior exactly");
+                            else check(full.remainingMinutesToFull>=point.saved,
+                                    "Uncertain bulk cannot become more optimistic than the original prediction");
                             unchangedWarm++;
                         }
                     }
                 }
             }
         }
-        check(warmSamples==1832&&selectedSamples>=750&&selectedSamples<=900,
-                "Validation covers the complete observed physical charge and a bounded matched subset");
-        check(unchangedWarm>900,"Uncovered earlier voltage and the final taper are included in validation");
+        // v6 covers the whole admitted bulk stage. Its constants were fitted with this charge
+        // included; fit_pack_model.py reports the leave-one-charge-out accuracy separately.
+        check(warmSamples==1832&&selectedSamples>=1400&&selectedSamples<=1700,
+                "Validation covers the complete observed physical charge and its admitted bulk stage");
+        check(unchangedWarm>250,"The final taper and unadmitted readings are included in validation");
         check(selectedError/selectedSamples<3&&selectedSavedError/selectedSamples>30,
-                "Retrospective matched-sample MAE improves without allowing personal SOC precedence");
-        check(warmError/warmSamples<14,"Whole-charge replay includes the uncovered early recording");
-        System.out.println("StockVoltageReplayTest: "+checks+" checks; retrospective warm matched MAE "
-                +(selectedError/selectedSamples)+" min over "+selectedSamples+" samples");
+                "Bulk-stage MAE improves on the recorded predictions without personal SOC precedence");
+        check(warmError/warmSamples<5,"Whole-charge replay improves on the recorded baseline");
+        System.out.println("StockVoltageReplayTest: "+checks+" checks; warm pack-model MAE "
+                +(selectedError/selectedSamples)+" min over "+selectedSamples+" samples (recorded "+(selectedSavedError/selectedSamples)
+                +"); whole charge "+(warmError/warmSamples));
     }
 }

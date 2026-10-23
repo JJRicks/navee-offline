@@ -83,6 +83,9 @@ final class QuickAccessGrid extends ViewGroup {
             // An armed plan deliberately pauses charging; its own off action remains available.
             if (doneBy && charge != null && charge.doneByEnabled)
                 chargeBlocked = !live ? "Connect your scooter first" : charge.busy ? "Wait for the current change to finish" : null;
+            // A measuring window opens its own Keep / Schedule now / Stop choice.
+            boolean measuring = doneBy && service != null && service.isChargeMeasuring();
+            if (measuring) chargeBlocked = null;
             if (chargeControl && charge != null && !unmapped) {
                 value = (doneBy || doneTime ? charge.doneByEnabled : charge.manualEnabled) ? 1 : 0;
                 pending = charge.busy;
@@ -94,7 +97,7 @@ final class QuickAccessGrid extends ViewGroup {
                     String time = DisplayTime.clock(host.activity(), preferences, deadline.getTimeInMillis());
                     String activeTime = charge.doneByWallMs > 0
                             ? DisplayTime.clock(host.activity(), preferences, charge.doneByWallMs) : time;
-                    state = pending ? "Updating…" : doneTime ? time : charge.doneByEnabled ? "On • " + activeTime : "Off";
+                    state = pending ? "Updating…" : doneTime ? time : measuring ? "Measuring" : charge.doneByEnabled ? "On • " + activeTime : "Off";
                 } else if (manual) state = pending ? "Updating…" : charge.manualEnabled ? "On" : "Off";
                 else state = charge.manualStartWallMs > 0 ? DisplayTime.clock(host.activity(), preferences, charge.manualStartWallMs) : "Not scheduled";
             } else if (doneBy || doneTime) state = "—";

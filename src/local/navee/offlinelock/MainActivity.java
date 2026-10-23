@@ -1801,11 +1801,42 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void toggleChargeDoneBy(){toggleChargeDoneBy(true);}
     private void toggleChargeDoneBy(boolean feedback){
         if(scooterService==null){toast("Connect a charger first");return;}
+        if(scooterService.isChargeMeasuring()){showChargeMeasure();return;}
         ChargeScheduleController.View charge=scooterService.chargeSchedule();
         String blocked=doneByActionBlocked(charge);if(blocked!=null){toast(blocked);return;}
         boolean enable=!charge.doneByEnabled;
+        if(enable&&scooterService.chargeMeasureOffered()){offerChargeMeasure();return;}
         scooterService.setChargeDoneByEnabled(enable,this::scheduleResult);
         if(feedback)Haptics.toggle(getWindow().getDecorView(),enable);redraw();
+    }
+    /** A bounded connection is the owner's choice: ask, and say what it does, before measuring. */
+    private void offerChargeMeasure(){
+        boolean background=preferences.getBoolean("background_connection",false);
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Measure this charge first?")
+                .setMessage("Volt didn't see this charge begin, so it would plan for a fresh charger, which usually finishes early. "
+                        +"Watching the charger for about 10 minutes lets it plan closer to your time, still with the 20-minute buffer. "
+                        +"Volt stays connected"+(background?"":", even in the background,")+" and shows a notification until the schedule is set.")
+                .setPositiveButton("Measure first",(d,which)->{
+                    if(scooterService==null)return;
+                    // Conditions can change while the dialog is open; never leave the request unanswered.
+                    if(scooterService.startChargeMeasure())toast("Measuring · Charge done by is set within "+scooterService.chargeMeasureMinutesLeft()+" min");
+                    else scooterService.setChargeDoneByEnabled(true,this::scheduleResult);
+                    redraw();
+                })
+                .setNegativeButton("Schedule now",(d,which)->{if(scooterService!=null)scooterService.setChargeDoneByEnabled(true,this::scheduleResult);redraw();})
+                .create();
+        controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
+    }
+    private void showChargeMeasure(){
+        if(scooterService.chargeMeasureArming()){toast("Setting the schedule…");return;}
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Measuring this charge")
+                .setMessage("Charge done by is set automatically within "+scooterService.chargeMeasureMinutesLeft()+" min. "
+                        +"Schedule now plans with what Volt knows so far. Stop measuring leaves Charge done by off.")
+                .setPositiveButton("Keep measuring",null)
+                .setNeutralButton("Schedule now",(d,which)->{if(scooterService!=null)scooterService.scheduleChargeNow();redraw();})
+                .setNegativeButton("Stop measuring",(d,which)->{if(scooterService!=null)scooterService.cancelChargeMeasure();redraw();})
+                .create();
+        controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
     private void toggleManualCharge(){toggleManualCharge(true);}
     private void toggleManualCharge(boolean feedback){
@@ -1855,13 +1886,16 @@ public final class MainActivity extends Activity implements ScreenHost {
         void refresh(){
             ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
             String blocked=charge==null?(time?"Select a scooter first":"Connect a charger first"):time?charge.timeBlockedReason:doneByActionBlocked(charge);
+            boolean measuring=!time&&scooterService!=null&&scooterService.isChargeMeasuring();if(measuring)blocked=null;
             boolean on=charge!=null&&charge.doneByEnabled;int minute=charge==null?8*60:charge.doneByMinuteOfDay;
             Calendar at=Calendar.getInstance();at.set(Calendar.HOUR_OF_DAY,minute/60);at.set(Calendar.MINUTE,minute%60);
-            String value=time?DisplayTime.clock(MainActivity.this,preferences,at.getTimeInMillis()):on?"On":"Off";
+            String value=time?DisplayTime.clock(MainActivity.this,preferences,at.getTimeInMillis())
+                    :measuring?"Measuring · "+scooterService.chargeMeasureMinutesLeft()+" min":on?"On":"Off";
+            if(!time)row.value.setVisibility(measuring?View.VISIBLE:View.GONE);
             row.name.setTextColor(blocked==null?design.text:design.muted);row.value.setText(value);
             row.line.setAlpha(blocked==null?1f:.5f);row.line.setEnabled(true);
             row.line.setContentDescription((time?"Charge done by time":"Charge done by")+", "+value+(blocked==null?"":", "+blocked));
-            boolean pending=charge!=null&&charge.busy;spinner.setVisibility(pending?View.VISIBLE:View.GONE);
+            boolean pending=charge!=null&&charge.busy||measuring;spinner.setVisibility(pending?View.VISIBLE:View.GONE);
             if(toggle!=null){toggle.setChecked(on);toggle.setEnabled(blocked==null&&!pending);toggle.setClickable(blocked==null&&!pending);toggle.setFocusable(blocked==null&&!pending);toggle.setVisibility(pending?View.GONE:View.VISIBLE);}
         }
     }

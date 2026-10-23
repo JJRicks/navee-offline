@@ -2,7 +2,9 @@
 
 ## Behavior and evidence
 
-Charge done by is a phone-side calculation which programs the scooter's existing one-time charge-start timer. It uses the next occurrence of the chosen local time, the current estimator result **to the configured charge limit**, and ten minutes of buffer. A due/past calculated start requests schedule-off (charge now); it never silently moves the start to tomorrow. UT5 MAX accepts minute precision. Other mapped models retain their whole-hour domain, rounded earlier using the scooter clock's captured offset.
+Charge done by is a phone-side calculation which programs the scooter's existing one-time charge-start timer. It uses the next occurrence of the chosen local time, the current estimator result **to the configured charge limit**, and twenty minutes of buffer. A due/past calculated start requests schedule-off (charge now); it never silently moves the start to tomorrow. UT5 MAX accepts minute precision. Other mapped models retain their whole-hour domain, rounded earlier using the scooter clock's captured offset.
+
+For example, an 8:00 AM deadline and a 90-minute estimate now schedule charging at 6:10 AM. This scheduling buffer is separate from the standard charger's up-to-ten-minute startup allowance inside its full-charge ETA. Increasing the scheduling buffer does not change the displayed or recorded estimate, rewrite past recordings, or automatically reschedule an existing plan. It also does not guarantee every cutoff: retrospective low-start 80% estimates can still be about 38–42 minutes too optimistic. See the [standard-charger replay](stock-startup-estimates.md).
 
 The protocol has charging readback: status `0x70`, bytes 27–30 for the encoded start and byte 33 for the switch. Writes use `0x6f` selectors 6 (clock), 3 (start), and 1 (switch). Applying a plan serializes clock acknowledgement, exact timestamp acknowledgement/readback, then switch acknowledgement/readback. The clock itself has no independent readback. Confirmation remains protocol evidence, not proof that physical charging later starts.
 
@@ -10,7 +12,9 @@ No separate plugged-but-paused charger indicator has been established. Initial a
 
 Confirmed intentions are scoped to a scooter, persisted only outside simulation, and included with scooter preferences in backups. Restoring them has no radio side effect. Zero or absent reboot readback does not cancel owned intent by itself. Positive changed time, target completion, sustained early charging after settling, elapsed deadline, and noncharging after the start reconcile local display state. A changed target preserves the actual start as manual instead of promising an obsolete finish. Partial writes and transport/profile/timezone changes are surfaced without claiming success.
 
-## Automated checks
+## Original automated checks
+
+The results below describe the original implementation with its former ten-minute scheduling buffer. Its 6:20 AM example is historical; the current twenty-minute buffer makes the same example 6:10 AM. The recorded estimator replay retains the old ten-minute threshold as an explicit comparison benchmark.
 
 All cases use synthetic data, never owner recordings or a physical radio.
 
