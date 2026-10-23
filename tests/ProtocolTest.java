@@ -16,6 +16,7 @@ public final class ProtocolTest {
         rejectMalformedAndDangerousCommands();
         notificationsRetainStatus();
         transportAssembly();
+        n65iChecksumStyle();
         System.out.println("Protocol tests passed: " + assertions + " assertions");
     }
 
@@ -142,6 +143,34 @@ public final class ProtocolTest {
         check(decoder.bufferedBytes() == 12, "Truncated candidate retained");
         decoder.reset();
         check(decoder.feed(AUTH_OK).size() == 1, "Reset drops stale fragments on reconnect");
+    }
+
+    private static void n65iChecksumStyle() {
+        // Captured from an N65i: a challenge-free owner-check success whose checksum leaves out the leading 0x55.
+        byte[] n65i = bytes("55aa00300100dbfefd");
+        Protocol.Frame reply = Protocol.parse(n65i);
+        check(reply.cmd == 0x30 && reply.error() == 0 && reply.data.length == 1
+                && reply.checksum == Protocol.Checksum.AFTER_HEADER, "N65i owner-check success parses");
+        check(Protocol.parse(AUTH_OK).checksum == Protocol.Checksum.STANDARD, "UT5 MAX checksum stays standard");
+        final byte[] damaged = n65i.clone();
+        damaged[6] ^= 1;
+        rejects(new Runnable() { public void run() { Protocol.parse(damaged); }});
+        Protocol.Decoder decoder = new Protocol.Decoder();
+        List<Protocol.Frame> frames = decoder.feed(concat(n65i, headerless(0x70, new byte[] {0, 1, 2, 1, 0, 0, 0, 0, 0, 0, 0})));
+        check(frames.size() == 2 && frames.get(1).data.length == 11 && decoder.checksum() == Protocol.Checksum.AFTER_HEADER,
+                "N65i replies decode within one connection");
+        long invalid = decoder.invalidFrames();
+        check(decoder.feed(AUTH_OK).isEmpty() && decoder.invalidFrames() == invalid + 1, "A connection never mixes checksum styles");
+        decoder.reset();
+        check(decoder.checksum() == null && decoder.feed(AUTH_OK).size() == 1 && decoder.checksum() == Protocol.Checksum.STANDARD,
+                "Reset starts the next connection fresh");
+        check(decoder.feed(n65i).isEmpty(), "A standard-checksum connection rejects the header-free style");
+    }
+
+    private static byte[] headerless(int cmd, byte[] data) {
+        byte[] frame = notification(cmd, data);
+        frame[frame.length - 3] -= 0x55;
+        return frame;
     }
 
     private static byte[] notification(int cmd, byte[] data) {
