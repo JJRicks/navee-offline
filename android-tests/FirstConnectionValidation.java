@@ -224,8 +224,12 @@ public final class FirstConnectionValidation extends Instrumentation {
 
     /** The N65i sums its replies without the leading 0x55 and sends a ten-byte settings read. */
     private void n65iHandshake() {
+        String originalName = profile.name;
         fresh(false);
         main(() -> {
+            // Volt once named every Shizuku capture "My UT5 MAX"; the N65i's own Model ID was captured earlier.
+            profile.name = "My UT5 MAX"; profile.nameDefault = false; profile.advertisedPid = "22131"; profile.advertisedPidWall = 1234;
+            profiles.update(profile);
             syntheticConnection("C0:FF:EE:00:00:C0", true);
             require(hasEvent("header-free checksum"), "The N65i checksum style was not noted");
             receive(0x74, "Q2443ZZ9US4444444".getBytes(StandardCharsets.US_ASCII), true);
@@ -234,6 +238,7 @@ public final class FirstConnectionValidation extends Instrumentation {
             require(ble.ready() && profile.mac.equals("C0:FF:EE:00:00:C0") && profile.serial.equals("Q2443ZZ9US4444444"),
                     "A ten-byte N65i settings read did not complete the connection");
             require(Integer.valueOf(0).equals(ble.featureValue("lock")), "The N65i lock state did not read from its short settings");
+            require(profile.name.equals("N65i") && profile.nameDefault, "Volt's old UT5 MAX default stayed on an N65i");
             require(!hasEvent("failed its checks"), "Valid N65i replies were reported as ignored");
             receive(0x90, new byte[8], false);
             require(hasEvent("failed its checks") && ble.ready(), "A mixed-checksum reply was accepted or not reported");
@@ -258,12 +263,15 @@ public final class FirstConnectionValidation extends Instrumentation {
         // The UT5 MAX keeps its full settings layout: a short read never binds it.
         fresh(true);
         main(() -> {
+            profile.name = "My UT5 MAX"; profile.nameDefault = false; profile.advertisedPid = ""; profiles.update(profile);
             syntheticConnection(profile.mac, false);
             receive(0x74, profile.serial.getBytes(StandardCharsets.US_ASCII)); receive(0x70, new byte[10]);
             require(!ble.ready(), "A short settings read bound a saved UT5 MAX");
             receive(0x70, new byte[43]);
             require(ble.ready() && !hasEvent("header-free checksum"), "The UT5 MAX lost its standard handshake");
+            require(profile.name.equals("My UT5 MAX") && !profile.nameDefault, "A UT5 MAX lost the name it was given");
             ble.disconnect();
+            profile.name = originalName; profiles.update(profile);
         });
     }
 

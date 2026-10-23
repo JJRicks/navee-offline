@@ -16,6 +16,18 @@ permission and must be resolved before public distribution.
 This image is separate from the MIT-licensed application source; the source
 licence does not grant rights to the photo or NAVEE marks shown in it.
 
+N65i PHOTO
+
+The maintainer supplied the N65i product image bundled at:
+  res/drawable-nodpi/n65i.webp
+
+It is a NAVEE product render, supplied on 23 October 2026 through a tester.
+It was resized to 2048 x 2048 and re-encoded as WebP with alpha, with
+metadata removed. Redistribution permission has not been established. Like
+the UT5 MAX photo, it is a placeholder pending an original replacement photo or
+verified permission. It is separate from the MIT-licensed application source;
+the source licence does not grant rights to the photo or NAVEE marks shown in it.
+
 SAIRA TYPEFACE (VOLT DESIGN)
 
 The interface font is Saira, bundled at:

@@ -110,6 +110,19 @@ public final class DiscoveryCoordinatorTest {
         check(read(d,0x73).outcome==DiscoveryCoordinator.Outcome.EMPTY_REPLY&&read(d,0x73).length==0&&read(d,0x73).status==0,"Zero length is an ACK, not proof of support");
         transmit(d,T0+900);d.onFrame(0x72,0,0,T0+910);
         check(read(d,0x72).outcome==DiscoveryCoordinator.Outcome.EMPTY_REPLY,"Empty optional reply is not supported");
+        // Other models' settings reads may stop after the lock byte (the N65i's is ten bytes); the UT5 MAX's never does.
+        DiscoveryCoordinator other=new DiscoveryCoordinator(T0,false);
+        transmit(other,T0);other.onFrame(0x74,0,17,T0+10);
+        transmit(other,T0+300);other.onFrame(0x70,0,10,T0+310);
+        check(read(other,0x70).outcome==DiscoveryCoordinator.Outcome.READ_SUPPORTED&&read(other,0x70).length==10,"A ten-byte settings read is supported on another model");
+        DiscoveryCoordinator tiny=new DiscoveryCoordinator(T0,false);
+        transmit(tiny,T0);tiny.onFrame(0x74,0,17,T0+10);
+        transmit(tiny,T0+300);tiny.onFrame(0x70,0,2,T0+310);
+        check(read(tiny,0x70).outcome==DiscoveryCoordinator.Outcome.MALFORMED,"A settings read without the lock byte stays malformed");
+        DiscoveryCoordinator ut5=new DiscoveryCoordinator(T0,true);
+        transmit(ut5,T0);ut5.onFrame(0x74,0,17,T0+10);
+        transmit(ut5,T0+300);ut5.onFrame(0x70,0,10,T0+310);
+        check(read(ut5,0x70).outcome==DiscoveryCoordinator.Outcome.MALFORMED,"The UT5 MAX keeps its full settings minimum");
     }
     private static void interruption() {
         for(int stop=0;stop<=DiscoveryCoordinator.ORDER.length;stop++){

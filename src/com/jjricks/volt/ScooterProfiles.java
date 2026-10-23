@@ -7,6 +7,8 @@ import org.json.*;
 
 /** Private local owner profiles. Credentials are never included in ordinary diagnostics exports. */
 public final class ScooterProfiles {
+    /** The name Volt itself once gave every migrated or Shizuku-captured profile, whatever its model. */
+    static final String LEGACY_NAME="My UT5 MAX";
     public static final class Profile {
         public String id,name,identity,mac,serial; public int role; public long lastConnected;
         /** Advertised model ID, written only after an authenticated serial match on that MAC. "" = not captured. */
@@ -31,7 +33,7 @@ public final class ScooterProfiles {
         if(profiles.isEmpty()&&!prefs.getBoolean("legacy_migrated",false)){
             SharedPreferences old=context.getSharedPreferences("scooter",Context.MODE_PRIVATE);
             String identity=old.getString("identity","");
-            if(identity.matches("(?i)[0-9a-f]{12}")){Profile p=new Profile(UUID.randomUUID().toString(),"My UT5 MAX",identity,old.getInt("role",0),old.getString("last_connected_mac",old.getString("mac","")),old.getString("serial",""),0);profiles.add(p);prefs.edit().putString("active",p.id).apply();save();}
+            if(identity.matches("(?i)[0-9a-f]{12}")){Profile p=new Profile(UUID.randomUUID().toString(),LEGACY_NAME,identity,old.getInt("role",0),old.getString("last_connected_mac",old.getString("mac","")),old.getString("serial",""),0);profiles.add(p);prefs.edit().putString("active",p.id).apply();save();}
         }
         if(!profiles.isEmpty())prefs.edit().putBoolean("legacy_migrated",true).apply();
     }

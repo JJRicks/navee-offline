@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- Recognize the N65i (Model ID 22131): My scooters names it, Home and My scooters show its photo, and its compatibility check accepts its ten-byte settings read. Controls a tester confirmed on a parked N65i (lock, display units, headlight, auto light sensor) no longer say **Untested here**; its other mapped controls still do.
+- Replace Volt's old default name **My UT5 MAX** on a scooter identified as another model, the first time it connects. New Shizuku owner captures start with Volt's default name, so the model name replaces it.
 - Connect to the N65i. Its replies leave the leading 0x55 out of their checksum, so Volt discarded every one, including the owner-check success, and stayed on **Checking owner identity** until it timed out. Volt now accepts either checksum style, fixed per connection by the first valid reply, and finishes connecting with the N65i's shorter settings read. The UT5 MAX handshake is unchanged. Connection activity now notes when a reply is ignored.
 - Reopen Rides instantly on wide screens with a long ride selected. A finished ride's chart preview now comes from the analysis cache instead of replaying its whole recording on the main thread every time the tab is shown; the first view of a ride after Volt starts is unchanged.
 

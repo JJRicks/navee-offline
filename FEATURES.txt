@@ -1,6 +1,9 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
 Current version: 1.5.0 (versionCode 46)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
+Tester-reported parked checks: US N65i, model 22131 (meter 0.0.0.5, controller
+0.0.1.1): connection, lock readback, and guided tests of display units,
+headlight and auto light sensor. Its other mapped controls remain untested.
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
 The app talks directly to the scooter over Bluetooth. Optional map tiles use

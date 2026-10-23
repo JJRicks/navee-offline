@@ -10,7 +10,7 @@ public final class ModelRegistryTest {
         // Touch the registry before ScooterCommands so a static-initialiser cycle would show here.
         check(ModelRegistry.resolve(advertised("25381")).layer==ModelRegistry.Layer.UT5_MAX&&ModelRegistry.variant("clock_sync",advertised("25381"),null,null)==ModelRegistry.CLOCK
             &&ModelRegistry.variant("lock",advertised("25381"),null,null).id.equals("lock.ut5"),"Registry initialises first");
-        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules();
+        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules(); testedModels();
         System.out.println("ModelRegistry tests passed: "+assertions+" assertions");
     }
 
@@ -81,10 +81,32 @@ public final class ModelRegistryTest {
         check(ModelRegistry.meterBelow(raw,"9")==ModelRegistry.Tri.UNKNOWN,"Unreadable meter version is UNKNOWN");
     }
 
+    /** The N65i (22131) a tester checked: its name and photo, and only its checked controls become Volt-verified. */
+    private static void testedModels() {
+        DeviceDescriptor n65i=advertised("22131"),family=advertised("22132"),serialOnly=serial("Q2213ZZ9US7777777");
+        check(layer(n65i)==ModelRegistry.Layer.OEM_GROUP,"The N65i resolves to its OEM group");
+        check(ModelRegistry.modelName(n65i).equals("N65i")&&ModelRegistry.modelLine(n65i).equals("N65i")&&ModelRegistry.photo(n65i).equals("n65i")
+            &&ModelRegistry.showsPhoto(n65i),"N65i name, model line and photo");
+        check(ModelRegistry.modelName(family).isEmpty()&&ModelRegistry.modelName(serialOnly).isEmpty()&&!ModelRegistry.showsPhoto(family)
+            &&!ModelRegistry.showsPhoto(serialOnly),"Only the exact advertised Model ID a tester checked is named");
+        check(ModelRegistry.ratedWh(n65i)==null&&ModelRegistry.chargeReferenceProduct(n65i)==-1&&!ModelRegistry.ut5Max(n65i),"No UT5 MAX assumptions reach the N65i");
+        for(String f:new String[]{"lock","display_units","headlight","auto_sensor"}){
+            ModelRegistry.Rule r=ModelRegistry.rule(f,n65i,null,null);
+            check(r.support==CapabilityResolver.Support.KNOWN_ENCODING&&r.evidence==CapabilityResolver.Evidence.VOLT_VERIFIED
+                &&r.variant==ModelRegistry.rule(f,family,null,null).variant,"Tester-checked "+f+" is Volt-verified with the same encoding");
+        }
+        check(ModelRegistry.rule("lock",family,null,null).evidence==CapabilityResolver.Evidence.SHARED_CONTRACT
+            &&ModelRegistry.rule("headlight",family,null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED,"Unchecked family members keep their evidence");
+        check(ModelRegistry.rule("cruise_control",n65i,null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
+            &&ModelRegistry.rule("energy_recovery",n65i,null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED,"Unchecked N65i controls stay OEM-mapped");
+        check(ModelRegistry.rule("traction_control",n65i,null,null).support==ModelRegistry.rule("traction_control",family,null,null).support,
+            "Verification never makes an excluded control available");
+    }
+
     private static void assumptions() {
         DeviceDescriptor ut5=serial("Q2538ZZ9US7777777"),other=advertised("25471"),unknown=serial("Q2443ZZ9US7777777");
         check(ModelRegistry.ratedWh(ut5)==716.04&&ModelRegistry.ratedWh(other)==null&&ModelRegistry.ratedWh(unknown)==null,"Rated Wh is UT5 MAX only");
-        check(ModelRegistry.showsPhoto(ut5)&&!ModelRegistry.showsPhoto(other),"Photo is UT5 MAX only");
+        check(ModelRegistry.showsPhoto(ut5)&&!ModelRegistry.showsPhoto(other)&&ModelRegistry.photo(ut5).equals("ut5max"),"Photo is UT5 MAX or a tester-checked model only");
         check(ModelRegistry.chargeReferenceProduct(ut5)==2538&&ModelRegistry.chargeReferenceProduct(other)==-1,"Charge reference is UT5 MAX only");
         check(ModelRegistry.driveModeLabelProduct(ut5)==2538&&ModelRegistry.driveModeLabelProduct(unknown)==0,"Drive-mode labels are UT5 MAX only");
         check(ModelRegistry.rangeFollowProduct(ut5)==2538&&ModelRegistry.rangeFollowProduct(other)==0,"Range follow is UT5 MAX only");
@@ -122,7 +144,7 @@ public final class ModelRegistryTest {
         check(ModelRegistry.rule("display_units",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("charge_limit",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("drive_speed_limit",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM-mapped rows; the D-mode cap stays unmapped");
-        check(ModelRegistry.VERSION==7,"Registry version records same-model regional unions alongside the guided-test and control tables");
+        check(ModelRegistry.VERSION==8,"Registry version records the tester-checked N65i alongside the regional unions and control tables");
         check(ModelRegistry.rule("display_units",both("Q2547ZZ9US7777777","25381"),null,null).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict reason");
         boolean unknownKey=false;try{ModelRegistry.rule("not_a_feature",us,null,null);}catch(IllegalArgumentException expected){unknownKey=true;}
         check(unknownKey,"Unknown keys are rejected");

@@ -1757,6 +1757,7 @@ public final class OnboardingScreen implements AppScreen {
     /** Scooter photo over a soft red floor glow; the done screen adds a green check badge. */
     private final class Hero extends View {
         private final boolean badge; private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
+        private Bitmap shown;
         Hero(boolean badge) {
             super(host.activity()); this.badge = badge;
             if (photo == null) {
@@ -1765,7 +1766,14 @@ public final class OnboardingScreen implements AppScreen {
                     photo = BitmapFactory.decodeResource(host.activity().getResources(), R.drawable.ut5max, options);
                 } catch (RuntimeException | OutOfMemoryError ignored) { photo = null; }
             }
-            setContentDescription(badge ? "NAVEE UT5 MAX scooter, connected" : "NAVEE UT5 MAX scooter");
+            // The welcome screens use the UT5 MAX as a generic picture; "connected" shows the scooter that connected.
+            ScooterService service = badge ? host.service() : null;
+            ScooterProfiles.Profile active = service == null ? null : service.profiles.active();
+            DeviceDescriptor model = active == null ? null : active.savedDescriptor();
+            Bitmap own = model == null || ModelRegistry.ut5Max(model) ? null : ScooterPhotos.get(host.activity().getResources(), model, 2);
+            shown = own != null ? own : photo;
+            setContentDescription(own != null ? "NAVEE " + ModelRegistry.modelName(model) + " scooter, connected"
+                    : badge ? "NAVEE UT5 MAX scooter, connected" : "NAVEE UT5 MAX scooter");
             setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_YES);
         }
         @Override protected void onDraw(Canvas canvas) {
@@ -1779,11 +1787,11 @@ public final class OnboardingScreen implements AppScreen {
             paint.setShader(null);
             canvas.restore();
             float imageRight = cx + ui.dp(60), imageTop = ui.dp(8);
-            if (photo != null && photo.getHeight() > 0) {
-                float height = h - ui.dp(12), width = height * photo.getWidth() / photo.getHeight();
-                if (width > w) { width = w; height = width * photo.getHeight() / photo.getWidth(); }
+            if (shown != null && shown.getHeight() > 0) {
+                float height = h - ui.dp(12), width = height * shown.getWidth() / shown.getHeight();
+                if (width > w) { width = w; height = width * shown.getHeight() / shown.getWidth(); }
                 RectF target = new RectF(cx - width / 2, h - ui.dp(4) - height, cx + width / 2, h - ui.dp(4));
-                canvas.drawBitmap(photo, null, target, paint);
+                canvas.drawBitmap(shown, null, target, paint);
                 imageRight = target.right; imageTop = target.top;
             }
             if (badge) {
