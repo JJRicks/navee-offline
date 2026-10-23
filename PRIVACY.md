@@ -56,7 +56,7 @@ encrypted by Volt. They rely on Android's app sandbox and device protection.
 | Foreground service (`FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_CONNECTED_DEVICE`, `FOREGROUND_SERVICE_LOCATION`) | Keep an active Bluetooth connection or recording running outside the app. The location service type is used when permitted ride GPS is active. Volt does not request `ACCESS_BACKGROUND_LOCATION`; start a ride while the app is visible. |
 | Vibration (`VIBRATE`) | Optional button, switch and connection haptics, respecting app and system settings. |
 | Wake lock (`WAKE_LOCK`) | A renewed, time-bounded CPU wake lock supports active ride/charge recording and pending phone-data writes with the screen off. It does not keep the display on. |
-| Internet (`INTERNET`) | Fetch map tiles when Basemap is enabled. Bluetooth control and recording do not need this access. External links open in your browser. |
+| Internet (`INTERNET`) | Fetch map tiles when Basemap is enabled, and ask GitHub for the latest release when you tap **Check for updates**. Bluetooth control and recording do not need this access. External links open in your browser. |
 | Shizuku API (`moe.shizuku.manager.permission.API_V23`) | Optional on-phone owner setup through Shizuku. Shizuku authorization grants broad Android debugging access; capture requires a separate consent step. Everyday Bluetooth use does not need it. |
 
 Android only prompts for runtime permissions where applicable. Foreground-service,
@@ -84,6 +84,7 @@ there is no bulk map download. GPS and the locally drawn route work without
 tiles or an internet connection.
 
 **Reports you choose to email.** Volt itself sends nothing. When it offers to share a compatibility report (after connecting a model it has none for) or a scooter's connection details (after two failed first connections), it opens your email app with the text in the message body, addressed to `volt-reports@jjricks.com`. You can read, edit or discard the message before sending. Reports contain the scooter's numeric Model ID, its read-only check or connection steps and error codes, Volt's version and, for connection details, your Android version and phone model. They never contain a serial, MAC address, owner key, PIN, names, routes or wall-clock times. Your email provider handles the message like any other.
+**Check for updates runs only when you tap it** in **More → About & permissions**. Volt never checks in the background. The first time, it explains that GitHub receives your IP address and Volt's app/version User-Agent; choose **Check** or **Cancel**. Cancel sends nothing, and an approval is remembered (and included in backups with App preferences). Volt then requests one small JSON description of the latest Volt release from `api.github.com`. It shows whether that release is newer and offers **Open release page** in your browser. Volt never downloads or installs an update itself.
 
 Opening setup, help, attribution, or other external links uses your browser.
 The destination and its host may receive normal web request data such as your

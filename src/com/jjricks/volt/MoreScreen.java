@@ -1635,6 +1635,8 @@ public final class MoreScreen implements AppScreen {
         TextView about = ui.caption("Bluetooth only · no account");
         about.setPadding(0, ui.dp(6), 0, 0); c.addView(about);
         cardDestination.addView(c);
+        LinearLayout updates = group();
+        row(updates, "download", "Check for updates", null, this::checkForUpdates).view.setTag("check-updates");
         label("Permissions");
         LinearLayout permissions = group();
         nearbyRow = row(permissions, "bluetooth", "Nearby devices", "Connects to your scooter", host::requestBluetooth);
@@ -1651,6 +1653,65 @@ public final class MoreScreen implements AppScreen {
         row(more, "stats", "Connection activity", null, this::commandEvidence);
         row(more, "copy", "Licenses & attribution", null, this::licenses);
         row(more, "bluetooth", "Connect selected scooter", null, host::connect);
+    }
+
+    /** Manual update check. The first time, say what asking GitHub reveals; Volt never downloads or installs. */
+    private void checkForUpdates() {
+        if (closed) return;
+        SharedPreferences settings = service().settings;
+        if (settings.getBoolean(UpdateCheck.CONSENT, false)) { runUpdateCheck(); return; }
+        LinearLayout box = dialogBox("Check GitHub for updates?",
+                "Volt asks GitHub for its latest release. GitHub sees your IP address and your Volt version; nothing else is sent. Volt never downloads or installs anything itself.");
+        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
+        dialogButtons(box, "Cancel", dialog::dismiss, "Check", () -> {
+            settings.edit().putBoolean(UpdateCheck.CONSENT, true).apply(); dialog.dismiss(); runUpdateCheck();
+        });
+        show(dialog);
+    }
+    private void runUpdateCheck() {
+        String installed = AppVersion.name(host.activity());
+        LinearLayout box = dialogBox("Checking for updates", "Asking GitHub for the latest release…");
+        AlertDialog checking = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Cancel", null).create();
+        show(checking);
+        Thread worker = new Thread(() -> {
+            UpdateCheck.Result result;
+            try { result = UpdateCheck.evaluate(installed, UpdateCheck.fetcher.get(UpdateCheck.ENDPOINT, UpdateCheck.userAgent(installed))); }
+            catch (java.io.IOException | RuntimeException unreachable) { result = null; }
+            UpdateCheck.Result done = result;
+            host.activity().runOnUiThread(() -> {
+                if (closed || !checking.isShowing()) return;
+                checking.dismiss(); updateResult(installed, done);
+            });
+        }, "volt-update-check");
+        worker.setDaemon(true); worker.start();
+    }
+    private void updateResult(String installed, UpdateCheck.Result r) {
+        LinearLayout box;
+        AlertDialog.Builder builder = new AlertDialog.Builder(host.activity());
+        if (r != null && r.outcome == UpdateCheck.Outcome.AVAILABLE) {
+            box = dialogBox("Volt " + r.latest + " is available", "You have " + installed + ". Get it from the release page and install it over this version; your data stays.");
+            if (!r.notes.isEmpty()) {
+                TextView notes = ui.caption(r.notes); notes.setTextIsSelectable(true); notes.setPadding(0, ui.dp(10), 0, ui.dp(4));
+                notes.setTag("update-notes"); box.addView(notes);
+            }
+        } else if (r != null && r.outcome == UpdateCheck.Outcome.CURRENT) {
+            box = dialogBox("You're up to date", "Volt " + installed + " is the latest release.");
+        } else {
+            box = dialogBox("Couldn't check for updates", r == null
+                    ? "GitHub didn't answer. Check your connection and try again."
+                    : "GitHub's reply wasn't one Volt could read. Try again later, or see the releases page in your browser.");
+        }
+        ScrollView inner = new ScrollView(host.activity()); inner.addView(box);
+        AlertDialog dialog = builder.setView(inner).create();
+        if (r != null && r.outcome == UpdateCheck.Outcome.AVAILABLE)
+            dialogButtons(box, "Close", dialog::dismiss, "Open release page", () -> { dialog.dismiss(); openReleasePage(r.url); });
+        else dialog.setButton(AlertDialog.BUTTON_POSITIVE, "OK", (d, which) -> d.dismiss());
+        show(dialog);
+    }
+    private void openReleasePage(String url) {
+        if (!UpdateCheck.safePage(url)) return;
+        try { host.activity().startActivity(new android.content.Intent(android.content.Intent.ACTION_VIEW, android.net.Uri.parse(url))); }
+        catch (android.content.ActivityNotFoundException none) { host.toast("No browser could open the release page"); }
     }
 
     /** Deliberate local opt-in, matching Android's familiar seven-tap developer unlock. */

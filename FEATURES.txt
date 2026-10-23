@@ -6,9 +6,9 @@ Tester-reported parked checks: US N65i, model 22131 (meter 0.0.0.5, controller
 headlight and auto light sensor. Its other mapped controls remain untested.
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
-The app talks directly to the scooter over Bluetooth. Optional map tiles use
-internet; authentication, controls and recording require no server. First-time
-owner setup is covered in SETUP.txt.
+The app talks directly to the scooter over Bluetooth. Optional map tiles and
+the manual Check for updates use internet; authentication, controls and
+recording require no server. First-time owner setup is covered in SETUP.txt.
 
 Historical 1.0.0 release: compact-card value fitting, a quieter reconnect haptic pattern,
 and an optional Basemap switch with first-use consent. Maps start without
