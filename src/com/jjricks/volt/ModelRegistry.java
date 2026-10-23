@@ -102,8 +102,9 @@ public final class ModelRegistry {
     /** A tester-checked model; the advertised Model ID must agree with the serial and resolve to a standard layer. */
     private static Tested tested(DeviceDescriptor d){
         if(d==null||d.pidSource()!=DeviceDescriptor.PidSource.ADVERTISED)return null;
-        Layer layer=resolve(d).layer;
-        return layer==Layer.OEM_GROUP||layer==Layer.SHARED?TESTED.get(d.rulePid()):null;
+        Resolution r=resolve(d);
+        if(r.conflict)return null; // an unresolved identity keeps generic naming and evidence
+        return r.layer==Layer.OEM_GROUP||r.layer==Layer.SHARED?TESTED.get(d.rulePid()):null;
     }
     /** Promotes an OEM-mapped control to Volt-verified on the exact model a tester checked it on. */
     private static Rule verifiedOn(Tested t,String feature,Rule rule){

@@ -101,6 +101,12 @@ public final class ModelRegistryTest {
             &&ModelRegistry.rule("energy_recovery",n65i,null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED,"Unchecked N65i controls stay OEM-mapped");
         check(ModelRegistry.rule("traction_control",n65i,null,null).support==ModelRegistry.rule("traction_control",family,null,null).support,
             "Verification never makes an excluded control available");
+        DeviceDescriptor matching=both("Q2213ZZ9US7777777","22131"),conflicting=both("Q2443ZZ9US7777777","22131");
+        check(!ModelRegistry.resolve(matching).conflict&&ModelRegistry.modelName(matching).equals("N65i")
+            &&ModelRegistry.rule("lock",matching,null,null).evidence==CapabilityResolver.Evidence.VOLT_VERIFIED,"A serial that agrees keeps the N65i identity");
+        check(ModelRegistry.resolve(conflicting).conflict&&ModelRegistry.modelName(conflicting).isEmpty()&&ModelRegistry.photo(conflicting).isEmpty()
+            &&!ModelRegistry.modelLine(conflicting).equals("N65i")
+            &&ModelRegistry.rule("lock",conflicting,null,null).evidence==CapabilityResolver.Evidence.SHARED_CONTRACT,"A conflicting serial gets no tested-model name, photo or evidence");
     }
 
     private static void assumptions() {

@@ -232,16 +232,25 @@ public final class FirstConnectionValidation extends Instrumentation {
             profiles.update(profile);
             syntheticConnection("C0:FF:EE:00:00:C0", true);
             require(hasEvent("header-free checksum"), "The N65i checksum style was not noted");
-            receive(0x74, "Q2443ZZ9US4444444".getBytes(StandardCharsets.US_ASCII), true);
+            receive(0x74, "Q2213ZZ9US4444444".getBytes(StandardCharsets.US_ASCII), true);
             require(!ble.ready() && profile.mac.isEmpty(), "Serial alone bound the N65i");
             receive(0x70, new byte[10], true);
-            require(ble.ready() && profile.mac.equals("C0:FF:EE:00:00:C0") && profile.serial.equals("Q2443ZZ9US4444444"),
+            require(ble.ready() && profile.mac.equals("C0:FF:EE:00:00:C0") && profile.serial.equals("Q2213ZZ9US4444444"),
                     "A ten-byte N65i settings read did not complete the connection");
             require(Integer.valueOf(0).equals(ble.featureValue("lock")), "The N65i lock state did not read from its short settings");
             require(profile.name.equals("N65i") && profile.nameDefault, "Volt's old UT5 MAX default stayed on an N65i");
             require(!hasEvent("failed its checks"), "Valid N65i replies were reported as ignored");
             receive(0x90, new byte[8], false);
             require(hasEvent("failed its checks") && ble.ready(), "A mixed-checksum reply was accepted or not reported");
+            ble.disconnect();
+        });
+        // An advertised N65i whose serial says another model: no N65i name, and Volt's old default stays put.
+        fresh(false);
+        main(() -> {
+            profile.name = "My UT5 MAX"; profile.nameDefault = false; profile.advertisedPid = "22131"; profiles.update(profile);
+            syntheticConnection("C0:FF:EE:00:00:C1", true);
+            receive(0x74, "Q2443ZZ9US6666666".getBytes(StandardCharsets.US_ASCII), true); receive(0x70, new byte[10], true);
+            require(ble.ready() && profile.name.equals("My UT5 MAX") && !profile.nameDefault, "A conflicting identity was renamed");
             ble.disconnect();
         });
         // First pairing of a UT5 MAX: its profile has no serial yet, so the transport's verified serial decides.

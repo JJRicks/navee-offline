@@ -412,7 +412,8 @@ public final class BleController {
         if(captured){profile.advertisedPid=pendingAdvertised.pid;profile.advertisedPidWall=System.currentTimeMillis();pendingAdvertised=null;pendingAdvertisedMac="";changed=true;event("Model ID captured");}
         // Volt's old default "My UT5 MAX" on another identified model was never the owner's choice.
         DeviceDescriptor named=profile.savedDescriptor();
-        if(!profile.nameDefault&&ScooterProfiles.LEGACY_NAME.equals(profile.name)&&named.pidSource()!=DeviceDescriptor.PidSource.NONE&&!ModelRegistry.ut5Max(named)){profile.nameDefault=true;changed=true;}
+        if(!profile.nameDefault&&ScooterProfiles.LEGACY_NAME.equals(profile.name)&&named.pidSource()!=DeviceDescriptor.PidSource.NONE
+                &&!ModelRegistry.ut5Max(named)&&!ModelRegistry.resolve(named).conflict){profile.nameDefault=true;changed=true;}
         if(profile.nameDefault){String name=ModelRegistry.modelName(named);if(name.isEmpty())name="NAVEE scooter";if(!name.equals(profile.name)){profile.name=name;changed=true;}}
         if(changed||now()-savedProfileMs>60000||profile.lastConnected==0){profile.lastConnected=System.currentTimeMillis();profiles.update(profile);savedProfileMs=now();}
         if(pendingStatusFrame!=null){statusFrame=pendingStatusFrame;statusMs=pendingStatusMs;pendingStatusFrame=null;pendingStatusMs=0;}
