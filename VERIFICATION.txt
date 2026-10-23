@@ -29,9 +29,10 @@ October 23, 2026
   location-denied ride run had been started without its Nearby devices
   precondition; it passed once that was granted.
 - Known gap since 1.4.6: the mapped-controls run fails one layout check. On
-  another model, a long Charge start value ("Not scheduled") stays beside its
-  label instead of moving under it with its caption, because the charge rows'
-  own refresh skips that rule. The row code is unchanged from 1.5.0. With that
+  another model, a long Charge start value ("Not scheduled") stays in the value
+  field rather than moving into the caption, because the charge rows' own
+  refresh skips that rule; narrow rows can still stack their text. The row code
+  is unchanged from 1.5.0. With that
   one check skipped, the run passes 1,125 assertions at each width on 1.6.0.
 - Field evidence for the unchanged charging estimates: one UT5 MAX charge the
   owner recorded on 1.5.0, from 79% on the stock charger. The first finish
@@ -43,10 +44,13 @@ October 23, 2026
   the 1.5.0 release, and the signature and zip alignment verify. Its dex,
   resources and manifest are identical to the build the emulator suites ran, and
   it installs and opens cleanly on a fresh emulator.
-- Physical scope: automated checks sent no real scooter commands, and 1.6.0 has
-  not been installed on a phone. GT5 Max and N65i controls follow the official
-  app's map and are not verified; N65i drive-mode names are assumed to match the
-  GT5 Max. Experimental controls have not been tried on a physical scooter.
+- Physical scope: no new physical validation for this release. Automated checks
+  sent no real scooter commands, and 1.6.0 has not been installed on a phone.
+  The N65i keeps its earlier tester-reported parked checks (connection, lock
+  readback, display units, headlight, auto light sensor); its other mapped
+  controls and all GT5 Max controls follow the official app's map and remain
+  unverified, and N65i drive-mode names are assumed to match the GT5 Max.
+  Experimental controls have not been tried on a physical scooter.
 
 --- Previous verification ---
 

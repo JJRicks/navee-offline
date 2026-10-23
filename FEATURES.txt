@@ -27,7 +27,7 @@ NEW IN 1.6.0
   control, the hill assists) can be tried while parked. Volt reads each try back
   (Worked here, No change seen, Refused, Unconfirmed) and sets it back in one tap.
   Speed limits, charging, the lock, PIN, proximity unlock and the clock are never
-  offered this way.
+  added for another model this way; the UT5 MAX keeps its existing Lab controls.
 - Home follows the model: default Setting tiles use controls the model offers
   (Top speed and Cruise control on the GT5 Max), and a reading outside the
   model's choices shows "—".
