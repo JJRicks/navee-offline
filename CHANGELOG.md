@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- An ST3 Pro owner's compatibility report (Model ID 23452, US) confirmed the model, so its owners are no longer asked for one.
+- Experimental controls also list a control Volt hasn't mapped for your model (it can't tell whether the official app offers it there), when your scooter reports it. On the ST3 Pro, which reports traction control on, and on Group S models and the GT5 Max, traction control can now be tried.
+
 ## 1.7.0 — 2026-10-23
 
 - The browser setup site (pairscooter.jjricks.com) now names the two common USB failures instead of one generic message: another program, usually a computer ADB server still running after `adb devices`, holding the phone (run `adb kill-server`), and a browser that may not open the phone (Linux udev rules, or a Snap or Flatpak sandbox). It also lets you choose again after picking the wrong phone during recovery.

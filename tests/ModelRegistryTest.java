@@ -120,7 +120,7 @@ public final class ModelRegistryTest {
             ModelRegistry.Rule named=ModelRegistry.rule(f,st3,null,null),plain=ModelRegistry.rule(f,sibling,null,null);
             check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming changes no rule: "+f);
         }
-        check(!ModelRegistry.reported(st3),"The ST3 Pro still gets the offer to share a report");
+        check(ModelRegistry.reported(st3)&&ReportInvite.model(st3).isEmpty(),"A US owner's report confirmed the ST3 Pro: it is reported and no longer offered");
         // The GT5 Max: named from an owner's report (25462, EU), so it is reported and no longer offered the report.
         DeviceDescriptor gt5=advertised("25462"),gt5Sibling=advertised("25461");
         check(layer(gt5)==ModelRegistry.Layer.OEM_GROUP&&ModelRegistry.modelName(gt5).equals("GT5 Max")&&ModelRegistry.modelLine(gt5).equals("GT5 Max")

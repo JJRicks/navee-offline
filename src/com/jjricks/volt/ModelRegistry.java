@@ -94,7 +94,8 @@ public final class ModelRegistry {
      * Other models Volt can name and picture, by exact advertised Model ID, with any controls a Volt tester
      * changed, read back, observed and restored on a parked scooter (FEATURES.txt). The N65i (22131; meter
      * 0.0.0.5, controller 0.0.1.1) passed guided tests and a confirmed lock in October 2026. The ST3 Pro is
-     * named from the MIT protocol reference Volt credits (23452, German market); nothing on it is verified. The
+     * named from the MIT protocol reference Volt credits (23452, German market), and a US owner's compatibility
+     * report (meter 2.0.4.6, October 2026) confirmed the ID; nothing on it is verified. The
      * GT5 Max (25462, EU; meter 1.0.0.4) is named from an owner's compatibility report, its model confirmed by the
      * maintainer in October 2026. Its owner reported using cruise control (which the official app hides there by
      * region) in October 2026, and the maintainer chose to mark it verified; nothing else on it is.
@@ -588,9 +589,12 @@ public final class ModelRegistry {
         if(r==null)r=resolve(d);
         Rule rule=rule(feature,d,r,s);
         if(r.layer==Layer.UT5_MAX)return rule.variant!=null&&rule.variant.lab?tryable(rule.variant,rule.evidence,rule.oemNote):rule;
-        FeatureVariant v=r.layer==Layer.OEM_GROUP&&!r.conflict&&rule.support==CapabilityResolver.Support.INCOMPATIBLE
-            &&rule.reason==CapabilityResolver.Reason.MODEL_EXCLUDED?TRY.get(feature):null;
-        return v==null?rule:tryable(v,CapabilityResolver.Evidence.VOLT_LAB,"OEM 2.1.9 hides this for this model");
+        boolean hidden=rule.support==CapabilityResolver.Support.INCOMPATIBLE&&rule.reason==CapabilityResolver.Reason.MODEL_EXCLUDED;
+        // Not mapped (owner decision, October 2026): Volt can't tell whether the official app offers it here, so it is tried
+        // too; the try gate still needs the scooter to report the field with a known value.
+        boolean unmapped=rule.support==CapabilityResolver.Support.UNKNOWN_MAPPING&&rule.reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED;
+        FeatureVariant v=r.layer==Layer.OEM_GROUP&&!r.conflict&&(hidden||unmapped)?TRY.get(feature):null;
+        return v==null?rule:tryable(v,CapabilityResolver.Evidence.VOLT_LAB,hidden?"OEM 2.1.9 hides this for this model":"Volt hasn't mapped whether the official app offers this here");
     }
     /** A key Experimental controls may try as an experiment on some layer: EXPERIMENTAL, or a UT5 MAX catalogue Lab row. */
     static boolean experimentalKey(String feature){
@@ -832,7 +836,7 @@ public final class ModelRegistry {
     public static Double ratedWh(DeviceDescriptor d){return ut5Max(d)?716.04:null;}
     public static boolean showsPhoto(DeviceDescriptor d){return !photo(d).isEmpty();}
     /** Exact advertised Model IDs Volt already has a compatibility report for; extend it each release. */
-    static final Set<String> REPORTED=new HashSet<>(java.util.Arrays.asList("22131","25462","25852"));
+    static final Set<String> REPORTED=new HashSet<>(java.util.Arrays.asList("22131","23452","25462","25852"));
     /** True when Volt needs no new compatibility report for this model (the UT5 MAX is the reference). */
     public static boolean reported(DeviceDescriptor d){return ut5Max(d)||d!=null&&REPORTED.contains(d.rulePid());}
     /** Bundled photo key ("ut5max", "n65i") for this model, or "" for none. */

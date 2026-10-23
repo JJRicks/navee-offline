@@ -305,8 +305,9 @@ public final class CompatibilityGatingValidation extends Instrumentation {
             if (pid.equals("24431")) require(verifying.equals(Arrays.asList("display_units", "headlight", "turn_sound", "auto_sensor", "range_algorithm")), "Mapped model Help verify " + verifying);
             if (pid.isEmpty()) require(new java.util.HashSet<>(listed).equals(new java.util.HashSet<>(Arrays.asList("acceleration", "speed_limit", "dual_drive",
                     "drive_speed_limit", "long_range_mode", "overspeed_control", "prompt_tone"))), "UT5 MAX Lab rows changed: " + listed);
-            // The custom speed cap ranks first: the official app offers it on more other models than the assists.
-            if (pid.equals("24431")) require(listed.equals(Arrays.asList("speed_limit", "hill_start_assist", "parking_assist", "hill_descent_control", "prompt_tone")), "Mapped model rows " + listed);
+            // The custom speed cap ranks first: the official app offers it on more other models than the assists. Traction control,
+            // which Volt hasn't mapped for Group S, follows.
+            if (pid.equals("24431")) require(listed.equals(Arrays.asList("speed_limit", "traction_control", "hill_start_assist", "parking_assist", "hill_descent_control", "prompt_tone")), "Mapped model rows " + listed);
         });
         screenshot(label + "-more-lab");
         if (!verifying.isEmpty()) { reveal("lab-verify"); screenshot(label + "-more-lab-verify"); }
