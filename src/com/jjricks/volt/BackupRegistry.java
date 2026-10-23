@@ -52,6 +52,7 @@ final class BackupRegistry {
         for (String key : "theme units temperature_unit time_format stats_density phone_placement map_tile_url map_tile_attribution map_tile_attribution_url stats_favourite_order ride_chart_key last_ride_label".split(" ")) add(app, key, String.class, PREFERENCES);
         for (String key : "haptics_enabled auto_connect background_connection keep_screen_awake history_enabled phone_gps phone_motion map_basemap_enabled map_basemap_explained developer_options range_learned_intro_seen ride_auto_stop".split(" ")) add(app, key, Boolean.class, PREFERENCES);
         add(app, "text_scale", Float.class, PREFERENCES);
+        add(app, "update_check_consented", Boolean.class, PREFERENCES);
         add(app, "poll_interval_ms", Integer.class, PREFERENCES);add(app, "stats_chart_window", Integer.class, PREFERENCES);
         for (String key : "stats_favourites stats_chart_favourites ride_chart_series charge_chart_series".split(" ")) add(app, key, Set.class, PREFERENCES);
         prefix(app, "stats_group_", Boolean.class, PREFERENCES, false);prefix(app, "stats_chart_group_", Boolean.class, PREFERENCES, false);
