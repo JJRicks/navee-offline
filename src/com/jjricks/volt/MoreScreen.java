@@ -178,6 +178,15 @@ public final class MoreScreen implements AppScreen {
         footer.setTextColor(ui.muted); footer.setGravity(Gravity.CENTER);
         footer.setPadding(ui.dp(8), ui.dp(6), ui.dp(8), ui.dp(8));
         indexView.addView(footer, new LinearLayout.LayoutParams(-1, -2));
+        TextView report = ui.text("Report an issue", 13.5f, false);
+        report.setTypeface(ui.medium()); report.setTextColor(ui.accent); report.setGravity(Gravity.CENTER);
+        report.setMinHeight(ui.dp(48)); report.setPadding(ui.dp(16), 0, ui.dp(16), 0);
+        report.setFocusable(true); report.setClickable(true); report.setTag("more-report-issue");
+        report.setBackground(new android.graphics.drawable.RippleDrawable(android.content.res.ColorStateList.valueOf(Ui.withAlpha(ui.accent, 30)), null, ui.shape(0xFFFFFFFF, 14, 0)));
+        report.setOnClickListener(v -> reportIssue());
+        LinearLayout.LayoutParams reportParams = new LinearLayout.LayoutParams(-2, -2);
+        reportParams.gravity = Gravity.CENTER_HORIZONTAL; reportParams.bottomMargin = ui.dp(8);
+        indexView.addView(report, reportParams);
 
         sectionHeader = column(); sectionParent.addView(sectionHeader, new LinearLayout.LayoutParams(-1, -2));
         sectionBack = backLink(); sectionHeader.addView(sectionBack, new LinearLayout.LayoutParams(-2, -2));
@@ -1734,6 +1743,15 @@ public final class MoreScreen implements AppScreen {
                     android.widget.Toast.LENGTH_SHORT);
             developerCountdown.show();
         }
+    }
+
+    /** An email draft to Volt's report address: a prompt, then Volt's and Android's versions, the phone model and the scooter's model name. */
+    private void reportIssue() {
+        ScooterService s = service(); DeviceDescriptor d = s == null ? null : s.ble.descriptor();
+        String version = AppVersion.name(host.activity());
+        String body = IssueReport.body(version, Build.VERSION.RELEASE, Build.VERSION.SDK_INT, Build.MANUFACTURER + " " + Build.MODEL,
+                ModelRegistry.modelLine(d), d != null && d.simulated);
+        if (!host.emailVolt(IssueReport.subject(version), body)) host.toast("No email app could open the report.");
     }
 
     private void developerOptions() {
