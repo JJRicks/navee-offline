@@ -35,7 +35,7 @@ import java.util.Set;
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=11;
+    public static final int VERSION=12;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -107,6 +107,7 @@ public final class ModelRegistry {
         KNOWN.put("22131",new Known("N65i","n65i","lock","display_units","headlight","auto_sensor"));
         KNOWN.put("23452",new Known("ST3 Pro","st3pro"));
         KNOWN.put("25462",new Known("GT5 Max","gt5max"));
+        KNOWN.put("25852",new Known("UT5 Ultra X","ut5ultrax"));
     }
     /**
      * Photos bundled before Volt knows their model's advertised Model ID, by NaveeModels name; nothing shows them yet.
@@ -800,7 +801,7 @@ public final class ModelRegistry {
     public static Double ratedWh(DeviceDescriptor d){return ut5Max(d)?716.04:null;}
     public static boolean showsPhoto(DeviceDescriptor d){return !photo(d).isEmpty();}
     /** Exact advertised Model IDs Volt already has a compatibility report for; extend it each release. */
-    static final Set<String> REPORTED=new HashSet<>(java.util.Arrays.asList("22131","25462"));
+    static final Set<String> REPORTED=new HashSet<>(java.util.Arrays.asList("22131","25462","25852"));
     /** True when Volt needs no new compatibility report for this model (the UT5 MAX is the reference). */
     public static boolean reported(DeviceDescriptor d){return ut5Max(d)||d!=null&&REPORTED.contains(d.rulePid());}
     /** Bundled photo key ("ut5max", "n65i") for this model, or "" for none. */

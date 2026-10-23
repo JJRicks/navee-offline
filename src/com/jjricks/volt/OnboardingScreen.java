@@ -768,17 +768,20 @@ public final class OnboardingScreen implements AppScreen {
     private void prepare() {
         scaffold(true);
         heading("Before you start", false, false);
+        boolean browser = WEBADB.equals(path());
+        // Keys stay with their items: the ADB command runs from the extracted source bundle, which holds the helper script.
         String[][] items = {
-                {"NAVEE app works", "Signed in and connecting"},
-                {WEBADB.equals(path()) ? "A computer with Chrome or Edge" : "A computer with ADB and Python 3", null},
-                {"A USB data cable", "Not charge-only"},
-                {"Scooter parked and powered on", "Close any other scooter apps"}};
+                {"prep0", "NAVEE app works", "Signed in and connecting"},
+                {"prep1", browser ? "A computer with Chrome or Edge" : "A computer with ADB and Python 3", null},
+                browser ? null : new String[]{"prepsource", "The Volt source, extracted", "Get source below; it holds setup/capture-owner.py"},
+                {"prep2", "A USB data cable", "Not charge-only"},
+                {"prep3", "Scooter parked and powered on", "Close any other scooter apps"}};
         LinearLayout group = column();
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(16);
         content.addView(group, gp);
-        for (int i = 0; i < items.length; i++) group.addView(tick("prep" + i, items[i][0], items[i][1]));
+        for (String[] item : items) if (item != null) group.addView(tick(item[0], item[1], item[2]));
         primary("Continue", () -> go(USB));
-        if (WEBADB.equals(path())) return;
+        if (browser) return;
         // Both links open the download directly; the helper script ships in the source bundle.
         LinearLayout links = row(); links.setGravity(Gravity.CENTER);
         TextView adb = link("Where do I get ADB?", () -> openUrl(PLATFORM_TOOLS_URL));
@@ -861,7 +864,7 @@ public final class OnboardingScreen implements AppScreen {
         if (WEBADB.equals(path())) { runBrowserHelper(); return; }
         scaffold(true);
         heading("Run the capture helper", false, false);
-        paragraph("On your computer, run:", false);
+        paragraph("In the extracted source folder on your computer, run:", false);
         Ui term = ui.dark ? ui : new Ui(host.activity(), true, ui.textScale);
         LinearLayout block = column();
         block.setBackground(ui.shape(term.bg, 16, term.raised));
