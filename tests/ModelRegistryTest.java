@@ -121,6 +121,16 @@ public final class ModelRegistryTest {
             check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming changes no rule: "+f);
         }
         check(!ModelRegistry.reported(st3),"The ST3 Pro still gets the offer to share a report");
+        // The GT5 Max: named from an owner's report (25462, EU), so it is reported and no longer offered the report.
+        DeviceDescriptor gt5=advertised("25462"),gt5Sibling=advertised("25461");
+        check(layer(gt5)==ModelRegistry.Layer.OEM_GROUP&&ModelRegistry.modelName(gt5).equals("GT5 Max")&&ModelRegistry.modelLine(gt5).equals("GT5 Max")
+            &&ModelRegistry.photo(gt5).equals("gt5max")&&ModelRegistry.showsPhoto(gt5),"GT5 Max name, line and photo");
+        check(ModelRegistry.modelName(gt5Sibling).isEmpty()&&ModelRegistry.photo(gt5Sibling).isEmpty(),"Another GT5-group ID stays unnamed until it is reported");
+        for(String f:new String[]{"lock","start_speed","display_units","cruise_control","energy_recovery","maximum_speed"}){
+            ModelRegistry.Rule named=ModelRegistry.rule(f,gt5,null,null),plain=ModelRegistry.rule(f,gt5Sibling,null,null);
+            check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming the GT5 Max changes no rule: "+f);
+        }
+        check(ModelRegistry.reported(gt5)&&ReportInvite.model(gt5).isEmpty()&&!ReportInvite.model(gt5Sibling).isEmpty(),"The GT5 Max is reported; its unreported siblings are still offered");
     }
 
     /** Photos bundled ahead of their Model ID: listed NAVEE models, shown on nothing yet, each ready to use once its ID is known. */
@@ -132,7 +142,7 @@ public final class ModelRegistryTest {
             check(w.getKey().equals(NaveeModels.exact(w.getKey())),"A waiting photo is not a listed NAVEE model: "+w.getKey());
             check(keys.add(w.getValue()),"Two models share the photo "+w.getValue());
         }
-        check(ModelRegistry.WAITING_PHOTOS.containsKey("GT5 Max")&&ModelRegistry.WAITING_PHOTOS.containsKey("GT3 Max"),"The GT5 Max and GT3 Max photos wait for their IDs");
+        check(!ModelRegistry.WAITING_PHOTOS.containsKey("GT5 Max")&&ModelRegistry.WAITING_PHOTOS.containsKey("GT3 Max"),"The GT5 Max left the waiting photos once known; the GT3 Max still waits");
         // Each photo key is bundled and decodable by ScooterPhotos, so moving a model into KNOWN needs nothing else.
         String photos=new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("src/com/jjricks/volt/ScooterPhotos.java")),java.nio.charset.StandardCharsets.UTF_8);
         for(String key:keys){
@@ -182,7 +192,7 @@ public final class ModelRegistryTest {
         check(ModelRegistry.rule("display_units",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("charge_limit",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("drive_speed_limit",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM-mapped rows; the D-mode cap stays unmapped");
-        check(ModelRegistry.VERSION==9,"Registry version records the known N65i and ST3 Pro alongside the regional unions and control tables");
+        check(ModelRegistry.VERSION==10,"Registry version records the known N65i, ST3 Pro and GT5 Max alongside the regional unions and control tables");
         check(ModelRegistry.rule("display_units",both("Q2547ZZ9US7777777","25381"),null,null).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict reason");
         boolean unknownKey=false;try{ModelRegistry.rule("not_a_feature",us,null,null);}catch(IllegalArgumentException expected){unknownKey=true;}
         check(unknownKey,"Unknown keys are rejected");
