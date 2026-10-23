@@ -782,6 +782,19 @@ public final class ModelRegistry {
         }
     }
 
+    /**
+     * The same changes ordinary rows caution about (caution above), for an Experimental controls try. There
+     * the official app doesn't offer the control at all, so the words describe the effect, not its prompt.
+     */
+    public static String experimentalCaution(String feature,int value){
+        switch(feature){
+            case "traction_control": return value==0?"Turns traction control off. Ride gently on wet or loose ground until you know how it behaves.":null;
+            case "start_speed": return value<3?"Below 3 km/h, the motor can pull from a standstill as soon as you use the throttle.":null;
+            case "energy_recovery": return value==0?"Turns motor braking off, so your brakes do more of the stopping.":null;
+            default: return null;
+        }
+    }
+
     // Model assumptions kept out of telemetry: true only for the exact UT5 MAX layer.
     public static boolean ut5Max(DeviceDescriptor d){return d!=null&&resolve(d).layer==Layer.UT5_MAX;}
     public static Double ratedWh(DeviceDescriptor d){return ut5Max(d)?716.04:null;}

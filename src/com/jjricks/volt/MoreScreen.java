@@ -1746,7 +1746,7 @@ public final class MoreScreen implements AppScreen {
      */
     private final class LabSheet {
         final ScooterCommands.Feature feature; final AlertDialog dialog;
-        final TextView now, reason, go, back; final LadderPill status;
+        final TextView now, warn, reason, go, back; final LadderPill status;
         final List<Ui.RadioDot> dots = new ArrayList<>(); final List<Integer> values = new ArrayList<>(); final List<View> nowTags = new ArrayList<>();
         SeekBar slider; TextView sliderValue; final List<Integer> range = new ArrayList<>();
         Integer selected;
@@ -1789,6 +1789,9 @@ public final class MoreScreen implements AppScreen {
                 LinearLayout list = ui.groupCard(); body.addView(list);
                 for (int value : d.values()) { if (list.getChildCount() > 0) ui.divider(list); list.addView(option(d, value)); }
             }
+            // The ordinary rows' cautions (kick-start below 3 km/h, traction control or motor braking off) apply here too.
+            warn = ui.text("", 13.5f, false); warn.setTextColor(ui.orange); warn.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); warn.setTag("lab-caution");
+            warn.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); body.addView(warn);
             reason = ui.text("", 13.5f, false); reason.setTextColor(ui.danger); reason.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0);
             reason.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); body.addView(reason);
             go = ui.button("Try", this::send); go.setTag("lab-try-button"); body.addView(go);
@@ -1860,6 +1863,8 @@ public final class MoreScreen implements AppScreen {
             go.setText(pending ? "Checking…" : selected == null ? "Try" : current != null && selected.equals(current) ? "Already " + labValue(feature, d, selected)
                     : "Try " + labValue(feature, d, selected));
             go.setContentDescription(go.getText()); go.setEnabled(d.available() && !busy && change);
+            String caution = change ? ModelRegistry.experimentalCaution(feature.key, selected) : null;
+            warn.setText(caution == null ? "" : caution); warn.setVisibility(caution == null ? View.GONE : View.VISIBLE);
             String why = d.available() || d.reason == CapabilityResolver.Reason.BUSY ? "" : d.reasonText();
             reason.setText(why); reason.setVisibility(why.isEmpty() ? View.GONE : View.VISIBLE);
             boolean showBack = labBack(d, current, before);

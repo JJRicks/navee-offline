@@ -18,7 +18,11 @@ public final class ExperimentalControlsTest {
     private static final long SEEN=100000,NOW=SEEN+1000;
     public static void main(String[] args) {
         split(); sweep(); ranking(); gates(); writeGate(); variants(); unchanged(); simulation();
-        System.out.println("ExperimentalControls tests passed: "+assertions+" assertions");
+                // Experimental tries carry the ordinary rows' cautions for the same changes.
+        check(ModelRegistry.experimentalCaution("start_speed",0)!=null&&ModelRegistry.experimentalCaution("start_speed",2)!=null&&ModelRegistry.experimentalCaution("start_speed",3)==null,"Kick-start below 3 km/h is cautioned");
+        check(ModelRegistry.experimentalCaution("traction_control",0)!=null&&ModelRegistry.experimentalCaution("traction_control",1)==null,"Traction control off is cautioned");
+        check(ModelRegistry.experimentalCaution("energy_recovery",0)!=null&&ModelRegistry.experimentalCaution("energy_recovery",2)==null&&ModelRegistry.experimentalCaution("cruise_control",0)==null,"Motor braking off is cautioned; others are not");
+System.out.println("ExperimentalControls tests passed: "+assertions+" assertions");
     }
 
     private static DeviceDescriptor ut5(){return ModelRegistryTest.serial("Q2538ZZ9US7777777");}
