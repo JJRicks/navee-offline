@@ -1,3 +1,40 @@
+VOLT 1.5.0 — NEW APP ID, UNIFIED BACKUP, MULTI-SCOOTER SETUP AND ESTIMATES (versionCode 46)
+October 22, 2026
+
+- New Android app ID com.jjricks.volt (was local.navee.offlinelock). Real
+  migration on a disposable emulator: Volt 1.4.8 built from v1.4.8 populated
+  synthetic data and exported a full backup; 1.5.0 installed beside it restored
+  that file through the welcome screen's Restore Volt backup (picker, password,
+  approval). 71 assertions passed, all 5 durable files restored, and the exact
+  preference digest and file hashes recorded by 1.4.8 matched.
+- Full pure-Java suites, the owner-capture guard, the v6 pack-model fit check
+  and the historical v5 replay pass. The v5 bundle's 31 hashes match its manifest.
+- Emulator suites on the renamed build (API 36.1, synthetic data, Bluetooth off),
+  all passing:
+  - backups 12/12, guided tests 2/2, compatibility gating 2/2;
+  - charge capture 2/2, battery widgets 5/5, learned range 2/2;
+  - ride auto-stop 4/4, ride backups 4/4, ride analysis 466 checks per run;
+  - Live Stats 5/5, responsive dashboard 37/37;
+  - charge schedule 185 and My scooters 112, each at 344x882 dp dark and
+    725x604 dp light/140% text;
+  - Developer options 2,191 and offline lock 4 at both widths, with default text
+    and the runners' dark fixture;
+  - full dashboard 17, dashboard slots 8,883, capacity widget 105;
+  - synthetic-GATT first connection 1,500, and charge wire 63 in a rerun with
+    its registered component, com.jjricks.volt.ChargeScheduleWireValidation;
+  - launch with permissions denied and granted.
+- The release APK is signed with the project identity. Its certificate matches
+  the 1.4.8 release, and the signature and zip alignment verify.
+- The learned-range and usable-ride-energy changes were replayed locally on the
+  owner's recorded rides; only aggregates are published, in docs/validation.
+- Physical scope: the signed APK was installed on the owner's phone beside 1.4.8,
+  at the owner's request; the owner's restore, connect, lock and ride checks are
+  pending. Automated checks sent no real scooter commands. Charge done by's
+  measuring window and the paused recorder have not run on a physical scheduled
+  charge, and an N65i's first authentication still needs the controlled retry.
+
+--- Previous verification ---
+
 VOLT 1.4.8 — STANDARD-CHARGER VOLTAGE PROGRESS (versionCode 45)
 October 21, 2026
 
