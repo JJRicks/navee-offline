@@ -11,10 +11,11 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * More › Developer options › Compatibility: the scooter's identity, the read-only check, its results, guided setting
- * tests and the report preview. Nothing leaves the phone unless the owner sends the email that Email
- * to Volt (under Run again) drafts, or taps Share or Save in the preview. A guided test writes only after the owner approves it, and its result is
- * report-only: it never turns a control on.
+ * More › Developer options › Compatibility: the scooter's identity, the read-only check, its results, any running or
+ * unfinished try or older guided test (review, Restore, Keep, Dismiss) and the report preview, which includes the
+ * journalled tries and tests. Trying settings lives in More › Experimental controls (its Help verify group replaced
+ * this panel's Try a setting). Nothing leaves the phone unless the owner sends the email that Email to Volt (under
+ * Run again) drafts, or taps Share or Save in the preview; then the report's tries count as reported.
  */
 final class CompatibilityPanel {
     private final ScreenHost host;
@@ -32,7 +33,7 @@ final class CompatibilityPanel {
         this.host=host;ui=host.ui();this.recoveryOnly=recoveryOnly;
         root=new LinearLayout(host.activity());root.setOrientation(LinearLayout.VERTICAL);
         destination.addView(root,new LinearLayout.LayoutParams(-1,-2));
-        expanded.add("Reads");expanded.add("Controls");expanded.add("Try a setting");
+        expanded.add("Reads");expanded.add("Controls");
         refresh();
     }
 
@@ -44,9 +45,12 @@ final class CompatibilityPanel {
         DiscoveryCoordinator check=ble.discovery();
         boolean ready=ble.ready(),running=ble.discovering();
         if(running||check==null){preview=false;report=null;}
+        // The preview shows the journal as it is: a restore or try finished meanwhile rebuilds it (acknowledging still checks).
+        if(preview&&report!=null&&ble.reportOutdated(report)){CompatibilityReport fresh=ble.compatibilityReport(AppVersion.name(host.activity()));if(fresh!=null)report=fresh;}
         DeviceDescriptor d=ble.descriptor();
         String key=(ready?"ready":"offline")+"|"+running+"|"+(check==null?"":Integer.toHexString(System.identityHashCode(check)))+"|"+preview+"|"+showJson+"|"+expanded
-            +"|"+ble.modelUnidentified()+"|"+ModelRegistry.modelLine(d)+"|"+d.pidSource()+"|"+d.region+"|"+d.firmware.meter+"|"+ble.resolution()+"|"+testKey(ble);
+            +"|"+ble.modelUnidentified()+"|"+ModelRegistry.modelLine(d)+"|"+d.pidSource()+"|"+d.region+"|"+d.firmware.meter+"|"+ble.resolution()+"|"+testKey(ble)
+            +"|"+(report==null?"":Integer.toHexString(System.identityHashCode(report)));
         rebuild(key,ble);
         if(running&&check!=null)progress(check);
     }
@@ -76,7 +80,7 @@ final class CompatibilityPanel {
             if(preview)preview(ble);
             else root.addView(ui.secondaryButton("Preview report",()->{report=ble.compatibilityReport(AppVersion.name(host.activity()));if(report==null){host.toast("No finished check yet");return;}preview=true;showJson=false;refresh();}));
         }
-        TextView foot=ui.caption("The check only reads. A test changes one setting after you approve it, then sets it back. Never changes firmware.");foot.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),ui.dp(12));root.addView(foot);
+        TextView foot=ui.caption("The check only reads. Tries are in More › Experimental controls, and the report includes their results. Never changes firmware.");foot.setPadding(ui.dp(4),ui.dp(8),ui.dp(4),ui.dp(12));root.addView(foot);
     }
     private void toastIfIdle(BleController ble){if(!ble.discovering())host.toast(ble.message());}
 
@@ -113,18 +117,19 @@ final class CompatibilityPanel {
         }
     }
 
-    // ---- Try a setting (guided tests; results are report-only) --------------------------------
+    // ---- Running and unfinished tries and tests (recovery) -------------------------------------
 
     /** Everything the test cards show, so the panel rebuilds only when one of them changes. */
     private String testKey(BleController ble){
         StringBuilder k=new StringBuilder();GuidedTest t=ble.guidedTest();
         if(t!=null)k.append(t.phase()).append(t.outcomes().size()).append(t.note()).append(t.baseline());
-        for(TestJournal.Entry e:ble.unresolvedTests()){GuidedTest.Review r=ble.reviewTest(e.testId);k.append('|').append(e.testId).append(e.phase).append(r==null?"":r.state+"/"+r.current+"/"+r.restorable+"/"+ble.testDecision(e.feature).reason);}
+        for(TestJournal.Entry e:ble.unresolvedTests()){GuidedTest.Review r=ble.reviewTest(e.testId);k.append('|').append(e.testId).append(e.phase).append(r==null?"":r.state+"/"+r.current+"/"+r.restorable+"/"+decision(ble,e.isTry(),e.feature).reason);}
         for(TestJournal.Entry e:ble.orphanedTests())k.append("|orphan").append(e.testId);
         k.append('|').append(ble.unresolvedTestsElsewhere()).append(ble.testParked()).append(ble.testRecordsHealthy());
-        if(t==null||t.terminal())for(String f:ModelRegistry.TESTABLE){CapabilityResolver.Decision d=ble.testDecision(f);k.append('|').append(d.reason).append(d.current()).append(java.util.Arrays.toString(d.values()));}
         return k.toString();
     }
+    /** A try is reviewed and restored under the try rule; an older guided test under the guided-test table. */
+    private static CapabilityResolver.Decision decision(BleController ble,boolean tried,String feature){return tried?ble.tryDecision(feature):ble.testDecision(feature);}
     private void tests(BleController ble){
         GuidedTest t=ble.guidedTest();
         if(t!=null)liveTest(ble,t);
@@ -134,48 +139,17 @@ final class CompatibilityPanel {
         if(elsewhere>0)root.addView(note(elsewhere==1?"1 unfinished test on another scooter. Select it to review.":elsewhere+" unfinished tests on other scooters. Select one to review."));
         for(TestJournal.Entry e:ble.orphanedTests())orphaned(ble,e);
         // An unreadable journal may hide an unfinished test, so say so whether or not a scooter is connected.
-        if(!ble.testRecordsHealthy()){root.addView(note(TestJournal.UNAVAILABLE_NOTE));return;}
-        if(recoveryOnly||!ble.ready()||ble.testing()||!open.isEmpty())return;
-        LinearLayout g=group("Try a setting");
-        if(g==null)return;
-        boolean any=false,askParked=false;
-        for(String f:ModelRegistry.TESTABLE){
-            CapabilityResolver.Decision d=ble.testDecision(f);
-            if(d.support!=CapabilityResolver.Support.KNOWN_ENCODING)continue;
-            any=true;askParked|=d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED;
-            Integer now=d.current();
-            boolean can=d.available()||d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED;
-            row(g,ScooterCommands.find(f).label,can&&now!=null?"Now "+d.label(now):d.reasonText(),can?ui.text:ui.muted);
-            if(!can||now==null)continue;
-            for(int v:d.values()){
-                if(v==now)continue;
-                final int target=v;
-                TextView start=ui.secondaryButton(unbroken("Try "+d.label(v)),()->{ble.startTest(f,target);toastIfIdleTest(ble);refresh();});
-                start.setEnabled(d.available());start.setContentDescription("Test "+ScooterCommands.find(f).label+": try "+d.label(v));g.addView(start);
-            }
-        }
-        if(!any)row(g,"Tests","None offered for this model",ui.muted);
-        if(askParked)g.addView(ui.toggleRow("Scooter is parked","No motion report yet on this connection.",ble.testParked(),true,ble::setTestParked));
-        TextView why=ui.caption("Volt reads the current value, you approve the change, then Volt sets it back and checks it. Results go in the report only.");
-        why.setPadding(ui.dp(2),ui.dp(8),ui.dp(2),ui.dp(4));g.addView(why);
+        if(!ble.testRecordsHealthy())root.addView(note(TestJournal.UNAVAILABLE_NOTE));
     }
-    private void toastIfIdleTest(BleController ble){if(!ble.testing())host.toast(ble.message());}
     private void liveTest(BleController ble,GuidedTest t){
         LinearLayout card=ui.card();root.addView(card);
-        String label=ScooterCommands.find(t.feature).label;CapabilityResolver.Decision d=ble.testDecision(t.feature);
-        card.addView(ui.text("Test · "+label,16,true));
+        String label=ScooterCommands.find(t.feature).label;CapabilityResolver.Decision d=decision(ble,t.keeps(),t.feature);
+        card.addView(ui.text((t.keeps()?"Try · ":"Test · ")+label,16,true));
         Integer base=t.baseline();String from=base==null?"":d.label(base),to=d.label(t.target);
         TextView status;
         switch(t.phase()){
-            case PRECHECK: card.addView(muted("Reading the current value…"));card.addView(ui.secondaryButton("Cancel",()->{ble.cancelTest();refresh();}));return;
-            case BASELINE:
-                line(card,"Now",from);line(card,"Test value",to);
-                card.addView(muted("Expected: "+expectation(t.feature,to)+" Afterwards Volt sets it back to "+from+" and checks it. Results go in the report only."));
-                if(d.reason==CapabilityResolver.Reason.PARKED_UNCONFIRMED)card.addView(ui.toggleRow("Scooter is parked","No motion report yet on this connection.",ble.testParked(),true,ble::setTestParked));
-                else if(!d.available())card.addView(muted(d.reasonText()));
-                TextView go=ui.button(unbroken("Change to "+to),()->{ble.approveTest();refresh();});go.setEnabled(d.available());go.setContentDescription("Approve test: change "+label+" to "+to+", then set it back");card.addView(go);
-                card.addView(ui.secondaryButton("Cancel",()->{ble.cancelTest();refresh();}));
-                return;
+            // A try approves itself once its baseline matches; no new guided test starts any more.
+            case PRECHECK: case BASELINE: card.addView(muted("Reading the current value…"));card.addView(ui.secondaryButton("Cancel",()->{ble.cancelTest();refresh();}));return;
             case TARGET_PENDING: case TARGET_AWAIT: status=muted("Changing to "+to+"…");status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);card.addView(status);return;
             case RESTORE_PENDING: case RESTORE_AWAIT: status=muted(t.verifying()?"Checking it is unchanged…":"Setting it back to "+from+"…");
                 status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);card.addView(status);return;
@@ -189,18 +163,18 @@ final class CompatibilityPanel {
                 if(!t.note().isEmpty())card.addView(muted(t.note()));
                 if(!t.nothingWritten()){
                     card.addView(muted(join(t.outcomeTexts())));
-                    String r=t.restorationStatus();
-                    TextView restored=ui.text(r.equals("confirmed")?"Restoration confirmed":"Restoration outstanding · review below",13.5f,true);
-                    restored.setTextColor(r.equals("confirmed")?ui.ok:ui.text);restored.setPadding(0,ui.dp(6),0,0);card.addView(restored);
+                    String r=t.restorationStatus();boolean kept=t.keeps()&&r.equals(TestJournal.DECLINED);
+                    TextView restored=ui.text(kept?"Kept · Set back is in Experimental controls":r.equals("confirmed")?"Restoration confirmed":"Restoration outstanding · review below",13.5f,true);
+                    restored.setTextColor(r.equals("confirmed")||kept?ui.ok:ui.text);restored.setPadding(0,ui.dp(6),0,0);card.addView(restored);
                 }
                 card.addView(ui.secondaryButton("Close",()->{ble.closeTest();refresh();}));
         }
     }
     private void unfinished(BleController ble,TestJournal.Entry e){
         LinearLayout card=ui.card();root.addView(card);
-        String label=ScooterCommands.find(e.feature).label;CapabilityResolver.Decision d=ble.testDecision(e.feature);
-        card.addView(ui.text("Unfinished test · "+label,16,true));
-        line(card,"Before the test",d.label(e.baseline));line(card,"Test value",d.label(e.target));
+        String label=ScooterCommands.find(e.feature).label;CapabilityResolver.Decision d=decision(ble,e.isTry(),e.feature);
+        card.addView(ui.text((e.isTry()?"Unfinished try · ":"Unfinished test · ")+label,16,true));
+        line(card,e.isTry()?"Before the try":"Before the test",d.label(e.baseline));line(card,e.isTry()?"Value tried":"Test value",d.label(e.target));
         if(!e.outcomes.isEmpty()){List<String> texts=new java.util.ArrayList<>();for(String o:e.outcomes)texts.add(GuidedTest.Outcome.describe(o));card.addView(muted(join(texts)));}
         GuidedTest.Review r=ble.reviewTest(e.testId);
         if(r==null)return;
@@ -211,7 +185,11 @@ final class CompatibilityPanel {
         switch(r.state){
             case FIRMWARE_CHANGED: card.addView(ui.secondaryButton("Continue anyway",()->{ble.confirmTestFirmware(e.testId);refresh();}));break;
             case ALREADY_RESTORED: card.addView(ui.button("Mark restored",()->{ble.markTestRestored(e.testId);refresh();}));break;
-            case RESTORE_NEEDED: if(restore)addRestore(card,ble,e,d,"Restore to "+d.label(e.baseline));break;
+            case RESTORE_NEEDED:
+                if(restore)addRestore(card,ble,e,d,"Restore to "+d.label(e.baseline));
+                // A try may have worked: the owner can keep the value tried, as it would have stayed.
+                if(e.isTry())card.addView(ui.secondaryButton(unbroken("Keep "+d.label(e.target)),()->{ble.keepTest(e.testId);refresh();}));
+                break;
             case CHANGED_OUTSIDE:
                 if(r.current!=null)card.addView(ui.secondaryButton(unbroken("Keep "+d.label(r.current)),()->{ble.keepTest(e.testId);refresh();}));
                 if(restore)addRestore(card,ble,e,d,"Set "+d.label(e.baseline));
@@ -219,7 +197,7 @@ final class CompatibilityPanel {
             default: break;
         }
         TextView dismiss=ui.secondaryButton("Dismiss · leave as is",()->{ble.dismissTest(e.testId);refresh();});
-        dismiss.setContentDescription("Dismiss the unfinished "+label+" test without restoring it");card.addView(dismiss);
+        dismiss.setContentDescription("Dismiss the unfinished "+label+(e.isTry()?" try":" test")+" without restoring it");card.addView(dismiss);
     }
     /** An unfinished test whose scooter profile was removed: nothing can be checked or set back, only dismissed. */
     private void orphaned(BleController ble,TestJournal.Entry e){
@@ -250,7 +228,8 @@ final class CompatibilityPanel {
             case "headlight": return "Is the tail light "+value.toLowerCase(java.util.Locale.ROOT)+"?";
             case "turn_sound": return "With a turn signal on, is the sound "+value.toLowerCase(java.util.Locale.ROOT)+"?";
             case "auto_sensor": return "Are automatic lights "+value.toLowerCase(java.util.Locale.ROOT)+"?";
-            default: return "Did the range estimate on the dashboard change?";
+            case "range_algorithm": return "Did the range estimate on the dashboard change?";
+            default: return "Did you see it change?";
         }
     }
     /** Button labels: a word joiner keeps "km/h" on one line when large text wraps the label. */
@@ -363,7 +342,8 @@ final class CompatibilityPanel {
         toggle.setOnClickListener(v->{showJson=!showJson;refresh();});root.addView(toggle,new LinearLayout.LayoutParams(-1,-2));
         final CompatibilityReport shared=report;
         root.addView(ui.button("Share",()->share(shared)));
-        root.addView(ui.secondaryButton("Save file",()->host.saveText("volt-compat-report.json","application/json",shared.json())));
+        // Android confirms neither a share nor an email, so those mark the tries at the handoff; a saved file only once written.
+        root.addView(ui.secondaryButton("Save file",()->host.saveReport(shared)));
         root.addView(ui.secondaryButton("Close preview",()->{preview=false;report=null;refresh();}));
     }
     private void emailNow(BleController ble){
@@ -376,7 +356,8 @@ final class CompatibilityPanel {
         Intent send=new Intent(Intent.ACTION_SEND);send.setType("text/plain");
         send.putExtra(Intent.EXTRA_SUBJECT,"Volt compatibility report");
         send.putExtra(Intent.EXTRA_TEXT,r.summary()+"\n"+r.json());
-        try{host.activity().startActivity(Intent.createChooser(send,"Share compatibility report"));}catch(Exception e){host.toast("No app can share this report");}
+        try{host.activity().startActivity(Intent.createChooser(send,"Share compatibility report"));BleController ble=ble();if(ble!=null)ble.markReported(r);}
+        catch(Exception e){host.toast("No app can share this report");}
     }
 
     // ---- Small views ----------------------------------------------------------------------

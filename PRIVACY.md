@@ -20,7 +20,7 @@ storage:
 | Ride readings and optional location, pressure, and motion samples | Analyze a ride you record |
 | Charge samples and a manually selected charger label | Review charging and estimate remaining time |
 | Bounded connection events with timestamps, failure codes and recording state | Explain connection losses without saving credentials or packet contents |
-| Guided test records (setting, before and test values, step outcomes, model prefix, meter firmware) | Keep an interrupted test visible until you review it; at most 20, finished ones removed after 30 days, never in backups |
+| Try and guided test records (kind, setting, before and tried values, step outcomes with times relative to the try, your Did you see it change? answer, model prefix and layer, meter firmware, whether a sent report included it) | Keep an interrupted try or test visible until you review it, offer Set back, and put tries in your next compatibility report; at most 20, never in backups. Finished tries stay until a report you email, share or save includes them (a saved report once its file is written; then 30 days) or until you tap Clear try results, and a later Set back or review waits for the next report; finished guided tests go after 30 days |
 
 Connected history is enabled by default. It does not start GPS or phone sensors.
 It has a shared **50 MiB** budget: detailed samples for up to seven days, minute
@@ -124,7 +124,7 @@ if you do not want them retained there.
 | Ride CSV/JSON/GPX | Timestamps and measurements; phone/joined/route exports can include precise locations |
 | Charge JSON | Electrical samples, times, gaps and charger label; excludes owner credentials, names, addresses, PINs and locations |
 | Ordinary diagnostics | Readings, diagnostic payloads and bounded connection events, potentially device serials in readings; excludes owner identity and PIN responses |
-| Compatibility report | Model ID, region and SKU derived from the serial, firmware versions, read outcomes and lengths, status-field presence and setting values, and control decisions; excludes the serial, scooter address, owner identity, PINs, names, times of day, routes and raw payloads. A fresh random report ID is used each time; it is not stored. Guided tests add the setting, its before and test values, step outcomes with times relative to the test, your yes/no answer and whether it was set back |
+| Compatibility report | Model ID, region and SKU derived from the serial, firmware versions, read outcomes and lengths, status-field presence and setting values, and control decisions; excludes the serial, scooter address, owner identity, PINs, names, times of day, routes and raw payloads. A fresh random report ID is used each time; it is not stored. Guided tests and Experimental controls tries add the setting, its before and tried values, step outcomes with times relative to the try, your yes/no answer, whether it was set back or kept, and for tries the result and the model layer |
 
 Exports only go to a destination you choose through the file picker or helper.
 A destination may itself sync to a cloud service. The backup password is

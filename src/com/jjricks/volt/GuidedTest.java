@@ -21,7 +21,9 @@ final class GuidedTest {
         READ_SUPPORTED("Read supported"), REJECTED("Rejected, code N"), ACK_UNCONFIRMED("Acknowledged, unconfirmed"),
         READBACK_UNCHANGED("Readback unchanged"), READBACK_DIFFERENT("Readback different"),
         SETTING_CONFIRMED("Setting confirmed"), EFFECT_OBSERVED("Effect observed"),
-        RESTORATION_CONFIRMED("Restoration confirmed"), INTERRUPTED("Interrupted/no response");
+        RESTORATION_CONFIRMED("Restoration confirmed"), INTERRUPTED("Interrupted/no response"),
+        /** A try's write Volt refused or couldn't send, so nothing reached the scooter (guided tests record INTERRUPTED). */
+        NOT_SENT("Not sent");
         final String text;
         Outcome(String text){this.text=text;}
         /** A rejection carries its code; a readback carries the value the scooter actually showed. */
@@ -65,6 +67,10 @@ final class GuidedTest {
     // (or post-start) probe. Counting a mixed batch would let an older reply arriving last win.
     private int outstanding,needed=-1,replies;private boolean armed;
     private String note="";
+    /** TestJournal.TEST for an older guided test, else an Experimental controls try (EXPERIMENTAL or VERIFY), and its layer. */
+    private String kind=TestJournal.TEST,layer="";
+    /** A try starts from the value the owner saw in its sheet; any other baseline ends it with nothing written. */
+    private Integer expectedBaseline;
     private static final long READ_WAIT_MS=10000;
     private long readDeadlineMs;
 
@@ -83,10 +89,28 @@ final class GuidedTest {
         phase=Phase.PRECHECK;arm();
     }
 
+    /**
+     * Prepares an Experimental controls try (kind EXPERIMENTAL or VERIFY) of one value, from the value the owner
+     * saw (expectedBaseline). It runs like a guided test (fresh baseline, journal before every write, readback,
+     * the owner's answer) except that the value stays afterwards: Set back is the owner's separate tap (setBack).
+     * The caller approves it as soon as the baseline is captured (the Try tap was the owner's consent).
+     */
+    static GuidedTest trial(TestJournal journal,String profileId,DeviceDescriptor d,FeatureVariant v,String kind,int target,int expectedBaseline,
+            long nowMs,long wallMs,Random random){
+        if(!TestJournal.EXPERIMENTAL.equals(kind)&&!TestJournal.VERIFY.equals(kind)||!v.readable||!v.allows(target))throw new IllegalArgumentException("Not offered as a try");
+        GuidedTest t=new GuidedTest(journal,profileId,d,v,v.feature,target,nowMs,wallMs,random);
+        t.kind=kind;t.layer=d==null?"":ModelRegistry.resolve(d).layer.name().toLowerCase(java.util.Locale.ROOT);t.expectedBaseline=expectedBaseline;
+        t.phase=Phase.PRECHECK;t.arm();return t;
+    }
+    /** TestJournal.TEST, EXPERIMENTAL or VERIFY. */
+    String kind(){return kind;}
+    /** A try keeps the value after the owner's answer; a guided test sets it back by itself. */
+    boolean keeps(){return !TestJournal.TEST.equals(kind);}
+
     /** A journal entry after a restart or for display: OUTSTANDING (or CONFLICT, DONE). It never writes. */
     static GuidedTest fromJournal(TestJournal journal,TestJournal.Entry e){
         GuidedTest t=new GuidedTest(journal,e.profileId,null,null,e.feature,e.target,0,0,null);
-        t.entry=e.copy();t.baseline=e.baseline;t.related=e.related;
+        t.entry=e.copy();t.baseline=e.baseline;t.related=e.related;t.kind=e.kind;t.layer=e.layer;
         Phase p=Phase.valueOf(e.phase);
         t.phase=e.resolved?Phase.DONE:p==Phase.CONFLICT?Phase.CONFLICT:Phase.OUTSTANDING;
         return t;
@@ -112,14 +136,20 @@ final class GuidedTest {
      * (fresh, present) is what the owner saw. The restore write is journalled before writeNow().
      */
     static GuidedTest restoreFrom(TestJournal journal,TestJournal.Entry e,FeatureVariant v,DeviceDescriptor d,StatusFields s,long nowMs,long wallMs) throws IOException{
-        if(e.resolved||v==null||!v.id.equals(e.variantId))throw new IllegalArgumentException("Test rules changed");
+        // A kept try is set back the same way (Set back), reopened in the journal before the write.
+        boolean kept=e.resolved&&e.isTry()&&"kept".equals(e.resolution);
+        if(e.resolved&&!kept||v==null||!v.id.equals(e.variantId))throw new IllegalArgumentException("Test rules changed");
         Integer current=v.read(s);
-        if(current==null||current==e.baseline||!v.allows(e.baseline)||!contains(v.choices(s),e.baseline))throw new IllegalArgumentException("Nothing to restore");
+        if(current==null||current==e.baseline||!offered(v,s,e.baseline))throw new IllegalArgumentException("Nothing to restore");
         // The coupled field must be as journalled: a change made meanwhile is a conflict for the owner, never overwritten.
-        if(e.related>=0&&relatedValue(e.feature,v,s)!=e.related)throw new IllegalArgumentException("A related setting changed");
+        // A kept try may be set back much later, after the owner changed a coupled setting on purpose: it starts from now.
+        if(!kept&&e.related>=0&&relatedValue(e.feature,v,s)!=e.related)throw new IllegalArgumentException("A related setting changed");
         GuidedTest t=new GuidedTest(journal,e.profileId,d,v,e.feature,e.target,nowMs,wallMs,null);
-        t.entry=e.copy();t.baseline=e.baseline;t.related=e.related>=0?e.related:t.relatedValue(s);t.expected=current;t.approvedMs=nowMs-Math.max(0,wallMs-e.createdWall);
-        t.entry.related=t.related;
+        t.kind=e.kind;t.layer=e.layer;
+        t.entry=e.copy();t.baseline=e.baseline;t.related=e.related>=0&&!kept?e.related:t.relatedValue(s);t.expected=current;t.approvedMs=nowMs-Math.max(0,wallMs-e.createdWall);
+        // New evidence no sent report contains yet (the journal enforces this on every commit too).
+        t.entry.related=t.related;t.entry.reported=false;
+        if(kept){t.entry.resolved=false;t.entry.restoration=TestJournal.OUTSTANDING;t.entry.resolution="";}
         t.phase=Phase.RESTORE_PENDING;t.commit(nowMs);
         return t;
     }
@@ -137,7 +167,7 @@ final class GuidedTest {
         e.testId=id.toString();e.profileId=profileId;e.feature=feature;e.variantId=variant.id;
         e.pidPrefix=descriptor==null?"":descriptor.family();e.pidSource=descriptor==null?"none":descriptor.pidSource().name().toLowerCase(java.util.Locale.ROOT);
         e.meterFw=descriptor!=null&&descriptor.firmwareThisSession&&descriptor.firmware.meter!=null&&descriptor.firmware.meter.matches("[0-9A-Za-z.]{1,16}")?descriptor.firmware.meter:"";
-        e.registryVersion=ModelRegistry.VERSION;e.baseline=baseline;e.target=target;e.related=related;
+        e.registryVersion=ModelRegistry.VERSION;e.baseline=baseline;e.target=target;e.related=related;e.kind=kind;e.layer=layer;
         e.createdWall=e.updatedWall=Math.max(0,nowMs+wallOffset);
         entry=e;approvedMs=nowMs;phase=Phase.TARGET_PENDING;writeIssued=false;
         try{commit(nowMs);return true;}
@@ -150,6 +180,7 @@ final class GuidedTest {
         if(phase!=Phase.OBSERVE)return;
         entry.effect=observed==null?"not_checked":observed?"observed":"not_observed";
         if(Boolean.TRUE.equals(observed))add(Outcome.EFFECT_OBSERVED,0,nowMs);
+        if(keeps()){kept(nowMs);return;}
         phase=Phase.RESTORE_PENDING;writeIssued=false;
         try{commit(nowMs);}
         catch(IOException|IllegalArgumentException failed){phase=Phase.OUTSTANDING;note="Couldn't save the test record, so Volt did not set it back.";}
@@ -214,7 +245,7 @@ final class GuidedTest {
     }
     /** BleController refused or could not send the value writeNow() returned. */
     void onWriteRefused(long nowMs){
-        if(phase==Phase.TARGET_AWAIT&&!acked&&!verifyOnly){add(Outcome.INTERRUPTED,0,nowMs);verifyOnly=true;phase=Phase.RESTORE_AWAIT;readDeadlineMs=nowMs+READ_WAIT_MS;arm();save(nowMs);}
+        if(phase==Phase.TARGET_AWAIT&&!acked&&!verifyOnly){add(keeps()?Outcome.NOT_SENT:Outcome.INTERRUPTED,0,nowMs);verifyOnly=true;phase=Phase.RESTORE_AWAIT;readDeadlineMs=nowMs+READ_WAIT_MS;arm();save(nowMs);}
         else if(phase==Phase.RESTORE_AWAIT&&!acked&&!verifyOnly){add(Outcome.INTERRUPTED,0,nowMs);outstanding("Volt could not send the restore.",nowMs);}
     }
     /** An unanswered older poll must never leave preparation or verification spinning forever.
@@ -303,7 +334,7 @@ final class GuidedTest {
             // Another actor changed the coupled field: not restorable here; the owner keeps or dismisses it.
             if(related!=e.related)return new Review(ReviewState.CHANGED_OUTSIDE,"A related setting changed since the test. Volt won't set it back.",current,false);
         }
-        boolean restorable=v.allows(e.baseline)&&contains(v.choices(s),e.baseline);
+        boolean restorable=offered(v,s,e.baseline);
         if(current==e.baseline)return new Review(ReviewState.ALREADY_RESTORED,"Already back to "+v.label(e.baseline)+".",current,false);
         if(current==e.target)return new Review(ReviewState.RESTORE_NEEDED,"Still on the test value, "+v.label(e.target)+".",current,restorable);
         return new Review(ReviewState.CHANGED_OUTSIDE,"Changed outside the test (now "+v.label(current)+").",current,restorable);
@@ -322,9 +353,10 @@ final class GuidedTest {
         Integer value=variant.read(s);
         if(value==null){end("This scooter isn't reporting this setting.");return;}
         if(!variant.allows(value)){end("The current value is unknown, so Volt won't test it.");return;}
+        if(expectedBaseline!=null&&!value.equals(expectedBaseline)){end("The scooter now shows "+variant.label(value)+". Nothing was changed.");return;}
         if(value==target){end("It's already set to "+variant.label(target)+".");return;}
-        if(!contains(variant.choices(s),target)){end(variant.label(target)+" isn't offered now.");return;}
-        if(!contains(variant.choices(s),value)){end("The current value can't be set back, so Volt won't test it.");return;}
+        if(!offered(variant,s,target)){end(variant.label(target)+" isn't offered now.");return;}
+        if(!offered(variant,s,value)){end("The current value can't be set back, so Volt won't test it.");return;}
         baseline=value;related=relatedValue(s);phase=Phase.BASELINE;
     }
     private void confirmTarget(StatusFields s,Integer value,long nowMs){
@@ -362,6 +394,12 @@ final class GuidedTest {
         entry.updatedWall=Math.max(entry.createdWall,nowMs+wallOffset);
         try{journal.commit(entry);}catch(IOException|IllegalArgumentException failed){note="Set back and confirmed, but the record couldn't be saved.";}
     }
+    /** A try's value stays after the owner's answer: resolved as kept (declined restoration); Set back can reopen it. */
+    private void kept(long nowMs){
+        phase=Phase.DONE;entry.phase=Phase.DONE.name();entry.restoration=TestJournal.DECLINED;entry.resolved=true;entry.resolution="kept";
+        entry.updatedWall=Math.max(entry.createdWall,nowMs+wallOffset);
+        try{journal.commit(entry);}catch(IOException|IllegalArgumentException failed){note="Kept, but the record couldn't be saved. It will show as unfinished.";}
+    }
     private void outstanding(String why,long nowMs){phase=Phase.OUTSTANDING;note=why;entry.restoration=TestJournal.OUTSTANDING;save(nowMs);}
     private void conflict(String why,long nowMs){phase=Phase.CONFLICT;note=why;entry.restoration=TestJournal.OUTSTANDING;save(nowMs);}
     private void add(Outcome o,int code,long nowMs){TestJournal.append(entry,o.token(code),Math.max(0,Math.min(24L*3600*1000,nowMs-approvedMs)));}
@@ -371,14 +409,20 @@ final class GuidedTest {
         entry.phase=phase.name();entry.updatedWall=Math.max(entry.createdWall,nowMs+wallOffset);
         journal.commit(entry);
     }
-    /** The coupled value captured with the baseline: the range choice set (offset 15) or the other bits of a masked byte. */
+    /** The coupled value captured with the baseline: the range choice set (offset 15) or the other bits of a masked byte (never a cap's enable bit). */
     private int relatedValue(StatusFields s){return relatedValue(feature,variant,s);}
     private static int relatedValue(String feature,FeatureVariant variant,StatusFields s){
         if(variant==null)return -1;
         if(feature.equals("range_algorithm")){Integer set=s.u8(15);return set==null?-1:set;}
-        if(variant.offset>=0&&(variant.mask&255)!=255){Integer raw=s.u8(variant.offset);return raw==null?-1:raw&~variant.mask&255;}
+        int bits=variant.valueMask();
+        if(variant.offset>=0&&bits!=255){Integer raw=s.u8(variant.offset);return raw==null?-1:raw&~bits&255;}
         return -1;
     }
     private boolean relatedChanged(StatusFields s){return related>=0&&relatedValue(s)!=related;}
+    /**
+     * A value Volt may send now, as CapabilityResolver.Decision.allows has it: inside the variant's domain (listed
+     * values, or a slider's min/max/step such as the UT5 MAX speed caps) and, for dynamic choices, offered by this status.
+     */
+    private static boolean offered(FeatureVariant v,StatusFields s,int value){return v.allows(value)&&(!v.dynamicChoices||contains(v.choices(s),value));}
     private static boolean contains(int[] values,int value){for(int v:values)if(v==value)return true;return false;}
 }

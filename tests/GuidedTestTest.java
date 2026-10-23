@@ -17,7 +17,7 @@ public final class GuidedTestTest {
     private static final String PROFILE="owner-1";
     public static void main(String[] args) throws Exception {
         eligibility(); gate(); happyPaths(); rejected(); ackWithoutReadback(); readbackUnchanged(); readbackDifferent(); staleAndDuplicates();
-        writeRefused(); disconnectAtEveryPhase(); processDeath(); profileSwitch(); conflicts(); restartZeroWrites(); resume(); preconditions(); vocabulary(); inheritedPolls(); lostPollTimeout(); queuedWriteState(); outOfOrderReplies();
+        tries(); sliderTries(); reportedThenSetBack(); staleReport(); writeRefused(); disconnectAtEveryPhase(); processDeath(); profileSwitch(); conflicts(); restartZeroWrites(); resume(); preconditions(); vocabulary(); inheritedPolls(); lostPollTimeout(); queuedWriteState(); outOfOrderReplies();
         System.out.println("GuidedTest tests passed: "+assertions+" assertions");
     }
 
@@ -61,6 +61,216 @@ public final class GuidedTestTest {
         t.onAck(cmd,0,NOW+1050);t.onReadRequested(0x70,NOW+1300);
     }
     private static List<GuidedTest.Outcome> list(GuidedTest.Outcome... o){return Arrays.asList(o);}
+
+    // ---- Experimental controls tries ------------------------------------------------------------
+
+    /** A try is a guided test that keeps its value: one journalled write, readback, the owner's answer, no restore write. */
+    private static GuidedTest tried(TestJournal j,DeviceDescriptor d,FeatureVariant v,String kind,int target,int expected,StatusFields s){
+        GuidedTest t=GuidedTest.trial(j,PROFILE,d,v,kind,target,expected,NOW,WALL,new Random(9));
+        check(t.phase()==GuidedTest.Phase.PRECHECK&&t.wantsRead()&&t.writeNow()==null&&t.keeps(),"A try prepares like a test");
+        t.onReadRequested(0x70,NOW);t.onStatus(s,NOW);return t;
+    }
+    private static void tries() throws IOException {
+        DeviceDescriptor d=oem();StatusFields s=status(data(),SEEN);
+        FeatureVariant prompt=CapabilityResolver.decideExperimental("prompt_tone",d,s,parked()).variant,units=CapabilityResolver.decideVerify("display_units",d,s,parked()).variant;
+        check(prompt.lab&&!units.lab,"Fixture variants: an experimental and a Help verify one");
+        try{GuidedTest.trial(new TestJournal(new Memory()),PROFILE,d,prompt,TestJournal.TEST,4,2,NOW,WALL,new Random(1));check(false,"A try has a try kind");}catch(IllegalArgumentException expected){check(true,"A try has a try kind");}
+        // Worked here, the owner's answer, kept: no restore write, then Set back reopens it.
+        Memory m=new Memory();TestJournal j=new TestJournal(m);
+        GuidedTest t=tried(j,d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        check(t.phase()==GuidedTest.Phase.BASELINE&&m.writes==0,"Baseline captured; nothing journalled or written yet");
+        sendTarget(t,0x6c);t.onStatus(with(21,4),NOW+400);
+        TestJournal.Entry e=j.find(t.testId());
+        check(t.phase()==GuidedTest.Phase.OBSERVE&&e.kind.equals("experimental")&&e.layer.equals("oem_group")&&e.phase.equals("OBSERVE")&&!e.resolved,"Journalled as an experimental try before the answer: "+TestJournal.line(e));
+        t.ownerEffect(true,NOW+600);
+        e=j.find(t.testId());
+        check(t.phase()==GuidedTest.Phase.DONE&&t.writeNow()==null,"Kept: no restore write");
+        check(e.resolved&&e.resolution.equals("kept")&&e.restoration.equals(TestJournal.DECLINED)&&e.effect.equals("observed")&&CompatibilityReport.tryResult(e).equals("worked_here"),"Worked here, seen, kept: "+TestJournal.line(e));
+        GuidedTest back=GuidedTest.restoreFrom(j,e,prompt,d,with(21,4),NOW+5000,WALL+5000);
+        check(!j.find(t.testId()).resolved&&j.find(t.testId()).phase.equals("RESTORE_PENDING"),"Set back reopens the try in the journal before writing");
+        sendRestore(back,0x6c);back.onStatus(with(21,2),NOW+6000);
+        e=j.find(t.testId());
+        check(back.phase()==GuidedTest.Phase.DONE&&e.resolved&&e.restoration.equals(TestJournal.CONFIRMED)&&e.resolution.equals("restored")&&e.kind.equals("experimental"),"Set back confirmed: "+TestJournal.line(e));
+        try{GuidedTest.restoreFrom(j,e,prompt,d,with(21,2),NOW+7000,WALL+7000);check(false,"Nothing to set back once restored");}catch(IllegalArgumentException expected){check(true,"Nothing to set back once restored");}
+        // The value changed since the sheet showed it: nothing written.
+        Memory m2=new Memory();GuidedTest moved=tried(new TestJournal(m2),d,prompt,TestJournal.EXPERIMENTAL,4,1,s);
+        check(moved.phase()==GuidedTest.Phase.DONE&&moved.nothingWritten()&&moved.note().contains("now shows")&&m2.writes==0,"A changed baseline ends the try with nothing written");
+        // Help verify: the same flow under its own kind.
+        Memory m3=new Memory();TestJournal j3=new TestJournal(m3);GuidedTest v=tried(j3,d,units,TestJournal.VERIFY,0,1,s);
+        sendTarget(v,0x55);v.onStatus(with(7,0),NOW+400);v.ownerEffect(null,NOW+500);
+        check(j3.find(v.testId()).kind.equals("verify")&&j3.find(v.testId()).effect.equals("not_checked")&&j3.find(v.testId()).resolution.equals("kept"),"Help verify try kept, not answered");
+        // Interrupted while asking: process death leaves it for review (never written again by itself).
+        Memory m4=new Memory();TestJournal j4=new TestJournal(m4);GuidedTest asking=tried(j4,d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        sendTarget(asking,0x6c);asking.onStatus(with(21,4),NOW+400);int writes=m4.writes;
+        TestJournal reopened=new TestJournal(m4);check(GuidedTest.recover(reopened,WALL+9000)==1,"Recovered after a restart");
+        e=reopened.find(asking.testId());
+        check(e.phase.equals("OUTSTANDING")&&!e.resolved&&e.outcomes.get(e.outcomes.size()-1).equals("interrupted")&&m4.writes==writes+1,"Unfinished, waiting for review: "+TestJournal.line(e));
+        GuidedTest.Review r=GuidedTest.review(e,PROFILE,true,d,with(21,4),NOW,prompt,false);
+        check(r.state==GuidedTest.ReviewState.RESTORE_NEEDED&&r.restorable,"Review offers to set it back");
+        GuidedTest restore=GuidedTest.restoreFrom(reopened,e,prompt,d,with(21,4),NOW,WALL+9500);sendRestore(restore,0x6c);restore.onStatus(with(21,2),NOW+1500);
+        check(reopened.find(asking.testId()).resolved&&reopened.find(asking.testId()).restoration.equals(TestJournal.CONFIRMED),"Restored after review");
+        // Every other ending, as the report and the row name it; an interrupted write is never "not sent" or "no change".
+        GuidedTest refused=tried(new TestJournal(new Memory()),d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        check(refused.approve(NOW)&&refused.writeNow()==4,"Write handed out");refused.onWriteRefused(NOW+10);refused.onReadRequested(0x70,NOW+20);refused.onStatus(with(21,2),NOW+30);
+        check(refused.phase()==GuidedTest.Phase.DONE&&CompatibilityReport.tryResult(refused.entry()).equals("not_sent"),"Refused by Volt before sending: Not sent "+refused.outcomeTexts());
+        GuidedTest rejected=tried(new TestJournal(new Memory()),d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        check(rejected.approve(NOW)&&rejected.writeNow()==4,"Write handed out");rejected.onAck(0x6c,3,NOW+50);rejected.onReadRequested(0x70,NOW+60);rejected.onStatus(with(21,2),NOW+70);
+        check(rejected.phase()==GuidedTest.Phase.DONE&&CompatibilityReport.tryResult(rejected.entry()).equals("refused"),"Rejected: Refused by scooter");
+        GuidedTest unchanged=tried(new TestJournal(new Memory()),d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        sendTarget(unchanged,0x6c);unchanged.onStatus(with(21,2),NOW+400);
+        check(unchanged.phase()==GuidedTest.Phase.DONE&&CompatibilityReport.tryResult(unchanged.entry()).equals("no_change_seen")&&unchanged.entry().resolved,"Acknowledged, read back unchanged: No change seen");
+        GuidedTest timeout=tried(new TestJournal(new Memory()),d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        check(timeout.approve(NOW)&&timeout.writeNow()==4,"Write handed out");timeout.onAck(0x6c,0,NOW+50);timeout.onMutationTimeout(true,NOW+6500);
+        check(timeout.phase()==GuidedTest.Phase.OUTSTANDING&&CompatibilityReport.tryResult(timeout.entry()).equals("unconfirmed"),"Acknowledged, never read back: Unconfirmed, left for review");
+        GuidedTest dropped=tried(new TestJournal(new Memory()),d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        check(dropped.approve(NOW)&&dropped.writeNow()==4,"Write handed out");dropped.onDisconnect(NOW+20);
+        check(dropped.phase()==GuidedTest.Phase.OUTSTANDING&&CompatibilityReport.tryResult(dropped.entry()).equals("interrupted"),"Dropped after sending: Unconfirmed (interrupted), never not sent");
+        GuidedTest other=tried(new TestJournal(new Memory()),d,prompt,TestJournal.EXPERIMENTAL,4,2,s);
+        sendTarget(other,0x6c);other.onStatus(with(21,3),NOW+400);
+        check(other.phase()==GuidedTest.Phase.CONFLICT&&CompatibilityReport.tryResult(other.entry()).equals("other_value"),"Another value: Other value read, left for review");
+    }
+
+    /**
+     * The UT5 MAX speed caps are sliders: a min/max/step domain with no listed choices, and bit 7 of the status byte is
+     * the cap's own enable flag. Off → 10 km/h and 10 km/h → Off each journal one write, read back, keep the value and
+     * Set back; an interrupted one is reviewed and restored. The coupled-field guard still holds for masked assists.
+     */
+    private static void sliderTries() throws IOException {
+        DeviceDescriptor d=ut5();
+        String[] keys={"speed_limit","drive_speed_limit"};int[] cmds={0x6b,0x6e},offsets={20,42};
+        for(int k=0;k<keys.length;k++){
+            String key=keys[k];int cmd=cmds[k],at=offsets[k];
+            for(boolean fromOff:new boolean[]{true,false}){
+                final int before=fromOff?0:10,after=fromOff?10:0;String step=key+" "+before+" → "+after;
+                StatusFields start=with(at,fromOff?0x00:0x8a),tried=with(at,fromOff?0x8a:0x00);
+                CapabilityResolver.Decision admitted=CapabilityResolver.admitTry(key,after,d,start,parked());
+                check(admitted.available()&&admitted.experimental()&&admitted.variant.values.length==0&&admitted.values().length==0,step+": a slider try is admitted "+admitted+" "+admitted.reasonText());
+                FeatureVariant v=admitted.variant;
+                Memory m=new Memory();TestJournal j=new TestJournal(m);
+                GuidedTest t=tried(j,d,v,TestJournal.EXPERIMENTAL,after,before,start);
+                check(t.phase()==GuidedTest.Phase.BASELINE&&t.baseline()==before&&m.writes==0,step+": baseline captured inside the slider's domain, not refused: "+t.phase()+" "+t.note());
+                check(t.approve(NOW)&&m.writes==1,step+": journalled before the write");
+                Integer sent=t.writeNow();
+                check(sent!=null&&sent==after&&t.writeNow()==null&&Arrays.equals(v.encode(after),ScooterCommands.set(key,after)),step+": one write with the UT5 MAX bytes");
+                t.onAck(cmd,0,NOW+50);t.onReadRequested(0x70,NOW+300);t.onStatus(tried,NOW+400);
+                check(t.phase()==GuidedTest.Phase.OBSERVE,step+": confirmed; the enable bit is the cap's own, not a related setting: "+t.phase()+" "+t.note());
+                // Off may keep the old limit in the low bits; bit 7 clear still reads Off and changes nothing else.
+                if(!fromOff)t.onStatus(with(at,0x0a),NOW+450);
+                check(t.phase()==GuidedTest.Phase.OBSERVE,step+": a remembered limit behind Off is not a change outside the try");
+                t.ownerEffect(true,NOW+500);
+                TestJournal.Entry e=j.find(t.testId());
+                check(e.resolved&&"kept".equals(e.resolution)&&e.related==-1&&CompatibilityReport.tryResult(e).equals("worked_here"),step+": kept "+TestJournal.line(e));
+                GuidedTest back=GuidedTest.restoreFrom(j,e,v,d,tried,NOW+5000,WALL+5000);
+                Integer restore=back.writeNow();
+                check(restore!=null&&restore==before,step+": Set back sends "+before);
+                back.onAck(cmd,0,NOW+5050);back.onReadRequested(0x70,NOW+5300);back.onStatus(start,NOW+5400);
+                e=j.find(t.testId());
+                check(back.phase()==GuidedTest.Phase.DONE&&e.resolved&&e.restoration.equals(TestJournal.CONFIRMED)&&e.resolution.equals("restored"),step+": Set back confirmed "+back.note()+" "+TestJournal.line(e));
+                // Interrupted after the target: the review offers the slider's earlier value, and Restore writes it once.
+                Memory m2=new Memory();TestJournal j2=new TestJournal(m2);
+                GuidedTest cut=tried(j2,d,v,TestJournal.EXPERIMENTAL,after,before,start);
+                check(cut.approve(NOW)&&cut.writeNow()==after,step+": interrupted try sent");cut.onAck(cmd,0,NOW+50);cut.onReadRequested(0x70,NOW+300);cut.onStatus(tried,NOW+400);
+                TestJournal reopened=new TestJournal(m2);check(GuidedTest.recover(reopened,WALL+9000)==1,step+": recovered after a restart");
+                TestJournal.Entry open=reopened.find(cut.testId());
+                GuidedTest.Review r=GuidedTest.review(open,PROFILE,true,d,tried,NOW,v,false);
+                check(r.state==GuidedTest.ReviewState.RESTORE_NEEDED&&r.restorable,step+": review offers the earlier value "+r.state+" "+r.text);
+                GuidedTest restored=GuidedTest.restoreFrom(reopened,open,v,d,tried,NOW,WALL+9500);
+                check(restored.writeNow()==before,step+": Restore sends "+before);
+                restored.onAck(cmd,0,NOW+1050);restored.onReadRequested(0x70,NOW+1300);restored.onStatus(start,NOW+1400);
+                check(reopened.find(cut.testId()).resolved&&reopened.find(cut.testId()).restoration.equals(TestJournal.CONFIRMED),step+": restored after review");
+                check(GuidedTest.review(reopened.find(cut.testId()),PROFILE,true,d,start,NOW,v,false).state==GuidedTest.ReviewState.ALREADY_RESTORED,step+": then already back");
+            }
+            // A value outside the slider's domain (1..7 km/h for the custom cap, 1..4 for the drive cap) is never tried.
+            FeatureVariant v=CapabilityResolver.decideTry(key,d,with(at,0),parked()).variant;
+            try{GuidedTest.trial(new TestJournal(new Memory()),PROFILE,d,v,TestJournal.EXPERIMENTAL,3,0,NOW,WALL,new Random(3));check(false,key+": 3 km/h refused");}
+            catch(IllegalArgumentException expected){check(true,key+": 3 km/h refused");}
+        }
+        // A masked assist keeps its coupled-field guard: another assist's bit changing during the try is a conflict.
+        DeviceDescriptor n65i=DeviceDescriptor.of("","22131",1,FW,true,DeviceDescriptor.Transport.STANDARD,0);
+        StatusFields s=status(data(),SEEN);
+        CapabilityResolver.Decision assist=CapabilityResolver.admitTry("hill_start_assist",0,n65i,s,parked());
+        check(assist.available()&&assist.experimental()&&(assist.variant.mask&255)!=255,"Fixture: a masked assist try "+assist+" "+assist.reasonText());
+        GuidedTest coupled=tried(new TestJournal(new Memory()),n65i,assist.variant,TestJournal.EXPERIMENTAL,0,1,s);
+        check(coupled.approve(NOW)&&coupled.writeNow()==0,"Assist try sent");coupled.onAck(assist.variant.cmd,0,NOW+50);coupled.onReadRequested(0x70,NOW+300);
+        coupled.onStatus(with(37,4|2),NOW+400);
+        check(coupled.phase()==GuidedTest.Phase.CONFLICT&&coupled.note().contains("related"),"Another assist changed with the try: conflict "+coupled.note());
+    }
+
+    /**
+     * A report is a snapshot: sharing, saving or emailing it acknowledges only the entries that still read as it shows
+     * them. The Codex case: Preview shows an interrupted try outstanding, Restore then confirms it, the stale preview is
+     * saved or shared, and one more try overflows the journal (19 older, unreported results of another scooter).
+     */
+    private static void staleReport() throws IOException {
+        DeviceDescriptor d=oem();StatusFields s=status(data(),SEEN);
+        FeatureVariant prompt=CapabilityResolver.decideExperimental("prompt_tone",d,s,parked()).variant;
+        for(int mode=0;mode<3;mode++){
+            // 0: stale preview acknowledged after the restore; 1: acknowledged before it (still matching); 2: a fresh preview after it.
+            String what=mode==0?"stale preview":mode==1?"matching preview":"fresh preview";
+            Memory m=new Memory();TestJournal j=new TestJournal(m);
+            for(int i=0;i<TestJournal.MAX_ENTRIES-1;i++){
+                GuidedTest other=GuidedTest.trial(j,"owner-2",d,prompt,TestJournal.EXPERIMENTAL,4,2,NOW,WALL+i,new Random(100+i));
+                other.onReadRequested(0x70,NOW);other.onStatus(s,NOW);sendTarget(other,0x6c);other.onStatus(with(21,4),NOW+400);other.ownerEffect(true,NOW+500);
+            }
+            GuidedTest cut=GuidedTest.trial(j,PROFILE,d,prompt,TestJournal.EXPERIMENTAL,4,2,NOW,WALL+1000,new Random(200));
+            cut.onReadRequested(0x70,NOW);cut.onStatus(s,NOW);sendTarget(cut,0x6c);cut.onStatus(with(21,4),NOW+400);cut.onDisconnect(NOW+500);
+            String id=cut.testId();
+            CompatibilityReport preview=new CompatibilityReport.Builder("1.6.0",new Random(1)).tests(j.all(PROFILE)).build();
+            check(preview.json().replaceAll("\\s","").contains("\"restoration\":\"outstanding\"")&&preview.included().size()==1,what+": the preview shows the try outstanding");
+            if(mode==1){j.markReported(preview.included(),WALL+1500);check(j.find(id).reported,what+": a snapshot that still matches is acknowledged");}
+            GuidedTest back=GuidedTest.restoreFrom(j,j.find(id),prompt,d,with(21,4),NOW+2000,WALL+2000);
+            sendRestore(back,0x6c);back.onStatus(with(21,2),NOW+3000);
+            check(j.find(id).restoration.equals(TestJournal.CONFIRMED)&&!j.find(id).reported,what+": restored after the preview, unreported");
+            if(mode==0)j.markReported(preview.included(),WALL+3500);
+            if(mode==2)j.markReported(new CompatibilityReport.Builder("1.6.0",new Random(2)).tests(j.all(PROFILE)).build().included(),WALL+3500);
+            check(j.find(id).reported==(mode==2),what+": the confirmed restoration is acknowledged only by a report that shows it");
+            check(!new TestJournal(m).find(id).reported==(mode!=2),what+": the same on disk");
+            GuidedTest next=GuidedTest.trial(j,PROFILE,d,prompt,TestJournal.EXPERIMENTAL,4,2,NOW,WALL+4000,new Random(300));
+            next.onReadRequested(0x70,NOW);next.onStatus(s,NOW);sendTarget(next,0x6c);
+            check((j.find(id)!=null)==(mode!=2)&&j.all("owner-2").size()==(mode!=2?TestJournal.MAX_ENTRIES-2:TestJournal.MAX_ENTRIES-1),
+                what+": one more try evicts "+(mode!=2?"the oldest unreported result; the restoration stays":"the reported restoration first"));
+        }
+    }
+
+    /**
+     * Set back adds evidence no sent report contained: the try is unreported again, so the overflow keeps it. The Codex
+     * case: a kept, reported try, 19 unreported ones, the confirmed Set back, then one more try.
+     */
+    private static void reportedThenSetBack() throws IOException {
+        DeviceDescriptor d=oem();StatusFields s=status(data(),SEEN);
+        FeatureVariant prompt=CapabilityResolver.decideExperimental("prompt_tone",d,s,parked()).variant;
+        Memory m=new Memory();TestJournal j=new TestJournal(m);
+        GuidedTest t=tried(j,d,prompt,TestJournal.EXPERIMENTAL,4,2,s);sendTarget(t,0x6c);t.onStatus(with(21,4),NOW+400);t.ownerEffect(true,NOW+500);
+        String first=t.testId();
+        j.markReported(Arrays.asList(TestJournal.revision(j.find(first))),WALL+1000);
+        check(j.find(first).reported,"Reported as kept");
+        for(int i=0;i<TestJournal.MAX_ENTRIES-1;i++){
+            TestJournal.Entry filler=j.find(first).copy();filler.testId=String.format(java.util.Locale.ROOT,"%016x",0xf00+i);filler.reported=false;
+            filler.createdWall=filler.updatedWall=WALL+2000+i;j.commit(filler);
+        }
+        check(j.all(PROFILE).size()==TestJournal.MAX_ENTRIES&&j.find(first).reported,"Full: the reported try and 19 unreported ones");
+        GuidedTest back=GuidedTest.restoreFrom(j,j.find(first),prompt,d,with(21,4),NOW+5000,WALL+5000);
+        check(!j.find(first).reported&&!back.entry().reported,"Reopened for Set back: no longer reported");
+        sendRestore(back,0x6c);back.onStatus(with(21,2),NOW+6000);
+        TestJournal.Entry restored=j.find(first);
+        check(restored.resolved&&restored.restoration.equals(TestJournal.CONFIRMED)&&!restored.reported,"Set back confirmed and unreported: "+TestJournal.line(restored));
+        check(!new TestJournal(m).find(first).reported,"Unreported on disk too");
+        GuidedTest next=GuidedTest.trial(j,PROFILE,d,prompt,TestJournal.EXPERIMENTAL,4,2,NOW,WALL+7000,new Random(11));next.onReadRequested(0x70,NOW);next.onStatus(s,NOW);sendTarget(next,0x6c);
+        check(!next.testId().equals(first),"Fixture: a new try ID");
+        check(j.find(first)!=null&&j.find(String.format(java.util.Locale.ROOT,"%016x",0xf00))==null&&j.find(next.testId())!=null&&j.all(PROFILE).size()==TestJournal.MAX_ENTRIES,
+            "One more try: the oldest unreported try makes room, the set-back one stays");
+        // A reported unfinished try that is then restored, kept or dismissed is unreported again; an unchanged save keeps the flag.
+        Memory m2=new Memory();TestJournal k=new TestJournal(m2);
+        GuidedTest cut=tried(k,d,prompt,TestJournal.EXPERIMENTAL,4,2,s);sendTarget(cut,0x6c);cut.onStatus(with(21,4),NOW+400);cut.onDisconnect(NOW+500);
+        k.markReported(Arrays.asList(TestJournal.revision(k.find(cut.testId()))),WALL+600);
+        k.commit(k.find(cut.testId()));
+        check(k.find(cut.testId()).reported,"Saving the same record keeps it reported");
+        GuidedTest.restoreFrom(k,k.find(cut.testId()),prompt,d,with(21,4),NOW+700,WALL+700);
+        check(!k.find(cut.testId()).reported,"Restoring a reported unfinished try: unreported");
+        k.markReported(Arrays.asList(TestJournal.revision(k.find(cut.testId()))),WALL+800);
+        k.resolve(cut.testId(),TestJournal.DECLINED,"dismissed",WALL+900);
+        check(!k.find(cut.testId()).reported,"Dismissing it afterwards: unreported");
+    }
 
     // ---- Eligibility (C4.3) -----------------------------------------------------------------------
 
@@ -513,9 +723,9 @@ public final class GuidedTestTest {
     }
 
     private static void vocabulary() {
-        String[] texts={"Read supported","Rejected, code N","Acknowledged, unconfirmed","Readback unchanged","Readback different","Setting confirmed","Effect observed","Restoration confirmed","Interrupted/no response"};
+        String[] texts={"Read supported","Rejected, code N","Acknowledged, unconfirmed","Readback unchanged","Readback different","Setting confirmed","Effect observed","Restoration confirmed","Interrupted/no response","Not sent"};
         GuidedTest.Outcome[] all=GuidedTest.Outcome.values();
-        check(all.length==texts.length,"Nine outcomes");
+        check(all.length==texts.length,"Ten outcomes (Not sent only for tries)");
         for(int i=0;i<all.length;i++){
             check(all[i].text.equals(texts[i]),"docs/03 wording "+all[i]);
             check(GuidedTest.Outcome.parse(all[i].token(42))==all[i],"Token round trip "+all[i]);

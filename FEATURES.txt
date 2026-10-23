@@ -306,15 +306,11 @@ owner key, PIN, names or routes. On models other than the UT5 MAX, optional
 reads that are rejected or silent twice are not requested again that session;
 UT5 MAX polling is unchanged.
 
-The same screen can run one guided, reversible test of dashboard units, tail
-light, turn signal sound, automatic lights or range estimate (units only on an
-unidentified model). Volt reads a fresh baseline, writes the test value only
-after the owner approves it while parked, confirms it by a later readback, asks
-what the owner saw, then writes the baseline back and confirms that. Each write
-is journalled on the phone first; an interrupted test is reported as
-outstanding and is never replayed after a reconnect or restart. Results go in
-the report only (report-only: no control is enabled by a test). Speed, charging,
-lock, PIN, proximity, clock, composite and Lab settings are never tested.
+The checker no longer changes settings: the guided tests of dashboard units, tail
+light, turn signal sound, automatic lights and range estimate moved to
+Experimental controls as Help verify (below). It still reviews any unfinished
+try or older guided test (Restore, Keep or Dismiss), with Developer options
+hidden too, and its report includes the tries.
 
 PHONE-FREE AND RIDING CHECKS STILL NEEDED
 
@@ -403,17 +399,37 @@ other listed models offer each control; ties follow a fixed owner priority
 light, automatic lights, units, then the rest). The family count is usually
 zero, because the official app hides controls by family.
 
+Help verify, a second group, lists the guided-test controls (dashboard units,
+tail light, turn signal sound, automatic lights, range estimate) where the
+official app offers them for the model and Volt has not verified them there
+(OEM-mapped, not Volt-verified; an unidentified model: units only). Their
+Scooter rows are unchanged; a try uses the same flow and conditions.
+
 A try needs a fresh, owner-authenticated status with the field present and a
 known value, the scooter stopped with a recent motion report, unlocked, no
-scooter warning, no pending change, compatibility check, setting test or ride
-or charge recording. Volt sends one value, then shows what the scooter read
-back: "Worked here" (the new value read back), "No change seen" (acknowledged
-but two later reads kept the old value; the connection stays up), "Refused by
-scooter" (an error code) or "Untested on your model" before any try. Set back
-writes the value from before the session's first try, in one tap, under the
-same conditions. Controls the scooter does not report are listed as not
-reported and cannot be tried. Results last for the session, like other
-command results; nothing new is stored or shared.
+scooter warning, no pending change, compatibility check, other try or ride or
+charge recording. It runs like the former guided tests: a fresh baseline that
+must match what the sheet showed, a journal entry on the phone before the
+write, one write, and a readback that only replies to reads sent after the
+acknowledgement can give. Then Volt asks "Did you see it change?" (Yes, No,
+Skip). Results: "Worked here" (the new value read back), "No change seen"
+(acknowledged, and a later read still showed the old value), "Refused by
+scooter" (an error code), "Not sent" (refused by Volt before sending) or
+"Other value read". Accepted but unconfirmed, or dropped after sending, is
+never no change: the try stays unfinished for review (Restore, Keep or
+Dismiss), and nothing is ever written again by itself after a disconnect or
+restart. The value tried stays; Set back writes the earlier value in one tap,
+journalled the same way, also after a restart. Controls the scooter does not
+report are listed as not reported and cannot be tried.
+
+Try records stay on the phone (at most 20 tries and tests, never in backups;
+no serial, address, identity, PIN, names or times of day) until a report the
+owner emails, shares or saves (once the file is written) includes them, or
+until Clear try results; a later Set back or review waits for the next report. The
+compatibility report (volt-compat-report-v1) lists them in an optional
+"experimental" array (control, group, variant, layer, value before and tried,
+result, step outcomes with times relative to the try, the owner's answer,
+restoration, kept) and in summary lines.
 
 Earlier UT5 MAX evidence for its Lab rows:
 

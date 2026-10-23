@@ -17,7 +17,7 @@ public final class ExperimentalControlsTest {
     private static int assertions;
     private static final long SEEN=100000,NOW=SEEN+1000;
     public static void main(String[] args) {
-        split(); sweep(); ranking(); gates(); writeGate(); variants(); unchanged(); simulation();
+        split(); sweep(); ranking(); gates(); writeGate(); helpVerify(); variants(); unchanged(); simulation();
                 // Experimental tries carry the ordinary rows' cautions for the same changes.
         check(ModelRegistry.experimentalCaution("start_speed",0)!=null&&ModelRegistry.experimentalCaution("start_speed",2)!=null&&ModelRegistry.experimentalCaution("start_speed",3)==null,"Kick-start below 3 km/h is cautioned");
         check(ModelRegistry.experimentalCaution("traction_control",0)!=null&&ModelRegistry.experimentalCaution("traction_control",1)==null,"Traction control off is cautioned");
@@ -174,31 +174,84 @@ System.out.println("ExperimentalControls tests passed: "+assertions+" assertions
     private static CapabilityResolver.Decision gate(String key,int value,MutationGate.Origin origin,DeviceDescriptor d,byte[] data){
         return MutationGate.check(request(MutationGate.Kind.SET,key,value,origin),d,status(data),parked());
     }
-    /** The write gate: experimental writes only through the experimental rule; Lab rows never through an ordinary change. */
+    /** A running try's own write (guided origin, rt.testTry), as BleController admits it. */
+    private static CapabilityResolver.Runtime trying(String key){CapabilityResolver.Runtime rt=parked();rt.test=true;rt.testFeature=key;rt.testTry=true;return rt;}
+    private static CapabilityResolver.Decision tryGate(String key,int value,boolean restore,DeviceDescriptor d,byte[] data,CapabilityResolver.Runtime rt){
+        return MutationGate.check(request(MutationGate.Kind.SET,key,value,restore?MutationGate.Origin.GUIDED_RESTORE:MutationGate.Origin.GUIDED_TEST),d,status(data),rt);
+    }
+    private static CapabilityResolver.Runtime simulator(){CapabilityResolver.Runtime rt=new CapabilityResolver.Runtime();rt.simulation=true;rt.ready=true;return rt;}
+    /**
+     * The write gate. On a scooter a try is a journalled guided write under the try rule (rt.testTry); a plain
+     * experimental change is the simulator's alone; Lab rows never take an ordinary change.
+     */
     private static void writeGate() {
         DeviceDescriptor n65i=model("22131");
-        check(gate("turn_sound",1,MutationGate.Origin.EXPERIMENTAL,n65i,data()).available(),"An experimental change is admitted");
+        check(tryGate("turn_sound",1,false,n65i,data(),trying("turn_sound")).available()&&tryGate("turn_sound",0,true,n65i,data(),trying("turn_sound")).available(),"A try's write and set back are admitted");
+        check(gate("turn_sound",1,MutationGate.Origin.EXPERIMENTAL,n65i,data()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"No plain experimental write on a scooter: every try is journalled");
+        check(MutationGate.check(request(MutationGate.Kind.SET,"prompt_tone",3,MutationGate.Origin.EXPERIMENTAL),DeviceDescriptor.simulated("24431",0),StatusFields.NONE,simulator()).available(),"The simulator's plain change");
+        CapabilityResolver.Runtime guidedTest=trying("turn_sound");guidedTest.testTry=false;
+        check(!tryGate("turn_sound",1,false,n65i,data(),guidedTest).available(),"An older guided test never writes a hidden control (the test table refuses it)");
+        check(tryGate("turn_sound",1,false,n65i,data(),trying("traction_control")).reason==CapabilityResolver.Reason.TEST_ACTIVE,"Only the running try's control");
+        check(tryGate("turn_sound",1,false,n65i,data(),parked()).reason==CapabilityResolver.Reason.NO_TEST,"No guided write without a running try");
         check(!gate("turn_sound",1,MutationGate.Origin.USER,n65i,data()).available(),"An ordinary change of the same control is still refused");
-        check(gate("display_units",0,MutationGate.Origin.EXPERIMENTAL,n65i,data()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"An offered control is not changed as an experiment");
+        check(!tryGate("display_units",0,false,n65i,data(),trying("display_units")).available(),"A verified, offered control is not tried");
         check(gate("display_units",0,MutationGate.Origin.USER,n65i,data()).available(),"...it keeps its ordinary change");
+        check(tryGate("range_algorithm",3,false,n65i,data(),trying("range_algorithm")).available(),"Help verify: the N65i's OEM-mapped range estimate");
         for(String key:new String[]{"prompt_tone","acceleration","dual_drive","speed_limit"}){
             int value=key.equals("speed_limit")?8:key.equals("prompt_tone")?3:key.equals("acceleration")?5:1;
             check(gate(key,value,MutationGate.Origin.USER,ut5(),data()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"UT5 MAX Lab "+key+" only from Experimental controls");
-            check(gate(key,value,MutationGate.Origin.EXPERIMENTAL,ut5(),data()).available(),"UT5 MAX Lab "+key+" from Experimental controls");
+            check(tryGate(key,value,false,ut5(),data(),trying(key)).available(),"UT5 MAX Lab "+key+" as a try");
         }
         check(gate("cruise_control",0,MutationGate.Origin.USER,ut5(),data()).available(),"UT5 MAX ordinary controls unchanged");
         for(MutationGate.Kind kind:new MutationGate.Kind[]{MutationGate.Kind.CHARGE_START,MutationGate.Kind.CLOCK,MutationGate.Kind.PIN_SET,MutationGate.Kind.PIN_ENABLE,
                 MutationGate.Kind.PIN_READ,MutationGate.Kind.BOND,MutationGate.Kind.PROXIMITY})
-            for(DeviceDescriptor d:new DeviceDescriptor[]{ut5(),n65i,model("25041")})
+            for(DeviceDescriptor d:new DeviceDescriptor[]{ut5(),n65i,model("25041")}){
                 check(!MutationGate.check(request(kind,"",1,MutationGate.Origin.EXPERIMENTAL),d,status(data()),parked()).available(),"No "+kind+" as an experiment");
+                check(!MutationGate.check(request(kind,"",1,MutationGate.Origin.GUIDED_TEST),d,status(data()),trying(MutationGate.feature(kind,""))).available(),"No "+kind+" as a try");
+            }
         for(String key:ModelRegistry.NEVER_EXPERIMENTAL)
             for(DeviceDescriptor d:new DeviceDescriptor[]{n65i,model("23452"),model("25041"),model("25731"),ModelRegistryTest.advertised("39991")})
                 for(int v=0;v<=100;v+=key.equals("charge_limit")?5:1)
-                    if(v<=10||key.equals("charge_limit")||key.equals("maximum_speed"))
+                    if(v<=10||key.equals("charge_limit")||key.equals("maximum_speed")){
+                        // Units and range estimate are never experimental, but are Help verify where the official app offers them.
+                        if(!ModelRegistry.testable(key))check(!tryGate(key,v,false,d,data(),trying(key)).available()&&!tryGate(key,v,true,d,data(),trying(key)).available(),"Never as a try: "+key+"="+v+" on "+d.rulePid());
                         check(!gate(key,v,MutationGate.Origin.EXPERIMENTAL,d,data()).available(),"Never as an experiment: "+key+"="+v+" on "+d.rulePid());
-        CapabilityResolver.Runtime moving=parked();moving.stationary=false;
-        check(MutationGate.check(request(MutationGate.Kind.SET,"turn_sound",1,MutationGate.Origin.EXPERIMENTAL),n65i,status(data()),moving).reason==CapabilityResolver.Reason.MOVING,"Gate refuses while moving");
-        check(gate("turn_sound",2,MutationGate.Origin.EXPERIMENTAL,n65i,data()).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"Gate refuses a value outside the domain");
+                    }
+        CapabilityResolver.Runtime moving=trying("turn_sound");moving.stationary=false;
+        check(tryGate("turn_sound",1,false,n65i,data(),moving).reason==CapabilityResolver.Reason.MOVING,"Gate refuses a try while moving");
+        check(tryGate("turn_sound",2,false,n65i,data(),trying("turn_sound")).reason==CapabilityResolver.Reason.MODEL_EXCLUDED,"Gate refuses a value outside the domain");
+    }
+
+    /**
+     * Help verify: the guided-test table's controls the official app offers for the model but Volt hasn't verified
+     * there (OEM_MAPPED, never VOLT_VERIFIED), with the try conditions; their ordinary rows are unchanged.
+     */
+    private static void helpVerify() {
+        check(ModelRegistry.verifiable(ut5()).isEmpty(),"UT5 MAX: every guided-test control is verified");
+        check(ModelRegistry.verifiable(model("22131")).equals(Arrays.asList("range_algorithm")),"N65i: only range estimate is unverified "+ModelRegistry.verifiable(model("22131")));
+        check(ModelRegistry.verifiable(model("23452")).equals(Arrays.asList(ModelRegistry.TESTABLE)),"ST3 Pro: the whole table "+ModelRegistry.verifiable(model("23452")));
+        check(ModelRegistry.verifiable(model("25731")).equals(Arrays.asList("display_units","headlight","auto_sensor","range_algorithm")),"2573: turn sound is hidden there, so it's experimental instead");
+        check(ModelRegistry.verifiable(ModelRegistryTest.serial("Q2443ZZ9US7777777")).equals(Arrays.asList("display_units")),"Unidentified: dashboard units, as the guided tests offered");
+        check(ModelRegistry.verifiable(ModelRegistryTest.advertised("39991")).equals(Arrays.asList("display_units")),"Unlisted: dashboard units only");
+        for(DeviceDescriptor d:new DeviceDescriptor[]{ModelRegistryTest.both("Q2443ZZ9US7777777","25851"),ModelRegistryTest.advertised("24351"),ModelRegistryTest.advertised("27361")})
+            check(ModelRegistry.verifiable(d).isEmpty(),"Nothing for a conflict, golf cart or e-bike");
+        for(String pid:new String[]{"22131","23452","25731","25041","24431","25462"})
+            for(String key:ModelRegistry.verifiable(model(pid))){
+                CapabilityResolver.Decision v=CapabilityResolver.decideVerify(key,model(pid),status(data()),parked()),usual=ordinary(key,model(pid));
+                check(v.evidence==CapabilityResolver.Evidence.OEM_MAPPED&&!v.variant.lab&&!v.experimental(),"Help verify is OEM-mapped, not Lab: "+pid+" "+key);
+                check(usual.variant==v.variant&&usual.evidence==CapabilityResolver.Evidence.OEM_MAPPED,"Its ordinary row is the same mapping, unchanged: "+pid+" "+key);
+                check(!listed(model(pid)).contains(key),"Never both experimental and Help verify: "+pid+" "+key);
+                check(CapabilityResolver.decideTry(key,model(pid),status(data()),parked()).variant==v.variant,"decideTry picks Help verify "+key);
+            }
+        DeviceDescriptor st3=model("23452");
+        check(CapabilityResolver.decideVerify("headlight",st3,status(data()),parked()).available(),"ST3 Pro tail light can be verified now");
+        CapabilityResolver.Runtime rt=parked();rt.stationary=false;rt.motionSeen=false;rt.parkedConfirmed=true;
+        check(CapabilityResolver.decideVerify("headlight",st3,status(data()),rt).reason==CapabilityResolver.Reason.NO_MOTION_REPORT,"A try needs a real motion report (no parked tick)");
+        rt=parked();rt.owner=false;check(CapabilityResolver.decideVerify("display_units",st3,status(data()),rt).reason==CapabilityResolver.Reason.OWNER_ONLY,"Owner only, unlike the old guided tests");
+        byte[] locked=data();locked[2]=1;check(CapabilityResolver.decideVerify("display_units",st3,status(locked),parked()).reason==CapabilityResolver.Reason.LOCKED,"Unlocked");
+        rt=parked();rt.recording=true;check(CapabilityResolver.decideVerify("display_units",st3,status(data()),rt).reason==CapabilityResolver.Reason.RECORDING,"Not while recording");
+        check(CapabilityResolver.decideVerify("display_units",ut5(),status(data()),parked()).reason==CapabilityResolver.Reason.NOT_TESTABLE,"Verified on the UT5 MAX: nothing to verify");
+        check(CapabilityResolver.decideVerify("cruise_control",st3,status(data()),parked()).reason==CapabilityResolver.Reason.NOT_TESTABLE,"Only the guided-test table");
     }
 
     /** Lab variants: the official app's wire where it offers the control, and the same readback as the catalogue decoder. */

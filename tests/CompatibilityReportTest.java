@@ -16,7 +16,7 @@ public final class CompatibilityReportTest {
     private static final long T0=80000;
     private static final String SERIAL="Q2443ZZ9US7777777",MAC="C0:FF:EE:12:34:56",IDENTITY="A1B2C3D4E5F6",NAME="Alice's scooter";
     public static void main(String[] args) {
-        privacy(); keys(); outcomes(); fields(); device(); tests(); imports(); ids(); authVariants(); oemOnlyControls();
+        privacy(); keys(); outcomes(); fields(); device(); tests(); tries(); imports(); ids(); authVariants(); oemOnlyControls();
         System.out.println("CompatibilityReport tests passed: "+assertions+" assertions");
     }
 
@@ -210,6 +210,55 @@ public final class CompatibilityReportTest {
         String forged=everyJson.replace("\"restoration\": \"outstanding\"","\"restoration\": \"restored!\"").replace("\"interrupted\"]","\"interrupted\", \"effect_observed\", \"setting_confirmed_by_magic\"]");
         String cleaned=CompatibilityReport.parse(forged).json();
         check(cleaned.contains("\"restoration\": \"outstanding\"")&&!cleaned.contains("magic")&&!cleaned.contains("\"effect_observed\""),"An imported restoration is never upgraded and unknown steps drop\n"+cleaned);
+    }
+    /** Experimental controls tries: their own array and summary lines, the same redaction, and every result named honestly. */
+    private static void tries() {
+        TestJournal.Entry worked=entry("start_speed","start_speed.0_5.lab",3,0,Arrays.asList("setting_confirmed","effect_observed"),Arrays.asList(400L,800L),"observed","declined");
+        worked.kind=TestJournal.EXPERIMENTAL;worked.layer="oem_group";worked.resolution="kept";
+        TestJournal.Entry verify=entry("display_units","display_units.oem",1,0,Arrays.asList("readback_unchanged_1","restoration_confirmed"),Arrays.asList(500L,500L),"not_checked","confirmed");
+        verify.kind=TestJournal.VERIFY;verify.layer="oem_group";verify.testId="0123456789abcdef";
+        TestJournal.Entry unsent=entry("turn_sound","turn_sound.oem.lab",0,1,Arrays.asList("not_sent","restoration_confirmed"),Arrays.asList(10L,90L),"not_checked","confirmed");
+        unsent.kind=TestJournal.EXPERIMENTAL;unsent.testId="1111111111111111";
+        TestJournal.Entry dropped=entry("traction_control","traction_control.oem.lab",1,0,Arrays.asList("interrupted"),Arrays.asList(20L),"not_checked","outstanding");
+        dropped.kind=TestJournal.EXPERIMENTAL;dropped.resolved=false;dropped.testId="2222222222222222";
+        TestJournal.Entry unconfirmed=entry("hill_start_assist","hill_start_assist.oem.lab",1,0,Arrays.asList("ack_unconfirmed"),Arrays.asList(6500L),"not_checked","outstanding");
+        unconfirmed.kind=TestJournal.EXPERIMENTAL;unconfirmed.resolved=false;unconfirmed.testId="3333333333333333";
+        TestJournal.Entry guided=entry("headlight","headlight.oem",1,0,Arrays.asList("setting_confirmed","restoration_confirmed"),Arrays.asList(300L,900L),"observed","confirmed");
+        guided.testId="4444444444444444";
+        // A UT5 MAX speed cap (a slider) from Off to 10 km/h, then set back.
+        TestJournal.Entry cap=entry("speed_limit","speed_limit.ut5",0,10,Arrays.asList("setting_confirmed","restoration_confirmed"),Arrays.asList(400L,5000L),"observed","confirmed");
+        cap.kind=TestJournal.EXPERIMENTAL;cap.layer="ut5_max";cap.resolution="restored";cap.testId="5555555555555555";
+        CompatibilityReport r=new CompatibilityReport.Builder("1.6.0",new Random(4)).device(fixture(),null,"aes").tests(Arrays.asList(worked,verify,unsent,dropped,unconfirmed,guided,cap)).build();
+        String json=r.json(),summary=r.summary();
+        check(r.included().size()==7&&r.included().contains(TestJournal.revision(cap))&&r.included().get(0).startsWith("deadbeefcafebabe:")&&!json.contains("deadbeef")&&!json.contains("0123456789abcdef"),"Test IDs travel beside the report, never in it");
+        for(String revision:r.included())check(revision.matches("[0-9a-f]{16}:[0-9a-f]{16}")&&!json.contains(revision.substring(17))&&!summary.contains(revision.substring(17)),"Each included revision is an ID and a record digest, neither in the report: "+revision);
+        TestJournal.Entry later=cap.copy();later.updatedWall+=5000;later.reported=true;
+        check(TestJournal.revision(later).equals(TestJournal.revision(cap)),"A revision ignores the reported flag and the update time");
+        later.effect="not_observed";
+        check(!TestJournal.revision(later).equals(TestJournal.revision(cap)),"Any change to the record is a new revision");
+        check(json.contains("\"experimental\": [")&&json.contains("\"tests\": ["),"Tries and the older guided test each in their own array");
+        int tests=json.indexOf("\"tests\": ["),tries=json.indexOf("\"experimental\": [");
+        check(json.substring(tests,tries>tests?tries:json.length()).contains("\"headlight\"")&&!json.substring(tests,tries>tests?tries:json.length()).contains("start_speed"),"Guided test stays in tests");
+        String part=json.substring(tries);
+        for(String s:new String[]{"\"group\": \"experimental\"","\"group\": \"help_verify\"","\"result\": \"worked_here\"","\"result\": \"no_change_seen\"","\"result\": \"not_sent\"",
+                "\"result\": \"interrupted\"","\"result\": \"unconfirmed\"","\"kept\": true","\"layer\": \"oem_group\"","\"effect\": \"observed\""})check(part.contains(s),"Try field "+s);
+        check(summary.contains("Experimental controls tries")&&summary.contains("start_speed 3 → 0 · experimental · layer oem_group · Worked here")&&summary.contains("Owner saw it change: Yes")
+            &&summary.contains("Kept by the owner")&&summary.contains("display_units 1 → 0 · Help verify")&&summary.contains("No change seen")&&summary.contains("Not sent")
+            &&summary.contains("Unconfirmed (interrupted)")&&summary.contains("· Unconfirmed\n")&&summary.contains("Still 1, confirmed")
+            &&summary.contains("speed_limit 0 → 10 · experimental · layer ut5_max · Worked here")&&summary.contains("Back to 0, confirmed"),"Summary lines\n"+summary);
+        check(!summary.contains("traction_control 1 → 0 · experimental · No change")&&!summary.contains("hill_start_assist 1 → 0 · experimental · Not sent"),"An unconfirmed try is never no change or not sent");
+        check(CompatibilityReport.KEYS.containsAll(Arrays.asList("experimental","group","result","kept")),"New keys whitelisted");
+        // Re-imported, the tries survive the whitelist; an invalid one is dropped, a missing array is fine.
+        CompatibilityReport back=CompatibilityReport.parse(json);
+        check(back!=null&&back.json().equals(json)&&back.included().isEmpty(),"Round trip; an import marks nothing");
+        String hostile=json.replace("\"group\": \"experimental\"","\"group\": \"anything\"").replace("\"result\": \"worked_here\"","\"result\": \"great\"");
+        CompatibilityReport cleaned=CompatibilityReport.parse(hostile);
+        check(cleaned!=null&&!cleaned.json().contains("anything")&&!cleaned.json().contains("great"),"Unknown group or result dropped");
+        String noArray=new CompatibilityReport.Builder("1.6.0",new Random(4)).device(fixture(),null,"aes").tests(Arrays.asList(guided)).build().json();
+        check(!noArray.contains("\"experimental\"")&&CompatibilityReport.parse(noArray)!=null,"Reports without tries keep the old shape");
+        TestJournal.Entry pin=entry("pin","pin.oem",0,1,Arrays.asList("setting_confirmed"),Arrays.asList(1L),"observed","declined");pin.kind=TestJournal.EXPERIMENTAL;
+        String withPin=new CompatibilityReport.Builder("1.6.0",new Random(4)).tests(Arrays.asList(pin)).build().json();
+        check(!withPin.contains("\"pin\""),"A never-experimental key never reaches the report");
     }
     private static void imports() {
         CompatibilityReport original=build(fixture(),new Random(10));
