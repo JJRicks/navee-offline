@@ -109,7 +109,7 @@ public final class DashboardConfig {
                                             "temperature_c"));
             if (type.equals("shortcuts")) {
                 quickActions.clear();
-                quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
+                quickActions.addAll(ModelTiles.DEFAULT);
             }
             // The compact bar matches the Home concept: Disconnect stays in connection details.
             if (type.equals("lockbar")) showDisconnect = false;
@@ -218,6 +218,7 @@ public final class DashboardConfig {
     private final String emptyExampleKey;
     private final boolean expanded;
     public final ArrayList<Widget> widgets = new ArrayList<>();
+    private java.util.List<String> modelTiles;
 
     public DashboardConfig(SharedPreferences preferences, String profileId) {
         this(preferences, profileId, false);
@@ -225,16 +226,22 @@ public final class DashboardConfig {
 
     /** The window class is fixed for this screen/configuration, independently of columns. */
     public DashboardConfig(SharedPreferences preferences, String profileId, boolean expanded) {
-        this(preferences, profileId, expanded, AllWidgetsDashboard::create);
+        this(preferences, profileId, expanded, AllWidgetsDashboard::create, ModelTiles.DEFAULT);
+    }
+
+    /** With the model's Setting tiles (ModelTiles), which a first or restored default dashboard starts with. */
+    public DashboardConfig(SharedPreferences preferences, String profileId, boolean expanded, java.util.List<String> modelTiles) {
+        this(preferences, profileId, expanded, AllWidgetsDashboard::create, modelTiles);
     }
 
     DashboardConfig(SharedPreferences preferences, String profileId,
             java.util.function.Supplier<ArrayList<Widget>> exampleFactory) {
-        this(preferences, profileId, false, exampleFactory);
+        this(preferences, profileId, false, exampleFactory, ModelTiles.DEFAULT);
     }
 
     private DashboardConfig(SharedPreferences preferences, String profileId, boolean expanded,
-            java.util.function.Supplier<ArrayList<Widget>> exampleFactory) {
+            java.util.function.Supplier<ArrayList<Widget>> exampleFactory, java.util.List<String> modelTiles) {
+        this.modelTiles = modelTiles == null ? ModelTiles.DEFAULT : modelTiles;
         this.preferences = preferences;
         this.expanded = expanded;
         storageKey = "dashboard_v1_" + profileId;
@@ -382,8 +389,11 @@ public final class DashboardConfig {
     private void loadDefaults(boolean resetColumns) {
         widgets.clear();
         widgets.addAll(DefaultDashboard.create());
+        adaptSettingTiles(modelTiles);
         save(resetColumns);
     }
+    /** The model's Setting tiles for defaults created or restored from now on (Volt learned the model). */
+    public void modelTiles(java.util.List<String> tiles) { modelTiles = tiles == null ? ModelTiles.DEFAULT : tiles; }
 
     public List<DashboardLayout.Cell> layout(int columns, String priority) {
         columns = Math.max(1, Math.min(MAX_COLUMNS, columns));
@@ -435,6 +445,20 @@ public final class DashboardConfig {
         }
         List<DashboardLayout.Cell> result = DashboardLayout.settle(visible, columns, priority);
         return priority == null ? DashboardLayout.withoutLeadingRows(result) : result;
+    }
+
+    /**
+     * Setting tiles still on the release pair become the model's own (ModelTiles); tiles the owner chose are never touched.
+     * True when something changed and the dashboard needs saving.
+     */
+    public boolean adaptSettingTiles(java.util.List<String> modelTiles) {
+        boolean changed = false;
+        if (modelTiles == null || modelTiles.equals(ModelTiles.DEFAULT)) return false;
+        for (Widget widget : widgets)
+            if (widget.type.equals("shortcuts") && widget.quickActions.equals(ModelTiles.DEFAULT)) {
+                widget.quickActions.clear(); widget.quickActions.addAll(modelTiles); changed = true;
+            }
+        return changed;
     }
 
     public void save() {

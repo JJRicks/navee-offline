@@ -131,6 +131,8 @@ public final class ModelRegistryTest {
             check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming the GT5 Max changes no rule: "+f);
         }
         check(ModelRegistry.reported(gt5)&&ReportInvite.model(gt5).isEmpty()&&!ReportInvite.model(gt5Sibling).isEmpty(),"The GT5 Max is reported; its unreported siblings are still offered");
+        check(ModelRegistry.driveModeLabelProduct(gt5)==25462&&ModelRegistry.driveModeLabelProduct(gt5Sibling)==0&&ModelRegistry.driveModeLabelProduct(advertised("23452"))==0,
+            "Only the GT5 Max's reported drive-mode codes get names");
     }
 
     /** Photos bundled ahead of their Model ID: listed NAVEE models, shown on nothing yet, each ready to use once its ID is known. */

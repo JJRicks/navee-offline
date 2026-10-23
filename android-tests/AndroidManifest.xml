@@ -38,6 +38,7 @@
   <instrumentation android:name="com.jjricks.volt.tests.ReportInviteValidation" android:targetPackage="com.jjricks.volt" android:label="Compatibility report invite on the simulator" />
   <instrumentation android:name="com.jjricks.volt.tests.UpdateCheckValidation" android:targetPackage="com.jjricks.volt" android:label="Check for updates with GitHub stubbed" />
   <instrumentation android:name="com.jjricks.volt.tests.OwnerModelValidation" android:targetPackage="com.jjricks.volt" android:label="The owner's model answer names and pictures a scooter" />
+  <instrumentation android:name="com.jjricks.volt.tests.ModelHomeValidation" android:targetPackage="com.jjricks.volt" android:label="Home follows a known model's tiles and drive modes" />
   <instrumentation android:name="com.jjricks.volt.tests.ReportShortcutsValidation" android:targetPackage="com.jjricks.volt" android:label="Report an issue and the checker's Share report" />
   <instrumentation android:name="com.jjricks.volt.tests.CompatibilityGatingValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated simulated model compatibility gating validation" />
   <instrumentation android:name="com.jjricks.volt.tests.CompatControlsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated simulated OEM control families validation" />
