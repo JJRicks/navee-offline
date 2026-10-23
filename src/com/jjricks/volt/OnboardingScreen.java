@@ -724,7 +724,7 @@ public final class OnboardingScreen implements AppScreen {
         // Wireless debugging needs Android 11; below that the Shizuku card can't be chosen.
         boolean shizukuSupported = Build.VERSION.SDK_INT >= 30;
         String[][] options = {
-                {WEBADB, "screen", "Use Chrome and a USB cable", "Chrome + USB cable", "Recommended"},
+                {WEBADB, "screen", "Use Chrome and a USB cable", "Computer · a few minutes", "Recommended"},
                 {RESTORE, "download", "Restore Volt backup", "Scooters, rides, dashboards & settings", null},
                 {CAPTURE, "screen", "Capture it from the NAVEE app", "Computer · 10 min", null},
                 {SHIZUKU, "screen", "Use Shizuku on this phone", "No computer · Android 11+", null},

@@ -178,7 +178,7 @@ printf SAVED`;
   try {
     if (await phone.run(command, { input: data }) !== 'SAVED') throw new Error('Unverified transfer');
     $('saved-file').textContent = `Phone Downloads / ${name}`; $('saved-file').hidden = false;
-    message('notice', 'Saved to phone Downloads. USB access is closed. In Volt’s Import your owner file step, tap Choose file and select the new file.');
+    message('notice', 'Saved to phone Downloads. USB access is closed. In Volt’s Import your owner file step, tap Choose owner file and select the new file.');
     await releasePhone({ keepResult: true });
   } catch {
     await releasePhone({ keepResult: true });

@@ -11,7 +11,7 @@ separate unchecked checkboxes and explicit buttons.
 
 Capture, protocol, transport and cleanup modules are unchanged. The only runtime
 JavaScript edits are button labels and the final import instructions, which now
-match **Import your owner file → Choose file** in Volt. The build still emits
+match **Import your owner file → Choose owner file** in Volt. The build still emits
 the exact script hash for CSP/SRI and denies network uploads, workers and frames.
 
 Validation on local synthetic inputs, without USB hardware:
@@ -52,3 +52,17 @@ the guarded runner and synthetic-fixture requirements.
 
 Native results and the real-keyboard regression comparison are recorded in
 [Setup choice and backup password visibility](setup-app-polish.md).
+
+## Review follow-up
+
+The save-panel instructions and successful-save notice now match the exact Android
+button **Choose owner file**. The regular-browser/recovery-data reminder appears
+once, in the visible permission card. Collapsed connection help briefly notes the
+browser route’s incomplete capture validation and links to the desktop helper,
+with cleanup required before switching. Chrome/USB remains Recommended, and its
+chooser subtitle is **Computer · a few minutes** rather than repeating its title.
+
+These are copy-only changes. Browser-helper tests, the production build, six-width
+browser checks and an Android build were repeated; the earlier real-keyboard and
+onboarding behavior checks remain applicable. No new capture or device validation
+is claimed by this follow-up.
