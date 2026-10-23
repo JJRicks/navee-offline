@@ -482,7 +482,7 @@ public final class RideStore {
     public synchronized boolean delete(String id) throws IOException {
         if (active != null && active.id.equals(id)) throw new IllegalStateException("Stop recording before deleting");
         File f = file(id); if (!f.exists()) return false;
-        if (!f.delete()) throw new IOException("Could not delete ride"); summaryCache.remove(id); return true;
+        if (!f.delete()) throw new IOException("Could not delete ride"); summaryCache.remove(id); analysisCache.remove(id); return true;
     }
     public synchronized void exportCsv(String id, File destination) throws IOException {
         File source = file(id);
@@ -495,9 +495,32 @@ public final class RideStore {
             finally { output.close(); }
         } finally { input.close(); }
     }
-    public synchronized List<Point> trend(String id, int maxPoints) throws IOException {
-        Accumulator a = active != null && active.id.equals(id) ? active : read(file(id));
-        return trendPoints(a, maxPoints);
+    /**
+     * Chart preview. A completed ride's full-resolution preview is its cached analysis snapshot, so
+     * reopening a long ride (the wide Rides pane rebuilds on every visit) never replays the journal
+     * again. A miss replays outside the recorder monitor, as analysisSnapshots does.
+     */
+    public List<Point> trend(String id, int maxPoints) throws IOException {
+        File source = file(id);
+        CachedAnalysis cached;
+        synchronized (this) {
+            if (active != null && active.id.equals(id)) return trendPoints(active, maxPoints);
+            cached = analysisCache.get(id);
+        }
+        long length = source.length(), modified = source.lastModified();
+        boolean preview = maxPoints >= MAX_TREND_POINTS;
+        if (preview && cached != null && cached.length == length && cached.modified == modified) return cached.snapshot.points;
+        Accumulator parsed = read(source);
+        // Only an unchanged, completed journal is cached; a rename during the replay just misses next time.
+        if (parsed != null && parsed.stopped && source.length() == length && source.lastModified() == modified) {
+            CachedAnalysis replayed = new CachedAnalysis(length, modified, new AnalysisSnapshot(parsed));
+            synchronized (this) {
+                analysisCache.put(id, replayed);
+                while (analysisCache.size() > 256) analysisCache.remove(analysisCache.keySet().iterator().next());
+            }
+            if (preview) return replayed.snapshot.points;
+        }
+        return trendPoints(parsed, maxPoints);
     }
     /** Replay a finished journal without the preview cap or holding the recorder monitor. */
     public List<Point> fullTrend(String id) throws IOException {
