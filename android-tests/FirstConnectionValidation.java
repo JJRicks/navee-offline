@@ -52,7 +52,7 @@ public final class FirstConnectionValidation extends Instrumentation {
                 profile = profiles.create("Synthetic unpaired scooter", "000000000000", 0);
             });
             firstConnection(); absentProfile(); rejectedIdentity(); savedScooterRetry(); backgroundCancellation();
-            hardwareBinding();
+            hardwareBinding(); n65iHandshake();
             result.putString("result", "PASS");
         } catch (Throwable error) {
             result.putString("result", "FAIL"); result.putString("error", error.toString()); error.printStackTrace();
@@ -222,6 +222,35 @@ public final class FirstConnectionValidation extends Instrumentation {
         });
     }
 
+    /** The N65i sums its replies without the leading 0x55 and sends a ten-byte settings read. */
+    private void n65iHandshake() {
+        fresh(false);
+        main(() -> {
+            syntheticConnection("C0:FF:EE:00:00:C0", true);
+            require(hasEvent("header-free checksum"), "The N65i checksum style was not noted");
+            receive(0x74, "Q2443ZZ9US4444444".getBytes(StandardCharsets.US_ASCII), true);
+            require(!ble.ready() && profile.mac.isEmpty(), "Serial alone bound the N65i");
+            receive(0x70, new byte[10], true);
+            require(ble.ready() && profile.mac.equals("C0:FF:EE:00:00:C0") && profile.serial.equals("Q2443ZZ9US4444444"),
+                    "A ten-byte N65i settings read did not complete the connection");
+            require(Integer.valueOf(0).equals(ble.featureValue("lock")), "The N65i lock state did not read from its short settings");
+            require(!hasEvent("failed its checks"), "Valid N65i replies were reported as ignored");
+            receive(0x90, new byte[8], false);
+            require(hasEvent("failed its checks") && ble.ready(), "A mixed-checksum reply was accepted or not reported");
+            ble.disconnect();
+        });
+        // The UT5 MAX keeps its full settings layout: a short read never binds it.
+        fresh(true);
+        main(() -> {
+            syntheticConnection(profile.mac, false);
+            receive(0x74, profile.serial.getBytes(StandardCharsets.US_ASCII)); receive(0x70, new byte[10]);
+            require(!ble.ready(), "A short settings read bound a saved UT5 MAX");
+            receive(0x70, new byte[43]);
+            require(ble.ready() && !hasEvent("header-free checksum"), "The UT5 MAX lost its standard handshake");
+            ble.disconnect();
+        });
+    }
+
     private void rejectedHardware(ScooterProfiles.Profile saved, String address, String serial, boolean statusFirst, boolean known) {
         fresh(known);
         main(() -> {
@@ -284,7 +313,8 @@ public final class FirstConnectionValidation extends Instrumentation {
     }
 
     /** A GATT object with no service, writer or radio connection; only getDevice() is used. */
-    private void syntheticConnection(String address) {
+    private void syntheticConnection(String address) { syntheticConnection(address, false); }
+    private void syntheticConnection(String address, boolean headerless) {
         try {
             Class<?> unsafeType = Class.forName("sun.misc.Unsafe");
             Field unsafe = unsafeType.getDeclaredField("theUnsafe"); unsafe.setAccessible(true);
@@ -293,21 +323,24 @@ public final class FirstConnectionValidation extends Instrumentation {
             set(fake, "mStateLock", new Object());
             require(field(fake,"mService") == null && field(ble,"writer") == null, "Synthetic GATT unexpectedly has a transport");
             set(ble,"gatt",fake); set(ble,"authenticated",false);
-            receive(0x30, new byte[0]);
+            receive(0x30, new byte[0], headerless);
             require((Boolean) field(ble,"authenticated"), "Synthetic owner authentication did not reach production binding");
         } catch (Exception error) { throw new IllegalStateException("Synthetic GATT unavailable; relax hidden_api_policy on the disposable emulator", error); }
     }
 
-    private void receive(int command, byte[] payload) {
+    private void receive(int command, byte[] payload) { receive(command, payload, false); }
+    /** headerless: the N65i's checksum, which leaves out the leading 0x55. */
+    private void receive(int command, byte[] payload, boolean headerless) {
         byte[] packet = new byte[payload.length + 9]; packet[0] = 0x55; packet[1] = (byte) 0xaa;
         packet[3] = (byte) command; packet[4] = (byte) (payload.length + 1);
         System.arraycopy(payload, 0, packet, 6, payload.length); int sum = 0;
-        for (int i = 0; i < packet.length - 3; i++) sum += packet[i] & 255;
+        for (int i = headerless ? 1 : 0; i < packet.length - 3; i++) sum += packet[i] & 255;
         packet[packet.length - 3] = (byte) sum; packet[packet.length - 2] = (byte) 0xfe; packet[packet.length - 1] = (byte) 0xfd;
         try { Method method = BleController.class.getDeclaredMethod("incoming", byte[].class); method.setAccessible(true); method.invoke(ble, packet); }
         catch (Exception error) { throw new IllegalStateException(error); }
     }
 
+    private boolean hasEvent(String text) { for (String line : ble.events()) if (line.contains(text)) return true; return false; }
     private boolean hasRetryEvent() { for (String line : ble.events()) if (line.contains("Reconnect in ")) return true; return false; }
     private void fail(String message, boolean retry, ConnectionEventLog.Reason reason) {
         try { Method m = BleController.class.getDeclaredMethod("failed", String.class, boolean.class, ConnectionEventLog.Reason.class, int.class);

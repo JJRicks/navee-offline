@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Connect to the N65i. Its replies leave the leading 0x55 out of their checksum, so Volt discarded every one, including the owner-check success, and stayed on **Checking owner identity** until it timed out. Volt now accepts either checksum style, fixed per connection by the first valid reply, and finishes connecting with the N65i's shorter settings read. The UT5 MAX handshake is unchanged. Connection activity now notes when a reply is ignored.
 - Reopen Rides instantly on wide screens with a long ride selected. A finished ride's chart preview now comes from the analysis cache instead of replaying its whole recording on the main thread every time the tab is shown; the first view of a ride after Volt starts is unchanged.
 
 ## 1.5.0 — 2026-10-22

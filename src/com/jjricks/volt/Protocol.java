@@ -133,16 +133,24 @@ public final class Protocol {
         return packet;
     }
 
+    /**
+     * How a scooter sums its notifications. The UT5 MAX includes every byte before the checksum;
+     * the N65i leaves out the leading 0x55. Both accept the standard sum on writes.
+     */
+    public enum Checksum { STANDARD, AFTER_HEADER }
+
     public static final class Frame {
         public final int cmd;
         public final int flag;
         /** Complete notification data, with error/status/type at offset zero. */
         public final byte[] data;
+        public final Checksum checksum;
 
-        private Frame(int cmd, int flag, byte[] data) {
+        private Frame(int cmd, int flag, byte[] data, Checksum checksum) {
             this.cmd = cmd;
             this.flag = flag;
             this.data = data;
+            this.checksum = checksum;
         }
 
         public int error() { return data[0] & 255; }
@@ -158,21 +166,25 @@ public final class Protocol {
         require(length >= 1 && packet.length == length + 8, "Notification length mismatch");
         require((packet[packet.length - 2] & 255) == 0xfe && (packet[packet.length - 1] & 255) == 0xfd,
                 "Bad notification footer");
-        require((packet[packet.length - 3] & 255) == checksum(packet, packet.length - 3),
-                "Notification checksum mismatch");
-        return new Frame(packet[3] & 255, packet[2] & 255, Arrays.copyOfRange(packet, 5, 5 + length));
+        int received = packet[packet.length - 3] & 255, sum = checksum(packet, packet.length - 3);
+        // The two styles always differ by the 0x55 header, so a frame never matches both.
+        Checksum style = received == sum ? Checksum.STANDARD : received == ((sum - 0x55) & 255) ? Checksum.AFTER_HEADER : null;
+        require(style != null, "Notification checksum mismatch");
+        return new Frame(packet[3] & 255, packet[2] & 255, Arrays.copyOfRange(packet, 5, 5 + length), style);
     }
 
     /**
      * Bounded stream assembler supporting fragmented and coalesced Bluetooth notifications.
      * Header/footer bytes inside data are ordinary data; a candidate's declared length wins.
      * Reset on disconnect or transaction timeout to discard any truncated stale candidate.
+     * The first accepted frame fixes the connection's checksum style; later frames must match it.
      */
     public static final class Decoder {
         private static final int MAX_FRAME = 263;
         private final byte[] buffer = new byte[MAX_FRAME];
         private int count;
-        private long rejected;
+        private long rejected, invalidFrames;
+        private Checksum checksum;
 
         public List<Frame> feed(byte[] notification) {
             require(notification != null, "Notification must not be null");
@@ -188,9 +200,13 @@ public final class Protocol {
             return frames;
         }
 
-        public void reset() { count = 0; }
+        public void reset() { count = 0; checksum = null; }
         public int bufferedBytes() { return count; }
         public long rejectedBytes() { return rejected; }
+        /** Candidates with a header and their full declared length that still failed (footer, checksum or a mixed style). */
+        public long invalidFrames() { return invalidFrames; }
+        /** This connection's checksum style, or null before its first accepted frame. */
+        public Checksum checksum() { return checksum; }
 
         private void drain(List<Frame> frames) {
             while (count >= 2) {
@@ -209,11 +225,15 @@ public final class Protocol {
                 int total = length + 8;
                 if (count < total) return;
                 try {
-                    frames.add(parse(Arrays.copyOf(buffer, total)));
+                    Frame frame = parse(Arrays.copyOf(buffer, total));
+                    require(checksum == null || frame.checksum == checksum, "Checksum style changed mid-connection");
+                    checksum = frame.checksum;
+                    frames.add(frame);
                     discard(total);
                 } catch (IllegalArgumentException invalid) {
                     discard(1);
                     rejected++;
+                    invalidFrames++;
                 }
             }
         }

@@ -53,7 +53,7 @@ public final class BleController {
     private final TestJournal testJournal;private GuidedTest test;private boolean testParked;private final HashSet<String> testFirmwareConfirmed=new HashSet<>();
     private final ConnectionEventLog diagnostics;private long intentionalDisconnectSequence;private boolean recoverableConnectionLoss;
     private Listener listener;private BluetoothGatt gatt;private BluetoothGattCharacteristic writer;private BluetoothLeScanner scanner;private ScooterProfiles.Profile profile;
-    private State state=State.DISCONNECTED;private String message="Not connected",serial="";private boolean authenticated,wanted,scanning,writing,mtuRequested,discovered,subscribing,subscribed,challengePending,visible,recording;
+    private State state=State.DISCONNECTED;private String message="Not connected",serial="";private boolean invalidFrameNoted,checksumNoted;private boolean authenticated,wanted,scanning,writing,mtuRequested,discovered,subscribing,subscribed,challengePending,visible,recording;
     private int generation,writeOperation,authRounds,retries,pollTicks,mtu=23;private long statusMs,lastFrameMs,motionMs,warningMs;private int speedRaw=-1,driving=-1,warning;
     private Protocol.Frame statusFrame;private Mutation mutation;private ScooterCommands.PinState pinState;private long pinStateMs,mutationSequence,pinReadToken,pinReadSequence;private boolean pinReadPending;
     /** Handshake responses stay private until the transport's hardware belongs to this profile. */
@@ -268,7 +268,7 @@ public final class BleController {
         if(test!=null&&!test.terminal()){test.onDisconnect(now());event("Guided test interrupted");}testParked=false;
         readPolicy=null;authVariant="";
         ++generation;++writeOperation;stopScan();BluetoothGatt old=gatt;gatt=null;writer=null;if(old!=null){try{old.disconnect();}catch(Exception ignored){}try{old.close();}catch(Exception ignored){}}
-        queue.clear();discoveryQueue.clear();outstandingStatusReads=0;decoder.reset();if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=pendingStatusFrame=pendingSerialFrame=null;pendingStatusMs=0;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
+        queue.clear();discoveryQueue.clear();outstandingStatusReads=0;decoder.reset();invalidFrameNoted=checksumNoted=false;if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=pendingStatusFrame=pendingSerialFrame=null;pendingStatusMs=0;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
     }
     private void failed(String text,boolean retry,ConnectionEventLog.Reason reason,int code){
         if(simulating())return;
@@ -358,7 +358,11 @@ public final class BleController {
     private void incoming(byte[] bytes){
         if(simulating())return;
         if(!workAllowed())return;
-        for(Protocol.Frame f:decoder.feed(bytes)){
+        long invalid=decoder.invalidFrames();List<Protocol.Frame> frames=decoder.feed(bytes);
+        // Dropped replies used to vanish silently (the N65i's checksum); say so once per connection.
+        if(decoder.invalidFrames()>invalid&&!invalidFrameNoted){invalidFrameNoted=true;event("Ignored a scooter reply that failed its checks");}
+        if(!checksumNoted&&decoder.checksum()==Protocol.Checksum.AFTER_HEADER){checksumNoted=true;event("Scooter replies use the header-free checksum");}
+        for(Protocol.Frame f:frames){
             lastFrameMs=now();if(f.flag!=0){failed("Unsupported firmware",false,ConnectionEventLog.Reason.UNSUPPORTED_RESPONSE,-1);return;}
             if(!ScooterCommands.sensitiveCommand(f.cmd))event(String.format(Locale.ROOT,"Receive 0x%02X · status %d · %d bytes",f.cmd,f.error(),f.data.length-1));
             if(f.cmd==0x30){
@@ -371,13 +375,13 @@ public final class BleController {
                 if(readPolicy!=null)readPolicy.responded(f.cmd,f.error(),f.data.length-1,now());
                 if(discovering)discovery.onFrame(f.cmd,f.error(),f.data.length-1,now());
                 if(f.cmd==0x74&&f.error()==0&&f.data.length>=2){String received=new String(Arrays.copyOfRange(f.data,1,Math.min(18,f.data.length)),StandardCharsets.US_ASCII).replace("\u0000","").trim();if(!received.matches("[A-Za-z][A-Za-z0-9]{16}")){failed("Unrecognised scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}if(!profile.serial.isEmpty()&&!profile.serial.equals(received)){failed("Not the saved scooter",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return;}serial=received;if(state!=State.READY)pendingSerialFrame=f;if(!remember())return;}
-                if(f.cmd==0x70&&f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1){if(state==State.READY){statusFrame=f;statusMs=now();}else{pendingStatusFrame=f;pendingStatusMs=now();}if(!remember())return;}
+                if(statusRead(f)){if(state==State.READY){statusFrame=f;statusMs=now();}else{pendingStatusFrame=f;pendingStatusMs=now();}if(!remember())return;}
                 // connected() also covers the owner handshake. Neither telemetry nor public
                 // status/features/motion may expose this account's other scooter during it.
                 if(state!=State.READY){changed();continue;}
                 if(f.cmd!=0x7a&&f.cmd!=0x63)telemetry.accept(f.cmd,f.data,now());if(f.cmd==0x73)sessionFirmware=null;
-                if(f.cmd==0x70&&f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1)confirmMutation(f);
-                if(f.cmd==0x70&&test!=null&&!test.terminal()){boolean sane=f.error()==0&&f.data.length>=14&&(f.data[3]&255)<=1;test.onStatus(sane?StatusFields.of(f,now()):StatusFields.NONE,now());stepTest();}
+                if(statusRead(f))confirmMutation(f);
+                if(f.cmd==0x70&&test!=null&&!test.terminal()){boolean sane=statusRead(f);test.onStatus(sane?StatusFields.of(f,now()):StatusFields.NONE,now());stepTest();}
                 if(f.cmd==0x90&&f.error()==0&&f.data.length>=9){warning=f.data[1]&255;warningMs=now();}
                 if((f.cmd==0x91||f.cmd==0x92)&&f.error()==0&&f.data.length>=(f.cmd==0x91?4:5)){driving=f.data[2]&255;speedRaw=(f.data[3]&255)*(f.cmd==0x91?10:1)+(f.cmd==0x92?(f.data[4]&255)<<8:0);motionMs=now();}
                 if(f.cmd==0x7a&&profile.role==0){pinReadPending=false;try{pinState=ScooterCommands.parsePin(f,true);pinStateMs=now();}catch(Exception e){pinState=null;pinStateMs=0;notice("PIN state is unavailable on this firmware.");}
@@ -699,6 +703,12 @@ public final class BleController {
         return mutation==pending;
     }
     private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;if(guided(mutation)&&test!=null)test.onMutationTimeout(mutation.ack,now());String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed("Change not confirmed",true,ConnectionEventLog.Reason.COMMAND_CONFIRMATION_TIMEOUT,-1);}
+    /**
+     * A settings read to bind on: the lock byte at payload offset 2 is present and plausible. The UT5 MAX
+     * keeps its full 14-byte minimum; other models may send less (the N65i sends ten bytes), and every
+     * field reader checks its own bounds, so missing fields read as unknown.
+     */
+    private boolean statusRead(Protocol.Frame f){return f.cmd==0x70&&f.error()==0&&f.data.length>=4&&(f.data[3]&255)<=1&&(f.data.length>=14||!ModelRegistry.ut5Max(descriptor()));}
     private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;Consumer<Boolean> completion=mutation.completion;mutation.completion=null;result(key,evidence);clearMutation();notice(text);completed(completion,true);}
