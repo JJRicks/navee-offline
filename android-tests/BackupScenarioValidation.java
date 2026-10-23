@@ -235,7 +235,11 @@ public final class BackupScenarioValidation extends Instrumentation {
                 android.view.View scroll = (android.view.View) content.getParent();
                 int height = Math.max(scroll.getHeight(), content.getHeight());
                 android.graphics.Bitmap bitmap = android.graphics.Bitmap.createBitmap(scroll.getWidth(), height, android.graphics.Bitmap.Config.ARGB_8888);
-                android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap); canvas.drawColor(((android.graphics.drawable.ColorDrawable) scroll.getBackground()).getColor());
+                // The page colour belongs to the scroller's nearest coloured ancestor (since 1.6.0 the root frame behind it).
+                int page = 0xFF000000;
+                for (android.view.View v = scroll; v != null; v = v.getParent() instanceof android.view.View ? (android.view.View) v.getParent() : null)
+                    if (v.getBackground() instanceof android.graphics.drawable.ColorDrawable) { page = ((android.graphics.drawable.ColorDrawable) v.getBackground()).getColor(); break; }
+                android.graphics.Canvas canvas = new android.graphics.Canvas(bitmap); canvas.drawColor(page);
                 canvas.translate(scroll.getPaddingLeft(), scroll.getPaddingTop()); content.draw(canvas);
                 try (FileOutputStream out = new FileOutputStream(new File(app.getExternalFilesDir(null), name))) { bitmap.compress(android.graphics.Bitmap.CompressFormat.PNG, 100, out); }
                 bitmap.recycle();

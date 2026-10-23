@@ -4,8 +4,12 @@
 Build the app and android-tests/build.sh with the same key first, start a read-only AVD yourself,
 then pass its explicit emulator serial, SDK adb, both APKs and an evidence directory. Existing
 emulator app data is deliberately replaced. Before anything runs, every <instrumentation> in
-android-tests/AndroidManifest.xml must be covered by a step below, so a new validation can't be
-left out of a release by accident. --only reruns named steps; --list prints them.
+android-tests/AndroidManifest.xml must be covered by a step below or EXCLUDED with a reason, so a
+new validation can't be left out of a release by accident. The guard works per class, not per
+mode: when a validation or runner gains a mode with checks of its own, add a step for it here, or
+list it in SUBSUMED with the mode whose run already includes it. --only reruns named steps;
+--list prints them. Each direct step's on-device files (screenshots) are copied to its evidence
+directory before the app is removed.
 """
 import argparse
 import json
@@ -14,6 +18,7 @@ import re
 import subprocess
 import sys
 import time
+import xml.etree.ElementTree as ElementTree
 
 HERE = Path(__file__).resolve().parent
 PKG = 'com.jjricks.volt'
@@ -22,6 +27,11 @@ NEARBY = ALL[:3]
 PHONE, WIDE = ('344x882', 'dark', '1'), ('725x604', 'light', '1.4')
 # Registered but deliberately not run here, with the reason; everything else must have a step.
 EXCLUDED = {'ParkedValidation': 'physical parked-scooter checks that send real lock, PIN and clock commands; run only under an explicit physical test plan'}
+# Modes not run on their own because a step's mode already runs every check they make.
+SUBSUMED = {'ResponsiveDashboardValidation battery, capacity and fold': 'all (in the default responsive matrix)',
+            'DeveloperSettingsValidation preferences': 'all (developer-settings steps)',
+            'run-backup-scenario --inspect': 'its default prepare run, which ends with inspect'}
+ANDROID = '{http://schemas.android.com/apk/res/android}'
 
 
 def runner(name, script, covers, *extra):
@@ -37,12 +47,16 @@ STEPS = [
     runner('backups', 'run-backups.py', ['AppDataBackupValidation', 'AppDataMaintenanceValidation', 'BackupInventoryValidation',
                                          'BackupUiValidation', 'DashboardTransferValidation', 'FullBackupJourneyValidation']),
     runner('backup-scenario', 'run-backup-scenario.py', ['BackupScenarioValidation']),
+    runner('backup-render', 'run-backup-scenario.py', [], '--render'),
+    runner('backup-render-damaged', 'run-backup-scenario.py', [], '--render', '--render-mode', 'render-damaged'),
+    runner('backup-render-scooters', 'run-backup-scenario.py', [], '--render', '--render-mode', 'render-scooters'),
     runner('guided', 'run-guided-tests.py', ['GuidedTestValidation']),
     runner('guided-queue', 'run-guided-tests.py', [], '--mode', 'queue'),
     runner('compat-gating', 'run-compat-gating.py', ['CompatibilityGatingValidation']),
     runner('compat-controls', 'run-compat-gating.py', ['CompatControlsValidation'], '--mode', 'controls'),
     runner('compat-ut5-screens', 'run-compat-gating.py', ['Ut5SimulationScreens'], '--mode', 'ut5-screens'),
     runner('compat-import-name', 'run-compat-gating.py', [], '--mode', 'import-name'),
+    runner('compat-owner-profiles', 'run-compat-gating.py', [], '--mode', 'owner-profiles'),
     runner('charge-capture', 'run-charge-capture.py', ['ChargeCaptureValidation']),
     runner('charge-estimates', 'run-charge-capture.py', ['ChargeEstimateValidation'], '--suite', 'estimates'),
     runner('battery-widgets', 'run-battery-widgets.py', ['BatteryWidgetValidation']),
@@ -52,6 +66,9 @@ STEPS = [
     runner('rides', 'run-rides.py', ['RidesAnalysisValidation']),
     runner('live-stats', 'run-live-stats.py', ['LiveStatsValidation']),
     runner('responsive', 'run-responsive.py', ['ResponsiveDashboardValidation']),
+    # The default matrix leaves out the modes whose checks run nowhere else.
+    runner('responsive-modes', 'run-responsive.py', [], *[arg for mode in ('chart', 'followup', 'gauge', 'quick', 'motion')
+                                                          for size in ('344x882', '725x604') for arg in ('--case', f'{size}:1.0:{mode}')]),
     runner('motion-polish', 'run-motion-polish.py', ['MotionPolishValidation']),
     runner('haptics', 'run-haptics.py', ['QuickHapticsValidation', 'ConnectionHapticsValidation']),
 ]
@@ -88,8 +105,8 @@ STEPS += [inst(name, cls) for name, cls in (
 
 
 def registered():
-    manifest = (HERE / 'AndroidManifest.xml').read_text()
-    return sorted(name.rsplit('.', 1)[1] for name in re.findall(r'<instrumentation\s+android:name="([^"]+)"', manifest))
+    root = ElementTree.parse(HERE / 'AndroidManifest.xml').getroot()
+    return sorted(element.get(ANDROID + 'name').rsplit('.', 1)[1] for element in root.iter('instrumentation'))
 
 
 def uncovered():
@@ -112,6 +129,7 @@ if missing:
 if args.list:
     for step in STEPS: print(step['name'])
     for name, why in EXCLUDED.items(): print(f'(excluded) {name}: {why}')
+    for name, where in SUBSUMED.items(): print(f'(subsumed) {name}: by {where}')
     raise SystemExit(0)
 for flag in ('adb', 'serial', 'app', 'runner', 'out'):
     if getattr(args, flag) is None: parser.error(f'--{flag} is required')
@@ -154,6 +172,9 @@ def run_step(step):
         fresh(step['grant'])
         output = adb('shell', 'am', 'instrument', '-w', '-r', *step['extra'], f'{PKG}.tests/{step["cls"]}', check=False, timeout=1800)
     finally:
+        # Screenshots live in the app's files; keep them (failures too) before the next install removes them.
+        destination = args.out / step['name']; destination.mkdir(parents=True, exist_ok=True)
+        adb('pull', f'/sdcard/Android/data/{PKG}/files', str(destination), check=False, timeout=600)
         if step['hidden_api']: adb('shell', 'settings', 'delete', 'global', 'hidden_api_policy', check=False)
         if step['size']: adb('shell', 'wm', 'size', 'reset', check=False); adb('shell', 'wm', 'density', 'reset', check=False)
     passed = 'result=PASS' in output and 'result=FAIL' not in output and 'INSTRUMENTATION_FAILED' not in output and 'Process crashed' not in output
