@@ -72,7 +72,7 @@ public final class UpdateCheckValidation extends Instrumentation {
 
             reply.set(release("v9.9.9", PAGE));
             tap(); require(showing("Check GitHub for updates?") && requests.isEmpty(), "No consent before the first request");
-            require(text(dialogView(), "Volt asks GitHub for its latest release. GitHub sees your IP address and that you use Volt; nothing else is sent. Volt never downloads or installs anything itself.") != null, "Consent wording");
+            require(text(dialogView(), "Volt asks GitHub for its latest release. GitHub sees your IP address and your Volt version; nothing else is sent. Volt never downloads or installs anything itself.") != null, "Consent wording");
             screenshot("consent");
             press("Cancel"); settle();
             require(showingCount() == 0 && requests.isEmpty() && !prefs("app_settings").getBoolean("update_check_consented", false), "Cancel sent a request or saved consent");

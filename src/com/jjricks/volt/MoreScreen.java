@@ -1661,7 +1661,7 @@ public final class MoreScreen implements AppScreen {
         SharedPreferences settings = service().settings;
         if (settings.getBoolean(UpdateCheck.CONSENT, false)) { runUpdateCheck(); return; }
         LinearLayout box = dialogBox("Check GitHub for updates?",
-                "Volt asks GitHub for its latest release. GitHub sees your IP address and that you use Volt; nothing else is sent. Volt never downloads or installs anything itself.");
+                "Volt asks GitHub for its latest release. GitHub sees your IP address and your Volt version; nothing else is sent. Volt never downloads or installs anything itself.");
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).create();
         dialogButtons(box, "Cancel", dialog::dismiss, "Check", () -> {
             settings.edit().putBoolean(UpdateCheck.CONSENT, true).apply(); dialog.dismiss(); runUpdateCheck();

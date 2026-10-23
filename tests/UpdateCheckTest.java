@@ -58,7 +58,9 @@ public final class UpdateCheckTest {
         for (String url : new String[]{"https://github.com/JJRicks/volt/releases", "http://github.com/JJRicks/volt/releases/tag/v1",
                 "https://github.com/JJRicks/volt-fake/releases/tag/v1", "https://github.com/Other/volt/releases/tag/v1",
                 "https://github.com/JJRicks/volt/releases/tag/v1?redirect=https://evil.example", "https://github.com/JJRicks/volt/releases/../../evil",
-                "https://github.com/JJRicks/volt/releases/tag/v1#x", "https://github.com/JJRicks/volt/releases/tag/v 1", "https://github.com/JJRicks/volt/releases/@evil.example", null})
+                "https://github.com/JJRicks/volt/releases/tag/v1#x", "https://github.com/JJRicks/volt/releases/tag/v 1", "https://github.com/JJRicks/volt/releases/@evil.example",
+                "https://github.com/JJRicks/volt/releases/download/v9.9.9/volt.apk", "https://github.com/JJRicks/volt/releases/tag/", "https://github.com/JJRicks/volt/releases/tag/v1/assets",
+                "https://github.com/JJRicks/volt/releases/latest/download/volt.apk", "https://github.com/JJRicks/volt/releases/edit/v1", null})
             check(!UpdateCheck.safePage(url), "Refused page: " + url);
     }
 

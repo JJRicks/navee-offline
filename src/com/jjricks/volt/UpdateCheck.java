@@ -92,14 +92,18 @@ final class UpdateCheck {
         return out.toString().replaceAll("\n{3,}", "\n\n").trim();
     }
 
-    /** A release page in Volt's repository, with nothing that could carry the browser elsewhere. */
+    /** Only a release page in Volt's repository: releases/latest or releases/tag/<tag>, never a download or anything else. */
     static boolean safePage(String url) {
-        if (url == null || !url.startsWith(RELEASES) || url.length() > 200) return false;
-        for (int i = RELEASES.length(); i < url.length(); i++) {
-            char c = url.charAt(i);
-            if (!(Character.isLetterOrDigit(c) || c == '.' || c == '-' || c == '_' || c == '/')) return false;
+        if (url == null || url.length() > 200) return false;
+        if (url.equals(RELEASES + "latest")) return true;
+        if (!url.startsWith(RELEASES + "tag/")) return false;
+        String tag = url.substring((RELEASES + "tag/").length());
+        if (tag.isEmpty() || tag.contains("..")) return false;
+        for (int i = 0; i < tag.length(); i++) {
+            char c = tag.charAt(i);
+            if (!(Character.isLetterOrDigit(c) || c == '.' || c == '-' || c == '_')) return false;
         }
-        return !url.contains("..");
+        return true;
     }
 
     /** One bounded HTTPS GET: no redirects, short timeouts, at most MAX_BYTES. */

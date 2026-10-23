@@ -254,7 +254,7 @@ Volt is verified on the US UT5 MAX only. Other standard NAVEE scooters connect w
 
 ## Phone recordings and maps
 
-**More → About & permissions → Check for updates** asks GitHub whether a newer Volt release exists, only when you tap it. The first time, Volt explains that GitHub sees your IP address and asks before checking. When one exists, **Open release page** opens it in your browser, where `volt-<version>.apk` and its `SHA256SUMS` are. Install it over this version; your data stays. Volt never downloads or installs anything itself.
+**More → About & permissions → Check for updates** asks GitHub whether a newer Volt release exists, only when you tap it. The first time, Volt explains that GitHub sees your IP address and Volt version, and asks before checking. When one exists, **Open release page** opens it in your browser, where `volt-<version>.apk` and its `SHA256SUMS` are. Install it over this version; your data stays. Volt never downloads or installs anything itself.
 
 **More → About & permissions → Location** opens Volt’s Android app settings. Choose **Permissions → Location** there to manage precise/approximate access.
 
