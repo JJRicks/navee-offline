@@ -71,7 +71,6 @@ public final class DashboardScreen implements AppScreen {
     private final String restoreUndoKey;
     /** The bottom notice (e.g. "Defaults restored · Undo"), if one is showing. */
     private PopupWindow notice;
-    private Bitmap scooterPhoto;
 
     public DashboardScreen(ScreenHost host, Actions actions) {
         this.host = host;
@@ -1006,14 +1005,10 @@ public final class DashboardScreen implements AppScreen {
                 ScooterReadingLabels.compact(key, normal), glyphDrawable(readingIcon(key), ui.muted, 18));
     }
 
-    private Bitmap scooterPhoto() {
-        if (scooterPhoto == null) {
-            BitmapFactory.Options o = new BitmapFactory.Options();
-            o.inSampleSize = 2;
-            scooterPhoto =
-                    BitmapFactory.decodeResource(host.activity().getResources(), R.drawable.ut5max, o);
-        }
-        return scooterPhoto;
+    /** The active scooter's saved model, which decides its photo independent of live readings. */
+    private DeviceDescriptor activeModel() {
+        ScooterProfiles.Profile p = service == null ? null : service.profiles.active();
+        return p == null ? null : p.savedDescriptor();
     }
 
     private String duration(Double minutes) {
@@ -1678,9 +1673,7 @@ public final class DashboardScreen implements AppScreen {
                 percent.setText(text);
                 percent.setContentDescription("Battery " + number + " percent");
             }
-            ScooterProfiles.Profile p = service == null ? null : service.profiles.active();
-            boolean known = ModelRegistry.showsPhoto(p == null ? null : p.savedDescriptor());
-            if (known && photo.getDrawable() == null) photo.setImageBitmap(scooterPhoto());
+            boolean known = ScooterPhotos.show(photo, activeModel(), 2);
             photo.setVisibility(known ? View.VISIBLE : View.GONE);
             stage.setMinimumHeight(ui.dp(known ? 236 : 44));
             updatePulse();
@@ -2151,8 +2144,7 @@ public final class DashboardScreen implements AppScreen {
                     photoPane = new FrameLayout(host.activity());
                     photo = new ImageView(host.activity());
                     photo.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                    photo.setContentDescription("NAVEE UT5 MAX scooter");
-                    photo.setImageBitmap(scooterPhoto());
+                    photo.setContentDescription("NAVEE scooter");
                     photoPane.addView(photo, new FrameLayout.LayoutParams(-1, -1));
                     // Without a model photo: a generic scooter glyph, not a word.
                     photoHint = ui.caption("");
@@ -2740,7 +2732,6 @@ public final class DashboardScreen implements AppScreen {
                     }
                 };
                 picture.setScaleType(ImageView.ScaleType.FIT_CENTER);
-                picture.setImageBitmap(scooterPhoto());
                 picture.setImportantForAccessibility(IMPORTANT_FOR_ACCESSIBILITY_NO);
                 LinearLayout.LayoutParams photoSize = new LinearLayout.LayoutParams(ui.dp(120), -1);
                 photoSize.setMarginStart(ui.dp(10));
@@ -2887,8 +2878,7 @@ public final class DashboardScreen implements AppScreen {
                         + (charge != null && charge.value != null && !live
                                 ? ", last seen " + when(charge.capturedWallMs) : "");
                 speak();
-                ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
-                boolean allowed = ModelRegistry.showsPhoto(profile == null ? null : profile.savedDescriptor());
+                boolean allowed = ScooterPhotos.show(picture, activeModel(), 2);
                 if (allowed != photoAllowed) { photoAllowed = allowed; requestLayout(); }
             }
         }
@@ -3470,9 +3460,8 @@ public final class DashboardScreen implements AppScreen {
                 healthDetail.setVisibility(parts.isEmpty() ? View.GONE : View.VISIBLE);
             }
             if (photo != null) {
-                ScooterProfiles.Profile p = service == null ? null : service.profiles.active();
                 // Model identity is saved with the profile, independent of live readings.
-                boolean show = ModelRegistry.showsPhoto(p == null ? null : p.savedDescriptor());
+                boolean show = ScooterPhotos.show(photo, activeModel(), 2);
                 photo.setVisibility(show ? View.VISIBLE : View.GONE);
                 photoHint.setVisibility(show ? View.GONE : View.VISIBLE);
             }

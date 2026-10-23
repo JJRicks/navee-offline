@@ -29,17 +29,20 @@ final class DiscoveryCoordinator {
     }
 
     private final long startMs;
+    /** The UT5 MAX's settings read carries its full layout; other models may stop after the lock byte. */
+    private final boolean fullStatus;
     private final List<Read> reads=new ArrayList<>(),passive=new ArrayList<>();
     private Read outstanding;private long lastRequestMs=Long.MIN_VALUE/2;private boolean queued,stopped,ended;
 
-    DiscoveryCoordinator(long startMs){
-        this.startMs=startMs;
+    DiscoveryCoordinator(long startMs){this(startMs,true);}
+    DiscoveryCoordinator(long startMs,boolean fullStatus){
+        this.startMs=startMs;this.fullStatus=fullStatus;
         for(int cmd:ORDER)reads.add(new Read(cmd,ReadPolicy.cls(cmd)));
         for(int cmd:PASSIVE)passive.add(new Read(cmd,ReadPolicy.Cls.PASSIVE));
     }
     static int maxAttempts(ReadPolicy.Cls cls){return cls==ReadPolicy.Cls.CORE?3:cls==ReadPolicy.Cls.OPTIONAL?2:1;}
-    /** Shortest OEM data length (after the status byte) Volt can use; a shorter success is MALFORMED. */
-    static int minimumLength(int cmd){return cmd==0x70?13:cmd==0x74?17:0;}
+    /** Shortest OEM data length (after the status byte) Volt can use; a shorter success is MALFORMED. The N65i's settings read is ten bytes. */
+    int minimumLength(int cmd){return cmd==0x70?(fullStatus?13:3):cmd==0x74?17:0;}
 
     long startMs(){return startMs;}
 

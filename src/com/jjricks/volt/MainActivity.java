@@ -2744,7 +2744,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             OwnerIdentityParser.Result owner=ShizukuCaptureClient.get(this).takeApproved();
             if(result==RESULT_OK&&owner!=null){try{
                 if(pendingOwnerFile().exists())throw new IllegalStateException();
-                JSONObject setup=new JSONObject();setup.put("owner_identity",owner.identity);setup.put("role",owner.role);setup.put("name","My UT5 MAX");
+                JSONObject setup=new JSONObject();setup.put("owner_identity",owner.identity);setup.put("role",owner.role);setup.put("name",IMPORTED_NAME);
                 stageOwnerImport(setup.toString());
                 if(onboarding!=null)onboarding.onOwnerImportStaged();
                 maybeApplyOwnerImport();

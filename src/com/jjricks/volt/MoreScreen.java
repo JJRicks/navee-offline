@@ -120,7 +120,6 @@ public final class MoreScreen implements AppScreen {
     private LinearLayout historyStorageCard;
     private boolean historyStoragePending;
     private long historyStorageChecked;
-    private static Bitmap scooterPhoto;
     private final List<LabRow> labRows = new ArrayList<>();
     private static final class LabRow {
         final ScooterCommands.Feature feature;
@@ -623,17 +622,11 @@ public final class MoreScreen implements AppScreen {
         Drawable pill = chip.getBackground();
         chip.setBackground(new InsetDrawable(pill, 0, ui.dp(5), 0, ui.dp(5)));
     }
+    /** An empty photo slot; ScooterPhotos.show fills it with the saved model's photo on refresh. */
     private ImageView photo() {
         ImageView view = new ImageView(host.activity());
         view.setScaleType(ImageView.ScaleType.FIT_CENTER);
         view.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
-        if (scooterPhoto == null) {
-            try {
-                BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = 4;
-                scooterPhoto = BitmapFactory.decodeResource(host.activity().getResources(), R.drawable.ut5max, options);
-            } catch (RuntimeException | OutOfMemoryError unavailable) { scooterPhoto = null; }
-        }
-        if (scooterPhoto != null) view.setImageBitmap(scooterPhoto);
         return view;
     }
     private String historyFileSize() {
@@ -1894,7 +1887,7 @@ public final class MoreScreen implements AppScreen {
         note(box, "Shizuku API 13.1.5\nCopyright (c) 2021 RikkaW. MIT License. Optional phone-only owner setup.");
         note(box, "AndroidX annotations 1.3.0\nCopyright The Android Open Source Project. Apache License 2.0.");
         note(box, "Protocol research reference\npepperonas/navee-st3-pro, MIT License.");
-        note(box, "UT5 MAX photo\n© NAVEE; not covered by app licence.");
+        note(box, "UT5 MAX and N65i photos\n© NAVEE; not covered by app licence.");
         note(box, "Maps\nMap data and tiles belong to the selected provider. USGS Topo: U.S. Geological Survey, National Geospatial Program. OpenStreetMap: © OpenStreetMap contributors.");
         LinearLayout notices = ui.groupCard(); notices.setBackground(null); notices.setPadding(0, 0, 0, 0); box.addView(notices);
         row(notices, "copy", "View full notices", null, this::fullNotices);
@@ -1937,8 +1930,7 @@ public final class MoreScreen implements AppScreen {
 
     private void refreshProfiles(ScooterService s, ScooterProfiles.Profile p) {
         DeviceDescriptor saved = p == null ? null : p.savedDescriptor();
-        boolean recognised = ModelRegistry.showsPhoto(saved);
-        boolean photo = recognised && scooterPhoto != null;
+        boolean photo = ScooterPhotos.show(indexPhoto, saved, 4);
         indexPhoto.setVisibility(photo ? View.VISIBLE : View.GONE);
         indexPhotoFallback.setVisibility(photo ? View.GONE : View.VISIBLE);
         String role = p == null ? "" : p.role == 0 ? "Owner" : "Shared";
@@ -1971,7 +1963,7 @@ public final class MoreScreen implements AppScreen {
             card.stateLine.setVisibility(selected ? View.VISIBLE : View.GONE);
             card.status.setText(detail); card.status.setTextColor(ui.muted);
             DeviceDescriptor descriptor = item.savedDescriptor();
-            boolean hasPhoto = ModelRegistry.showsPhoto(descriptor) && scooterPhoto != null;
+            boolean hasPhoto = ScooterPhotos.show(card.photo, descriptor, 4);
             card.photo.setVisibility(hasPhoto ? View.VISIBLE : View.GONE);
             card.photoFallback.setVisibility(hasPhoto ? View.GONE : View.VISIBLE);
             String model = ModelRegistry.modelName(descriptor);

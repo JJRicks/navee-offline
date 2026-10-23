@@ -410,7 +410,11 @@ public final class BleController {
         // Authenticated, serial verified on this MAC: the advertised model ID becomes evidence (a conflict is kept too; the resolver handles it).
         boolean captured=pendingAdvertised!=null&&address.equals(pendingAdvertisedMac)&&serial.equals(profile.serial);
         if(captured){profile.advertisedPid=pendingAdvertised.pid;profile.advertisedPidWall=System.currentTimeMillis();pendingAdvertised=null;pendingAdvertisedMac="";changed=true;event("Model ID captured");}
-        if(profile.nameDefault){String name=ModelRegistry.modelName(profile.savedDescriptor());if(name.isEmpty())name="NAVEE scooter";if(!name.equals(profile.name)){profile.name=name;changed=true;}}
+        // Volt's old default "My UT5 MAX" on another identified model was never the owner's choice.
+        DeviceDescriptor named=profile.savedDescriptor();
+        if(!profile.nameDefault&&ScooterProfiles.LEGACY_NAME.equals(profile.name)&&named.pidSource()!=DeviceDescriptor.PidSource.NONE
+                &&!ModelRegistry.ut5Max(named)&&!ModelRegistry.resolve(named).conflict){profile.nameDefault=true;changed=true;}
+        if(profile.nameDefault){String name=ModelRegistry.modelName(named);if(name.isEmpty())name="NAVEE scooter";if(!name.equals(profile.name)){profile.name=name;changed=true;}}
         if(changed||now()-savedProfileMs>60000||profile.lastConnected==0){profile.lastConnected=System.currentTimeMillis();profiles.update(profile);savedProfileMs=now();}
         if(pendingStatusFrame!=null){statusFrame=pendingStatusFrame;statusMs=pendingStatusMs;pendingStatusFrame=null;pendingStatusMs=0;}
         boolean justReady=state!=State.READY;recoverableConnectionLoss=false;state=State.READY;
@@ -526,7 +530,7 @@ public final class BleController {
             if(mutation!=null||pinReadPending){notice("Wait for the current change to finish.");return;}
         }
         clearDiscovery();ScooterProfiles.Profile p=profile();
-        discovery=new DiscoveryCoordinator(now());discovering=true;discoveryProfileId=p==null?"":p.id;
+        discovery=new DiscoveryCoordinator(now(),ModelRegistry.ut5Max(transportDescriptor()));discovering=true;discoveryProfileId=p==null?"":p.id;
         event("Compatibility check started");message="Checking compatibility…";changed();
         final int session=generation;
         handler.post(new Runnable(){@Override public void run(){discoveryTick(session,this);}});

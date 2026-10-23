@@ -67,13 +67,16 @@ private, and neither a 1.0 release nor a website deployment is part of this prep
 | AndroidX annotations 1.3.0 | Apache 2.0; [full text](../licenses/AndroidX-Apache-2.0.txt) |
 | Browser ADB packages | MIT, Simon Chan; exact versions below; build emits full license texts |
 | UT5 MAX photo | Temporary image obtained from the manufacturer's website; redistribution permission is not established; separate from the MIT source license |
+| N65i photo | NAVEE product render supplied through a tester; redistribution permission is not established; separate from the MIT source license |
 | Map tiles and data | Provider terms apply; no map data is bundled or relicensed as source |
 
 **Release blocker:** the current `res/drawable-nodpi/ut5max.webp` was obtained
 from the manufacturer's website. On 14 October 2026 the maintainer clarified
 that permission was not established and chose to keep it as a temporary
-placeholder while preparing an original photo. Before public distribution,
-replace it with an appropriately licensed original or obtain verified permission.
+placeholder while preparing an original photo. The N65i render added on 23
+October 2026 (`res/drawable-nodpi/n65i.webp`) is in the same position. Before
+public distribution, replace each with an appropriately licensed original or
+obtain verified permission.
 Update the source asset, APK, screenshots and notices together. Older Git tags,
 PR refs and release downloads also contain the placeholder; decide how to remove
 or obtain permission for those copies before exposing the existing history.

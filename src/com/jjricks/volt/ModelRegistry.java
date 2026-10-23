@@ -33,7 +33,7 @@ import java.util.Set;
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=7;
+    public static final int VERSION=8;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -88,6 +88,30 @@ public final class ModelRegistry {
         "2518","2519","2529","2538","2543","2545","2546","2547","2548","2549","2566","2573","2582","2583","2584","2585","2611","2612","2619","2620","2623",
         "2634","2643","2646","2657","2658","2696","2697","2700","2701","2704","2707","2714","2745","2753","2754","2777","2778","2779","2780","2781","2782",
         "2799","2800","2808","2809","2810","2811","27361","27391","27681"};
+    /**
+     * Other models a Volt tester checked on a parked scooter, by exact advertised Model ID: its name, bundled
+     * photo, and the controls changed, read back, observed and restored there (FEATURES.txt). The N65i
+     * (22131; meter 0.0.0.5, controller 0.0.1.1) passed guided tests and a confirmed lock in October 2026.
+     */
+    private static final class Tested {
+        final String name,photo;final Set<String> features;
+        Tested(String name,String photo,String... features){this.name=name;this.photo=photo;this.features=new HashSet<>(java.util.Arrays.asList(features));}
+    }
+    private static final Map<String,Tested> TESTED=new LinkedHashMap<>();
+    static{TESTED.put("22131",new Tested("N65i","n65i","lock","display_units","headlight","auto_sensor"));}
+    /** A tester-checked model; the advertised Model ID must agree with the serial and resolve to a standard layer. */
+    private static Tested tested(DeviceDescriptor d){
+        if(d==null||d.pidSource()!=DeviceDescriptor.PidSource.ADVERTISED)return null;
+        Resolution r=resolve(d);
+        if(r.conflict)return null; // an unresolved identity keeps generic naming and evidence
+        return r.layer==Layer.OEM_GROUP||r.layer==Layer.SHARED?TESTED.get(d.rulePid()):null;
+    }
+    /** Promotes an OEM-mapped control to Volt-verified on the exact model a tester checked it on. */
+    private static Rule verifiedOn(Tested t,String feature,Rule rule){
+        if(t==null||!t.features.contains(feature)||rule.support!=CapabilityResolver.Support.KNOWN_ENCODING
+                ||rule.evidence!=CapabilityResolver.Evidence.OEM_MAPPED)return rule;
+        return new Rule(rule.support,rule.reason,CapabilityResolver.Evidence.VOLT_VERIFIED,rule.oemNote,rule.preconditions,rule.variant);
+    }
     /** UT5 MAX fields changed, read back and restored on the owner's parked scooter (FEATURES.txt). */
     private static final Set<String> VERIFIED=new HashSet<>(java.util.Arrays.asList("lock","cruise_control","energy_recovery","traction_control",
         "start_speed","maximum_speed","range_algorithm","display_units","charge_limit","timed_charging","charge_start","low_power","lock_expiry",
@@ -337,9 +361,11 @@ public final class ModelRegistry {
                 return new Rule(CapabilityResolver.Support.KNOWN_ENCODING,CapabilityResolver.Reason.NONE,evidence,ut5Note(feature,d),preconditions(v),v);
             }
             default: {
+                Tested t=tested(d);
                 if(feature.equals("lock"))return new Rule(CapabilityResolver.Support.KNOWN_ENCODING,CapabilityResolver.Reason.NONE,
-                    CapabilityResolver.Evidence.SHARED_CONTRACT,"",preconditions(SHARED_LOCK),SHARED_LOCK);
-                if(r.layer==Layer.OEM_GROUP){Rule oem=oemRule(feature,d,s);if(oem!=null)return oem;}
+                    t!=null&&t.features.contains("lock")?CapabilityResolver.Evidence.VOLT_VERIFIED:CapabilityResolver.Evidence.SHARED_CONTRACT,
+                    "",preconditions(SHARED_LOCK),SHARED_LOCK);
+                if(r.layer==Layer.OEM_GROUP){Rule oem=oemRule(feature,d,s);if(oem!=null)return verifiedOn(t,feature,oem);}
                 CapabilityResolver.Reason reason=r.conflict?CapabilityResolver.Reason.IDENTITY_CONFLICT
                     :d==null||d.pidSource()!=DeviceDescriptor.PidSource.ADVERTISED?CapabilityResolver.Reason.MODEL_NOT_IDENTIFIED:CapabilityResolver.Reason.MODEL_NOT_MAPPED;
                 return refused(CapabilityResolver.Support.UNKNOWN_MAPPING,reason);
@@ -639,14 +665,17 @@ public final class ModelRegistry {
     // Model assumptions kept out of telemetry: true only for the exact UT5 MAX layer.
     public static boolean ut5Max(DeviceDescriptor d){return d!=null&&resolve(d).layer==Layer.UT5_MAX;}
     public static Double ratedWh(DeviceDescriptor d){return ut5Max(d)?716.04:null;}
-    public static boolean showsPhoto(DeviceDescriptor d){return ut5Max(d);}
+    public static boolean showsPhoto(DeviceDescriptor d){return !photo(d).isEmpty();}
+    /** Bundled photo key ("ut5max", "n65i") for this model, or "" for none. */
+    public static String photo(DeviceDescriptor d){if(ut5Max(d))return "ut5max";Tested t=tested(d);return t==null?"":t.photo;}
     public static int chargeReferenceProduct(DeviceDescriptor d){return ut5Max(d)?2538:-1;}
     public static int driveModeLabelProduct(DeviceDescriptor d){return ut5Max(d)?2538:0;}
     public static int rangeFollowProduct(DeviceDescriptor d){return ut5Max(d)?2538:0;}
-    public static String modelName(DeviceDescriptor d){return ut5Max(d)?"UT5 MAX":"";}
-    /** "UT5 MAX", "Model 24431" (advertised), "Model 2443 (unconfirmed)" (serial only) or "". */
+    public static String modelName(DeviceDescriptor d){if(ut5Max(d))return "UT5 MAX";Tested t=tested(d);return t==null?"":t.name;}
+    /** "UT5 MAX", a tester-checked name such as "N65i", "Model 24431" (advertised), "Model 2443 (unconfirmed)" (serial only) or "". */
     public static String modelLine(DeviceDescriptor d){
         if(d==null)return "";if(ut5Max(d))return "UT5 MAX";
+        Tested t=tested(d);if(t!=null)return t.name;
         if(!d.rulePid().isEmpty())return "Model "+d.rulePid();
         return d.serialPid.isEmpty()?"":"Model "+d.serialPid+" (unconfirmed)";
     }
