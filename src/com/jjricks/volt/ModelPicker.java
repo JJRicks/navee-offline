@@ -31,6 +31,8 @@ final class ModelPicker {
     ModelPicker(Activity activity, Ui ui, Consumer<NaveeModels.Choice> changed) { this.activity = activity; this.ui = ui; this.changed = changed; }
 
     NaveeModels.Choice choice() { return choice; }
+    /** Starts with an earlier answer chosen, without reporting it as a change. */
+    void select(NaveeModels.Choice value) { choice = value; if (list != null) render(); }
 
     /** Fills a sheet (its title row already added) whose height is fixed; spinner may be null. */
     void build(LinearLayout sheet, View spinner, String primaryLabel, Runnable action) {

@@ -37,7 +37,7 @@ public final class BackupPlanTest {
      * a merge and an exact restore unchanged, and a backup with values outside their bounds is refused. */
     private static void modelEvidence(File root) throws Exception {
         String d = "d0000000-0000-4000-8000-00000000000d";
-        String evidence = "\"pid_advertised\":\"24431\",\"pid_advertised_wall\":1760000000000,\"name_default\":true,\"fw_meter\":\"2.0.3.1\",\"fw_controller\":\"1.0.4\",\"fw_bms\":\"0.9\",\"fw_screen\":\"\",\"fw_uwb\":\"\",\"fw_wall\":1760000000001";
+        String evidence = "\"pid_advertised\":\"24431\",\"pid_advertised_wall\":1760000000000,\"name_default\":true,\"fw_meter\":\"2.0.3.1\",\"fw_controller\":\"1.0.4\",\"fw_bms\":\"0.9\",\"fw_screen\":\"\",\"fw_uwb\":\"\",\"fw_wall\":1760000000001,\"owner_model\":\"GT5 Max\"";
         String item = "{\"id\":\"" + d + "\",\"name\":\"NAVEE 24431\",\"identity\":\"ABCDEF012345\",\"role\":0,\"mac\":\"02:00:00:00:00:0D\",\"serial\":\"SERIAL-D\",\"lastConnected\":5," + evidence + ",\"fw_future\":\"kept\"}";
         BackupTestStore source = new BackupTestStore(new File(root, "evidence-source"));
         source.put("profiles", "items", "[" + item + "]"); source.put("profiles", "active", d); source.put("onboarding", "onboarding_done", true);
@@ -48,13 +48,16 @@ public final class BackupPlanTest {
         check(merged != null && merged.raw.equals(item), "a merged scooter keeps its advertised PID, firmware, default-name flag and newer fields exactly");
         Map<String, Object> fields = BackupJson.object(BackupJson.parse(merged.raw, BackupProfiles.MAX_DEPTH));
         check("24431".equals(fields.get("pid_advertised")) && Long.valueOf(1760000000000L).equals(fields.get("pid_advertised_wall")) && Boolean.TRUE.equals(fields.get("name_default"))
-                && "2.0.3.1".equals(fields.get("fw_meter")) && Long.valueOf(1760000000001L).equals(fields.get("fw_wall")), "model evidence values read back after a merge");
+                && "2.0.3.1".equals(fields.get("fw_meter")) && Long.valueOf(1760000000001L).equals(fields.get("fw_wall")) && "GT5 Max".equals(fields.get("owner_model")),
+                "model evidence values, including the owner's model answer, read back after a merge");
         BackupTestStore exact = new BackupTestStore(new File(root, "evidence-exact"));
         exact.restore(source.export(BackupTestStore.all()), BackupTestStore.all(), true, null);
         check(("[" + item + "]").equals(exact.preferences().get("profiles").get("items")), "Replace everything restores the profile list byte for byte");
         String[][] hostile = {{"\"pid_advertised\":\"24431\"", "\"pid_advertised\":\"2443X\""}, {"\"pid_advertised\":\"24431\"", "\"pid_advertised\":24431"},
             {"\"fw_meter\":\"2.0.3.1\"", "\"fw_meter\":\"2.0.3.1-0123456789\""}, {"\"fw_bms\":\"0.9\"", "\"fw_bms\":\"0.\\u00e9\""}, {"\"fw_bms\":\"0.9\"", "\"fw_bms\":null"},
-            {"\"pid_advertised_wall\":1760000000000", "\"pid_advertised_wall\":\"soon\""}, {"\"fw_wall\":1760000000001", "\"fw_wall\":true"}, {"\"name_default\":true", "\"name_default\":\"yes\""}};
+            {"\"pid_advertised_wall\":1760000000000", "\"pid_advertised_wall\":\"soon\""}, {"\"fw_wall\":1760000000001", "\"fw_wall\":true"}, {"\"name_default\":true", "\"name_default\":\"yes\""},
+            {"\"owner_model\":\"GT5 Max\"", "\"owner_model\":\"GT5 Max 0123456789012345678901234567890123\""}, {"\"owner_model\":\"GT5 Max\"", "\"owner_model\":5"},
+            {"\"owner_model\":\"GT5 Max\"", "\"owner_model\":null"}, {"\"owner_model\":\"GT5 Max\"", "\"owner_model\":\"GT5 M\u00e1x\""}};
         int n = 0;
         for (String[] change : hostile) {
             BackupTestStore bad = new BackupTestStore(new File(root, "evidence-bad-" + n++));

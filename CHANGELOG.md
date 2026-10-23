@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Remember which model you said a scooter is. Your answer to **Which scooter is this?**, in a report or under **More → My scooters → Edit scooter → Which model is it?**, gives a scooter Volt can't identify yet that model's name (unless you renamed it) and its photo, when Volt has one. It never changes which controls Volt offers, and Volt's own identification always wins. **Change model** picks another; **Not sure** clears it. Backups of Scooters carry it.
 - Name and picture the GT5 Max (Model ID 25462), from an owner's compatibility report. Its controls are not verified; they follow the official app's map for its model group as before. Volt now has a report for it, so its owners aren't asked for one.
 - While the check runs, **Help Volt support this scooter** asks which scooter it is: search NAVEE's models or type a name. It then offers an optional, skippable step to name each drive mode. You press the scooter's own mode button, and Volt only watches the mode it reports, so it never changes a setting. **Volt couldn't connect to this scooter** asks for the model too. The answers travel in the email as owner notes, so you no longer type the model name into the message.
 - Add **Report an issue** to More, under the version line. It opens your email app with a draft to volt-reports@jjricks.com. The draft holds a prompt for you to fill in, then Volt's version, your Android version and phone model, and the selected scooter's model name. Nothing is sent until you send it.

@@ -44,12 +44,17 @@ public final class DeviceDescriptor {
     public final Transport transport;
     public final int role;               // 0 owner, 1 shared
     public final boolean simulated;
+    /** The owner's own answer to "Which scooter is this?" ("" when none): name and photo only, never evidence for a rule. */
+    public final String ownerModel;
 
     private DeviceDescriptor(String advertisedPid,long advertisedWallMs,String serialPid,String region,Firmware firmware,boolean fwThisSession,Transport transport,int role,boolean simulated){
+        this(advertisedPid,advertisedWallMs,serialPid,region,firmware,fwThisSession,transport,role,simulated,"");
+    }
+    private DeviceDescriptor(String advertisedPid,long advertisedWallMs,String serialPid,String region,Firmware firmware,boolean fwThisSession,Transport transport,int role,boolean simulated,String ownerModel){
         this.advertisedPid=pid(advertisedPid);this.advertisedWallMs=this.advertisedPid.isEmpty()?0:Math.max(0,advertisedWallMs);
         this.serialPid=serialPid;this.region=region;this.firmware=firmware==null?Firmware.NONE:firmware;
         this.firmwareThisSession=fwThisSession&&this.firmware.any();this.transport=transport==null?Transport.UNVERIFIED:transport;
-        this.role=role;this.simulated=simulated;
+        this.role=role;this.simulated=simulated;this.ownerModel=ownerModel==null||ownerModel.length()>NaveeModels.MAX_TYPED?"":ownerModel;
     }
 
     /** Never throws: malformed input becomes "absent". */
@@ -72,8 +77,9 @@ public final class DeviceDescriptor {
         String area=!ut5&&region!=null&&region.matches("[A-Z]{2}")?region:null;
         return new DeviceDescriptor(pid,pid.isEmpty()?0:1,ut5?"2538":"",area,Firmware.NONE,false,Transport.STANDARD,role,true);
     }
-    public DeviceDescriptor withFirmware(Firmware fw,boolean thisSession){return new DeviceDescriptor(advertisedPid,advertisedWallMs,serialPid,region,fw,thisSession,transport,role,simulated);}
-    public DeviceDescriptor withAdvertised(String pid,long wallMs){return new DeviceDescriptor(pid,wallMs,serialPid,region,firmware,firmwareThisSession,transport,role,simulated);}
+    public DeviceDescriptor withFirmware(Firmware fw,boolean thisSession){return new DeviceDescriptor(advertisedPid,advertisedWallMs,serialPid,region,fw,thisSession,transport,role,simulated,ownerModel);}
+    public DeviceDescriptor withAdvertised(String pid,long wallMs){return new DeviceDescriptor(pid,wallMs,serialPid,region,firmware,firmwareThisSession,transport,role,simulated,ownerModel);}
+    public DeviceDescriptor withOwnerModel(String model){return new DeviceDescriptor(advertisedPid,advertisedWallMs,serialPid,region,firmware,firmwareThisSession,transport,role,simulated,model);}
 
     /** The PID OEM rules may test: the advertised PID, or "" when none. */
     public String rulePid(){return advertisedPid;}
@@ -109,6 +115,6 @@ public final class DeviceDescriptor {
 
     @Override public String toString(){
         return "DeviceDescriptor{pid="+(advertisedPid.isEmpty()?"-":advertisedPid)+",serialPid="+(serialPid.isEmpty()?"-":serialPid)+",region="+region
-            +",meter="+firmware.meter+(firmwareThisSession?"":"(stored)")+",transport="+transport+",role="+role+(simulated?",simulated":"")+"}";
+            +",meter="+firmware.meter+(firmwareThisSession?"":"(stored)")+",transport="+transport+",role="+role+(simulated?",simulated":"")+(ownerModel.isEmpty()?"":",owner says "+ownerModel)+"}";
     }
 }

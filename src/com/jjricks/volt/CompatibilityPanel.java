@@ -98,6 +98,7 @@ final class CompatibilityPanel {
         line(card,"Region",d.region==null?"Unknown":d.region+" (from serial)");
         line(card,"Firmware",d.firmware.meter==null?"Not read yet":d.firmware.meter);
         line(card,"Rules",layer(r.layer));
+        String said=ModelRegistry.ownerModel(d);if(!said.isEmpty())line(card,"Your answer",said);
         if(ble.modelUnidentified()){
             card.addView(muted("Identify reads the model ID from the scooter's broadcast. It sends no command."));
             card.addView(ui.button("Identify",()->{ble.identifyModel();host.toast(ble.message());host.redraw();}));

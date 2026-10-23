@@ -48,11 +48,12 @@ final class BackupProfiles {
         }
         return result;
     }
-    /** Model evidence fields (advertised PID, last-seen firmware, default name), with the same
+    /** Model evidence fields (advertised PID, last-seen firmware, default name, the owner's model answer), with the same
      * types and bounds as AppDataBackup.validDescriptorFields so pure restores check them too. */
     static boolean validModelEvidence(Map<String,Object> p) {
         Object pid=p.get("pid_advertised");if(p.containsKey("pid_advertised")&&!(pid instanceof String&&((String)pid).matches("[0-9]{0,5}")))return false;
         for(String field:new String[]{"fw_meter","fw_controller","fw_bms","fw_screen","fw_uwb"}){Object v=p.get(field);if(p.containsKey(field)&&!(v instanceof String&&((String)v).matches("[\\x20-\\x7e]{0,16}")))return false;}
+        Object owner=p.get("owner_model");if(p.containsKey("owner_model")&&!(owner instanceof String&&((String)owner).matches("[\\x20-\\x7e]{0,40}")))return false;
         for(String field:new String[]{"pid_advertised_wall","fw_wall"})if(p.containsKey(field)&&!(p.get(field) instanceof Number))return false;
         return !p.containsKey("name_default")||p.get("name_default") instanceof Boolean;
     }
