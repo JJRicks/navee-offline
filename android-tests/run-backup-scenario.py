@@ -77,8 +77,9 @@ if args.render:
                 run('push', str(args.out / ('scenario-' + name + '.voltbackup')), external + 'scenario-' + name + '.voltbackup')
             output = run('shell', 'am', 'instrument', '-w', '-e', 'mode', args.render_mode, '-e', 'theme', theme, RUNNER, check=False)
             folder = args.out / case.replace(':', '-'); folder.mkdir(exist_ok=True); (folder / 'render.txt').write_text(output)
-            for image in ('restore-bad-file', 'restore-categories', 'restore-destinations', 'restore-review'):
-                run('pull', external + image + '.png', str(folder / (image + '.png')), check=False)
+            # Every screen this mode rendered (damaged and Scooters-only modes add their own), before the next case clears them.
+            for image in re.findall(r'restore-[a-z-]+\.png', run('shell', 'ls', external, check=False)):
+                run('pull', external + image, str(folder / image), check=False)
             passed = 'result=PASS' in output; results.append(passed)
             print(f'{case}: {"PASS" if passed else "FAIL"}', flush=True)
             if not passed: print(output, flush=True)
