@@ -10,6 +10,8 @@
 - Give Charge done by a separate cautious estimate (more charge still needed than the gauge's observed catch-up implies, strongest observed current decline, longest observed finish) before its twenty-minute buffer; the dashboard shows the most likely time.
 - Track when charging starts, or infer it from about ten minutes of current readings, without saving anything.
 - Record new predictions as estimator `ut5-stock-pack-v6`; preserve earlier recordings and saved predictions.
+- Offer to measure a UT5 MAX standard charge for up to ten minutes before arming Charge done by when Volt did not see the charge begin. Volt asks first, stays connected with a notification offering **Schedule now**, then arms the existing one-shot schedule with the charge's inferred age. If measuring cannot finish, it falls back to the cautious plan or explains why nothing was set.
+- Keep a charge recording open through a pause that Volt's own charging schedule creates, marking the paused interval in the journal and export (`schedule_pauses`) so a scheduled charge can be recorded end to end.
 
 ## 1.4.8 — 2026-10-21
 

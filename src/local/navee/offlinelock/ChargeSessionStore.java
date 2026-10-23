@@ -9,7 +9,9 @@ public final class ChargeSessionStore {
     public static final long SAMPLE_INTERVAL_MS = 10000, MAX_FRAME_AGE_MS = 5000, MAX_GAP_MS = 25000;
     // Estimate metadata keeps the same sample/session limits; even maximum-length rows fit.
     public static final long MAX_SESSION_MS = 18 * 60 * 60 * 1000L, MAX_FILE_BYTES = 3_500_000;
-    public static final int MAX_SESSIONS = 20, MAX_SAMPLES = 6500;
+    public static final int MAX_SESSIONS = 20, MAX_SAMPLES = 6500, MAX_PAUSES = 8;
+    /** After its plan is cancelled or starts, a recorded pause waits this long for current to return. */
+    public static final long PAUSE_RELEASE_GRACE_MS = 2 * 60_000L;
     private static final int MIN_BINS = 10;
     public enum Charger { STOCK, HIGH_SPEED }
     public enum Stop { STOPPED, COMPLETE, CHARGING_ENDED, DISCONNECTED, PROFILE_CHANGED, READINGS_STOPPED, LIMIT, ERROR, PROCESS_ENDED, INTERRUPTED, RECOVERY_TIMEOUT, CONNECTION_FAILED, BLUETOOTH_OFF, PERMISSION_LOST, IDENTITY_CHANGED }
@@ -40,10 +42,15 @@ public final class ChargeSessionStore {
         public final String id,profile;public final Charger charger;public final Stop stop;
         public final long startedWall,startedMono;public final List<HistoryPoint> points;
         public final Long observedCompleteMono,observedCompleteWall;
+        /** Time a Volt charging schedule held current off inside this recording. */
+        public final long pausedMs;public final int pauses;
         private HistorySession(String id,Session session){
             this.id=id;profile=session.profile;charger=session.charger;stop=session.stop;startedWall=session.startedWall;startedMono=session.startedMono;
             List<HistoryPoint> copy=new ArrayList<>();for(Point point:session.points)copy.add(new HistoryPoint(point));points=Collections.unmodifiableList(copy);
             observedCompleteMono=session.observedCompletion();observedCompleteWall=observedCompleteMono==null?null:clockAt(observedCompleteMono);
+            long last=session.points.isEmpty()?startedMono:session.points.get(session.points.size()-1).mono;
+            for(long[] pause:session.pauses)last=Math.max(last,pause[3]);// A recording can end inside its pause.
+            pausedMs=session.pausedMs(startedMono,last);pauses=session.pauses.size();
         }
         /** One stable wall-clock anchor avoids artificial jumps when the phone clock changes. */
         public long clockAt(long mono){return startedWall+(mono-startedMono);}
@@ -161,10 +168,10 @@ public final class ChargeSessionStore {
     private File active;
     private String profile;
     private Charger charger;
-    private long startMono,lastWriteMono,lastElectricalMono,lastFreshMono;
+    private long startWall,startMono,lastWriteMono,lastElectricalMono,lastFreshMono,pauseGraceUntilMono;
     private Double lastSoc,lastPower,lastVoltage;
-    private int samples;
-    private boolean gap;
+    private int samples,pauses;
+    private boolean gap,paused;
     private double candidatePower,candidateVoltage;
     private long candidateMono,candidateElectricalMono;
     private int candidateSamples;
@@ -192,8 +199,8 @@ public final class ChargeSessionStore {
         pruneTo(MAX_SESSIONS-1);
         File file=new File(directory,UUID.randomUUID().toString()+".active");
         append(file,"charge-v2,"+profile+","+charger.name()+","+wall+","+mono+"\n");
-        this.active=file;this.profile=profile;this.charger=charger;startMono=mono;lastFreshMono=mono;
-        lastWriteMono=lastElectricalMono=0;lastSoc=lastPower=lastVoltage=null;samples=0;gap=true;
+        this.active=file;this.profile=profile;this.charger=charger;startWall=wall;startMono=mono;lastFreshMono=mono;pauseGraceUntilMono=0;
+        lastWriteMono=lastElectricalMono=0;lastSoc=lastPower=lastVoltage=null;samples=0;gap=true;paused=false;pauses=0;
         resetElectricalCandidate();
     }
     /** Returns true only for a newly committed, fresh paired sample. Rejected samples break continuity. */
@@ -257,10 +264,36 @@ public final class ChargeSessionStore {
     private void resetElectricalCandidate(){candidateSamples=0;candidateMono=candidateElectricalMono=0;}
     /** A new observed segment must not be compared with electrical values from before a loss. */
     public synchronized void markGap(){gap=true;lastPower=lastVoltage=null;resetElectricalCandidate();}
+    /**
+     * Volt's own charging schedule holds current off until its start. The journal stays open and
+     * marks the interval ("p" lines); the first sample after it starts a new segment.
+     */
+    public synchronized boolean paused(){return paused;}
+    public synchronized void pause(long wall,long mono) throws IOException {
+        if(active==null||paused)return;
+        if(pauses>=MAX_PAUSES||wall<=0||mono<startMono){stop(Stop.LIMIT);return;}
+        append(active,"p,"+wall+","+mono+",1\n");paused=true;pauses++;lastFreshMono=Math.max(lastFreshMono,mono);markGap();
+    }
+    /**
+     * scheduled: Volt's own plan is holding current off now. A schedule can be confirmed off before
+     * charging resumes, so an open pause keeps holding for PAUSE_RELEASE_GRACE_MS after that.
+     */
+    public synchronized boolean holdsSchedulePause(boolean scheduled,long mono){
+        if(scheduled){pauseGraceUntilMono=mono+PAUSE_RELEASE_GRACE_MS;return true;}
+        return active!=null&&paused&&mono<pauseGraceUntilMono;
+    }
+    /** Fresh not-charging readings keep a paused capture alive; nothing is sampled. */
+    public synchronized void heartbeat(long mono){if(active!=null&&paused&&mono>lastFreshMono)lastFreshMono=mono;}
+    public synchronized void resume(long wall,long mono) throws IOException {
+        if(active==null||!paused)return;
+        append(active,"p,"+wall+","+mono+",0\n");paused=false;lastFreshMono=Math.max(lastFreshMono,mono);markGap();
+    }
     public synchronized void stop(Stop reason) throws IOException {
         if(active==null)return;
         File file=active;active=null;profile=null;charger=null;
-        resetElectricalCandidate();
+        // Close an open schedule pause at its last fresh reading so its length survives the stop.
+        if(paused)append(file,"p,"+(startWall+(lastFreshMono-startMono))+","+lastFreshMono+",0\n");
+        paused=false;resetElectricalCandidate();
         append(file,"end,"+reason.name()+"\n");
         if(!file.renameTo(new File(directory,file.getName().replace(".active",".csv"))))throw new IOException("Charge could not be finalized");
         prune();
@@ -319,7 +352,11 @@ public final class ChargeSessionStore {
             out.write("{\"id\":\""+file.getName().replace(".csv","")+"\",\"profile_id\":\""+session.profile
                     +"\",\"charger\":\""+session.charger.name()+"\",\"started_wall_ms\":"+session.startedWall
                     +",\"started_elapsed_ms\":"+session.startedMono+",\"stop_reason\":"+(session.stop==null?"null":"\""+session.stop.name()+"\"")
-                    +",\"qualified_for_learning\":"+(session.evidence()!=null)+",\"observed_complete_elapsed_ms\":"+session.observedCompletion()+",\"samples\":[");
+                    +",\"qualified_for_learning\":"+(session.evidence()!=null)+",\"observed_complete_elapsed_ms\":"+session.observedCompletion()+",\"schedule_pauses\":[");
+            for(int i=0;i<session.pauses.size();i++){long[] pause=session.pauses.get(i);
+                out.write((i>0?",":"")+"{\"start_wall_ms\":"+pause[0]+",\"start_elapsed_ms\":"+pause[1]
+                        +",\"end_wall_ms\":"+(pause[3]==0?"null":String.valueOf(pause[2]))+",\"end_elapsed_ms\":"+(pause[3]==0?"null":String.valueOf(pause[3]))+"}");}
+            out.write("],\"samples\":[");
             boolean first=true;
             for(Point point:session.points) {
                 if(!first)out.write(",");first=false;
@@ -494,6 +531,9 @@ public final class ChargeSessionStore {
     }
     private static final class Session {
         String profile;Charger charger;Stop stop;long startedWall,startedMono;int format;List<Point> points=new ArrayList<>();
+        /** {startWall,startMono,endWall,endMono}; end 0 while a schedule pause was still open. */
+        List<long[]> pauses=new ArrayList<>();
+        long pausedMs(long from,long to){long total=0;for(long[] pause:pauses)total+=Math.max(0,Math.min(pause[3]==0?to:pause[3],to)-Math.max(pause[1],from));return total;}
         Long observedCompletion(){
             if(stop!=Stop.COMPLETE||points.size()<2)return null;
             long previous=startedMono-1;
@@ -526,7 +566,9 @@ public final class ChargeSessionStore {
                 if(point.soc==anchorSoc)powerSamples.add(point.power);
                 previous=point;
             }
-            long elapsed=points.get(points.size()-1).mono-points.get(0).mono;
+            long first=points.get(0).mono,last=points.get(points.size()-1).mono;
+            // A schedule pause is waiting, not missing data: coverage is judged on charging time.
+            long elapsed=last-first-pausedMs(first,last);
             boolean binsQualified=bins>=MIN_BINS&&elapsed>=600000&&covered>=elapsed*.9
                     || result.finishing!=null&&!result.finishing.recoveredAfterBreak;
             if(!binsQualified){
@@ -565,11 +607,18 @@ public final class ChargeSessionStore {
         Session session=new Session();int lines=0;
         try(BufferedReader in=new BufferedReader(new InputStreamReader(new FileInputStream(file),StandardCharsets.UTF_8))){
             String line;while((line=in.readLine())!=null){
-                if(++lines>MAX_SAMPLES+3||line.length()>512)return null;
+                if(++lines>MAX_SAMPLES+3+2*MAX_PAUSES||line.length()>512)return null;
                 String[] parts=line.split(",",-1);
                 try{
                     if(lines==1){if(parts.length!=5||!(parts[0].equals("charge-v1")||parts[0].equals("charge-v2"))||!parts[1].matches("[A-Za-z0-9_-]{1,128}"))return null;session.format=parts[0].equals("charge-v1")?1:2;session.profile=parts[1];session.charger=Charger.valueOf(parts[2]);session.startedWall=Long.parseLong(parts[3]);session.startedMono=Long.parseLong(parts[4]);if(session.startedWall<=0||session.startedMono<=0||session.startedWall>Long.MAX_VALUE-MAX_SESSION_MS||session.startedMono>Long.MAX_VALUE-MAX_SESSION_MS)return null;}
                     else if(parts.length==2&&parts[0].equals("end")){if(session.stop!=null)return null;session.stop=Stop.valueOf(parts[1]);}
+                    else if(parts.length==4&&parts[0].equals("p")&&session.format==2&&session.stop==null){
+                        long wall=Long.parseLong(parts[1]),mono=Long.parseLong(parts[2]);boolean begins=parts[3].equals("1");
+                        long[] open=session.pauses.isEmpty()?null:session.pauses.get(session.pauses.size()-1);boolean isOpen=open!=null&&open[3]==0;
+                        if(wall<=0||mono<=0||!(begins||parts[3].equals("0"))||begins==isOpen)return null;
+                        if(begins){if(session.pauses.size()>=MAX_PAUSES)return null;session.pauses.add(new long[]{wall,mono,0,0});}
+                        else{if(mono<open[1])return null;open[2]=wall;open[3]=mono;}
+                    }
                     else if(parts.length==(session.format==1?9:16)&&parts[0].equals("s")&&session.stop==null){
                         if(session.points.size()>=MAX_SAMPLES)return null;
                         long wall=Long.parseLong(parts[1]),mono=Long.parseLong(parts[2]);double soc=Double.parseDouble(parts[3]);
