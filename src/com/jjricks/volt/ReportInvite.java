@@ -29,7 +29,7 @@ final class ReportInvite {
     }
 
     static String later(long nowMs) { return "later:" + nowMs; }
-    static String subject(String model) { return "Volt compatibility report · Model " + model; }
+    static String subject(String model) { return "Volt compatibility report · Model " + (model == null || model.isEmpty() ? "unknown" : model); }
     /** Scooters report only a numeric Model ID, so the email asks the owner for the name they know it by. */
     static final String NAME_PROMPT = "Scooter model, as the NAVEE app or the scooter's label shows it (optional): ";
 

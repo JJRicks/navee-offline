@@ -2246,7 +2246,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
             String[] scooter={""};String problem=startReportCheck(scooter);
             if(problem!=null){status.setText(problem);status.setVisibility(View.VISIBLE);return;}
-            dialog.dismiss();showReportPicker(model,scooter);
+            dialog.dismiss();showReportPicker(model,scooter,null);
         });
         dialog.setOnDismissListener(d->{if(reportDialog==dialog)reportDialog=null;});
     }
@@ -2259,9 +2259,18 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(!ble.discovering())return ble.message();
         reportChecking=true;return null;
     }
-    /** The check runs while the owner says which scooter this is. Next waits for both; a check that stops offers Try again whatever the answer. */
-    private void showReportPicker(String model,String[] scooter){
-        CompatibilityReport[] ready={null};Dialog[] self={null};ModelPicker[] picker={null};
+    /** The compatibility checker's Email to Volt: the same sheet and email as the offer, for the check already finished. */
+    @Override public void emailReport(CompatibilityReport report){
+        if(report==null||scooterService==null||reportDialog!=null&&reportDialog.isShowing())return;
+        ScooterProfiles.Profile p=scooterService.profiles.active();
+        showReportPicker(scooterService.ble.descriptor().rulePid(),new String[]{p==null?"":p.id},report);
+    }
+    /**
+     * The check runs while the owner says which scooter this is. Next waits for both; a check that stops offers Try again whatever the answer.
+     * With finished (from the checker), there is no check to wait for and closing stores no answer to the offer.
+     */
+    private void showReportPicker(String model,String[] scooter,CompatibilityReport finished){
+        CompatibilityReport[] ready={finished};Dialog[] self={null};ModelPicker[] picker={null};
         Runnable phase=()->{
             ModelPicker p=picker[0];
             if(reportChecking){p.primary("Next",false);p.status("Checking your scooter, about 30 seconds…",true);}
@@ -2288,14 +2297,14 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(problem!=null){picker[0].status(problem,false);return;}
             phase.run();handler.postDelayed(watch,400);
         };
-        Runnable close=()->{preferences.edit().putString(ReportInvite.PREFIX+model,ReportInvite.later(System.currentTimeMillis())).apply();if(self[0]!=null)self[0].dismiss();};
+        Runnable close=()->{if(finished==null)preferences.edit().putString(ReportInvite.PREFIX+model,ReportInvite.later(System.currentTimeMillis())).apply();if(self[0]!=null)self[0].dismiss();};
         picker[0]=new ModelPicker(this,design,c->phase.run());
         LinearLayout content=sheetContent("Which scooter is this?",null,close);
         picker[0].build(content,new Spinner(),"Next",next);
         Dialog dialog=showTallSheet(content);self[0]=dialog;reportDialog=dialog;
         dialog.setOnCancelListener(d->close.run());
         dialog.setOnDismissListener(d->{if(reportChecking&&scooterService!=null)scooterService.ble.stopDiscovery();reportChecking=false;if(reportDialog==dialog)reportDialog=null;});
-        phase.run();handler.postDelayed(watch,400);
+        phase.run();if(finished==null)handler.postDelayed(watch,400);
     }
     /** After the check and the owner's answer: optionally name the drive modes, then open the email, still for the same scooter. */
     private void finishReport(String model,CompatibilityReport report,NaveeModels.Choice choice,String scooter,Dialog dialog){
@@ -2305,7 +2314,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
             if(now==null||!now.id.equals(scooter)){toast("The scooter changed, so Volt didn't open the report.");return;}
             if(email(ReportInvite.subject(model),ReportInvite.body(report,choice,modes,model))){
-                preferences.edit().putString(ReportInvite.PREFIX+model,"sent").apply();toast("Your email app has the report. Thanks for helping!");
+                if(!model.isEmpty())preferences.edit().putString(ReportInvite.PREFIX+model,"sent").apply();toast("Your email app has the report. Thanks for helping!");
             }else toast("No email app could open the report.");
         };
         BleController ble=scooterService==null?null:scooterService.ble;
@@ -2365,6 +2374,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void addressLine(LinearLayout box){
         TextView to=design.caption("To "+ReportInvite.ADDRESS);to.setPadding(0,design.dp(10),0,0);to.setTextIsSelectable(true);box.addView(to);
     }
+    @Override public boolean emailVolt(String subject,String body){return email(subject,body);}
     /** Opens the owner's email app addressed to Volt's report alias and filled in; false when no app can. */
     private boolean email(String subject,String body){
         Intent mail=new Intent(Intent.ACTION_SENDTO,Uri.parse("mailto:"));

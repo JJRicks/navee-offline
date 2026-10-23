@@ -47,6 +47,7 @@ public final class ReportInviteTest {
         check(body.contains(report.summary()) && body.endsWith(report.json()), "The email is the preview's summary and JSON, unchanged");
         check(body.startsWith(ReportInvite.NAME_PROMPT + "\n\nThis came from Volt's read-only compatibility check."), "The email asks for the model name, then says where it came from");
         check(ReportInvite.subject("39991").equals("Volt compatibility report · Model 39991"), "Subject names the Model ID");
+        check(ReportInvite.subject("").equals("Volt compatibility report · Model unknown") && ReportInvite.subject(null).equals("Volt compatibility report · Model unknown"), "No Model ID says unknown");
         check(ReportInvite.ADDRESS.equals("volt-reports@jjricks.com"), "Reports go to the dedicated alias");
     }
 
