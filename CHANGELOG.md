@@ -1,7 +1,8 @@
 # Changelog
 
-## Unreleased
+## 1.7.0 — 2026-10-23
 
+- The browser setup site (pairscooter.jjricks.com) now names the two common USB failures instead of one generic message: another program, usually a computer ADB server still running after `adb devices`, holding the phone (run `adb kill-server`), and a browser that may not open the phone (Linux udev rules, or a Snap or Flatpak sandbox). It also lets you choose again after picking the wrong phone during recovery.
 - Offer the custom speed cap in **Experimental controls** on models whose official app hides it, such as the UT5 Ultra X and the GT5 Max: Off or 8–32 km/h, the official app's widest cap range. A cap only lowers speed below your Top speed, every try is read back, and **Set back** restores your previous setting. Top speed, the drive-mode cap and overspeed control are still never added.
 - Experimental controls tries are now saved on the phone and sent with your compatibility report: each try reads the current value, saves a record, sends one change, reads it back and asks **Did you see it change?** (**Yes**, **No**, **Skip**). The record keeps the control, the value before and the value tried, the result, your answer and whether you kept it, and goes in the checker's report and **Email to Volt** draft (no serial, address, owner key, PIN, names or times of day). Records stay until a report you share, email or save includes them (a saved report once its file is written; a later **Set back** waits for the next report), or until **Clear try results**, at most 20.
 - A try interrupted by a dropped connection or by Volt closing is never finished on its own: it shows as **Unfinished try** on the Scooter page and in Experimental controls, and **Review** offers **Restore**, **Keep** or **Dismiss**. **Set back** also works after Volt restarts. A try that was sent but never confirmed is never called **No change seen** or **Not sent**.

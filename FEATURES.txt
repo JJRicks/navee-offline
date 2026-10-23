@@ -1,5 +1,5 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
-Current version: 1.6.0 (versionCode 47)
+Current version: 1.7.0 (versionCode 48)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 Tester-reported parked checks: US N65i, model 22131 (meter 0.0.0.5, controller
 0.0.1.1): connection, lock readback, and guided tests of display units,
@@ -22,16 +22,36 @@ or sponsored by NAVEE.
 That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
 
-NEW IN 1.6.0
+NEW IN 1.7.0
+------------
+- Experimental controls work like guided tests: Volt reads the current value,
+  saves a record, sends one change, reads it back and asks "Did you see it
+  change?". A try interrupted by a dropped connection or Volt closing is never
+  finished on its own; Review offers Restore, Keep or Dismiss. Your tries go into
+  the compatibility report you send. Help verify, a second group, replaces the
+  checker's Try a setting.
+- The custom speed cap can be tried where the official app hides it (Off or
+  8-32 km/h; a cap only lowers speed). Top speed, the drive-mode cap, overspeed
+  control, charging, the lock, PIN, proximity unlock and the clock are never added
+  for another model this way.
+- New model: the UT5 Ultra X (25852) is named and pictured. The XT5 Ultra photo
+  waits for its Model ID.
+- GT5 Max: drive-mode code 5 reads SPORT, like 3; cruise control is verified from
+  its owner's report.
+- Fixes: Back up & restore lines up in the wide (unfolded) More menu, and a long
+  Charge start value moves under its label on other models.
+- Setup: the ADB checklist names the extracted source that holds
+  setup/capture-owner.py, and the browser setup site explains busy and refused
+  USB connections.
+
+PREVIOUSLY IN 1.6.0
 ------------
 - Experimental controls: on an identified model, controls the official app
   doesn't offer it (for example kick-start speed, turn signal sound, traction
   control, the hill assists) can be tried while parked. Volt reads each try back
   (Worked here, No change seen, Refused, Unconfirmed) and sets it back in one tap.
-  Where the official app hides the custom speed cap, it can be tried too (Off or
-  8-32 km/h; a cap only lowers speed). Top speed, the drive-mode cap, overspeed
-  control, charging, the lock, PIN, proximity unlock and the clock are never added
-  for another model this way; the UT5 MAX keeps its existing Lab controls.
+  Speed limits, charging, the lock, PIN, proximity unlock and the clock are never
+  added for another model this way; the UT5 MAX keeps its existing Lab controls.
 - Home follows the model: default Setting tiles use controls the model offers
   (Top speed and Cruise control on the GT5 Max), and a reading outside the
   model's choices shows "—".
