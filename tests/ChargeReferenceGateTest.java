@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Runtime continuity never outlives fresh measurements or a short bounded power mismatch. */
 public final class ChargeReferenceGateTest {

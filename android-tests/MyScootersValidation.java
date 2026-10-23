@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Activity;
@@ -32,13 +32,13 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.ChargeSessionStore;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.MoreScreen;
-import local.navee.offlinelock.OnboardingScreen;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.ChargeSessionStore;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.MoreScreen;
+import com.jjricks.volt.OnboardingScreen;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
 
 /** Fresh emulator only. Real menu actions and local stores; Bluetooth stays disabled. */
 public final class MyScootersValidation extends Instrumentation {
@@ -229,7 +229,7 @@ public final class MyScootersValidation extends Instrumentation {
             store.start(a.id, ChargeSessionStore.Charger.STOCK, System.currentTimeMillis(), SystemClock.elapsedRealtime());
             blocked("charge"); require(s.isChargeRecording(), "Blocked switch ended the charge"); store.stop(ChargeSessionStore.Stop.STOPPED);
             set(s, "phoneSavingCount", 1); blocked("saving"); set(s, "phoneSavingCount", 0);
-            Class<?> type = Class.forName("local.navee.offlinelock.BleController$Mutation");
+            Class<?> type = Class.forName("com.jjricks.volt.BleController$Mutation");
             Constructor<?> constructor = type.getDeclaredConstructor(String.class, int.class, int.class, long.class); constructor.setAccessible(true);
             set(s.ble, "mutation", constructor.newInstance("lock", 0x40, 1, 77L)); blocked("pending command"); set(s.ble, "mutation", null);
             more().refresh();

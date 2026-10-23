@@ -9,7 +9,7 @@ Walkthrough notes 8, 17, 30 and the preference portion of 16.
 
 Validation: the core suites pass; production and separate native-runner APKs build and verify. `DeveloperSettingsValidation` in `preferences` mode passes 290 assertions on a disposable Android API 36.1 emulator at 411×840 dp, with its screenshot inspected. The checks cover selector touch targets, selected/radio semantics, readable labels and the developer-menu gate. No physical phone or scooter was used.
 
-Reproduce with `bash tests/run.sh`, `bash build.sh`, `bash android-tests/build.sh`, then run `local.navee.offlinelock.tests.DeveloperSettingsValidation` with `mode=preferences` on an emulator. The charge-time change retains the existing scooter time decoding; this pass changes its display format, not scheduling behavior.
+Reproduce with `bash tests/run.sh`, `bash build.sh`, `bash android-tests/build.sh`, then run `com.jjricks.volt.tests.DeveloperSettingsValidation` with `mode=preferences` on an emulator. The charge-time change retains the existing scooter time decoding; this pass changes its display format, not scheduling behavior.
 
 ## Follow-up: Units submenu and spacing
 

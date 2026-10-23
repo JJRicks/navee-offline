@@ -30,7 +30,7 @@ navee_load_config() {
     done
     NAVEE_BUILD_DIR="${NAVEE_BUILD_DIR:-$APP_DIR/.local/build}"
     NAVEE_KEY_DIR="${NAVEE_KEY_DIR:-$APP_DIR/.local/keys}"
-    NAVEE_APK_PATH="${NAVEE_APK_PATH:-$APP_DIR/dist/navee-offline-lock.apk}"
+    NAVEE_APK_PATH="${NAVEE_APK_PATH:-$APP_DIR/dist/volt.apk}"
     for name in NAVEE_BUILD_DIR NAVEE_KEY_DIR NAVEE_APK_PATH; do
         value="${!name}"
         if [[ "$value" != /* ]]; then
@@ -40,7 +40,7 @@ navee_load_config() {
     if [[ -n "${NAVEE_SIGNING_KEYSTORE:-}" && "$NAVEE_SIGNING_KEYSTORE" != /* ]]; then
         NAVEE_SIGNING_KEYSTORE="$APP_DIR/$NAVEE_SIGNING_KEYSTORE"
     fi
-    BUILD_DIR="$NAVEE_BUILD_DIR/navee-offline-lock"
+    BUILD_DIR="$NAVEE_BUILD_DIR/volt"
     KEY_DIR="$NAVEE_KEY_DIR"
     APK_PATH="$NAVEE_APK_PATH"
 }
@@ -139,9 +139,9 @@ navee_build_app() {
     python3 - "$APP_DIR/setup/owner-capture-guard.sh" "$BUILD_DIR/generated" <<'PYGUARD'
 import json, pathlib, sys
 script = pathlib.Path(sys.argv[1]).read_text()
-target = pathlib.Path(sys.argv[2]) / "local/navee/offlinelock/OwnerCaptureGuardScript.java"
+target = pathlib.Path(sys.argv[2]) / "com/jjricks/volt/OwnerCaptureGuardScript.java"
 target.parent.mkdir(parents=True, exist_ok=True)
-target.write_text("package local.navee.offlinelock; final class OwnerCaptureGuardScript { static final String TEXT = " + json.dumps(script) + "; }\n")
+target.write_text("package com.jjricks.volt; final class OwnerCaptureGuardScript { static final String TEXT = " + json.dumps(script) + "; }\n")
 PYGUARD
     python3 "$APP_DIR/setup/shizuku-dependencies.py" --prepare "$BUILD_DIR/dependencies"
     local dep_classpath="" dep
@@ -152,7 +152,7 @@ PYGUARD
         dep_classpath="$dep_classpath:$dep"
         dep_jars+=("$dep")
     done
-    for source_file in "$APP_DIR"/aidl/local/navee/offlinelock/*.aidl; do
+    for source_file in "$APP_DIR"/aidl/com/jjricks/volt/*.aidl; do
         "$BUILD_TOOLS/aidl" -I"$APP_DIR/aidl" -p"$SDK_DIR/platforms/android-36/framework.aidl" \
             -o"$BUILD_DIR/generated" "$source_file"
     done
@@ -166,8 +166,8 @@ PYGUARD
     while IFS= read -r -d '' source_file; do
         printf '"%s"\n' "$source_file" >> "$BUILD_DIR/sources.txt"
     done < <(find "$APP_DIR/src" "$BUILD_DIR/generated" -type f -name '*.java' -print0)
-    [[ -f "$APP_DIR/src/local/navee/offlinelock/MainActivity.java" ]] || {
-        echo "MainActivity.java is missing from src/local/navee/offlinelock/." >&2
+    [[ -f "$APP_DIR/src/com/jjricks/volt/MainActivity.java" ]] || {
+        echo "MainActivity.java is missing from src/com/jjricks/volt/." >&2
         return 1
     }
     javac --release 8 -encoding UTF-8 \

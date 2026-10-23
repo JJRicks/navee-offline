@@ -25,7 +25,7 @@ def run(*values, check=True):
 if run('shell', 'getprop', 'ro.kernel.qemu').strip() != '1' or run('shell', 'getprop', 'sys.boot_completed').strip() != '1':
     raise SystemExit('A booted disposable emulator is required')
 args.out.mkdir(parents=True, exist_ok=True)
-for package in ('local.navee.offlinelock.tests', 'local.navee.offlinelock'):
+for package in ('com.jjricks.volt.tests', 'com.jjricks.volt'):
     run('uninstall', package, check=False)
 run('install', str(args.app.resolve()))
 run('install', str(args.runner.resolve()))
@@ -41,14 +41,14 @@ try:
         run('shell', 'wm', 'density', '480'); run('shell', 'wm', 'size', f'{width * 3}x{height * 3}')
         run('shell', 'settings', 'put', 'system', 'font_scale', font)
         run('shell', 'settings', 'put', 'global', 'animator_duration_scale', '0' if reduced else '1')
-        run('shell', 'pm', 'clear', 'local.navee.offlinelock')
+        run('shell', 'pm', 'clear', 'com.jjricks.volt')
         for permission in ('BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT'):
-            run('shell', 'pm', 'grant', 'local.navee.offlinelock', 'android.permission.' + permission)
+            run('shell', 'pm', 'grant', 'com.jjricks.volt', 'android.permission.' + permission)
         output = run('shell', 'am', 'instrument', '-w', '-e', 'theme', theme,
-                     'local.navee.offlinelock.tests/local.navee.offlinelock.tests.LiveStatsValidation')
+                     'com.jjricks.volt.tests/com.jjricks.volt.tests.LiveStatsValidation')
         destination = args.out / case.replace(':', '-'); destination.mkdir(exist_ok=True)
         (destination / 'result.txt').write_text(output)
-        run('pull', '/sdcard/Android/data/local.navee.offlinelock/files/stats-validation', str(destination.resolve()), check=False)
+        run('pull', '/sdcard/Android/data/com.jjricks.volt/files/stats-validation', str(destination.resolve()), check=False)
         passed = 'result=PASS' in output and 'result=FAIL' not in output
         results.append(dict(case=case, passed=passed)); print(f'{case}: {"PASS" if passed else "FAIL"}', flush=True)
         if not passed: print(output, flush=True)

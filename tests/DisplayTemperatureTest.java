@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Unit conversion preserves Celsius storage and does not invent unavailable readings. */
 public final class DisplayTemperatureTest {

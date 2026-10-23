@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Charging gate, current polarity, paired-frame integrity, cutoff and ETA regression cases. */
 public final class ChargingEstimateTest {

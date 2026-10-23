@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Instrumentation;
 import android.content.Context;
@@ -9,7 +9,7 @@ import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
 import android.os.Bundle;
 
-import local.navee.offlinelock.TelemetryHistory;
+import com.jjricks.volt.TelemetryHistory;
 
 import java.io.File;
 import java.lang.reflect.Field;

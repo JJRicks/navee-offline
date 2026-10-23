@@ -216,7 +216,7 @@ Pure Java (`javac --release 8`, temp dirs, synthetic data):
 
 - `BackupRegistryTest`:
   - Every rule maps to one category or is excluded, and no key matches two rules.
-  - It scans `src/local/navee/offlinelock/*.java` for `getSharedPreferences("…")` namespaces, for string literals and `"prefix_" +` prefixes, and for `static final String` constants used as the first argument of `get/put{String,Int,Boolean,Long,Float,StringSet}`. A short reviewed ignore list covers JSON, Bundle and Intent keys.
+  - It scans `src/com/jjricks/volt/*.java` for `getSharedPreferences("…")` namespaces, for string literals and `"prefix_" +` prefixes, and for `static final String` constants used as the first argument of `get/put{String,Int,Boolean,Long,Float,StringSet}`. A short reviewed ignore list covers JSON, Bundle and Intent keys.
   - It checks `new File(get{Files,NoBackupFiles,Cache}Dir()|getDatabasePath, "…")` roots.
   - It fails naming the key and "assign it in BackupRegistry".
 - `BackupArchiveTest`:
@@ -301,7 +301,7 @@ Differences from the first draft:
 
 Disposable emulators only (`ranchu`/`goldfish`/`sdk_gphone`), Bluetooth off, never a physical phone, no scooter commands. Build with `bash build.sh` and `bash android-tests/build.sh`, then:
 
-1. `python3 android-tests/run-backups.py --adb … --serial emulator-NNNN --app dist/navee-offline-lock.apk --runner .local/build/parked-validation/parked-validation.apk --out <dir>` runs, each after `pm clear`:
+1. `python3 android-tests/run-backups.py --adb … --serial emulator-NNNN --app dist/volt.apk --runner .local/build/parked-validation/parked-validation.apk --out <dir>` runs, each after `pm clear`:
    - `FullBackupJourneyValidation` `export` → pull `backup-journey.voltbackup` to the host → `pm clear` → push → `restore-check` (complete v2, Replace everything, every durable preference and file hash, excluded keys absent, real profile/dashboard/ride/phone/charge/history readers);
    - `FullBackupJourneyValidation` `legacy-v1` with `tests/fixtures/legacy/full-v1.voltbackup` pushed as `legacy-v1.voltbackup`;
    - `AppDataBackupValidation` (Android crypto, real SQLite validation and history merge, preference subset commit, post-commit failure rollback, staging removal);

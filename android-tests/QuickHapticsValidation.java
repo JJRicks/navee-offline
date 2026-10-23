@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -22,7 +22,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Disposable emulator regression: real Quick access touches and system vibrator history. */
 public final class QuickHapticsValidation extends Instrumentation {
@@ -118,7 +118,7 @@ public final class QuickHapticsValidation extends Instrumentation {
     }
     private Set<String> events(String dump) {
         Set<String> out = new LinkedHashSet<>();
-        for (String line : dump.split("\n")) if (line.contains("local.navee.offlinelock (uid=") && (line.contains("constant=21)") || line.contains("constant=22)"))) out.add(line.trim());
+        for (String line : dump.split("\n")) if (line.contains("com.jjricks.volt (uid=") && (line.contains("constant=21)") || line.contains("constant=22)"))) out.add(line.trim());
         return out;
     }
     private String dump(String name) throws Exception {
@@ -150,7 +150,7 @@ public final class QuickHapticsValidation extends Instrumentation {
         require(!activity.service().isRecording() && !activity.service().isChargeRecording() && !activity.service().phoneSaving() && field(activity.service(), "phoneRecorder") == null, "Recording started");
         require(activity.service().profiles.active().mac.isEmpty(), "Real address present");
     }
-    private Object pending() { try { Class<?> type = Class.forName("local.navee.offlinelock.BleController$Mutation"); Constructor<?> c = type.getDeclaredConstructor(String.class, int.class, int.class, long.class); c.setAccessible(true); return c.newInstance("traction_control", 0, 0, 0L); } catch (Exception e) { throw new RuntimeException(e); } }
+    private Object pending() { try { Class<?> type = Class.forName("com.jjricks.volt.BleController$Mutation"); Constructor<?> c = type.getDeclaredConstructor(String.class, int.class, int.class, long.class); c.setAccessible(true); return c.newInstance("traction_control", 0, 0, 0L); } catch (Exception e) { throw new RuntimeException(e); } }
     private Object field(Object target, String name) { try { Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); return f.get(target); } catch (Exception e) { throw new RuntimeException(e); } }
     private void setField(Object target, String name, Object value) { try { Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); f.set(target, value); } catch (Exception e) { throw new RuntimeException(e); } }
     private void call(Object target, String name) { try { Method m = target.getClass().getDeclaredMethod(name); m.setAccessible(true); m.invoke(target); } catch (Exception e) { throw new RuntimeException(e); } }

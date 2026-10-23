@@ -58,7 +58,19 @@ After setup, revoke temporary debugging access and disable USB/wireless debuggin
 
 ## Updates and backups
 
-Install newer APKs from [project Releases](https://github.com/JJRicks/navee-offline/releases) over the current app. Updates signed with the same project key retain app data. Volt was previously named **Navee Offline**; the repository name, Android package and data formats remain compatible.
+Install newer APKs from [project Releases](https://github.com/JJRicks/navee-offline/releases) over the current app. Updates signed with the same project key retain app data. Volt was previously named **Navee Offline**.
+
+### Moving from Volt 1.4.x to 1.5.0
+
+Volt 1.5.0 has a new Android app ID, `com.jjricks.volt`, replacing `local.navee.offlinelock`. Android treats it as a different app: it installs **beside** your current Volt instead of updating it, starting empty. Move your data with a backup. The old app keeps everything until you uninstall it.
+
+1. In the old Volt, open **More → About & permissions → Your data → Back up & restore → Back up**. Keep every category selected, set a password and save the `.voltbackup` somewhere outside Volt.
+2. Install Volt 1.5.0. On its welcome screen, choose **Restore Volt backup**, pick the file and enter the password.
+3. Grant Nearby devices (and notifications) again. Bluetooth pairing belongs to the phone and carries over. Shizuku authorization, if you use it, must be granted again.
+4. Check your scooters, rides, charges and dashboards, and connect once.
+5. Uninstall the old Volt.
+
+Every older backup format still restores, and so do legacy owner setup files.
 
 Before clearing Android app storage, uninstalling, or switching to a differently signed build, save what you need:
 

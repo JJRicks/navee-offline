@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 import java.io.*;
 import java.nio.charset.StandardCharsets;
@@ -25,7 +25,7 @@ public final class BackupRegistryTest {
 
     public static void main(String[] args)throws Exception {
         rules();
-        File source=new File(args.length>0?args[0]:"src/local/navee/offlinelock");
+        File source=new File(args.length>0?args[0]:"src/com/jjricks/volt");
         Map<String,String> files=new TreeMap<>();
         File[] list=source.listFiles((dir,name)->name.endsWith(".java"));check(list!=null&&list.length>40,"application source is available for the registry scan");
         for(File file:list)files.put(file.getName(),new String(Files.readAllBytes(file.toPath()),StandardCharsets.UTF_8));

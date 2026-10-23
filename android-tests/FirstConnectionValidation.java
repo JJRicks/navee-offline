@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -19,13 +19,13 @@ import java.util.LinkedHashMap;
 import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.ConnectionEventLog;
-import local.navee.offlinelock.ScooterCommands;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.Telemetry;
-import local.navee.offlinelock.TelemetryHistory;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.ConnectionEventLog;
+import com.jjricks.volt.ScooterCommands;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.Telemetry;
+import com.jjricks.volt.TelemetryHistory;
 
 /** Disposable emulator only: production failure/retry and hardware binding, with Bluetooth disabled. */
 public final class FirstConnectionValidation extends Instrumentation {

@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.*;
 import android.content.*;
@@ -12,7 +12,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.*;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Empty-emulator-only visual/data fixture. Never uses owner profiles or connects Bluetooth. */
 public final class RidesAnalysisValidation extends Instrumentation {
@@ -789,8 +789,8 @@ public final class RidesAnalysisValidation extends Instrumentation {
     AlertDialog basemapPrompt(Switch toggle) { return (AlertDialog)field(toggle.getParent(), "prompt"); }
     void fakeTiles(RouteMapView map, AtomicInteger calls) {
         try {
-            Class<?> provider = Class.forName("local.navee.offlinelock.MapTiles");
-            Class<?> factory = Class.forName("local.navee.offlinelock.MapTiles$ConnectionFactory");
+            Class<?> provider = Class.forName("com.jjricks.volt.MapTiles");
+            Class<?> factory = Class.forName("com.jjricks.volt.MapTiles$ConnectionFactory");
             Object connection = Proxy.newProxyInstance(factory.getClassLoader(), new Class[]{factory}, (proxy, method, arguments) -> {
                 if ("open".equals(method.getName())) { calls.incrementAndGet(); throw new IOException("Synthetic offline tile provider"); }
                 if ("toString".equals(method.getName())) return "Synthetic tile connection";

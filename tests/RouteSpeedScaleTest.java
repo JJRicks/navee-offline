@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 import java.io.File;
 import java.nio.file.Files;

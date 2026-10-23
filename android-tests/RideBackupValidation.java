@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.*;
 import android.bluetooth.*;
@@ -12,7 +12,7 @@ import java.lang.reflect.*;
 import java.nio.file.Files;
 import java.util.*;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Disposable empty emulator only: actual private-storage merge, reopen, and the unified restore flow for a .voltrides file. */
 public final class RideBackupValidation extends Instrumentation {
@@ -27,8 +27,8 @@ public final class RideBackupValidation extends Instrumentation {
         if(checkReopened){reopenedRange(context);result.putString("status","PASS");result.putInt("assertions",assertions);finish(Activity.RESULT_OK,result);return;}
         File ridesFolder=new File(context.getFilesDir(),"rides");require(!ridesFolder.exists()||Objects.requireNonNull(ridesFolder.list()).length==0,"Requires empty app data");
         require(context.getSharedPreferences("profiles",0).getAll().isEmpty(),"Requires fresh profiles");
-        archive=Class.forName("local.navee.offlinelock.RideArchive");storageType=Class.forName("local.navee.offlinelock.RideArchive$Storage");preparedType=Class.forName("local.navee.offlinelock.RideArchive$Prepared");planType=Class.forName("local.navee.offlinelock.RideArchive$Plan");
-        Object storage=call(Class.forName("local.navee.offlinelock.RideBackup"),null,"storage",new Class<?>[]{Context.class},context);
+        archive=Class.forName("com.jjricks.volt.RideArchive");storageType=Class.forName("com.jjricks.volt.RideArchive$Storage");preparedType=Class.forName("com.jjricks.volt.RideArchive$Prepared");planType=Class.forName("com.jjricks.volt.RideArchive$Plan");
+        Object storage=call(Class.forName("com.jjricks.volt.RideBackup"),null,"storage",new Class<?>[]{Context.class},context);
         RideStore store=new RideStore(ridesFolder);long rideWall=System.currentTimeMillis()-3600000;String id=store.start("old-profile","Synthetic ride",rideWall,0);store.setNotes("Synthetic backup note");
         rangeSamples(store,rideWall);
         store.stop(rideWall+700000,700000);store.rename(id,"Restored café ride");

@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 import java.io.*;
 import java.lang.reflect.*;
@@ -208,7 +208,7 @@ public final class AppDataArchiveTest {
         if(duplicate){byte[] from="preferencez.bin".getBytes("UTF-8"),to="preferences.bin".getBytes("UTF-8");for(int i=0;i<=payload.length-from.length;i++){boolean same=true;for(int j=0;j<from.length;j++)same&=payload[i+j]==from[j];if(same)System.arraycopy(to,0,payload,i,to.length);}}
         Method header=AppDataArchive.class.getDeclaredMethod("header");header.setAccessible(true);byte[] h=(byte[])header.invoke(null);
         Method key=AppDataArchive.class.getDeclaredMethod("key",char[].class,byte[].class);key.setAccessible(true);SecretKey k=(SecretKey)key.invoke(null,PASSWORD,h);
-        Class<?> records=Class.forName("local.navee.offlinelock.AppDataArchive$RecordOutput");Constructor<?> constructor=records.getDeclaredConstructor(OutputStream.class,byte[].class,SecretKey.class);constructor.setAccessible(true);
+        Class<?> records=Class.forName("com.jjricks.volt.AppDataArchive$RecordOutput");Constructor<?> constructor=records.getDeclaredConstructor(OutputStream.class,byte[].class,SecretKey.class);constructor.setAccessible(true);
         ByteArrayOutputStream encrypted=new ByteArrayOutputStream();encrypted.write(h);OutputStream output=(OutputStream)constructor.newInstance(encrypted,h,k);output.write(payload);Method finish=records.getDeclaredMethod("finish");finish.setAccessible(true);finish.invoke(output);return encrypted.toByteArray();
     }
 }

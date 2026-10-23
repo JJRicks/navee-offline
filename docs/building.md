@@ -31,13 +31,13 @@ Replace the SDK and JDK paths with your installed locations. The dependency fetc
 The build signs the APK and verifies its signature and alignment. Its default output is:
 
 ```text
-dist/navee-offline-lock.apk
+dist/volt.apk
 ```
 
 To install on your own connected test device:
 
 ```sh
-adb install -r dist/navee-offline-lock.apk
+adb install -r dist/volt.apk
 ```
 
 **A fresh clone creates its own local signing key.** It cannot update a project release signed with a different key. Export a backup before uninstalling or replacing an existing installation. Keep the same private key for future local updates; the project release key is not needed to contribute.
@@ -48,7 +48,7 @@ adb install -r dist/navee-offline-lock.apk
 | --- | --- |
 | `NAVEE_BUILD_DIR` | `.local/build` |
 | `NAVEE_KEY_DIR` | `.local/keys` |
-| `NAVEE_APK_PATH` | `dist/navee-offline-lock.apk` |
+| `NAVEE_APK_PATH` | `dist/volt.apk` |
 
 Relative override paths resolve from the repository root. An optional, ignored `local-build.env` can hold trusted local shell assignments; explicit environment values take precedence. Build output, local keys and this configuration file are ignored by Git. Keep custom output paths outside tracked source, and review staged files before pushing. Custom signing configuration is described in [Contributing](../CONTRIBUTING.md#signing-and-private-files).
 

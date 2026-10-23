@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Python/Java parity, physical invariants and estimate composition for ut5-stock-pack-v6. */
 public final class Ut5MaxStockPackModelTest {

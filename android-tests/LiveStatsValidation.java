@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -23,11 +23,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.StatsScreen;
-import local.navee.offlinelock.Ui;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.StatsScreen;
+import com.jjricks.volt.Ui;
 
 /** Destructive fixtures only on a fresh disposable emulator. Never connects a real scooter. */
 public final class LiveStatsValidation extends Instrumentation {
@@ -251,15 +251,15 @@ public final class LiveStatsValidation extends Instrumentation {
     @SuppressWarnings("unchecked")
     private void verifySavedTailMerge(Object browser, Object card, Ui.ChartView graph) {
         long now = System.currentTimeMillis();
-        List<local.navee.offlinelock.TelemetryHistory.Point> saved = java.util.Arrays.asList(
-                new local.navee.offlinelock.TelemetryHistory.Point(now - 8000, 10, true),
-                new local.navee.offlinelock.TelemetryHistory.Point(now - 5000, 20, false),
-                new local.navee.offlinelock.TelemetryHistory.Point(now - 2000, 30, true));
+        List<com.jjricks.volt.TelemetryHistory.Point> saved = java.util.Arrays.asList(
+                new com.jjricks.volt.TelemetryHistory.Point(now - 8000, 10, true),
+                new com.jjricks.volt.TelemetryHistory.Point(now - 5000, 20, false),
+                new com.jjricks.volt.TelemetryHistory.Point(now - 2000, 30, true));
         try { Field f = card.getClass().getDeclaredField("saved"); f.setAccessible(true); f.set(card, saved); }
         catch (Exception e) { throw new IllegalStateException(e); }
-        List<local.navee.offlinelock.TelemetryHistory.Point> tail = (List<local.navee.offlinelock.TelemetryHistory.Point>)field(card, "tail");
-        tail.clear(); tail.add(new local.navee.offlinelock.TelemetryHistory.Point(now - 9000, 5, true));
-        tail.add(new local.navee.offlinelock.TelemetryHistory.Point(now, 40, false));
+        List<com.jjricks.volt.TelemetryHistory.Point> tail = (List<com.jjricks.volt.TelemetryHistory.Point>)field(card, "tail");
+        tail.clear(); tail.add(new com.jjricks.volt.TelemetryHistory.Point(now - 9000, 5, true));
+        tail.add(new com.jjricks.volt.TelemetryHistory.Point(now, 40, false));
         invoke(card, "draw", new Class<?>[]{boolean.class}, true);
         List<Ui.Point> points = (List<Ui.Point>)field(graph, "points");
         require(points.size() == 4 && points.get(1).value == 20 && points.get(2).gapBefore && points.get(3).value == 40,

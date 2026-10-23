@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Instrumentation;
 import android.content.Context;
@@ -7,7 +7,7 @@ import android.os.Build;
 import android.os.Bundle;
 import java.io.*;
 import java.util.*;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /**
  * Disposable emulator only; synthetic data; no service, Bluetooth or scooter commands.

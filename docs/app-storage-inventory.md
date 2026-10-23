@@ -2,7 +2,7 @@
 
 Every durable location Volt writes (baseline 1.3.1, with later additions noted), what it holds, which scooter profile it belongs to, and how a backup treats it. This is the source list for `BackupRegistry` ([unified backups](unified-backup.md)). When code adds a preference key, namespace, file or folder, add it here and to the registry in the same change; `BackupRegistryTest` fails on an unclassified key or root found in the source, and `BackupInventoryValidation` checks live emulator storage.
 
-Paths are relative to the app's private data directory (`/data/data/local.navee.offlinelock` or its per-user equivalent). `<pid>` is a scooter profile ID: the random UUID string stored in `profiles.items[].id`. Ride, phone and charge files are named by a recording UUID, written `<uuid>`.
+Paths are relative to the app's private data directory (`/data/data/com.jjricks.volt` or its per-user equivalent). `<pid>` is a scooter profile ID: the random UUID string stored in `profiles.items[].id`. Ride, phone and charge files are named by a recording UUID, written `<uuid>`.
 
 Classes used below:
 

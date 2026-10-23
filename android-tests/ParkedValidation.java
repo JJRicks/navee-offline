@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 import android.app.Instrumentation;
 import android.app.Activity;
 import android.app.NotificationManager;
@@ -17,7 +17,7 @@ import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
 import org.json.*;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Explicit ADB-only validation; this runner is a separate APK, never a production component. */
 public final class ParkedValidation extends Instrumentation {

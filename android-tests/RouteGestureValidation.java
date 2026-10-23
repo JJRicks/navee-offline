@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Instrumentation;
 import android.content.Context;
@@ -14,7 +14,7 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Synthetic route views on an emulator only. Does not start the app or touch Bluetooth. */
 public final class RouteGestureValidation extends Instrumentation {

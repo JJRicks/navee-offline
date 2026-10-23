@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -25,17 +25,17 @@ import java.util.Arrays;
 import java.util.List;
 import java.util.Locale;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.CapabilityResolver;
-import local.navee.offlinelock.DashboardConfig;
-import local.navee.offlinelock.FeatureVariant;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.ModelRegistry;
-import local.navee.offlinelock.MoreScreen;
-import local.navee.offlinelock.OnboardingScreen;
-import local.navee.offlinelock.ScooterCommands;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.CapabilityResolver;
+import com.jjricks.volt.DashboardConfig;
+import com.jjricks.volt.FeatureVariant;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.ModelRegistry;
+import com.jjricks.volt.MoreScreen;
+import com.jjricks.volt.OnboardingScreen;
+import com.jjricks.volt.ScooterCommands;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
 
 /**
  * Fresh disposable emulator only. Developer simulator with synthetic advertised model IDs and

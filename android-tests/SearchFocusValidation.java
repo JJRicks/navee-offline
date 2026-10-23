@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -33,14 +33,14 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.DashboardConfig;
-import local.navee.offlinelock.DashboardScreen;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.OnboardingScreen;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.StatsScreen;
-import local.navee.offlinelock.Telemetry;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.DashboardConfig;
+import com.jjricks.volt.DashboardScreen;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.OnboardingScreen;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.StatsScreen;
+import com.jjricks.volt.Telemetry;
 
 /** Real IME and touch checks on a fresh emulator; no scooter or radio changes. */
 public final class SearchFocusValidation extends Instrumentation {
@@ -204,7 +204,7 @@ public final class SearchFocusValidation extends Instrumentation {
             search.setOnFocusChangeListener((view, focused) -> {
                 ArrayList<String> appStack = new ArrayList<>();
                 for (StackTraceElement frame : Thread.currentThread().getStackTrace())
-                    if (frame.getClassName().startsWith("local.navee.offlinelock")) appStack.add(frame.toString());
+                    if (frame.getClassName().startsWith("com.jjricks.volt")) appStack.add(frame.toString());
                 focusChanges.add("focused=" + focused + ", ime=" + imeVisible(window) + ", via=" + appStack);
                 if (previousFocusListener.get() != null) previousFocusListener.get().onFocusChange(view, focused);
             });
@@ -395,9 +395,9 @@ public final class SearchFocusValidation extends Instrumentation {
             DashboardConfig.Widget live = new DashboardConfig.Widget("live");
             int end = 0;
             for (DashboardConfig.Widget widget : config.widgets)
-                for (local.navee.offlinelock.DashboardLayout.Cell cell : widget.layouts.values()) end = Math.max(end, cell.y + cell.h);
+                for (com.jjricks.volt.DashboardLayout.Cell cell : widget.layouts.values()) end = Math.max(end, cell.y + cell.h);
             for (int columns = 1; columns <= DashboardConfig.MAX_COLUMNS; columns++)
-                live.layouts.put(columns, new local.navee.offlinelock.DashboardLayout.Cell(live.id, 0, end, columns, live.defaultHeight()));
+                live.layouts.put(columns, new com.jjricks.volt.DashboardLayout.Cell(live.id, 0, end, columns, live.defaultHeight()));
             config.widgets.add(live); config.save();
             try {
                 java.lang.reflect.Method render = DashboardScreen.class.getDeclaredMethod("render");

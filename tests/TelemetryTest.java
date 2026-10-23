@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 import java.nio.charset.StandardCharsets;
 import java.util.Arrays;

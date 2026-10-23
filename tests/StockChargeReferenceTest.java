@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Selected stock-family estimates work without recordings or developer options. */
 public final class StockChargeReferenceTest {

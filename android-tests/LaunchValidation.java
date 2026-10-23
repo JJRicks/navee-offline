@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Activity;
@@ -23,11 +23,11 @@ import java.util.List;
 import java.util.Locale;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.OnboardingScreen;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.Ui;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.OnboardingScreen;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.Ui;
 
 /** Fresh-emulator-only launch checks. Never grants permissions or contacts a scooter. */
 public final class LaunchValidation extends Instrumentation {

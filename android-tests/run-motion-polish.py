@@ -34,7 +34,7 @@ cases = args.case or [
     '344x882:1:dark:1:slider', '725x604:1:light:1:slider', '344x882:1:dark:0:slider']
 out = Path(args.out).resolve()
 out.mkdir(parents=True, exist_ok=True)
-for package in ('local.navee.offlinelock.tests', 'local.navee.offlinelock'):
+for package in ('com.jjricks.volt.tests', 'com.jjricks.volt'):
     run('uninstall', package, check=False)
 run('install', str(Path(args.app).resolve()))
 run('install', str(Path(args.runner).resolve()))
@@ -53,15 +53,15 @@ try:
         run('shell', 'wm', 'density', '480')
         run('shell', 'wm', 'size', f'{width * 3}x{height * 3}')
         run('shell', 'settings', 'put', 'global', 'animator_duration_scale', motion)
-        run('shell', 'pm', 'clear', 'local.navee.offlinelock')
+        run('shell', 'pm', 'clear', 'com.jjricks.volt')
         for permission in ('BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT'):
-            run('shell', 'pm', 'grant', 'local.navee.offlinelock', 'android.permission.' + permission)
+            run('shell', 'pm', 'grant', 'com.jjricks.volt', 'android.permission.' + permission)
         result = run('shell', 'am', 'instrument', '-w', '-e', 'text_scale', scale, '-e', 'theme', theme,
                      '-e', 'mode', mode, '-e', 'variant', variant,
-                     'local.navee.offlinelock.tests/local.navee.offlinelock.tests.MotionPolishValidation', timeout=600)
+                     'com.jjricks.volt.tests/com.jjricks.volt.tests.MotionPolishValidation', timeout=600)
         (dest / 'result.txt').write_text(result)
-        run('pull', '/sdcard/Android/data/local.navee.offlinelock/files/motion-polish-validation/.', str(dest), check=False)
-        run('shell', 'rm', '-rf', '/sdcard/Android/data/local.navee.offlinelock/files/motion-polish-validation', check=False)
+        run('pull', '/sdcard/Android/data/com.jjricks.volt/files/motion-polish-validation/.', str(dest), check=False)
+        run('shell', 'rm', '-rf', '/sdcard/Android/data/com.jjricks.volt/files/motion-polish-validation', check=False)
         passed = 'result=PASS' in result and 'result=FAIL' not in result
         results.append({'case': case, 'passed': passed})
         print(case, 'PASS' if passed else 'FAIL', flush=True)

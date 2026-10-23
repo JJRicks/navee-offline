@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -21,7 +21,7 @@ import java.nio.charset.StandardCharsets;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Disposable emulator regression: real window lifecycle and system vibrator history. */
 public final class ConnectionHapticsValidation extends Instrumentation {
@@ -203,7 +203,7 @@ public final class ConnectionHapticsValidation extends Instrumentation {
         for(int i=0;i<expected.length;i++) require(requested.get(i).contains(expected[i]),label+": expected "+expected[i]+", got "+requested.get(i));
         checks.add(label+": "+requested.size()+" requests");
     }
-    private Set<String> events(String dump){Set<String> out=new LinkedHashSet<>();for(String line:dump.split("\n"))if(line.contains("local.navee.offlinelock (uid="))out.add(line.trim());return out;}
+    private Set<String> events(String dump){Set<String> out=new LinkedHashSet<>();for(String line:dump.split("\n"))if(line.contains("com.jjricks.volt (uid="))out.add(line.trim());return out;}
     private String dump(String name)throws Exception{String text=shell("dumpsys vibrator_manager");try(FileOutputStream out=new FileOutputStream(new File(evidence,name+".txt"))){out.write(text.getBytes(StandardCharsets.UTF_8));}return text;}
     private String shell(String command){try(ParcelFileDescriptor fd=getUiAutomation().executeShellCommand(command);InputStream in=new ParcelFileDescriptor.AutoCloseInputStream(fd);ByteArrayOutputStream out=new ByteArrayOutputStream()){byte[] buf=new byte[8192];int count;while((count=in.read(buf))>=0)out.write(buf,0,count);return out.toString("UTF-8");}catch(Exception e){throw new RuntimeException(e);}}
     private void assertTransportIdle(){BleController ble=activity.service().ble;for(String name:new String[]{"gatt","writer","scanner","mutation"})require(field(ble,name)==null,"Transport created "+name);require(((Collection<?>)field(ble,"queue")).isEmpty(),"Queued Bluetooth bytes");for(String name:new String[]{"scanning","writing","wanted","challengePending","pinReadPending"})require(!Boolean.TRUE.equals(field(ble,name)),"Transport flag "+name);require(!activity.service().isRecording()&&!activity.service().isChargeRecording()&&!activity.service().phoneSaving()&&field(activity.service(),"phoneRecorder")==null,"Recording started");require(activity.service().profiles.active().mac.isEmpty(),"Real address present");}

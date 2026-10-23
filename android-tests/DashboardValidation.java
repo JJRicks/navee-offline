@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.AlertDialog;
@@ -40,16 +40,16 @@ import java.util.Map;
 import java.util.Set;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.DashboardConfig;
-import local.navee.offlinelock.DashboardLayout;
-import local.navee.offlinelock.DashboardScreen;
-import local.navee.offlinelock.DisplayTime;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.Telemetry;
-import local.navee.offlinelock.TelemetryHistory;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.DashboardConfig;
+import com.jjricks.volt.DashboardLayout;
+import com.jjricks.volt.DashboardScreen;
+import com.jjricks.volt.DisplayTime;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.Telemetry;
+import com.jjricks.volt.TelemetryHistory;
 
 /**
  * Dashboard interaction checks for a fresh emulator only. Synthetic cached readings are
@@ -843,7 +843,7 @@ public final class DashboardValidation extends Instrumentation {
             });
             main(() -> {
                 try {
-                    Class<?> mutation = Class.forName("local.navee.offlinelock.BleController$Mutation");
+                    Class<?> mutation = Class.forName("com.jjricks.volt.BleController$Mutation");
                     java.lang.reflect.Constructor<?> constructor = mutation.getDeclaredConstructor(String.class, int.class, int.class, long.class);
                     constructor.setAccessible(true);
                     setField(activity.service().ble, "mutation", constructor.newInstance("timed_charging", 0, 0, 0L));
@@ -1110,7 +1110,7 @@ public final class DashboardValidation extends Instrumentation {
             out.write(previous.getBytes(java.nio.charset.StandardCharsets.UTF_8));
         }
         int request = ((Number)field(activity, "IMPORT_LAYOUTS")).intValue();
-        require(request != local.navee.offlinelock.ShizukuSetupActivity.REQUEST,
+        require(request != com.jjricks.volt.ShizukuSetupActivity.REQUEST,
                 "Dashboard picker and Shizuku share an activity result code");
         main(() -> invoke(activity, "onActivityResult", new Class<?>[] {int.class, int.class, Intent.class},
                 request, android.app.Activity.RESULT_OK, new Intent().setData(android.net.Uri.fromFile(portable))));

@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Two observed finishes are tested against each other, separately from fitting both together. */
 public final class ChargeTaperMatcherTest {

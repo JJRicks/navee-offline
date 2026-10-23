@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Instrumentation;
 import android.content.Context;
@@ -6,9 +6,9 @@ import android.content.SharedPreferences;
 import android.os.Build;
 import android.os.Bundle;
 
-import local.navee.offlinelock.AppDataBackup;
-import local.navee.offlinelock.DashboardConfig;
-import local.navee.offlinelock.DashboardLayout;
+import com.jjricks.volt.AppDataBackup;
+import com.jjricks.volt.DashboardConfig;
+import com.jjricks.volt.DashboardLayout;
 
 import org.json.JSONArray;
 import org.json.JSONObject;

@@ -38,7 +38,7 @@ original_density = re.search(r'Override density:\s*(\d+)', run('shell', 'wm', 'd
 args.out.mkdir(parents=True, exist_ok=True)
 (args.out / 'inputs.json').write_text(json.dumps({str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest()
                                                for p in (args.app, args.runner)}, indent=2) + '\n')
-for package in ('local.navee.offlinelock.tests', 'local.navee.offlinelock'):
+for package in ('com.jjricks.volt.tests', 'com.jjricks.volt'):
     run('uninstall', package, check=False)
 run('install', '--no-incremental', str(args.app.resolve()))
 run('install', '--no-incremental', str(args.runner.resolve()))
@@ -62,16 +62,16 @@ try:
             raise ValueError('Unsupported test case')
         run('shell', 'wm', 'density', '480'); run('shell', 'wm', 'size', f'{width * 3}x{height * 3}')
         run('shell', 'settings', 'put', 'system', 'font_scale', font)
-        run('shell', 'pm', 'clear', 'local.navee.offlinelock')
+        run('shell', 'pm', 'clear', 'com.jjricks.volt')
         for permission in ('BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT', 'POST_NOTIFICATIONS'):
-            run('shell', 'pm', 'grant', 'local.navee.offlinelock', 'android.permission.' + permission, check=False)
+            run('shell', 'pm', 'grant', 'com.jjricks.volt', 'android.permission.' + permission, check=False)
         variant = f'{width}x{height}-{theme}-font{font}-text{text}'
         output = run('shell', 'am', 'instrument', '-w', '-e', 'theme', theme, '-e', 'text_scale', text,
                      '-e', 'variant', variant, '-e', 'mode', args.mode,
-                     'local.navee.offlinelock.tests/local.navee.offlinelock.tests.' + runner, timeout=600)
+                     'com.jjricks.volt.tests/com.jjricks.volt.tests.' + runner, timeout=600)
         destination = args.out / case.replace(':', '-'); destination.mkdir(exist_ok=True)
         (destination / 'result.txt').write_text(output)
-        run('pull', '/sdcard/Android/data/local.navee.offlinelock/files/compatibility-validation', str(destination.resolve()), check=False)
+        run('pull', '/sdcard/Android/data/com.jjricks.volt/files/compatibility-validation', str(destination.resolve()), check=False)
         passed = 'result=PASS' in output and 'result=FAIL' not in output
         results.append(dict(case=case, mode=args.mode, passed=passed)); print(f'{case}: {"PASS" if passed else "FAIL"}', flush=True)
         if not passed: print(output, flush=True)

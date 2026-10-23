@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Deterministic clock-driven checks; synthetic identities only. */
 public final class RideAutoStopPolicyTest {

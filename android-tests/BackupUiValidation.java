@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Activity;
 import android.app.AlertDialog;
@@ -26,11 +26,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BackupActivity;
-import local.navee.offlinelock.DataMaintenance;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.MoreScreen;
-import local.navee.offlinelock.OnboardingScreen;
+import com.jjricks.volt.BackupActivity;
+import com.jjricks.volt.DataMaintenance;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.MoreScreen;
+import com.jjricks.volt.OnboardingScreen;
 
 /** Disposable fresh emulator only. Exercises the Back up & restore entry, consent, category list and the paused lifecycle. */
 public final class BackupUiValidation extends Instrumentation {
@@ -107,15 +107,15 @@ public final class BackupUiValidation extends Instrumentation {
             require(DataMaintenance.active(),"Back up did not enter maintenance");
             require(root(backup).findViewWithTag("backup-select-all")!=null,"Select all missing");
             require(((TextView)root(backup).findViewWithTag("backup-scope")).getText().toString().startsWith("Full backup"),"Export does not default to a clearly labeled full backup");
-            require(((java.util.Set<?>)invoke(backup,"selected",new Class<?>[]{})).containsAll(local.navee.offlinelock.AppDataBackup.CATEGORIES),"Default export omits a category");
-            for(String category:local.navee.offlinelock.AppDataBackup.CATEGORIES){View box=root(backup).findViewWithTag("backup-category-"+category);
+            require(((java.util.Set<?>)invoke(backup,"selected",new Class<?>[]{})).containsAll(com.jjricks.volt.AppDataBackup.CATEGORIES),"Default export omits a category");
+            for(String category:com.jjricks.volt.AppDataBackup.CATEGORIES){View box=root(backup).findViewWithTag("backup-category-"+category);
                 if(box!=null)await(()->box.isLaidOut(),"Category row "+category+" was not laid out");
                 require(box instanceof android.widget.CheckBox&&((android.widget.CheckBox)box).getMinHeight()>=dp(backup,48)&&box.getHeight()>=dp(backup,48)&&box.getContentDescription()!=null,"Category row "+category+" is a 48 dp checkbox with a spoken label");}
             require(!((android.widget.CheckBox)root(backup).findViewWithTag("backup-category-rides")).isEnabled(),"An empty category is disabled");
             onMain(()->root(backup).findViewWithTag("backup-category-preferences").performClick());
             require(((TextView)root(backup).findViewWithTag("backup-scope")).getText().toString().startsWith("Selected data only"),"Partial selection still claims a full backup");
             onMain(()->root(backup).findViewWithTag("backup-select-all").performClick());
-            require(((java.util.Set<?>)invoke(backup,"selected",new Class<?>[]{})).containsAll(local.navee.offlinelock.AppDataBackup.CATEGORIES),"Select all did not restore full scope");
+            require(((java.util.Set<?>)invoke(backup,"selected",new Class<?>[]{})).containsAll(com.jjricks.volt.AppDataBackup.CATEGORIES),"Select all did not restore full scope");
             require(textContaining(root(backup),"Permissions and Bluetooth pairing aren't included.")!=null,"Exclusions are stated");
             render(root(backup),"backup-categories.png");
             EditText secret=(EditText)field(backup,"password");
@@ -184,8 +184,8 @@ public final class BackupUiValidation extends Instrumentation {
         onMain(()->{
             settings().edit().putBoolean("auto_connect",false).putBoolean("background_connection",false).commit();
             main.service().profiles.create("Synthetic completed setup","AABBCCDDEEFF",0);
-            local.navee.offlinelock.ScreenHost host=(local.navee.offlinelock.ScreenHost)java.lang.reflect.Proxy.newProxyInstance(
-                    local.navee.offlinelock.ScreenHost.class.getClassLoader(),new Class<?>[]{local.navee.offlinelock.ScreenHost.class},(proxy,method,args)->{
+            com.jjricks.volt.ScreenHost host=(com.jjricks.volt.ScreenHost)java.lang.reflect.Proxy.newProxyInstance(
+                    com.jjricks.volt.ScreenHost.class.getClassLoader(),new Class<?>[]{com.jjricks.volt.ScreenHost.class},(proxy,method,args)->{
                         if(method.getName().equals("saveText"))throw new AssertionError("Setup success still exports a plaintext owner file");
                         if(method.getName().equals("dataBackup")){requested[0]=args;requests[0]++;}
                         return method.invoke(main,args);

@@ -54,7 +54,7 @@ First-time capture needs your working NAVEE account and Android debugging access
 
 ---
 
-Previously **Navee Offline**; existing installations and data remain compatible. Built with Java and native Android views.
+Previously **Navee Offline**. Version 1.5.0 has a new Android app ID; move from 1.4.x with Back up & restore ([how](docs/getting-started.md#moving-from-volt-14x-to-150)). Built with Java and native Android views.
 
 [MIT-licensed source](LICENSE) · [Third-party and image notices](NOTICE) · [Public-release preparation](docs/public-release.md).
 

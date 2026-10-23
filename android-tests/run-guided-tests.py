@@ -27,8 +27,8 @@ args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
     parser.error('An explicit emulator serial is required; physical devices are refused')
 prefix = [args.adb, '-s', args.serial]
-PACKAGE = 'local.navee.offlinelock'
-RUNNER = 'local.navee.offlinelock.tests/local.navee.offlinelock.GuidedTestValidation'
+PACKAGE = 'com.jjricks.volt'
+RUNNER = 'com.jjricks.volt.tests/com.jjricks.volt.GuidedTestValidation'
 REMOTE = f'/sdcard/Android/data/{PACKAGE}/files/guided-validation'
 def run(*values, check=True, timeout=240):
     result = subprocess.run(prefix + list(values), text=True, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, timeout=timeout)
@@ -40,7 +40,7 @@ if run('shell', 'getprop', 'ro.kernel.qemu').strip() != '1' or run('shell', 'get
 args.out.mkdir(parents=True, exist_ok=True)
 (args.out / 'inputs.json').write_text(json.dumps({str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest()
                                                for p in (args.app, args.runner)}, indent=2) + '\n')
-for package in ('local.navee.offlinelock.tests', PACKAGE):
+for package in ('com.jjricks.volt.tests', PACKAGE):
     run('uninstall', package, check=False)
 run('install', '--no-incremental', str(args.app.resolve()))
 run('install', '--no-incremental', str(args.runner.resolve()))

@@ -1,7 +1,9 @@
 # Changelog
 
-## Unreleased
+## 1.5.0 — 2026-10-22
 
+- New Android app ID: `com.jjricks.volt` replaces `local.navee.offlinelock`. Android treats this as a different app, so it installs beside Volt 1.4.x instead of updating it. To move: in the old app, More → About & permissions → Your data → Back up & restore → Back up (everything selected). In the new app, choose **Restore Volt backup** on the welcome screen, check your scooters, rides and charges, then uninstall the old app. Grant permissions again; Bluetooth pairing belongs to the phone and carries over.
+- The APK is now `volt.apk`. Legacy owner setup files and backup formats still import.
 - Make uncertain UT5 MAX standard-charger estimates to full more conservative, while preserving voltage matching and the final taper.
 - Prevent shorter percentage-only charge history from overriding uncertain early full-time estimates; preserve existing lower-cutoff calculations.
 - Wait for automatic charger identification or manual selection before enabling Charge done by during UT5 MAX charging.

@@ -1,5 +1,5 @@
 VOLT — MODEL-AWARE FEATURE AVAILABILITY
-Current version: 1.4.8 (versionCode 45)
+Current version: 1.5.0 (versionCode 46)
 Earlier parked checks: US UT5 MAX, model 2538; OEM reference: NAVEE 2.1.9
 See VERIFICATION.txt for dated checks and the exact physical test scope.
 
@@ -17,7 +17,23 @@ or sponsored by NAVEE.
 That historical release introduced no new scooter command or decoded telemetry field.
 See VERIFICATION.txt for executed checks and physical validation limits.
 
-NEW IN 1.4.8
+NEW IN 1.5.0
+------------
+- New Android app ID, com.jjricks.volt. It installs beside Volt 1.4.x rather than
+  updating it. Move your data with Back up & restore: make a full backup in the
+  old app, restore it in the new one, check it, then uninstall the old app.
+  Permissions need granting again; Bluetooth pairing stays with the phone.
+- One Back up & restore in More, full by default, also offered during setup.
+- My scooters lists every scooter, switches without connecting, and refuses to
+  save a scooter already saved under another name.
+- UT5 MAX standard-charger estimates from pack voltage and charge age (v6), with
+  a cautious Charge done by plan, an optional measuring window and recordings
+  that survive the scheduled pause.
+- Learned range follows battery energy across the gauge and shows a likely range.
+- Usable ride energy replaces the capacity experiment, with a range and a
+  charging check.
+
+PREVIOUSLY IN 1.4.8
 ------------
 - Refine compatible UT5 MAX stock-charger estimates below 89% using pack voltage
   and charging current from earlier completed charges.

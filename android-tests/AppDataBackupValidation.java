@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Instrumentation;
 import android.content.Context;
@@ -8,7 +8,7 @@ import android.database.Cursor;
 import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
 import android.os.Bundle;
-import local.navee.offlinelock.AppDataBackup;
+import com.jjricks.volt.AppDataBackup;
 import java.io.*;
 import java.lang.reflect.Proxy;
 import java.nio.file.Files;

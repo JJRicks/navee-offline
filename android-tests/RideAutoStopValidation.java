@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.*;
 import android.bluetooth.*;
@@ -15,7 +15,7 @@ import java.nio.file.Files;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /**
  * Disposable empty emulator only. Synthetic journals that ended with the automatic parked stop:
@@ -89,9 +89,9 @@ public final class RideAutoStopValidation extends Instrumentation {
 
     /** Real .voltrides export, delete, stage, plan and apply through the app's private storage. */
     private void backupRoundTrip(Context context, File folder) throws Exception {
-        Class<?> archive = Class.forName("local.navee.offlinelock.RideArchive"), storageType = Class.forName("local.navee.offlinelock.RideArchive$Storage"),
-                preparedType = Class.forName("local.navee.offlinelock.RideArchive$Prepared"), planType = Class.forName("local.navee.offlinelock.RideArchive$Plan");
-        Object storage = call(Class.forName("local.navee.offlinelock.RideBackup"), null, "storage", new Class<?>[]{Context.class}, context);
+        Class<?> archive = Class.forName("com.jjricks.volt.RideArchive"), storageType = Class.forName("com.jjricks.volt.RideArchive$Storage"),
+                preparedType = Class.forName("com.jjricks.volt.RideArchive$Prepared"), planType = Class.forName("com.jjricks.volt.RideArchive$Plan");
+        Object storage = call(Class.forName("com.jjricks.volt.RideBackup"), null, "storage", new Class<?>[]{Context.class}, context);
         Map<String, byte[]> journals = new HashMap<>(); RideStore store = new RideStore(folder);
         for (RideStore.Summary s : store.list()) journals.put(s.id, Files.readAllBytes(new File(folder, s.id + ".csv").toPath()));
         ByteArrayOutputStream bytes = new ByteArrayOutputStream();
@@ -114,7 +114,7 @@ public final class RideAutoStopValidation extends Instrumentation {
 
     /** Full app backups reject a mistyped End parked rides value before replacing live state. */
     private void preferenceTypes() throws Exception {
-        Class<?> archive = Class.forName("local.navee.offlinelock.AppDataArchive");
+        Class<?> archive = Class.forName("com.jjricks.volt.AppDataArchive");
         for (Object value : new Object[]{Boolean.TRUE, Boolean.FALSE, "true", 1}) {
             Map<String, Map<String, Object>> all = new HashMap<>();
             for (String name : new String[]{"app_settings", "profiles", "scooter", "control_evidence", "onboarding"}) all.put(name, new HashMap<>());

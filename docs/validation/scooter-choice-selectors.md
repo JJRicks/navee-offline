@@ -22,7 +22,7 @@ Native validation uses the existing runner on an empty disposable emulator with 
 
 ```sh
 adb -s emulator-5590 shell am instrument -w -r \
-  local.navee.offlinelock.tests/local.navee.offlinelock.tests.DeveloperSettingsValidation
+  com.jjricks.volt.tests/com.jjricks.volt.tests.DeveloperSettingsValidation
 ```
 
 Do not use the owner's phone for this fixture. It refuses physical hardware and pre-existing private data. Actual scooter writes/readbacks require a later parked-device check; this PR does not install on the owner's phone or deploy anything.
