@@ -12,7 +12,7 @@ public final class LearnedRangeEstimateTest {
     public static void main(String[] args) throws Exception {
         try {
             if (args.length > 0 && args[0].equals("memory-pressure")) { memoryPressure(); return; }
-            poolingAndScope(); quality(); completedAndFullDetail(); streamingParity(); storageStates(); memorySubprocess();
+            poolingAndScope(); quality(); completedAndFullDetail(); streamingParity(); storageStates(); energyModel(); likelyRange(); memorySubprocess();
             System.out.println("LearnedRangeEstimateTest: " + checks + " assertions passed");
         } finally { for (File file : directories) remove(file); }
     }
@@ -116,6 +116,128 @@ public final class LearnedRangeEstimateTest {
         RideStore changing = new RideStore(changedDirectory);armed[0]=true;
         try { changing.learnedRange("A",NOW);throw new AssertionError("Mixed journal snapshot accepted"); }
         catch(RideStore.JournalChangedException expected) { checks++; }
+    }
+    /** Rides with recorded power: battery energy left at the reading ÷ energy per km. */
+    private static void energyModel() throws Exception {
+        // 80% to 60% at 600 W for 600 s: 100 Wh over 20 gauge points (5 Wh each) and 2.5 km (40 Wh/km).
+        List<LearnedRangeEstimate.Evidence> three = new ArrayList<>();
+        for (int i = 0; i < 3; i++) three.add(energy("A", 20, 60, 2.5, 600, "normal", NOW - i * DAY).evidence());
+        LearnedRangeEstimate.Evidence one = three.get(0);
+        check(one.rejection == null && one.rideWh != null && Math.abs(one.rideWh - 100) < 1e-6, "Ride energy is the net draw: " + one.rideWh);
+        check(one.gaugePoints() == 19, "Points entered and left by a one-point drop are counted; the partial first is not: " + one.gaugePoints());
+        LearnedRangeEstimate.Result r = LearnedRangeEstimate.calculate("A", three, NOW);
+        check(r.model == LearnedRangeEstimate.Model.ENERGY && r.status == LearnedRangeEstimate.Status.READY, "Recorded power selects the energy model");
+        near(40, r.whPerKm, "Energy per km pools rides");
+        // Seen bands 61-70 and 71-80 hold 5 Wh/pt; above, the nearest seen band; 60 and below, 10% less.
+        near((40 * 5 + 60 * 4.5 - 2.5) / 40, r.fullRangeKm, "Full range: 99.5 points, with caution below the lowest band seen");
+        near((10 * 5 + 60 * 4.5 - 2.5) / 40, r.remainingKm(70d), "A reading is the middle of its gauge point");
+        near(2.25 / 40 / 2, r.remainingKm(1d) / 2, "Bottom point uses the cautious floor");
+        near(0, r.remainingKm(0d), "Zero battery is zero estimate");
+        check(r.remainingKm(20d) < r.fullRangeKm * .2, "Low battery is no longer linear in the gauge");
+        double previous = -1; boolean monotone = true;
+        for (double soc = 0; soc <= 100; soc += .25) { double km = r.remainingKm(soc); monotone &= km >= previous; previous = km; }
+        check(monotone, "More battery never forecasts less range");
+        check(r.remainingKm(null) == null && r.remainingKm(Double.NaN) == null && r.remainingKm(101d) == null, "Invalid SOC stays unavailable");
+        // Without a confirmed current direction there is no energy evidence: the older model stays.
+        List<LearnedRangeEstimate.Evidence> unsigned = new ArrayList<>();
+        for (int i = 0; i < 3; i++) unsigned.add(energy("A", 20, 60, 2.5, 600, "unconfirmed", NOW).evidence());
+        check(unsigned.get(0).rideWh == null && unsigned.get(0).gaugePoints() == 0, "Unconfirmed direction yields no energy evidence");
+        LearnedRangeEstimate.Result legacy = LearnedRangeEstimate.calculate("A", unsigned, NOW);
+        check(legacy.model == LearnedRangeEstimate.Model.DISTANCE, "No power keeps distance per gauge point");
+        near(12.5, legacy.fullRangeKm, "Older model unchanged: 7.5 km over 60 points");
+        // Negative-is-draw scooters give the same evidence; regeneration counts against draw.
+        LearnedRangeEstimate.Evidence negative = energy("A", 20, 60, 2.5, -600, "negative", NOW).evidence();
+        check(negative.rideWh != null && Math.abs(negative.rideWh - 100) < 1e-6 && negative.gaugePoints() == 19, "Negative-is-draw convention");
+        LearnedRangeEstimate.Evidence regen = energy("A", 20, 60, 2.5, 600, "regen", NOW).evidence();
+        check(regen.rideWh != null && regen.rideWh < 100, "Regeneration lowers net energy: " + regen.rideWh);
+        // A short gap rejects the ride for the older model but leaves its energy evidence usable.
+        LearnedRangeEstimate.Evidence gap = energy("A", 20, 60, 2.5, 600, "gap", NOW).evidence();
+        // The gap falls on the 71 to 70 drop: 71 is cut off and 70 was never entered by a seen drop.
+        check(gap.rejection != null && gap.rideWh != null && gap.gaugePoints() == 17, "Gap: counted points stop at the break, energy still counts: " + gap.gaugePoints());
+        LearnedRangeEstimate.Evidence charging = energy("A", 20, 60, 2.5, 600, "charging", NOW).evidence();
+        check(charging.rideWh == null, "Charging during a ride gives no energy per km");
+        LearnedRangeEstimate.Evidence jump = energy("A", 20, 60, 2.5, 600, "jump", NOW).evidence();
+        check(jump.gaugePoints() < 19, "A skipped gauge point is never counted: " + jump.gaugePoints());
+        // Battery readings that vanish across a drop leave its timing unknown (Codex's #77 reproduction).
+        LearnedRangeEstimate.Evidence complete = stepped("complete").evidence(), dropout = stepped("dropout").evidence(), blip = stepped("blip").evidence();
+        check(complete.gaugePoints() == 1 && Math.abs(complete.bandWh[7] - 100 * 600 / 3600.0) < 1e-6, "Complete readings count the 79% point at 16.67 Wh: " + complete.bandWh[7]);
+        check(dropout.gaugePoints() == 0, "Readings missing across the drop count no gauge point, not an 83 Wh one: " + dropout.gaugePoints());
+        check(dropout.rideWh != null && Math.abs(dropout.rideWh - complete.rideWh) < 1e-9, "Energy per km evidence stays when gauge readings drop out");
+        check(blip.gaugePoints() == 1 && Math.abs(blip.bandWh[7] - complete.bandWh[7]) < 1e-6, "A one-sample gap in readings keeps the point");
+        // At a 3 s cadence one missing reading leaves 6 s between readings: beyond the bound, even when it returns.
+        check(stepped("slow_blip").evidence().gaugePoints() == 0, "A returning reading after more than 3 s still breaks the point");
+        LearnedRangeEstimate.Evidence sparse = energy("A", 20, 60, 2.5, 600, "sparse_power", NOW).evidence();
+        check(sparse.rideWh == null && sparse.gaugePoints() == 0, "Under 95% power coverage gives no energy evidence");
+        Fixture streamed = energy("A", 20, 60, 2.5, 600, "normal", NOW);
+        LearnedRangeEstimate.Result full = LearnedRangeEstimate.calculate("A", Arrays.asList(streamed.evidence()), NOW);
+        LearnedRangeEstimate.Result viaStore = streamed.store.learnedRange("A", NOW);
+        check(full.gaugePoints == viaStore.gaugePoints && full.energyRides == viaStore.energyRides && Math.abs(full.energyKm - viaStore.energyKm) < 1e-9,
+                "Every-sample streaming parity for energy evidence");
+    }
+    /** Likely range from how past 6 km stretches compared with the forecast. */
+    private static void likelyRange() throws Exception {
+        List<LearnedRangeEstimate.Evidence> rides = new ArrayList<>();
+        // Ten 20-point rides alternating 2 and 3 km: three-ride stretches go 7 or 8 km against a 7.5 km forecast.
+        for (int i = 0; i < 10; i++) rides.add(energy("A", 20, 60, i % 2 == 0 ? 2 : 3, 600, "normal", NOW - (10 - i) * 3600000L).evidence());
+        LearnedRangeEstimate.Result r = LearnedRangeEstimate.calculate("A", rides, NOW);
+        check(r.likelyLowFactor != null && r.likelyLowFactor < 1 && r.likelyHighFactor > 1, "Varying stretches give a band around the forecast");
+        // Each ride's forecast: 80% to 60% is 19.5 points at 5 Wh plus half of the 4.5 Wh floor point = 99.75 Wh at 40 Wh/km.
+        near(7 / (3 * 99.75 / 40), r.likelyLowFactor, "Low end: 5th percentile of actual over forecast km");
+        near(8 / (3 * 99.75 / 40), r.likelyHighFactor, "High end: 95th percentile");
+        check(r.likelyLowKm(50d) < r.remainingKm(50d) && r.likelyHighKm(50d) > r.remainingKm(50d), "The forecast sits inside its likely range");
+        check(r.likelyLowKm(null) == null, "No reading, no range");
+        LearnedRangeEstimate.Result few = LearnedRangeEstimate.calculate("A", rides.subList(0, 4), NOW);
+        check(few.status == LearnedRangeEstimate.Status.READY && few.likelyLowFactor == null && few.likelyLowKm(50d) == null,
+                "Too few 6 km stretches: forecast only, no band");
+    }
+    /** 600 s at 600 W: 80% to second 99, 79% to 199, then 78%. dropout removes 101-599; blip removes 150 only; slow_blip samples every 3 s and removes 150. */
+    private static Fixture stepped(String mode) throws Exception {
+        File dir = Files.createTempDirectory("volt-range-stepped-").toFile(); directories.add(dir);
+        RideStore store = new RideStore(dir); int seconds = 600; long start = NOW - seconds * 1000L;
+        store.setCurrentDirection(RideStore.CurrentDirection.POSITIVE_IS_DRAW);
+        String id = store.start("A", "Synthetic", start, 0);
+        boolean slow = mode.equals("slow_blip");
+        for (int sec = 0; sec <= seconds; sec += slow ? 3 : 1) {
+            long mono = sec * 1000L; Map<String,RideStore.Sample> values = new LinkedHashMap<>();
+            boolean missing = mode.equals("dropout") && sec > 100 && sec < seconds || mode.equals("blip") && sec == 150 || slow && sec == 150;
+            if (!missing) values.put("battery_percent", new RideStore.Sample(sec < 100 ? 80 : sec < 200 ? 79 : 78, mono));
+            values.put("odometer_km", new RideStore.Sample(100 + 2.5 * sec / seconds, mono));
+            values.put("speed_kmh", new RideStore.Sample(15, mono));
+            values.put("charging_state", new RideStore.Sample(0, mono));
+            values.put("voltage_v", new RideStore.Sample(50.0, "50V", "V", 0x72, mono));
+            values.put("current_a", new RideStore.Sample(12.0, "current", "A", 0x72, mono));
+            store.sample(start + mono, mono, values);
+        }
+        store.stop(NOW, seconds * 1000L);
+        return new Fixture(store, id, dir);
+    }
+    private static Fixture energy(String profile, double drop, double soc0, double km, double watts, String mode, long end) throws Exception {
+        // soc0 is the end level: the ride runs from soc0 + drop down to soc0 over 600 s.
+        File dir = Files.createTempDirectory("volt-range-energy-").toFile(); directories.add(dir);
+        RideStore store = new RideStore(dir); int seconds = 600; long start = end - seconds * 1000L;
+        store.setCurrentDirection(mode.equals("unconfirmed") ? RideStore.CurrentDirection.UNCONFIRMED
+                : mode.equals("negative") ? RideStore.CurrentDirection.NEGATIVE_IS_DRAW : RideStore.CurrentDirection.POSITIVE_IS_DRAW);
+        String id = store.start(profile, "Synthetic", start, 0);
+        for (int sec = 0; sec <= seconds; sec++) {
+            long mono = sec * 1000L; double fraction = sec / (double) seconds;
+            double soc = Math.ceil(soc0 + drop - drop * fraction);
+            if (mode.equals("jump") && sec >= 300) soc = Math.max(soc0, soc - 3);
+            Map<String,RideStore.Sample> values = new LinkedHashMap<>();
+            values.put("battery_percent", new RideStore.Sample(soc, mono));
+            values.put("odometer_km", new RideStore.Sample(100 + km * fraction, mono));
+            values.put("speed_kmh", new RideStore.Sample(km * 3600 / seconds, mono));
+            values.put("charging_state", new RideStore.Sample(mode.equals("charging") && sec == 400 ? 1 : 0, mono));
+            double current = watts / 50;
+            if (mode.equals("regen") && sec >= 100 && sec < 160) current = -current / 2;
+            if (!mode.equals("sparse_power") || sec % 10 < 5) {
+                values.put("voltage_v", new RideStore.Sample(50.0, "50V", "V", 0x72, mono));
+                values.put("current_a", new RideStore.Sample(current, "current", "A", 0x72, mono));
+            }
+            if (mode.equals("gap") && sec == 300) store.markGap(start + mono, mono, "Synthetic gap");
+            store.sample(start + mono, mono, values);
+        }
+        store.stop(end, seconds * 1000L);
+        return new Fixture(store, id, dir);
     }
     private static void memorySubprocess() throws Exception {
         String java = new File(System.getProperty("java.home"),"bin/java").getPath();

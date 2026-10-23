@@ -19,6 +19,9 @@
 - Rename Capacity experiment to Usable ride energy; an untouched old default title follows the rename and custom titles are kept. It is not a battery-health test.
 - Require 60 battery points across six rides before estimating, set aside rides whose gauge corrected itself mid-ride, and show a 90% range.
 - Show charge per full gauge (Ah) and a charging check from completed charge recordings.
+- Make Volt's learned range follow the battery gauge: energy per percentage point is learned across the gauge, so low-battery forecasts are no longer optimistic, and levels below any recorded ride are treated cautiously.
+- Separate riding efficiency from battery energy; rides with a short recording gap now count toward energy per km.
+- Show the learned forecast and its likely range in the Range estimate picker.
 
 ## 1.4.8 — 2026-10-21
 
