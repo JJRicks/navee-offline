@@ -39,4 +39,6 @@
   <instrumentation android:name="local.navee.offlinelock.tests.CompatControlsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated simulated OEM control families validation" />
   <instrumentation android:name="local.navee.offlinelock.tests.Ut5SimulationScreens" android:targetPackage="local.navee.offlinelock" android:label="Isolated UT5 MAX simulator screen capture" />
   <instrumentation android:name="local.navee.offlinelock.GuidedTestValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator guided setting test validation (synthetic link)" />
+  <instrumentation android:name="local.navee.offlinelock.tests.FirstConnectionValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated first-connection failure validation" />
+  <instrumentation android:name="local.navee.offlinelock.tests.MyScootersValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated multi-scooter management validation" />
 </manifest>

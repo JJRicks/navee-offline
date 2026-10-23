@@ -473,7 +473,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         return registerDashboardLock(content);
     }
     /**
-     * Lock bar: one 48 dp row. Offline it shows the unknown state with Connect (or Cancel);
+     * Lock bar: one 48 dp row. Offline it shows the last known state with Connect (or Cancel);
      * connected, the same tap-or-slide switch fills the row with its state drawn inside.
      */
     private View makeCompactLock(boolean showDisconnect){
@@ -898,11 +898,16 @@ public final class MainActivity extends Activity implements ScreenHost {
                 // The scooter name is already in the Home header; repeating it can fill
                 // a narrow card and push Cancel out of view at larger system font sizes.
                 String unknown=compactLock?"Lock state unknown":"Lock state unverified";
-                offlineTitle.setText(connecting?(compactLock?"Connecting…":"Connecting"):unknown);
-                offlineTitle.setContentDescription(connecting?"Connecting to "+scooterName:unknown);
-                // Only the age of the lock state needs words: the row is tappable and Connect sits beside it.
-                String verified=!connecting&&last>0?"Last verified "+(compactLock?shortRecent(last):DisplayTime.recent(this,preferences,last,System.currentTimeMillis())):"";
-                offlineDetail.setText(verified);offlineDetail.setVisibility(verified.isEmpty()?View.GONE:View.VISIBLE);
+                String known=shownLock==null?null:shownLock?"Locked":"Unlocked";
+                offlineTitle.setText(connecting?(compactLock?"Connecting…":"Connecting"):known==null?unknown:known);
+                offlineTitle.setTextColor(design.muted);
+                String description=known==null?unknown:"Last known lock state: "+known.toLowerCase(java.util.Locale.ROOT)+". Reconnect to verify.";
+                offlineTitle.setContentDescription(connecting?"Connecting to "+scooterName+". "+description:description);
+                // The feature cache contains scooter readbacks, never a requested lock change.
+                // Keep its stale label visible even during reconnect; it does not enable the switch.
+                // A past connection alone cannot verify the lock; its age is already in the header.
+                String detail=known==null?"":connecting?"Last known: "+known.toLowerCase(java.util.Locale.ROOT):"Last known";
+                offlineDetail.setText(detail);offlineDetail.setVisibility(detail.isEmpty()?View.GONE:View.VISIBLE);
             }
         }
         }
@@ -924,22 +929,6 @@ public final class MainActivity extends Activity implements ScreenHost {
     private static boolean lockOffered(BleController ble,Boolean shownLock){
         if(ble==null)return false;CapabilityResolver.Decision d=ble.decision("lock",shownLock==null||!shownLock?1:0);
         return d.available()||d.blockedByRide();
-    }
-    /**
-     * Lock bar detail time, short enough for a 320 dp phone: the clock today, the weekday and clock
-     * within the last week ("Tue 3:02 PM"), otherwise a short date and the clock ("14 Oct 3:02 PM").
-     */
-    private String shortRecent(long wall){
-        java.util.Calendar then=java.util.Calendar.getInstance(),day=java.util.Calendar.getInstance();
-        then.setTimeInMillis(wall);
-        String clock=DisplayTime.clock(this,preferences,wall);
-        // Midnight today, then step back: a calendar-day comparison that stays right across DST changes.
-        day.set(java.util.Calendar.HOUR_OF_DAY,0);day.set(java.util.Calendar.MINUTE,0);
-        day.set(java.util.Calendar.SECOND,0);day.set(java.util.Calendar.MILLISECOND,0);
-        if(!then.before(day))return clock;
-        day.add(java.util.Calendar.DAY_OF_MONTH,-6);
-        String date=!then.before(day)?"EEE":"d MMM";
-        return new java.text.SimpleDateFormat(date,java.util.Locale.ENGLISH).format(new java.util.Date(wall))+" "+clock;
     }
     /** Updates the action presentation without changing the Bluetooth transport. */
     private void updateConnectionAction(boolean ready,boolean connecting){
@@ -1179,20 +1168,22 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(!present){scanSelected=null;for(ScanResult result:scanResults)if(!mine.isEmpty()&&result.getDevice().getAddress().equalsIgnoreCase(mine))scanSelected=result.getDevice().getAddress();}
         scanStatus.setText(scanning?"Searching…":scanResults.isEmpty()?"No scooter found. Is it on?":scanResults.size()==1?"1 scooter found":scanResults.size()+" scooters found");
         scanSpinner.setVisibility(scanning?View.VISIBLE:View.GONE);
-        StringBuilder signature=new StringBuilder(String.valueOf(scanSelected));
-        for(ScanResult result:scanResults){String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();signature.append('|').append(result.getDevice().getAddress()).append(':').append(signalRank(result.getRssi())).append(':').append(name);}
+        StringBuilder signature=new StringBuilder(String.valueOf(scanSelected)).append(':').append(profile==null?"":profile.id);
+        for(ScanResult result:scanResults){String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();ScooterProfiles.Profile saved=scooterService.profiles.hardwareMatch(null,result.getDevice().getAddress(),null);signature.append('|').append(result.getDevice().getAddress()).append(':').append(signalRank(result.getRssi())).append(':').append(name).append(':').append(saved==null?"":saved.id+":"+saved.name);}
         if(!signature.toString().equals(scanSignature)){
             scanSignature=signature.toString();scanList.removeAllViews();
             for(ScanResult result:scanResults){
-                String address=result.getDevice().getAddress();boolean match=!mine.isEmpty()&&address.equalsIgnoreCase(mine);
-                scanList.addView(scanOption(result,match,address.equals(scanSelected)));
+                String address=result.getDevice().getAddress();ScooterProfiles.Profile saved=scooterService.profiles.hardwareMatch(null,address,null);
+                scanList.addView(scanOption(result,saved,address.equals(scanSelected)));
             }
         }
         scanConnect.setEnabled(scanSelected!=null);
     }
     /** Nearby scooter row (ph/10): scooter icon, name, signal bars; the selected scooter has a red outline. */
-    private View scanOption(ScanResult result,boolean match,boolean selected){
+    private View scanOption(ScanResult result,ScooterProfiles.Profile saved,boolean selected){
         String name=result.getScanRecord()==null?null:result.getScanRecord().getDeviceName();if(name==null||name.isEmpty())name="Navee scooter";
+        if(saved!=null)name=saved.name;
+        ScooterProfiles.Profile active=scooterService.profiles.active();boolean match=saved!=null&&active!=null&&saved.id.equals(active.id);
         String address=result.getDevice().getAddress(),suffix=address.substring(Math.max(0,address.length()-5));
         int rank=signalRank(result.getRssi());String strength=rank==4?"Strong signal":rank==3?"Good signal":rank==2?"Fair signal":"Weak signal";
         LinearLayout option=row();option.setGravity(Gravity.CENTER_VERTICAL);option.setPadding(design.dp(12),design.dp(10),design.dp(14),design.dp(10));option.setMinimumHeight(design.dp(64));
@@ -1202,10 +1193,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         option.addView(design.iconSquare("scooter",design.accent),new LinearLayout.LayoutParams(design.dp(40),design.dp(40)));
         LinearLayout words=column();
         TextView title=design.text(name,15,true);title.setMaxLines(1);title.setEllipsize(android.text.TextUtils.TruncateAt.END);words.addView(title);
-        // Signal bars show the strength and a Yours chip marks the profile's scooter; TalkBack keeps both in words.
+        // Every known address uses its saved name and label, including another profile's scooter.
         LinearLayout detail=row();detail.setGravity(Gravity.CENTER_VERTICAL);detail.setPadding(0,design.dp(3),0,0);
-        if(match){
-            TextView yours=design.text("Yours",11,true);yours.setTextColor(design.ok);yours.setPadding(design.dp(8),design.dp(1),design.dp(8),design.dp(2));
+        if(saved!=null){
+            TextView yours=design.text(match?"Yours":"Saved",11,true);yours.setTextColor(design.ok);yours.setPadding(design.dp(8),design.dp(1),design.dp(8),design.dp(2));
             yours.setBackground(design.shape(Ui.withAlpha(design.ok,design.dark?40:30),100,0));
             LinearLayout.LayoutParams chip=new LinearLayout.LayoutParams(-2,-2);chip.setMarginEnd(design.dp(8));detail.addView(yours,chip);
         }
@@ -1214,7 +1205,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         SignalBars bars=new SignalBars(rank);int color=rank>=3?design.ok:design.orange;bars.set(rank,color,design.raised);
         option.addView(bars,new LinearLayout.LayoutParams(design.dp(18),design.dp(14)));
         option.setClickable(true);option.setFocusable(true);option.setSelected(selected);
-        option.setContentDescription(name+", "+strength+(match?", your scooter":"")+", address ending "+suffix);
+        option.setContentDescription(name+", "+strength+(saved==null?"":match?", your scooter":", saved scooter in My scooters")+", address ending "+suffix);
         if(Build.VERSION.SDK_INT>=30)option.setStateDescription(selected?"Selected":"");
         option.setOnClickListener(v->{scanSelected=address;scanSignature="";updateScan();});
         LinearLayout.LayoutParams params=new LinearLayout.LayoutParams(-1,-2);params.bottomMargin=design.dp(8);option.setLayoutParams(params);
@@ -1296,7 +1287,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         private final LinkedHashMap<View,String[]> extras=new LinkedHashMap<>();
         private final TextView results,bannerText,bannerAction,zonesValue,clockButton,nameValue;
         private final EditText search;
-        private final LinearLayout lightsHeader,banner,readOnlyBanner,testBanner;private TextView identifyAction,checkAction,testBannerText,testReviewAction;private String offeredKeys="";
+        private final LinearLayout lightsHeader,banner,readOnlyBanner,testBanner;private TextView identifyAction,testBannerText,testReviewAction;private String offeredKeys="";
         private final View headlightRow,zonesRow,clockSpinner;
         private final SettingLine clockLine,chargerLine;
         private final TopSpeedCard topSpeed;
@@ -1329,8 +1320,6 @@ public final class MainActivity extends Activity implements ScreenHost {
             readOnlyBanner.addView(design.icon("lock",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
             TextView readOnlyText=design.text(BleController.LIMITED_MODEL,13,false);LinearLayout.LayoutParams readOnlyWords=new LinearLayout.LayoutParams(0,-2,1);readOnlyWords.leftMargin=design.dp(10);readOnlyWords.rightMargin=design.dp(8);readOnlyBanner.addView(readOnlyText,readOnlyWords);
             identifyAction=pill("Identify",()->{if(scooterService!=null){scooterService.ble.identifyModel();toast(scooterService.ble.message());redraw();}});identifyAction.setContentDescription("Identify scooter model");identifyAction.setTag("scooter-identify-model");readOnlyBanner.addView(identifyAction);
-            checkAction=pill("Check",()->openMoreSection("Compatibility"));checkAction.setContentDescription("Check compatibility");checkAction.setTag("scooter-compatibility-check");
-            LinearLayout.LayoutParams checkSpacing=new LinearLayout.LayoutParams(-2,-2);checkSpacing.leftMargin=design.dp(6);readOnlyBanner.addView(checkAction,checkSpacing);
             readOnlyBanner.setVisibility(View.GONE);view.addView(readOnlyBanner,new LinearLayout.LayoutParams(-1,-2));
             ((LinearLayout.LayoutParams)readOnlyBanner.getLayoutParams()).bottomMargin=design.dp(10);
             // An unfinished guided test (restoration outstanding) stays visible until the owner reviews it.
@@ -1492,11 +1481,19 @@ public final class MainActivity extends Activity implements ScreenHost {
             readOnlyBanner.setVisibility(ble!=null&&ble.limitedModel()?View.VISIBLE:View.GONE);
             java.util.List<TestJournal.Entry> unfinished=ble==null?java.util.Collections.<TestJournal.Entry>emptyList():ble.unresolvedTests();
             boolean recordsLost=ble!=null&&!ble.testRecordsHealthy();
-            testBanner.setVisibility(unfinished.isEmpty()&&!recordsLost?View.GONE:View.VISIBLE);
-            if(recordsLost||!unfinished.isEmpty()){String text=recordsLost?"Test records unavailable":"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"");if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);testReviewAction.setContentDescription(recordsLost?"Review test records":"Review unfinished test");}
+            int elsewhere=ble==null?0:ble.unresolvedTestsElsewhere(),orphaned=ble==null?0:ble.orphanedTests().size();
+            boolean testing=ble!=null&&ble.testing();
+            boolean reviewNeeded=recordsLost||!unfinished.isEmpty()||elsewhere>0||orphaned>0||testing;
+            testBanner.setVisibility(reviewNeeded?View.VISIBLE:View.GONE);
+            if(reviewNeeded){
+                String text=recordsLost?"Test records unavailable"
+                        :!unfinished.isEmpty()?"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"")
+                        :orphaned>0?"Unfinished test · removed scooter"
+                        :elsewhere>0?"Unfinished test · another scooter":"Setting test in progress";
+                if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);
+                testReviewAction.setContentDescription(recordsLost?"Review test records":testing?"Review setting test":"Review unfinished test");
+            }
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
-            // One pill at a time keeps the banner readable on narrow screens: Identify first, then Check.
-            checkAction.setVisibility(ble!=null&&!ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // Rows follow the model's decisions; re-filter when the set of mapped controls changes.
             StringBuilder offered=new StringBuilder();for(ControlRow row:rows)offered.append(rowOffered(row.feature.key)?'1':'0');offered.append(offered("clock_sync")?'1':'0').append(topSpeedCard()?'1':'0');
             if(!offered.toString().equals(offeredKeys)){offeredKeys=offered.toString();applyFilter();}
@@ -1804,11 +1801,42 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void toggleChargeDoneBy(){toggleChargeDoneBy(true);}
     private void toggleChargeDoneBy(boolean feedback){
         if(scooterService==null){toast("Connect a charger first");return;}
+        if(scooterService.isChargeMeasuring()){showChargeMeasure();return;}
         ChargeScheduleController.View charge=scooterService.chargeSchedule();
         String blocked=doneByActionBlocked(charge);if(blocked!=null){toast(blocked);return;}
         boolean enable=!charge.doneByEnabled;
+        if(enable&&scooterService.chargeMeasureOffered()){offerChargeMeasure();return;}
         scooterService.setChargeDoneByEnabled(enable,this::scheduleResult);
         if(feedback)Haptics.toggle(getWindow().getDecorView(),enable);redraw();
+    }
+    /** A bounded connection is the owner's choice: ask, and say what it does, before measuring. */
+    private void offerChargeMeasure(){
+        boolean background=preferences.getBoolean("background_connection",false);
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Measure this charge first?")
+                .setMessage("Volt didn't see this charge begin, so it would plan for a fresh charger, which usually finishes early. "
+                        +"Watching the charger for about 10 minutes lets it plan closer to your time, still with the 20-minute buffer. "
+                        +"Volt stays connected"+(background?"":", even in the background,")+" and shows a notification until the schedule is set.")
+                .setPositiveButton("Measure first",(d,which)->{
+                    if(scooterService==null)return;
+                    // Conditions can change while the dialog is open; never leave the request unanswered.
+                    if(scooterService.startChargeMeasure())toast("Measuring · Charge done by is set within "+scooterService.chargeMeasureMinutesLeft()+" min");
+                    else scooterService.setChargeDoneByEnabled(true,this::scheduleResult);
+                    redraw();
+                })
+                .setNegativeButton("Schedule now",(d,which)->{if(scooterService!=null)scooterService.setChargeDoneByEnabled(true,this::scheduleResult);redraw();})
+                .create();
+        controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
+    }
+    private void showChargeMeasure(){
+        if(scooterService.chargeMeasureArming()){toast("Setting the schedule…");return;}
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle("Measuring this charge")
+                .setMessage("Charge done by is set automatically within "+scooterService.chargeMeasureMinutesLeft()+" min. "
+                        +"Schedule now plans with what Volt knows so far. Stop measuring leaves Charge done by off.")
+                .setPositiveButton("Keep measuring",null)
+                .setNeutralButton("Schedule now",(d,which)->{if(scooterService!=null)scooterService.scheduleChargeNow();redraw();})
+                .setNegativeButton("Stop measuring",(d,which)->{if(scooterService!=null)scooterService.cancelChargeMeasure();redraw();})
+                .create();
+        controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
     private void toggleManualCharge(){toggleManualCharge(true);}
     private void toggleManualCharge(boolean feedback){
@@ -1858,13 +1886,16 @@ public final class MainActivity extends Activity implements ScreenHost {
         void refresh(){
             ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
             String blocked=charge==null?(time?"Select a scooter first":"Connect a charger first"):time?charge.timeBlockedReason:doneByActionBlocked(charge);
+            boolean measuring=!time&&scooterService!=null&&scooterService.isChargeMeasuring();if(measuring)blocked=null;
             boolean on=charge!=null&&charge.doneByEnabled;int minute=charge==null?8*60:charge.doneByMinuteOfDay;
             Calendar at=Calendar.getInstance();at.set(Calendar.HOUR_OF_DAY,minute/60);at.set(Calendar.MINUTE,minute%60);
-            String value=time?DisplayTime.clock(MainActivity.this,preferences,at.getTimeInMillis()):on?"On":"Off";
+            String value=time?DisplayTime.clock(MainActivity.this,preferences,at.getTimeInMillis())
+                    :measuring?"Measuring · "+scooterService.chargeMeasureMinutesLeft()+" min":on?"On":"Off";
+            if(!time)row.value.setVisibility(measuring?View.VISIBLE:View.GONE);
             row.name.setTextColor(blocked==null?design.text:design.muted);row.value.setText(value);
             row.line.setAlpha(blocked==null?1f:.5f);row.line.setEnabled(true);
             row.line.setContentDescription((time?"Charge done by time":"Charge done by")+", "+value+(blocked==null?"":", "+blocked));
-            boolean pending=charge!=null&&charge.busy;spinner.setVisibility(pending?View.VISIBLE:View.GONE);
+            boolean pending=charge!=null&&charge.busy||measuring;spinner.setVisibility(pending?View.VISIBLE:View.GONE);
             if(toggle!=null){toggle.setChecked(on);toggle.setEnabled(blocked==null&&!pending);toggle.setClickable(blocked==null&&!pending);toggle.setFocusable(blocked==null&&!pending);toggle.setVisibility(pending?View.GONE:View.VISIBLE);}
         }
     }
@@ -1968,14 +1999,18 @@ public final class MainActivity extends Activity implements ScreenHost {
         }
         private void refreshChargeSchedule(){
             ChargeScheduleController.View charge=scooterService==null?null:scooterService.chargeSchedule();
+            BleController ble=scooterService==null?null:scooterService.ble;
+            CapabilityResolver.Decision decision=ble==null?null:ble.decision(feature.key);
+            String note=rowNote(ble,decision,decision!=null&&decision.blockedByRide());
             String blocked=charge==null?"Connect your scooter first":toggle==null?charge.manualTimeBlockedReason:charge.manualBlockedReason;
             boolean pending=charge!=null&&charge.busy,on=charge!=null&&charge.manualEnabled;
             String shown=toggle!=null?(on?"On":"Off"):charge==null||charge.manualStartWallMs<=0?"Not scheduled"
                     :DisplayTime.clock(MainActivity.this,preferences,charge.manualStartWallMs);
-            name.setTextColor(blocked==null?design.text:design.muted);value.setText(shown);row.setSub(null);
+            name.setTextColor(blocked==null?design.text:design.muted);value.setText(shown);row.setSub(note);
             action.setEnabled(true);row.line.setAlpha(blocked==null?1f:.5f);parkedBlocked=false;
             spinner.setVisibility(pending?View.VISIBLE:View.GONE);result.setVisibility(View.GONE);
-            action.setContentDescription(shortLabel(feature)+", "+shown+(blocked==null?"":", "+blocked));
+            action.setContentDescription(shortLabel(feature)+", "+shown+(blocked==null?"":", "+blocked)
+                    +(note==null||note.equals(blocked)?"":", "+note));
             if(toggle!=null){toggle.setVisibility(pending?View.GONE:View.VISIBLE);toggle.setChecked(on);toggle.setEnabled(blocked==null&&!pending);toggle.setClickable(blocked==null&&!pending);toggle.setFocusable(blocked==null&&!pending);}
         }
         /**
@@ -2624,6 +2659,10 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(enteringMaintenance||destroyed)return;
         if(restore==null){
             LinearLayout box=new LinearLayout(dialogContext());box.setOrientation(LinearLayout.VERTICAL);box.setPadding(design.dp(22),design.dp(18),design.dp(22),design.dp(4));
+            TextView summary=design.caption(preselect!=null&&preselect.equals("rides")
+                    ?"Save or restore your recorded rides."
+                    :"One backup for scooter access, rides, charges, history, dashboards and settings. Choose what to include next.");
+            summary.setPadding(0,0,0,design.dp(12));box.addView(summary);
             TextView backUp=design.button("Back up",null),restoreButton=design.secondaryButton("Restore",null);
             backUp.setTag("data-backup-create");restoreButton.setTag("data-backup-restore");box.addView(backUp);box.addView(restoreButton);
             AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(preselect!=null&&preselect.equals("rides")?"Ride backups":"Back up & restore").setView(box).setNegativeButton("Cancel",null).create();
@@ -2631,7 +2670,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_NEGATIVE);return;
         }
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setTitle(restore?"Restore?":"Back up?")
-                .setMessage((restore?"You’ll review before anything changes. ":"")+"Volt pauses until you reopen it.")
+                .setMessage((restore?"Choose a backup, review its contents, then confirm. Nothing changes before you approve. ":"")+"Volt pauses until you reopen it.")
                 .setNegativeButton("Cancel",null).setPositiveButton("Continue",(d,n)->beginBackup(restore,preselect)).create();
         controlDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
     }
@@ -2716,8 +2755,11 @@ public final class MainActivity extends Activity implements ScreenHost {
         name=name.trim();if(name.isEmpty())name=IMPORTED_NAME;if(name.length()>80)name=name.substring(0,80);
         if(!mac.matches("(?i)([0-9a-f]{2}:){5}[0-9a-f]{2}"))mac="";else mac=mac.toUpperCase(Locale.ROOT);if(!serial.matches("[A-Za-z][A-Za-z0-9]{16}"))serial="";
         JSONObject normalized=new JSONObject();normalized.put("format","navee-private-pending-owner-v1");normalized.put("import_id",UUID.randomUUID().toString());normalized.put("owner_identity",parsed.identity);normalized.put("role",parsed.role);normalized.put("name",name);normalized.put("scooter_address",mac);normalized.put("scooter_serial",serial);
+        writePendingOwnerImport(normalized);importWaitNotified=false;
+    }
+    private void writePendingOwnerImport(JSONObject normalized)throws java.io.IOException{
         File temporary=new File(getFilesDir(),"pending-owner-import.tmp");try(FileOutputStream out=new FileOutputStream(temporary)){out.write(normalized.toString().getBytes(StandardCharsets.UTF_8));out.getFD().sync();}
-        if(!temporary.renameTo(pendingOwnerFile())){temporary.delete();throw new java.io.IOException("Could not stage owner setup");}importWaitNotified=false;
+        if(!temporary.renameTo(pendingOwnerFile())){temporary.delete();throw new java.io.IOException("Could not stage owner setup");}
     }
     /** The document the rider picked for the last owner import, so its Downloads copy can be removed. */
     private Uri pickedOwnerUri;
@@ -2743,29 +2785,63 @@ public final class MainActivity extends Activity implements ScreenHost {
     private void maybeApplyOwnerImport(){
         File pending=pendingOwnerFile();if(destroyed||!resumed||applyingOwnerImport||!pending.isFile())return;
         if(scooterService==null){if(hasBluetoothPermission())ensureService();return;}
-        if(scooterService.isRecording()||scooterService.ble.pending()!=null){if(!importWaitNotified){toast(scooterService.isRecording()?"Import waits for recording":"Import waits for scooter change");importWaitNotified=true;}return;}
+        String unavailable=scooterService.scooterChangeUnavailable();
+        if(unavailable!=null){if(!importWaitNotified){toast(unavailable);importWaitNotified=true;}return;}
         applyingOwnerImport=true;
         try(InputStream in=new FileInputStream(pending)){
             String text=readLimited(in);OwnerIdentityParser.Result parsed=OwnerIdentityParser.parse(text);JSONObject json=new JSONObject(text);String importId=json.getString("import_id");
-            if(!"navee-private-pending-owner-v1".equals(json.optString("format"))||!importId.matches("[0-9a-fA-F-]{36}"))throw new IllegalArgumentException("Import failed. Pick file again.");
-            if(importId.equals(preferences.getString("owner_import_applied",""))){pending.delete();return;}
+            if(!"navee-private-pending-owner-v1".equals(json.optString("format")))throw new IllegalArgumentException("Import failed. Pick file again.");
+            String newProfileId=ScooterProfiles.ownerImportProfileId(importId),targetId=json.optString("target_profile_id","");
+            boolean applied=importId.equals(preferences.getString("owner_import_applied",""));
             String name=json.optString("name",IMPORTED_NAME),mac=json.optString("scooter_address",""),serial=json.optString("scooter_serial","");
+            // NAVEE's owner identity belongs to the account, not the physical scooter. An earlier
+            // unconnected scooter with the same identity must not absorb a fresh Add a scooter flow.
+            ScooterProfiles.Profile match=null;
+            for(ScooterProfiles.Profile profile:scooterService.profiles.all()){
+                if(profile.id.equals(targetId.isEmpty()?newProfileId:targetId)){match=profile;break;}
+            }
+            if(match!=null&&!ownerImportCompatible(match,parsed,mac,serial))throw new IllegalArgumentException("Saved setup no longer matches. Pick file again.");
+            if(match==null&&!targetId.isEmpty()&&!targetId.equals(newProfileId))throw new IllegalArgumentException("That scooter was removed. Pick file again.");
+            if(match==null&&targetId.isEmpty()){
+                for(ScooterProfiles.Profile profile:scooterService.profiles.all()){
+                    if(!ownerImportCompatible(profile,parsed,mac,serial))continue;
+                    if((!serial.isEmpty()&&serial.equals(profile.serial))||(!mac.isEmpty()&&mac.equalsIgnoreCase(profile.mac))){match=profile;break;}
+                }
+                if(match==null&&onboarding!=null){
+                    ScooterProfiles.Profile earlier=onboarding.ownerImportProfile();
+                    if(ownerImportCompatible(earlier,parsed,mac,serial))match=earlier;
+                }
+            }
+            if(applied&&match==null)throw new IllegalArgumentException("Imported scooter is unavailable. Pick file again.");
+            if(applied&&onboarding==null){pending.delete();return;}
+            // Bind an existing target in the private recovery file before changing it. Newly
+            // created targets use the request's deterministic ID from their very first save.
+            String selectedId=match==null?newProfileId:match.id;
+            if(!selectedId.equals(targetId)){json.put("target_profile_id",selectedId);writePendingOwnerImport(json);}
             // A picker return can trigger automatic reconnect. Cancel that session before
             // selecting a profile, after checking recording and pending-command state.
             scooterService.ble.disconnect();
-            ScooterProfiles.Profile match=null;for(ScooterProfiles.Profile profile:scooterService.profiles.all())if(profile.identity.equalsIgnoreCase(parsed.identity)&&profile.role==parsed.role&&((!serial.isEmpty()&&serial.equals(profile.serial))||(!mac.isEmpty()&&mac.equalsIgnoreCase(profile.mac))||(profile.mac.isEmpty()&&profile.serial.isEmpty()))){match=profile;break;}
             // Volt's own fallback stays a default name, so a later model name can replace it.
-            if(match==null){match=scooterService.profiles.create(name,parsed.identity,parsed.role);if(name.trim().isEmpty()||IMPORTED_NAME.equals(name.trim()))match.nameDefault=true;}else{scooterService.profiles.select(match.id);scooterService.ble.profileSelected();}
+            if(match==null)match=scooterService.profiles.createForOwnerImport(importId,name,parsed.identity,parsed.role);
+            else{scooterService.profiles.select(match.id);scooterService.ble.profileSelected();}
+            if(match.id.equals(newProfileId)&&(match.name.trim().isEmpty()||IMPORTED_NAME.equals(match.name.trim())))match.nameDefault=true;
             if(!mac.isEmpty())match.mac=mac;if(!serial.isEmpty())match.serial=serial;scooterService.profiles.update(match);
             // Commit the existing profile snapshot before deleting its recovery staging file.
             SharedPreferences profilePrefs=getSharedPreferences("profiles",MODE_PRIVATE);String savedProfiles=profilePrefs.getString("items","[]");if(!profilePrefs.edit().putString("items",savedProfiles).commit())throw new java.io.IOException();
-            if(!preferences.edit().putString("owner_import_applied",importId).commit())throw new java.io.IOException();pending.delete();importWaitNotified=false;
+            if(!preferences.edit().putString("owner_import_applied",importId).commit())throw new java.io.IOException();
             // During first-run setup the flow connects at its own step, after Nearby devices.
-            if(onboarding!=null){onboarding.onOwnerImported(true);return;}
+            if(onboarding!=null){onboarding.onOwnerImported(true);pending.delete();importWaitNotified=false;return;}
+            pending.delete();importWaitNotified=false;
             selectedPage="home";scrollPositions.put("home",0);scrollPage="home";if(scroll!=null)scroll.scrollTo(0,0);rebuild();toast("Owner setup imported");scooterService.ble.connectLast();if(match.mac.isEmpty())showScanner(false);
         }catch(IllegalArgumentException e){pending.delete();if(onboarding==null)toast(e.getMessage());else onboarding.onOwnerImported(false);}
         catch(Exception e){if(!importWaitNotified){toast("Import paused. Will retry.");importWaitNotified=true;}}
         finally{applyingOwnerImport=false;}
+    }
+    /** Missing hardware identifiers are not matches, but known contradictions forbid reuse. */
+    private static boolean ownerImportCompatible(ScooterProfiles.Profile profile,OwnerIdentityParser.Result parsed,String mac,String serial){
+        return profile!=null&&profile.identity.equalsIgnoreCase(parsed.identity)&&profile.role==parsed.role
+                &&(serial.isEmpty()||profile.serial.isEmpty()||serial.equals(profile.serial))
+                &&(mac.isEmpty()||profile.mac.isEmpty()||mac.equalsIgnoreCase(profile.mac));
     }
     private static String readLimited(InputStream in)throws java.io.IOException{ByteArrayOutputStream buffer=new ByteArrayOutputStream();byte[] chunk=new byte[8192];int count;while((count=in.read(chunk))!=-1){if(buffer.size()+count>1048576)throw new IllegalArgumentException("Setup files must be smaller than 1 MiB.");buffer.write(chunk,0,count);}return new String(buffer.toByteArray(),StandardCharsets.UTF_8);}
     private static void copy(InputStream in,OutputStream out)throws java.io.IOException{byte[] buffer=new byte[65536];int count;while((count=in.read(buffer))!=-1)out.write(buffer,0,count);}

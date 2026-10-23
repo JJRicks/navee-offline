@@ -110,6 +110,16 @@ public final class DashboardValidation extends Instrumentation {
             await(() -> activity.service().displayReadings().get("battery_percent").number != null, 5000,
                     "Persisted synthetic readings did not load");
             verifyHomeWidgetsOffline();
+            verifyOfflineLockMemory();
+            if ("offline-lock".equals(arguments.getString("mode"))) {
+                result.putString("result", "PASS");
+                result.putStringArrayList("checks", new ArrayList<>(checks));
+                result.putStringArrayList("screenshots", new ArrayList<>(screenshots));
+                result.putInt("check_count", checks.size());
+                result.putInt("width_dp", getTargetContext().getResources().getConfiguration().screenWidthDp);
+                result.putInt("scooter_mutations", 0);
+                cleanup(); finish(0, result); return;
+            }
             if ("home-widgets".equals(arguments.getString("mode"))) {
                 verifyCompactConnection();
                 verifySettingToggleCueSimulation();
@@ -625,6 +635,90 @@ public final class DashboardValidation extends Instrumentation {
             Locale.setDefault(originalLocale); java.util.TimeZone.setDefault(originalZone);
             require(isolated.edit().clear().commit(), "Could not remove isolated clock preferences");
         }
+    }
+    /** Cached lock readbacks are display-only, scoped to the selected real profile. */
+    @SuppressWarnings("unchecked")
+    private void verifyOfflineLockMemory() {
+        main(() -> {
+            ScooterService service = activity.service();
+            BleController ble = service.ble;
+            require(!service.simulating() && ble.state() == BleController.State.DISCONNECTED,
+                    "Offline lock fixture must start disconnected");
+            Map<String, TelemetryHistory.Snapshot> cache = (Map<String, TelemetryHistory.Snapshot>)field(service, "displayCache");
+            TelemetryHistory.Snapshot original = cache.get(profileId);
+            require(original != null && !original.features.containsKey("lock"), "Unknown lock fixture already has a readback");
+            boolean hadDeveloper = settings().contains("developer_options");
+            boolean developer = settings().getBoolean("developer_options", false);
+            String second = null;
+            try {
+                for (int value : new int[] {1, 0}) {
+                    Map<String, Integer> features = new LinkedHashMap<>(original.features);
+                    features.put("lock", value);
+                    cache.put(profileId, new TelemetryHistory.Snapshot(original.readings, features, original.capturedWallMs));
+                    invoke(activity, "updateHeader");
+                    String expected = value == 1 ? "Locked" : "Unlocked";
+                    require(expected.contentEquals(((TextView)field(activity, "offlineTitle")).getText()),
+                            "Offline lock hid the confirmed " + expected + " readback");
+                    require("Last known".contentEquals(((TextView)field(activity, "offlineDetail")).getText()),
+                            "Offline lock readback lost its visible stale label");
+                    require(((TextView)field(activity, "offlineTitle")).getContentDescription().toString().contains("Reconnect to verify"),
+                            "Offline lock accessibility presents an unverified readback as current");
+                    require(((View)field(activity, "lockReady")).getVisibility() == View.GONE
+                                    && !(Boolean)field(field(activity, "lockControl"), "available"),
+                            "A cached lock value enabled the real switch");
+                    ((View)field(activity, "lockControl")).performClick();
+                    require(ble.pending() == null && ble.state() == BleController.State.DISCONNECTED,
+                            "An offline cached switch attempted a command or connection");
+                }
+                setField(ble, "state", BleController.State.CONNECTING);
+                invoke(activity, "updateHeader");
+                require("Connecting…".contentEquals(((TextView)field(activity, "offlineTitle")).getText())
+                                && "Last known: unlocked".contentEquals(((TextView)field(activity, "offlineDetail")).getText()),
+                        "Reconnection lost the stale lock readback or obscured connection progress");
+                require(!(Boolean)field(field(activity, "lockControl"), "available"), "Reconnection enabled a stale lock control");
+                setField(ble, "state", BleController.State.DISCONNECTED);
+
+                ScooterProfiles.Profile other = service.profiles.create("Synthetic second lock profile", "000000000001", 0);
+                second = other.id;
+                cache.put(second, TelemetryHistory.Snapshot.empty());
+                invoke(activity, "updateHeader");
+                require("Lock state unknown".contentEquals(((TextView)field(activity, "offlineTitle")).getText())
+                                && ((View)field(activity, "offlineDetail")).getVisibility() == View.GONE,
+                        "Another profile inherited the first scooter's lock state");
+                service.profiles.select(profileId);
+                invoke(activity, "updateHeader");
+                require("Unlocked".contentEquals(((TextView)field(activity, "offlineTitle")).getText()),
+                        "Returning to a scooter lost its own remembered lock state");
+
+                cache.put(profileId, new TelemetryHistory.Snapshot(original.readings, Collections.singletonMap("lock", 1), original.capturedWallMs));
+                settings().edit().putBoolean("developer_options", true).commit();
+                require(service.setSimulation(true) && Boolean.FALSE.equals(ble.locked()), "Simulation fixture should start unlocked");
+                require(service.setSimulation(false), "Simulation could not stop");
+                invoke(activity, "updateHeader");
+                require("Locked".contentEquals(((TextView)field(activity, "offlineTitle")).getText())
+                                && Integer.valueOf(1).equals(cache.get(profileId).features.get("lock")),
+                        "Simulated unlocked state contaminated the real remembered lock state");
+                cache.put(profileId, original);
+                invoke(activity, "updateHeader");
+                require("Lock state unknown".contentEquals(((TextView)field(activity, "offlineTitle")).getText()),
+                        "No confirmed lock reading must remain unknown");
+                require(((TextView)field(activity, "offlineDetail")).getText().length() == 0
+                                && ((View)field(activity, "offlineDetail")).getVisibility() == View.GONE,
+                        "An old connection was mislabeled as lock verification or duplicated inside the card");
+            } finally {
+                if (service.simulating()) service.setSimulation(false);
+                setField(ble, "state", BleController.State.DISCONNECTED);
+                service.profiles.select(profileId);
+                if (second != null) { service.profiles.remove(second); cache.remove(second); }
+                cache.put(profileId, original);
+                SharedPreferences.Editor edit = settings().edit();
+                if (hadDeveloper) edit.putBoolean("developer_options", developer); else edit.remove("developer_options");
+                edit.commit();
+                invoke(activity, "updateHeader");
+            }
+        });
+        waitForIdleSync();
+        check("Disconnected and reconnecting lock widgets preserve visibly stale readbacks without enabling commands; no-reading, profile changes and simulator exit stay isolated");
     }
     /** Offline view of the redesigned Home widgets, using only the synthetic cached readings. */
     private void verifyHomeWidgetsOffline() {

@@ -1,0 +1,4 @@
+# Explicitly reviewed anonymous fixtures; ordinary personal exports stay ignored.
+!scooter-a/*.csv
+!scooter-b/*.csv
+__pycache__/

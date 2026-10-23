@@ -33,7 +33,7 @@ public final class DualChargerEstimateTest {
         ChargeSessionStore.Estimate saved=ChargingEstimate.recordingSnapshot(bulk);
         check(saved.fullSource==ChargeSessionStore.Source.FAST_REFERENCE&&saved.limitSource==ChargeSessionStore.Source.FAST_REFERENCE,
                 "Fast reference does not masquerade as stock or personal evidence");
-        check(saved.version.equals("ut5-stock-voltage-v4"),"Algorithm changes carry a new capture version");
+        check(saved.version.equals("ut5-stock-pack-v6"),"Algorithm changes carry a new capture version");
         detection.observe("one",2538,true,97d,54.318,2.21,7000,7000);
         check(detection.selected("one",7000)==fast,"Known fast taper cannot become stock at 120W");
         ChargingEstimate.Result late=estimate(97,54.318,2.21,100d,2538,detection.selected("one",7000),null);

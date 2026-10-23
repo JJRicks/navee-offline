@@ -3,7 +3,7 @@ package local.navee.offlinelock;
 /** Fresh battery-side charging measurements, model defaults and optional personal charge curves. */
 public final class ChargingEstimate {
     /** Bump whenever the prediction algorithm/reference changes; independent of app versions. */
-    public static final String ESTIMATOR_VERSION = "ut5-stock-voltage-v4";
+    public static final String ESTIMATOR_VERSION = "ut5-stock-pack-v6";
     public static final double MINIMUM_ETA_CURRENT_A = 0.05;
     /** Short UI label when measured current is too low for a time estimate. */
     public static final String LOW_CURRENT = "Low current";
@@ -53,6 +53,13 @@ public final class ChargingEstimate {
         public final int learnedSessions;
         /** A paired-voltage stock reference takes priority over SOC-only personal bulk timing. */
         public final boolean stockVoltageToFull;
+        /**
+         * Cautious minutes for Charge done by. Equal to the displayed estimate except where a
+         * model quantifies its uncertainty; never shorter than the displayed estimate.
+         */
+        public final Double planningMinutesToLimit, planningMinutesToFull;
+        /** The standard-charger pack-voltage model supplied the bulk-stage estimate. */
+        public final boolean stockPackModel;
         private final Ut5MaxStockVoltageReference.Match stockVoltageMatch;
 
         private Result(
@@ -91,6 +98,17 @@ public final class ChargingEstimate {
         private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
                 Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
                 boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger,Ut5MaxStockVoltageReference.Match stockVoltageMatch) {
+            this(charging,inputWatts,inputAmps,remainingMinutesToLimit,remainingMinutesToFull,targetPercent,label,status,
+                    learnedToLimit,learnedToFull,learnedSessions,referenceToLimit,referenceToFull,referenceCharger,stockVoltageMatch,
+                    remainingMinutesToLimit,remainingMinutesToFull,false);
+        }
+
+        private Result(boolean charging,Double inputWatts,Double inputAmps,Double remainingMinutesToLimit,Double remainingMinutesToFull,
+                Double targetPercent,String label,String status,boolean learnedToLimit,boolean learnedToFull,int learnedSessions,
+                boolean referenceToLimit,boolean referenceToFull,ChargeSessionStore.Charger referenceCharger,Ut5MaxStockVoltageReference.Match stockVoltageMatch,
+                Double planningMinutesToLimit,Double planningMinutesToFull,boolean stockPackModel) {
+            this.planningMinutesToLimit=planningMinutesToLimit;this.planningMinutesToFull=planningMinutesToFull;
+            this.stockPackModel=stockPackModel;
             this.stockVoltageMatch=stockVoltageMatch;
             this.stockVoltageToFull=stockVoltageMatch!=null;
             this.label = label;
@@ -178,33 +196,69 @@ public final class ChargingEstimate {
     public static Result forScooter(Result baseline, Value soc, Value ratedAh, int productId,
             ChargeSessionStore.Charger selectedCharger, ChargeSessionStore.Curve personal,
             ChargeReferenceGate gate, String scope, long frameMs, long nowMs) {
+        return forScooter(baseline,soc,ratedAh,productId,selectedCharger,personal,gate,scope,frameMs,nowMs,null);
+    }
+
+    /**
+     * progress describes this charge's age and starting percentage; null means its start was
+     * not seen, which the standard-charger model treats as a charge that has just begun.
+     */
+    public static Result forScooter(Result baseline, Value soc, Value ratedAh, int productId,
+            ChargeSessionStore.Charger selectedCharger, ChargeSessionStore.Curve personal,
+            ChargeReferenceGate gate, String scope, long frameMs, long nowMs, ChargeProgressTracker.Progress progress) {
         if(selectedCharger==null){if(gate!=null)gate.reset();return baseline;}
         Result prior=selectedCharger==ChargeSessionStore.Charger.HIGH_SPEED
                 ?withFastReference(baseline,soc,ratedAh,productId,gate,scope,frameMs,nowMs)
                 :withStockReference(baseline,soc,ratedAh,productId,selectedCharger,gate,scope,frameMs,nowMs);
+        // Below 89% the pack model replaces both the bundled bulk timing and percentage-only
+        // personal history: the gauge's late catch-up varies between charges, pack voltage does not.
+        Result pack=selectedCharger==ChargeSessionStore.Charger.STOCK?withStockPackModel(prior,baseline,soc,ratedAh,productId,progress):null;
+        if (pack!=null) return pack;
         if (personal==null || personal.charger!=selectedCharger) return prior;
         Result learned=withObservedCurve(baseline,soc,personal);
         if (learned==null || !learned.learnedToFull&&!learned.learnedToLimit) return prior;
-        if (prior.stockVoltageToFull) {
-            // The percentage gauge can shift between charges. Do not let an old SOC-only
-            // personal finish replace a matched voltage estimate. Lower cutoffs still use
-            // their existing evidence, bounded by the time to full; 89%+ is unchanged.
-            double full=learned.learnedToFull?prior.stockVoltageMatch.blend(learned.remainingMinutesToFull)
-                    :prior.remainingMinutesToFull;
-            boolean personalLimit=prior.targetPercent!=null&&prior.targetPercent<100&&learned.learnedToLimit;
-            // Recompute the pre-cap stock/rate cutoff: composition can select a different
-            // full-time fallback, so an earlier cap against bundled full must not survive.
+        double planningWeight=prior.referenceToFull
+                &&selectedCharger==ChargeSessionStore.Charger.STOCK
+                &&productId==Ut5MaxStockChargeReference.PRODUCT_ID
+                &&valid(soc)&&valid(ratedAh)
+                ?Ut5MaxStockChargeReference.bulkPlanningWeight(soc.number,ratedAh.number):0;
+        if (prior.stockVoltageToFull || planningWeight>0) {
+            // Outside a confident voltage match, shorter SOC-only history must not
+            // erase the conservative first guess. At full match weight, measured
+            // voltage progress still determines the estimate; 89%+ is untouched.
+            Double stockFull=Ut5MaxStockChargeReference.estimate(soc.number,100,ratedAh.number,
+                    baseline.inputAmps,baseline.inputWatts,gate!=null);
+            double fallback=stockFull==null?prior.remainingMinutesToFull:stockFull;
+            boolean guardedHistory=learned.learnedToFull&&learned.remainingMinutesToFull<fallback&&planningWeight>0;
+            boolean historyContributes=learned.learnedToFull&&(!guardedHistory||planningWeight<1);
+            if(learned.learnedToFull)fallback=guardedHistory
+                    ?learned.remainingMinutesToFull+(fallback-learned.remainingMinutesToFull)*planningWeight
+                    :learned.remainingMinutesToFull;
+            double full=prior.stockVoltageMatch==null?fallback:prior.stockVoltageMatch.blend(fallback);
+            boolean personalFull=learned.learnedToFull&&!guardedHistory&&prior.stockVoltageMatch==null;
+            historyContributes=historyContributes&&(prior.stockVoltageMatch==null||prior.stockVoltageMatch.weight<1);
+            // Lower cutoffs retain their own evidence. Full-charge observations do not
+            // establish a new SOC-to-time curve for an 80% or 95% cutoff.
             Double stockLimit=prior.targetPercent==null?null:Ut5MaxStockChargeReference.estimate(
                     soc.number,prior.targetPercent,ratedAh.number,baseline.inputAmps,baseline.inputWatts,gate!=null);
+            boolean personalLimit=prior.targetPercent!=null&&prior.targetPercent<100&&learned.learnedToLimit;
             Double limit=personalLimit?learned.remainingMinutesToLimit
                     :stockLimit==null?baseline.remainingMinutesToLimit:stockLimit;
             if(prior.targetPercent!=null&&prior.targetPercent==100)limit=full;
             else if(limit!=null)limit=Math.min(limit,full);
-            String status=prior.status+(personalLimit?" Time to the limit uses personal history, bounded by time to full.":"");
-            if(learned.learnedToFull&&prior.stockVoltageMatch.weight<1)status+=" Near the reference boundary, full time blends with personal history.";
+            boolean limitFromPersonal=prior.targetPercent!=null&&prior.targetPercent==100?personalFull:personalLimit;
+            boolean referenceLimit=prior.targetPercent!=null&&!limitFromPersonal
+                    &&(prior.targetPercent==100||prior.referenceToLimit||!same(limit,baseline.remainingMinutesToLimit));
+            String status=personalLimit?prior.status.replace("Time to the limit uses the current rate. ","")
+                    +" Time to the limit uses personal history, bounded by time to full.":prior.status;
+            if(personalFull)status+=" Time to full uses longer personal history.";
+            else if(historyContributes)status+=" Near the reference boundary, full time blends with personal history.";
+            if(guardedHistory)status+=" Uncertain bulk timing limits how much shorter percentage-only history can reduce full time.";
+            int sessions=personalFull||personalLimit||historyContributes?learned.learnedSessions:0;
             return new Result(prior.charging,prior.inputWatts,prior.inputAmps,limit,full,
-                    prior.targetPercent,prior.label,status,personalLimit,false,personalLimit?learned.learnedSessions:0,
-                    !personalLimit&&prior.referenceToLimit,true,ChargeSessionStore.Charger.STOCK,prior.stockVoltageMatch);
+                    prior.targetPercent,personalFull?learned.label:prior.label,status,
+                    limitFromPersonal,personalFull,sessions,referenceLimit,!personalFull,
+                    ChargeSessionStore.Charger.STOCK,prior.stockVoltageMatch);
         }
         boolean referenceFull=!learned.learnedToFull&&prior.referenceToFull;
         boolean referenceLimit=!learned.learnedToLimit&&prior.referenceToLimit;
@@ -266,16 +320,51 @@ public final class ChargingEstimate {
         String status="Experimental UT5 MAX stock-charger estimate based on observed charges; live power is compatible. ";
         if(voltageMatch!=null)status+="Bulk progress matches pack voltage and charging current. ";
         else if(soc.number<89)status+="Bulk time uses rated Ah and current charging rate. ";
+        if(Ut5MaxStockChargeReference.bulkPlanningWeight(soc.number,ratedAh.number)>0)
+            status+="Uncertain full-charge timing includes up to ten extra minutes. ";
         if(limit==null&&baseline.targetPercent!=null)status+="Time to the limit uses the current rate. ";
         status+="This does not identify the charger. Time to displayed 100%; balancing may continue.";
         status+=cutoffNote(baseline.targetPercent);
         Double finalLimit=limit==null?baseline.remainingMinutesToLimit:limit;
-        if(voltageMatch!=null&&finalLimit!=null)finalLimit=Math.min(finalLimit,full);
+        if(baseline.targetPercent!=null&&baseline.targetPercent==100&&full!=null)finalLimit=full;
+        else if(full!=null&&finalLimit!=null&&(voltageMatch!=null
+                ||Ut5MaxStockChargeReference.bulkPlanningWeight(soc.number,ratedAh.number)>0))finalLimit=Math.min(finalLimit,full);
+        boolean referenceLimit=limit!=null||!same(finalLimit,baseline.remainingMinutesToLimit);
         return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,
                 finalLimit,full==null?baseline.remainingMinutesToFull:full,
-                baseline.targetPercent,"Stock reference",status,false,false,0,limit!=null,full!=null,
+                baseline.targetPercent,"Stock reference",status,false,false,0,referenceLimit,full!=null,
                 ChargeSessionStore.Charger.STOCK,voltageMatch);
     }
+
+    /** Null unless the admitted standard-charger reference covers this bulk-stage reading. */
+    private static Result withStockPackModel(Result prior, Result baseline, Value soc, Value ratedAh, int productId,
+            ChargeProgressTracker.Progress progress) {
+        if (prior==null || prior==baseline || !prior.referenceToFull || prior.referenceCharger!=ChargeSessionStore.Charger.STOCK
+                || productId!=Ut5MaxStockPackModel.PRODUCT_ID || !valid(soc) || !valid(ratedAh)
+                || soc.number>=Ut5MaxStockPackModel.LAST_SOC || baseline.inputAmps==null || baseline.inputWatts==null
+                || baseline.inputAmps<=0) return null;
+        double amps=baseline.inputAmps, volts=baseline.inputWatts/amps;
+        double age=progress==null?0:progress.ageMinutes, start=progress==null?Double.NaN:progress.startSoc;
+        Ut5MaxStockPackModel.Estimate full=Ut5MaxStockPackModel.estimate(soc.number,100,volts,amps,age,start,ratedAh.number);
+        if (full==null) return null;
+        Double target=baseline.targetPercent, limit=null, planningLimit=null;
+        if (target!=null) {
+            Ut5MaxStockPackModel.Estimate cutoff=Ut5MaxStockPackModel.estimate(soc.number,target,volts,amps,age,start,ratedAh.number);
+            if (cutoff==null) return null;
+            limit=Math.min(cutoff.display,full.display);
+            planningLimit=Math.max(limit,Math.min(cutoff.planning,full.planning));
+        }
+        String status="Experimental UT5 MAX stock-charger estimate from pack voltage, charging current and observed finishes. ";
+        if (progress==null || !progress.startObserved && !progress.ageInferred)
+            status+="Charging start not seen, so it assumes charging just began until the current trend is known. ";
+        status+="Charge done by uses a longer, cautious estimate. This does not identify the charger. "
+                +"Time to displayed 100%; balancing may continue."+cutoffNote(target);
+        return new Result(baseline.charging,baseline.inputWatts,baseline.inputAmps,limit,full.display,target,
+                "Stock reference",status,false,false,0,target!=null,true,ChargeSessionStore.Charger.STOCK,null,
+                planningLimit,full.planning,true);
+    }
+
+    private static boolean same(Double a,Double b){return a==null?b==null:a.equals(b);}
 
     private static String cutoffNote(Double target) {
         return target==null?" Cutoff unknown; 100% assumes charging continues."
