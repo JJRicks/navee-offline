@@ -80,7 +80,7 @@ def run(label, revision, output):
         build = Path(temporary)
         source_files, hashes = [], {}
         for name in SOURCES:
-            relative = "src/com/jjricks/volt/" + name + ".java"
+            relative = "src/local/navee/offlinelock/" + name + ".java"
             content = subprocess.check_output(["git", "show", revision + ":" + relative], cwd=REPO)
             source = build / (name + ".java")
             source.write_bytes(content)
@@ -94,7 +94,7 @@ def run(label, revision, output):
             ("scooter-a", "StartupReplay", [str(HERE / "scooter-a"), str(build)]),
             ("scooter-b", "SecondScooterReplay", [str(HERE / "scooter-b/paired-input.csv")])]:
             raw = subprocess.check_output(["java", "-cp", str(build),
-                                           "com.jjricks.volt." + main, *arguments], text=True)
+                                           "local.navee.offlinelock." + main, *arguments], text=True)
             filename = owner + "-" + label + ".csv"
             (output / filename).write_text(raw, encoding="utf-8")
             results[owner] = list(csv.DictReader(io.StringIO(raw)))
