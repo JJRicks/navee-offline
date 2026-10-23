@@ -12,6 +12,10 @@
 - Record new predictions as estimator `ut5-stock-pack-v6`; preserve earlier recordings and saved predictions.
 - Offer to measure a UT5 MAX standard charge for up to ten minutes before arming Charge done by when Volt did not see the charge begin. Volt asks first, stays connected with a notification offering **Schedule now**, then arms the existing one-shot schedule with the charge's inferred age. If measuring cannot finish, it falls back to the cautious plan or explains why nothing was set.
 - Keep a charge recording open through a pause that Volt's own charging schedule creates, marking the paused interval in the journal and export (`schedule_pauses`) so a scheduled charge can be recorded end to end.
+- Show the last confirmed lock state while disconnected or reconnecting, clearly marked as last known.
+- Move the compatibility checker into Developer options; keep unfinished test recovery accessible.
+- Put Back up & restore directly in More, replacing the separate owner-only export. New backups include all saved app data by default and clearly identify partial selections.
+- Make full backup restore prominent during onboarding. Older owner setup files import through the same restore flow with an explicit scooter-access-only notice.
 
 ## 1.4.8 — 2026-10-21
 

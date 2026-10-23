@@ -52,7 +52,7 @@ import local.navee.offlinelock.ScooterService;
  * OEM group, an unknown model) to check that every UI gate follows the same resolver decisions as
  * the write gate: Scooter rows, the limited-model banner, the clock row, the lock switch and Quick
  * access tiles (muted, never removed from the saved layout). The simulator builds no frames.
- * More › Compatibility runs the read-only check on each model and exports the report through the
+ * More › Developer options › Compatibility runs the read-only check on each model and exports the report through the
  * preview's Share and Save file paths (intercepted in-process; the saved file is a synthetic file in
  * the app cache, copied next to the screenshots). The UT5 MAX connection read policy is compared
  * with the 1.3.1 arrays.
@@ -79,6 +79,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
                     .putBoolean("developer_options", true).putString("theme", arguments.getString("theme", "dark")).putString("units", "mi")
                     .putFloat("text_scale", Float.parseFloat(arguments.getString("text_scale", "1"))).commit(), "Fixture settings failed");
             if ("import-name".equals(arguments.getString("mode", "gating"))) { importName(); result.putString("result", "PASS"); return; }
+            if ("owner-profiles".equals(arguments.getString("mode", "gating"))) { ownerProfiles(); result.putString("result", "PASS"); return; }
             seed(); launch();
             Map<String, String> layouts = layoutSnapshot();
             main(() -> require(activity.service().setSimulation(true), "Simulation did not start")); settle();
@@ -295,8 +296,14 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         main(() -> {
             // The model line describes the saved profile; the simulated model never reaches it.
             ScooterProfiles.Profile profile = activity.service().profiles.active();
-            TextView model = (TextView)field(more(), "scootersModel");
-            require(model.getText().toString().equals(ModelRegistry.modelLine(profile.savedDescriptor())) && model.getText().toString().equals("UT5 MAX"), label + ": model line " + model.getText());
+            Object card = ((Map<?, ?>)field(more(), "scooterCards")).get(profile.id);
+            require(card != null, label + ": selected saved profile has no scooter card");
+            TextView model = (TextView)field(card, "model");
+            String savedModel = ModelRegistry.modelName(profile.savedDescriptor());
+            if (savedModel.isEmpty()) savedModel = "Model not identified";
+            require(model.getText().toString().equals(savedModel) && model.getText().toString().equals("UT5 MAX"), label + ": saved card model line " + model.getText());
+            require(((TextView)field(card, "name")).getText().toString().equals(profile.name), label + ": simulated model changed the saved card identity");
+            require(((View)field(card, "photo")).isShown() && !((View)field(card, "photoFallback")).isShown(), label + ": saved UT5 MAX card photo followed the simulated model");
             require(profile.advertisedPid.isEmpty(), label + ": simulation wrote an advertised model ID to the profile");
         });
         screenshot(label + "-more-scooters");
@@ -305,7 +312,7 @@ public final class CompatibilityGatingValidation extends Instrumentation {
     }
 
     /**
-     * More › Compatibility on the simulator: the check holds every write except the lock, changes
+     * More › Developer options › Compatibility on the simulator: the check holds every write except the lock, changes
      * no simulated setting, finishes within its bounds and offers the report only as a preview.
      */
     private void verifyCompatibility(String pid, String label) throws Exception {
@@ -612,6 +619,164 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Scooters")); settle();
         main(() -> require(texts(root()).contains("Imported scooter"), "More does not show Imported scooter")); 
         screenshot("import-scooters");
+    }
+
+    /** Same-account Shizuku/USB captures must not replace an older, never-connected scooter. */
+    private void ownerProfiles() throws Exception {
+        final String identity = "000000000000", mac = "C0:FF:EE:00:00:02", serial = "Q2213ZZ9US8888888";
+        final String[] older = {null};
+        main(() -> {
+            require(prefs("onboarding").getAll().isEmpty(), "Refusing existing setup state");
+            ScooterProfiles profiles = new ScooterProfiles(getTargetContext());
+            older[0] = profiles.create("Older UT5 MAX", identity, 0).id;
+            OnboardingScreen.restart(getTargetContext());
+        });
+        launch();
+        require(field(activity, "onboarding") != null, "Add setup was not open");
+        String setup = ownerSetup(identity, 0, "", "");
+        String staged = stageOwner(setup);
+        ScooterProfiles.Profile added = activity.service().profiles.active();
+        require(activity.service().profiles.all().size() == 2 && !added.id.equals(older[0]),
+                "Fresh Add conflated the new scooter with an unidentified same-account scooter");
+        require("Older UT5 MAX".equals(profile(older[0]).name) && profile(older[0]).mac.isEmpty()
+                && profile(older[0]).serial.isEmpty(), "Fresh Add changed the older scooter");
+        String addedId = added.id;
+        // Replaying one staged request, and capturing again within that same setup, are idempotent.
+        main(() -> {
+            try { Files.write(new File(getTargetContext().getFilesDir(), "pending-owner-import.json").toPath(), staged.getBytes(StandardCharsets.UTF_8)); }
+            catch (Exception error) { throw new IllegalStateException(error); }
+            invoke(activity, "maybeApplyOwnerImport");
+        });
+        require(activity.service().profiles.all().size() == 2, "Completed staged import was applied twice");
+        main(() -> activity.rebuild()); settle(); // Reload the setup screen from its durable flow ID.
+        stageOwner(setup);
+        require(activity.service().profiles.all().size() == 2 && activity.service().profiles.active().id.equals(addedId),
+                "Repeat capture within the same setup duplicated its scooter");
+        checks.add("Fresh Add separates never-connected same-account scooters; replay and repeat capture in that flow are idempotent");
+
+        main(() -> { added.mac = mac; added.serial = serial; activity.service().profiles.update(added); });
+        newOwnerFlow();
+        stageOwner(ownerSetup(identity, 0, mac, serial));
+        require(activity.service().profiles.all().size() == 2 && activity.service().profiles.active().id.equals(addedId),
+                "Hardware-identified repeat import did not reuse its existing scooter");
+        newOwnerFlow();
+        stageOwner(setup);
+        require(activity.service().profiles.all().size() == 3 && !activity.service().profiles.active().id.equals(addedId)
+                && !activity.service().profiles.active().id.equals(older[0]), "A later Add reused a prior flow's profile");
+        checks.add("Hardware IDs reuse the named scooter; a later fresh Add never inherits the previous onboarding profile");
+
+        stageOwner(ownerSetup(identity, 1, "", ""));
+        require(activity.service().profiles.all().size() == 4 && activity.service().profiles.active().role == 1,
+                "A different role reused this flow's prior profile");
+        stageOwner(ownerSetup("000000000001", 1, "", ""));
+        require(activity.service().profiles.all().size() == 5 && activity.service().profiles.active().identity.equals("000000000001"),
+                "A different account reused this flow's prior profile");
+        newOwnerFlow();
+        stageOwner(ownerSetup(identity, 0, mac, "Q2538ZZ9US7777777"));
+        require(activity.service().profiles.all().size() == 6 && !activity.service().profiles.active().id.equals(addedId),
+                "Conflicting serial reused a profile through its MAC");
+        require(profile(addedId).serial.equals(serial) && profile(addedId).mac.equals(mac), "Conflicting import overwrote known hardware");
+        checks.add("Different account, role, or contradictory hardware cannot overwrite an existing scooter");
+
+        newOwnerFlow();
+        final String[] typed = {null};
+        main(() -> {
+            typed[0] = activity.service().profiles.create("Typed in this flow", identity, 0).id;
+            prefs("onboarding").edit().putString("created_profile_id", typed[0]).commit();
+        });
+        stageOwner(setup);
+        require(activity.service().profiles.all().size() == 7 && activity.service().profiles.active().id.equals(typed[0]),
+                "The current flow's manually created profile was duplicated");
+        ScooterProfiles reloaded = new ScooterProfiles(getTargetContext());
+        require(reloaded.all().size() == 7 && reloaded.active().id.equals(typed[0]), "Import result was not saved");
+        ownerImportRecovery(setup, older[0], typed[0]);
+        main(() -> require(field(activity.service().ble, "gatt") == null && field(activity.service().ble, "scanner") == null,
+                "Owner import unexpectedly started a real transport"));
+        checks.add("Current flow's typed profile remains reusable; all separate profiles persist without Bluetooth access");
+    }
+    /** Restore the exact durable state at each interrupted import boundary, without phone I/O. */
+    private void ownerImportRecovery(String setup, String otherProfile, String existingTarget) {
+        for (String boundary : new String[]{"bound-before-create", "profile-before-receipt", "receipt-before-onboarding", "existing-target-before-receipt"}) {
+            newOwnerFlow();
+            final String[] target = {null};
+            int before = activity.service().profiles.all().size();
+            main(() -> {
+                invoke(activity, "stageOwnerImport", new Class<?>[]{String.class}, setup);
+                File pending = new File(getTargetContext().getFilesDir(), "pending-owner-import.json");
+                try {
+                    JSONObject staged = new JSONObject(new String(Files.readAllBytes(pending.toPath()), StandardCharsets.UTF_8));
+                    String request = staged.getString("import_id");
+                    ScooterProfiles profiles = activity.service().profiles;
+                    boolean existing = boundary.equals("existing-target-before-receipt");
+                    target[0] = existing ? existingTarget : (String)invoke(profiles, "ownerImportProfileId", new Class<?>[]{String.class}, request);
+                    staged.put("target_profile_id", target[0]);
+                    invoke(activity, "writePendingOwnerImport", new Class<?>[]{JSONObject.class}, staged);
+                    if (!existing && !boundary.equals("bound-before-create")) {
+                        ScooterProfiles.Profile created = (ScooterProfiles.Profile)invoke(profiles, "createForOwnerImport",
+                                new Class<?>[]{String.class, String.class, String.class, int.class}, request, "Recovered import", "000000000000", 0);
+                        require(created.id.equals(target[0]), "First profile save did not use the staged request's ID");
+                        require(prefs("profiles").edit().putString("items", prefs("profiles").getString("items", "[]")).commit(), "Persist interrupted profile");
+                        boolean saved = false;
+                        for (ScooterProfiles.Profile profile : new ScooterProfiles(getTargetContext()).all()) saved |= profile.id.equals(target[0]);
+                        require(saved, "Interrupted profile identity was not durable");
+                    }
+                    SharedPreferences.Editor receipt = settings().edit();
+                    if (boundary.equals("receipt-before-onboarding")) receipt.putString("owner_import_applied", request);
+                    else receipt.remove("owner_import_applied");
+                    require(receipt.commit(), "Persist receipt boundary");
+                    // Lose the transient flow association and active selection, as after a process
+                    // restart. Recovery must follow the private staged target, never the account.
+                    OnboardingScreen.restart(getTargetContext()); profiles.select(otherProfile); activity.rebuild();
+                    invoke(activity, "maybeApplyOwnerImport");
+                } catch (Exception error) { throw new IllegalStateException(error); }
+            }); settle();
+            int expected = before + (boundary.equals("existing-target-before-receipt") ? 0 : 1);
+            require(activity.service().profiles.all().size() == expected, "Recovery duplicated or lost a scooter: " + boundary);
+            require(activity.service().profiles.active().id.equals(target[0]), "Recovery selected the wrong scooter: " + boundary);
+            require(prefs("onboarding").getString("profile_id", "").equals(target[0]) && prefs("onboarding").getInt("step", -1) == 6,
+                    "Receipt replay did not finish setup progress: " + boundary);
+            require(!new File(getTargetContext().getFilesDir(), "pending-owner-import.json").exists(), "Recovery did not finish: " + boundary);
+        }
+        checks.add("Interrupted imports recover after target binding, profile save, or receipt save; existing targets and onboarding progress remain idempotent");
+        newOwnerFlow();
+        int before = activity.service().profiles.all().size();
+        String selected = activity.service().profiles.active().id;
+        main(() -> {
+            try {
+                invoke(activity, "stageOwnerImport", new Class<?>[]{String.class}, ownerSetup("000000000001", 0, "", ""));
+                JSONObject staged = new JSONObject(new String(Files.readAllBytes(new File(getTargetContext().getFilesDir(), "pending-owner-import.json").toPath()), StandardCharsets.UTF_8));
+                staged.put("target_profile_id", existingTarget);
+                invoke(activity, "writePendingOwnerImport", new Class<?>[]{JSONObject.class}, staged);
+                invoke(activity, "maybeApplyOwnerImport");
+            } catch (Exception error) { throw new IllegalStateException(error); }
+        }); settle();
+        require(activity.service().profiles.all().size() == before && activity.service().profiles.active().id.equals(selected)
+                && profile(existingTarget).identity.equals("000000000000"), "Conflicting recovery target was trusted or changed a scooter");
+        require(prefs("onboarding").getBoolean("import_failed", false), "Conflicting recovery target did not report import failure");
+        checks.add("A recovery target with a different identity is rejected before any profile mutation");
+    }
+    private String ownerSetup(String identity, int role, String mac, String serial) throws Exception {
+        return new JSONObject().put("owner_identity", identity).put("role", role).put("name", "New N65i")
+                .put("scooter_address", mac).put("scooter_serial", serial).toString();
+    }
+    private String stageOwner(String text) {
+        final String[] staged = {null};
+        main(() -> {
+            invoke(activity, "stageOwnerImport", new Class<?>[]{String.class}, text);
+            try { staged[0] = new String(Files.readAllBytes(new File(getTargetContext().getFilesDir(), "pending-owner-import.json").toPath()), StandardCharsets.UTF_8); }
+            catch (Exception error) { throw new IllegalStateException(error); }
+            invoke(activity, "maybeApplyOwnerImport");
+            require(!new File(getTargetContext().getFilesDir(), "pending-owner-import.json").exists(), "Owner import stayed pending");
+        }); settle();
+        return staged[0];
+    }
+    private void newOwnerFlow() {
+        main(() -> { OnboardingScreen.restart(getTargetContext()); activity.rebuild(); }); settle();
+        require(field(activity, "onboarding") != null, "Fresh Add did not open setup");
+    }
+    private ScooterProfiles.Profile profile(String id) {
+        for (ScooterProfiles.Profile profile : activity.service().profiles.all()) if (profile.id.equals(id)) return profile;
+        throw new IllegalStateException("Profile disappeared");
     }
 
     private String texts(View view) {

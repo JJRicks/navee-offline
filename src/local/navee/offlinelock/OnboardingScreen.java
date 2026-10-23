@@ -87,7 +87,7 @@ public final class OnboardingScreen implements AppScreen {
 
     static final int WELCOME = 0, PATH = 1, PREPARE = 2, USB = 3, COMPUTER = 4, HELPER = 5,
             IMPORT = 6, IDENTITY = 7, NEARBY = 8, CONNECT = 9, DONE = 10;
-    private static final String CAPTURE = "capture", WEBADB = "webadb", BACKUP = "backup", TYPED = "identity", SHIZUKU = "shizuku";
+    private static final String CAPTURE = "capture", WEBADB = "webadb", BACKUP = "backup", RESTORE = "restore", TYPED = "identity", SHIZUKU = "shizuku";
     private static final String WEBADB_URL = "https://pairscooter.jjricks.com/";
     private static final String PLATFORM_TOOLS_URL = "https://developer.android.com/tools/releases/platform-tools";
     private static final String SOURCE_URL = "https://github.com/JJRicks/navee-offline/releases/latest";
@@ -155,6 +155,14 @@ public final class OnboardingScreen implements AppScreen {
         prefs(context).edit().clear().putBoolean(KEY_DONE, true).commit();
     }
 
+    /** Only this setup attempt may reuse an unidentified profile; Add a scooter clears these IDs. */
+    ScooterProfiles.Profile ownerImportProfile() {
+        if (closed) return null;
+        ScooterProfiles store = profiles();
+        ScooterProfiles.Profile profile = find(store, prefs.getString(KEY_PROFILE, ""));
+        return profile != null ? profile : find(store, prefs.getString(KEY_CREATED, ""));
+    }
+
     /**
      * MainActivity reports the owner-file picker outcome here: true after the picked file was
      * applied as the active profile, false when it was unreadable or rejected.
@@ -168,15 +176,19 @@ public final class OnboardingScreen implements AppScreen {
         }
         ScooterProfiles store = profiles();
         ScooterProfiles.Profile active = store == null ? null : store.active();
+        if (active == null) throw new IllegalStateException("Imported scooter is unavailable");
         SharedPreferences.Editor edit = prefs.edit().putBoolean(KEY_IMPORT_FAILED, false);
-        if (active != null) edit.putString(KEY_PROFILE, active.id);
-        edit.apply();
-        applyPendingName();
-        if (step < IMPORT || step == IDENTITY) {
+        edit.putString(KEY_PROFILE, active.id);
+        boolean moveToImport = step < IMPORT || step == IDENTITY;
+        if (moveToImport) {
             // A Shizuku capture returns here before its Import page is shown; it keeps its own path.
-            if ((step == IDENTITY || step <= PATH) && !SHIZUKU.equals(path())) prefs.edit().putString(KEY_PATH, BACKUP).apply();
-            go(IMPORT);
-        } else refresh();
+            if ((step == IDENTITY || step <= PATH) && !SHIZUKU.equals(path())) edit.putString(KEY_PATH, BACKUP);
+            edit.putInt(KEY_STEP, IMPORT);
+        }
+        // MainActivity keeps the recovery file until this profile/step binding is durable.
+        if (!edit.commit()) throw new IllegalStateException("Could not save setup progress");
+        applyPendingName();
+        if (moveToImport) go(IMPORT); else refresh();
     }
 
     /**
@@ -203,7 +215,9 @@ public final class OnboardingScreen implements AppScreen {
                 // A re-run from More returns to the tabs instead of closing the app.
                 if (prefs.getBoolean(KEY_RERUN, false)) { finish(true); return true; }
                 return false;
-            case PATH: go(WELCOME); return true;
+            case PATH:
+                if (prefs.getBoolean(KEY_RERUN, false)) { finish(true); return true; }
+                go(WELCOME); return true;
             case PREPARE: go(PATH); return true;
             case IMPORT: go(isComputerCapture() ? HELPER : PATH); return true;
             case IDENTITY: go(PATH); return true;
@@ -308,8 +322,8 @@ public final class OnboardingScreen implements AppScreen {
     private boolean prepareProfileChange() {
         ScooterService service = host.service();
         if (service == null) return true;
-        if (service.isRecording()) { host.toast("Stop recording first"); return false; }
-        if (service.ble.pending() != null) { host.toast("Scooter busy. Try again."); return false; }
+        String unavailable = service.scooterChangeUnavailable();
+        if (unavailable != null) { host.toast(unavailable); return false; }
         if (service.ble.state() != BleController.State.DISCONNECTED) service.ble.disconnect();
         return true;
     }
@@ -558,9 +572,11 @@ public final class OnboardingScreen implements AppScreen {
         row.addView(progress, bar);
         TextView end;
         if (step == PATH) {
-            end = link("Skip", () -> confirmSkip());
+            end = link(prefs.getBoolean(KEY_RERUN, false) ? "Cancel" : "Skip", () -> {
+                if (prefs.getBoolean(KEY_RERUN, false)) finish(true); else confirmSkip();
+            });
             end.setTextColor(ui.muted);
-            end.setContentDescription("Skip setup for now");
+            end.setContentDescription(prefs.getBoolean(KEY_RERUN, false) ? "Cancel adding a scooter" : "Skip setup for now");
             end.setPadding(ui.dp(8), 0, ui.dp(4), 0);
         } else {
             end = ui.text(n > 0 ? n + "/7" : "", 12.5f, false);
@@ -656,10 +672,14 @@ public final class OnboardingScreen implements AppScreen {
         heading("Your scooter, no cloud", true, false);
         content.addView(features(), featureParams());
         primary("Get started", () -> go(PATH));
+        TextView restore = ui.secondaryButton("Restore Volt backup", () -> host.dataBackup(true, null));
+        restore.setTag("onboarding-restore-backup");
+        restore.setContentDescription("Restore Volt backup: scooters, rides, history, dashboards and settings");
+        LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(-1, -2); rp.topMargin = ui.dp(8);
+        footer.addView(restore, rp);
         footerLink("I already have an owner file", () -> {
             prefs.edit().putString(KEY_PATH, BACKUP).apply(); go(IMPORT);
         });
-        footerLink("Restore a backup", () -> host.dataBackup(true, null));
     }
 
     /** Welcome: what the app does, as four labelled icons instead of a sentence. */
@@ -696,16 +716,16 @@ public final class OnboardingScreen implements AppScreen {
 
     private void choosePath() {
         scaffold(true);
-        heading("How do you want to add your scooter?", false, false);
-        paragraph("Not your NAVEE password.", false);
+        heading("How would you like to set up?", false, false);
         String selected = path();
         // Wireless debugging needs Android 11; below that the Shizuku card can't be chosen.
         boolean shizukuSupported = Build.VERSION.SDK_INT >= 30;
         String[][] options = {
+                {RESTORE, "download", "Restore Volt backup", "Scooters, rides, dashboards & settings", null},
                 {CAPTURE, "screen", "Capture it from the NAVEE app", "Computer · 10 min", null},
                 {SHIZUKU, "screen", "Use Shizuku on this phone", "No computer · Android 11+", null},
                 {WEBADB, "screen", "Use Chrome and a USB cable", "Chrome + USB cable", "Preview"},
-                {BACKUP, "download", "Import a backup file", "navee-owner-setup.json", null},
+                {BACKUP, "download", "Import an owner setup file", "Scooter access only · no rides or history", null},
                 {TYPED, "lock", "Enter a 12-character identity", null, null}};
         LinearLayout group = column();
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(16);
@@ -721,7 +741,9 @@ public final class OnboardingScreen implements AppScreen {
         }
         primary("Continue", () -> {
             String chosen = path();
-            if (SHIZUKU.equals(chosen)) {
+            if (RESTORE.equals(chosen)) {
+                host.dataBackup(true, null);
+            } else if (SHIZUKU.equals(chosen)) {
                 if (!shizukuSupported) { host.toast("Needs Android 11 or newer"); return; }
                 if (pendingOwnerFile().exists()) { host.toast("Finish importing your selected owner file first."); go(IMPORT); return; }
                 if (!prepareProfileChange()) return;
@@ -917,7 +939,7 @@ public final class OnboardingScreen implements AppScreen {
         heading(SHIZUKU.equals(path()) ? "Your owner setup" : "Import your owner file", false, false);
         String mode = importMode();
         if (mode.equals("choose") || mode.equals("loading")) {
-            paragraph("Pick navee-owner-setup.json", false);
+            paragraph("Pick navee-owner-setup.json. This restores scooter access only, not rides or other app data.", false);
             LinearLayout card = fileCard(mode.equals("loading") ? "Loading your owner profile…" : "No file chosen yet", null, false);
             LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2); fp.topMargin = ui.dp(18);
             content.addView(card, fp);
@@ -929,6 +951,7 @@ public final class OnboardingScreen implements AppScreen {
             TextView choose = primary("Choose owner file", this::pickFile);
             choose.setEnabled(!mode.equals("loading"));
             footerLink("Enter the identity instead", () -> { prefs.edit().putString(KEY_PATH, TYPED).apply(); go(IDENTITY); });
+            footerLink("Restore Volt backup instead", () -> host.dataBackup(true, null));
             return;
         }
         boolean applied = mode.equals("applied");
@@ -1244,10 +1267,11 @@ public final class OnboardingScreen implements AppScreen {
         LinearLayout group = column();
         LinearLayout.LayoutParams gp = new LinearLayout.LayoutParams(-1, -2); gp.topMargin = ui.dp(18);
         content.addView(group, gp);
-        TextView backup = ui.secondaryButton("Save private owner backup", this::saveOwnerBackup);
+        TextView backup = ui.secondaryButton("Back up Volt", () -> host.dataBackup(false, null));
+        backup.setTag("onboarding-create-backup");
         ui.decorate(backup, "shield");
         backup.setMinHeight(ui.dp(54));
-        backup.setContentDescription("Save private owner backup. The file unlocks your scooter; keep it private.");
+        backup.setContentDescription("Back up Volt: scooter access and all saved app data");
         LinearLayout.LayoutParams bp = new LinearLayout.LayoutParams(-1, -2); bp.bottomMargin = ui.dp(10);
         if (p != null && p.configured()) group.addView(backup, bp);
         // The closing reminder depends on what this setup turned on.
@@ -1261,14 +1285,6 @@ public final class OnboardingScreen implements AppScreen {
             group.addView(revoke, rp);
         }
         primary("Go to Home", () -> finish(false));
-    }
-
-    /** Same private file as More › My scooters › Save private owner backup, saved straight away. */
-    private void saveOwnerBackup() {
-        ScooterProfiles.Profile p = onboardingProfile();
-        if (p == null || !p.configured()) return;
-        String name = p.name.replaceAll("[^a-zA-Z0-9._-]+", "-");
-        host.saveText("navee-owner-" + name + ".json", "application/json", ScooterProfiles.privateBackup(p));
     }
 
     // ---------------------------------------------------------------- troubleshooting sheet

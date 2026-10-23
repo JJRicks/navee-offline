@@ -375,9 +375,13 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         main(() -> {
             require(!settings().getBoolean("developer_options", false), "Developer options start unlocked");
             require(root().findViewWithTag("developer-options-menu") == null, "Hidden menu is visible before unlock");
+            require(root().findViewWithTag("developer-compatibility-check") == null, "Checker is exposed before developer unlock");
+            require(field(more(), "compatibilityPanel") == null, "Checker was built before developer unlock");
             require(!activity.service().setSimulation(true) && !activity.service().simulating(), "Locked API enabled simulation");
             invoke(more(), "selectSection", new Class<?>[]{String.class}, "Developer");
             require(!"Developer".equals(field(more(), "selectedSection")), "Direct section access bypassed developer gate");
+            invoke(more(), "selectSection", new Class<?>[]{String.class}, "Compatibility");
+            require(!"Compatibility".equals(field(more(), "selectedSection")), "Direct compatibility access bypassed developer gate");
             settings().edit().putString("more_section", "Developer").commit(); activity.redraw();
         }); settle();
         main(() -> {
@@ -398,6 +402,17 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         }); settle();
         main(() -> require("Developer".equals(field(more(), "selectedSection")) && root().findViewWithTag("developer-simulation-toggle") != null,
                 "Unlocked developer screen is unreachable"));
+        main(() -> {
+            View checker = root().findViewWithTag("developer-compatibility-check");
+            require(checker != null && checker.isShown(), "Compatibility checker is missing from Developer options");
+            checker.performClick();
+        }); settle();
+        main(() -> {
+            require("Compatibility".equals(field(more(), "selectedSection")), "Developer checker did not open");
+            require("Developer options".contentEquals(((TextView)field(more(), "sectionBackLabel")).getText()), "Checker back link does not name its parent");
+            require(more().back(), "Checker did not handle Back");
+        }); settle();
+        main(() -> require("Developer".equals(field(more(), "selectedSection")), "Checker Back did not return to Developer options"));
     }
     private void verifySimulation() throws Exception {
         flushHistory(); final String databaseBefore = databaseSnapshot();

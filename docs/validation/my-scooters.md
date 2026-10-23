@@ -1,0 +1,24 @@
+# Multi-scooter setup and management validation
+
+## Behavior
+
+**More → My scooters** lists saved scooters directly. The large outlined Add button stays at the top and opens guided onboarding. Use this scooter ends the old transport and selects that profile without starting a connection or scan. Only the Current entry offers Connect, Cancel while connecting, or Disconnect when ready. Its Edit scooter sheet contains Rename and confirmed Forget, bound to the tapped profile ID. Known models use their photo; other models retain the scooter icon. Cards show neutral connection status, saved last-connected time when available and friendly model labels. Forget retains saved ride and charge files. Profile-changing actions recheck recordings, pending saving, backup/restore and scooter commands when invoked, including at confirmation time. Adding or switching to a real scooter exits simulation.
+
+An owner account identity is not a unique scooter identifier. Identifier-less owner-file restores ask for an explicit same-account destination or Add another scooter. Fresh helper setup cannot absorb an older unconnected scooter. Repeat helper captures may reuse the current onboarding attempt's profile; hardware matches must not contradict known identifiers. A staged request has a deterministic new-profile ID and durably bound destination so replay cannot silently add duplicates or switch its target. Onboarding progress is committed before the recovery file is removed.
+
+Scan results identify addresses already saved under another profile. Before binding, authenticated hardware is checked against every other profile by MAC or serial. A conflict disconnects with the existing scooter name and leaves both profiles unchanged; shared account credentials alone do not conflict. Initial serial/status frames remain private until that check succeeds. Earlier telemetry and motion are discarded, preventing the real service observer from caching another scooter’s values; a successful handshake publishes its verified frames and requests fresh readings.
+
+A failed first connection without a verified saved Bluetooth address ends in DISCONNECTED/Try again. Saved scooters retain their existing bounded retry/backoff and explicit-cancel/background behavior. No new authentication method or speculative N65i protocol change is included.
+
+## Checks run
+
+- Full `bash tests/run.sh`, including 1,030 BackupArchive assertions for complete/category/legacy restores and same-account destination rules.
+- App and separate instrumentation APK builds with a local synthetic test signing identity.
+- `android-tests/run-backups.py`: all 12 journeys pass, including full export/reset/restore, legacy restore, owner-only merge, existing and new same-account destinations, adapter/dashboard/UI/maintenance/inventory.
+- `FirstConnectionValidation`: 1,500 assertions for unknown-address failure, missing profiles, identity rejection, saved retry and explicit/background cancellation, plus authenticated binding in both response orders. Covers MAC/serial collisions, rotated addresses, unchanged persisted and in-memory profiles, shared-account distinct hardware, no pre-verification readings/settings/motion, actual service cache and persisted history isolation, and successful readback after binding. Bluetooth stays disabled and the synthetic GATT has no transport service or writer.
+- `MyScootersValidation`: 112 assertions each at 320 × 720 and 344 × 882 dp dark/default, and 725 × 604 dp light/140% app text. Covers offline selection and Home/Rides/Stats navigation, stale connection actions, Edit/rename/Forget, scanner Saved/Yours labels, recording/saving/command guards, confirmation races, saved-file preservation, simulation exit, Add, Cancel and Back. Menu screenshots inspected after navigation animations settle.
+- `CompatibilityGatingValidation -e mode owner-profiles`: 72 assertions through the real staged-import method. Covers same-account separation, current-flow repeat import, hardware reuse/conflicts, account/role mismatch, typed-profile reuse, four interrupted-import boundaries and conflicting recovery targets.
+- Independent read-only QA caught pre-verification telemetry escaping into the service history observer. The controller now quarantines the handshake and the new native regressions exercise the actual cache and history store; the follow-up source check found no further issue.
+- Charging rows preserve normal compatibility captions and accessibility text; schedule commands and timing behavior are unchanged.
+
+All native checks used synthetic profiles on a disposable emulator with Bluetooth disabled. They do not prove the N65i's physical authentication succeeds. A controlled retry with other scooters powered off, followed by a connection-diagnostics export if needed, remains the hardware follow-up. No owner identity or real scooter diagnostics were published with these tests.
