@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Synthetic streams exercise identification boundaries without including owner recordings. */
 public final class ChargerDetectionTest {

@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Activity;
@@ -40,15 +40,15 @@ import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.OnboardingScreen;
-import local.navee.offlinelock.PhoneRideStore;
-import local.navee.offlinelock.RidesScreen;
-import local.navee.offlinelock.RouteMapView;
-import local.navee.offlinelock.ScooterCommands;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.Ui;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.OnboardingScreen;
+import com.jjricks.volt.PhoneRideStore;
+import com.jjricks.volt.RidesScreen;
+import com.jjricks.volt.RouteMapView;
+import com.jjricks.volt.ScooterCommands;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.Ui;
 
 /** UI checks on a fresh emulator only. No owner profile, sensor recording, radio or network work. */
 public final class UiOrganizationValidation extends Instrumentation {

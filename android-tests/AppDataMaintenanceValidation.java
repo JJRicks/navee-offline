@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -25,11 +25,11 @@ import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicReference;
-import local.navee.offlinelock.ChargeSessionStore;
-import local.navee.offlinelock.DataMaintenance;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.TelemetryHistory;
+import com.jjricks.volt.ChargeSessionStore;
+import com.jjricks.volt.DataMaintenance;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.TelemetryHistory;
 
 /** Disposable fresh emulator only. Confirms a portable backup cannot race service writes. */
 public final class AppDataMaintenanceValidation extends Instrumentation {

@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Dialog;
 import android.app.Instrumentation;
@@ -22,7 +22,7 @@ import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Disposable emulator only. Saved prediction UI and background calculation; no real Bluetooth. */
 public final class ChargeEstimateValidation extends Instrumentation {

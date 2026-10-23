@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 import android.app.Instrumentation;
 import android.content.Context;

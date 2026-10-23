@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.*;
@@ -13,7 +13,7 @@ import java.lang.reflect.*;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Disposable empty emulator only. No real scooter, owner credentials, routes, or recordings. */
 public final class LearnedRangeValidation extends Instrumentation {

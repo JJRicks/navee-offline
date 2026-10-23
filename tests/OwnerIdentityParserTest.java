@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Synthetic identities only. Compile with Protocol and OwnerIdentityParser; no Android/ADB needed. */
 public final class OwnerIdentityParserTest {

@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Deidentified terminal captures: relative milliseconds, SOC, volts, signed amps only. */
 final class StockChargeHoldoutTrace {

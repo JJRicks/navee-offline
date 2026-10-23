@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -43,16 +43,16 @@ import java.util.TreeMap;
 import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.MoreScreen;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.ScooterCommands;
-import local.navee.offlinelock.SegmentedSelector;
-import local.navee.offlinelock.Telemetry;
-import local.navee.offlinelock.TelemetryHistory;
-import local.navee.offlinelock.Ui;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.MoreScreen;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.ScooterCommands;
+import com.jjricks.volt.SegmentedSelector;
+import com.jjricks.volt.Telemetry;
+import com.jjricks.volt.TelemetryHistory;
+import com.jjricks.volt.Ui;
 
 /** Fresh disposable emulator only. Sample controls run with Bluetooth disabled and no real identity. */
 public final class DeveloperSettingsValidation extends Instrumentation {
@@ -295,7 +295,7 @@ public final class DeveloperSettingsValidation extends Instrumentation {
         AtomicReference<Switch> probe = new AtomicReference<>(); AtomicReference<FrameLayout> host = new AtomicReference<>();
         main(() -> {
             try {
-                Constructor<?> make = Class.forName("local.navee.offlinelock.Haptics$FeedbackSwitch", true, activity.getClassLoader())
+                Constructor<?> make = Class.forName("com.jjricks.volt.Haptics$FeedbackSwitch", true, activity.getClassLoader())
                         .getDeclaredConstructor(Context.class);
                 make.setAccessible(true); probe.set((Switch)make.newInstance(activity));
             } catch (ReflectiveOperationException error) { throw new IllegalStateException("FeedbackSwitch is unavailable", error); }
@@ -584,7 +584,7 @@ public final class DeveloperSettingsValidation extends Instrumentation {
             AccessibilityNodeInfo node=choice.createAccessibilityNodeInfo();require(node.isCheckable()&&node.isChecked()==choice.isSelected(),"Incorrect choice accessibility state");node.recycle();
         }
     }
-    private Object pending(String key,int value){try{Class<?> type=Class.forName("local.navee.offlinelock.BleController$Mutation");java.lang.reflect.Constructor<?> constructor=type.getDeclaredConstructor(String.class,int.class,int.class,long.class);constructor.setAccessible(true);return constructor.newInstance(key,0,value,0L);}catch(Exception e){throw new IllegalStateException(e);}}
+    private Object pending(String key,int value){try{Class<?> type=Class.forName("com.jjricks.volt.BleController$Mutation");java.lang.reflect.Constructor<?> constructor=type.getDeclaredConstructor(String.class,int.class,int.class,long.class);constructor.setAccessible(true);return constructor.newInstance(key,0,value,0L);}catch(Exception e){throw new IllegalStateException(e);}}
     private void setField(Object target,String name,Object value){try{Field f=target.getClass().getDeclaredField(name);f.setAccessible(true);f.set(target,value);}catch(Exception e){throw new IllegalStateException(e);}}
     /** Native window render avoids unrelated queued Android toast windows obscuring the control. */
     private void windowScreenshot(String label,View window) throws Exception{

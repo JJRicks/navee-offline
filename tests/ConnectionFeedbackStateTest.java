@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Connection cues are foreground transition feedback, never a status reminder. */
 public final class ConnectionFeedbackStateTest {

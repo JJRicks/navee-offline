@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 public final class LockSliderTrailTest {
     private static int checks;

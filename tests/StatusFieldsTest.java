@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Presence is separate from value: a short 0x70 never reads as zero. */
 public final class StatusFieldsTest {

@@ -1,8 +1,8 @@
 <?xml version="1.0" encoding="utf-8"?>
 <manifest xmlns:android="http://schemas.android.com/apk/res/android"
-    package="local.navee.offlinelock"
-    android:versionCode="45"
-    android:versionName="1.4.8">
+    package="com.jjricks.volt"
+    android:versionCode="46"
+    android:versionName="1.5.0">
     <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
     <uses-feature android:name="android.hardware.bluetooth_le" android:required="true" />
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -31,7 +31,7 @@
         android:supportsRtl="true"
         android:theme="@style/AppTheme">
         <meta-data android:name="moe.shizuku.client.V3_SUPPORT" android:value="true" />
-        <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="local.navee.offlinelock.shizuku"
+        <provider android:name="rikka.shizuku.ShizukuProvider" android:authorities="com.jjricks.volt.shizuku"
             android:multiprocess="false" android:enabled="true" android:exported="true"
             android:permission="android.permission.INTERACT_ACROSS_USERS_FULL" />
         <activity android:name=".ShizukuSetupActivity" android:exported="false" android:resizeableActivity="true" />

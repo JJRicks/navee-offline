@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** Admission, continuity, target semantics, and provenance of voltage-aware stock progress. */
 public final class StockVoltageReferenceTest {

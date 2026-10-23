@@ -73,7 +73,7 @@ if args.case:
 args.out.mkdir(parents=True, exist_ok=True)
 (args.out / 'inputs.json').write_text(json.dumps({str(p.resolve()): hashlib.sha256(p.read_bytes()).hexdigest()
                                                for p in (args.app, args.runner)}, indent=2) + '\n')
-for package in ('local.navee.offlinelock.tests', 'local.navee.offlinelock'):
+for package in ('com.jjricks.volt.tests', 'com.jjricks.volt'):
     run('uninstall', package, check=False)
 run('install', str(args.app.resolve()))
 run('install', str(args.runner.resolve()))
@@ -85,18 +85,18 @@ try:
         run('shell', 'wm', 'density', '480')
         run('shell', 'wm', 'size', f'{width * 3}x{height * 3}')
         run('shell', 'settings', 'put', 'system', 'font_scale', str(system_scale))
-        run('shell', 'pm', 'clear', 'local.navee.offlinelock')
+        run('shell', 'pm', 'clear', 'com.jjricks.volt')
         for permission in ('BLUETOOTH_SCAN', 'BLUETOOTH_CONNECT'):
-            run('shell', 'pm', 'grant', 'local.navee.offlinelock', 'android.permission.' + permission)
+            run('shell', 'pm', 'grant', 'com.jjricks.volt', 'android.permission.' + permission)
         output = run('shell', 'am', 'instrument', '-w', '-e', 'variant', variant,
                      '-e', 'text_scale', str(scale), '-e', 'mode', mode,
-                     'local.navee.offlinelock.tests/local.navee.offlinelock.tests.ResponsiveDashboardValidation')
+                     'com.jjricks.volt.tests/com.jjricks.volt.tests.ResponsiveDashboardValidation')
         (args.out / (variant + '.txt')).write_text(output)
         passed = 'result=PASS' in output and 'result=FAIL' not in output
         results.append(dict(width_dp=width, height_dp=height, text_scale=scale, system_font_scale=system_scale, mode=mode, passed=passed))
         dest = args.out / variant
         dest.mkdir(exist_ok=True)
-        run('pull', '/sdcard/Android/data/local.navee.offlinelock/files/responsive-validation', str(dest.resolve()), check=False)
+        run('pull', '/sdcard/Android/data/com.jjricks.volt/files/responsive-validation', str(dest.resolve()), check=False)
         print(f'{variant}: {"PASS" if passed else "FAIL"}', flush=True)
         if not passed:
             print(output, flush=True)

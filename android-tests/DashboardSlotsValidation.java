@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Instrumentation;
 import android.content.Context;
@@ -8,9 +8,9 @@ import android.database.sqlite.SQLiteDatabase;
 import android.os.Build;
 import android.os.Bundle;
 
-import local.navee.offlinelock.DashboardConfig;
-import local.navee.offlinelock.DashboardEditHistory;
-import local.navee.offlinelock.DashboardLayout;
+import com.jjricks.volt.DashboardConfig;
+import com.jjricks.volt.DashboardEditHistory;
+import com.jjricks.volt.DashboardLayout;
 
 import org.json.JSONArray;
 import org.json.JSONObject;
@@ -128,7 +128,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
         require(new DashboardConfig.Widget("shortcuts").quickActions.equals(
                         Arrays.asList("feature:maximum_speed", "feature:timed_charging")),
                 "Setting tiles default shortcuts changed");
-        require(new DashboardConfig.Widget("lockbar").quickActions.equals(local.navee.offlinelock.QuickAccessActions.defaultIds()),
+        require(new DashboardConfig.Widget("lockbar").quickActions.equals(com.jjricks.volt.QuickAccessActions.defaultIds()),
                 "Lock bar must keep the generic shortcut defaults");
         checks.add("Lock bar, Scooter overview, Reading tiles and Setting tiles append to the catalog with their constructor readings/shortcuts, full-width defaults and 1/4/2/1-row heights");
     }
@@ -1327,12 +1327,12 @@ public final class DashboardSlotsValidation extends Instrumentation {
         legacy.remove("quickActions");
         require(preferences.edit().putString("dashboard_v1_quick-actions", new JSONArray().put(legacy).toString()).commit(), "Legacy fixture save failed");
         require(new DashboardConfig(preferences, "quick-actions").widgets.get(0).quickActions.equals(
-                local.navee.offlinelock.QuickAccessActions.defaultIds()), "Legacy quick widget lost familiar defaults");
+                com.jjricks.volt.QuickAccessActions.defaultIds()), "Legacy quick widget lost familiar defaults");
         legacy.put("quickActions", new JSONArray().put("unknown").put("stats").put("stats").put("feature:not_a_feature"));
         require(preferences.edit().putString("dashboard_v1_quick-actions", new JSONArray().put(legacy).toString()).commit(), "Malformed fixture save failed");
         java.util.List<String> normalized = new DashboardConfig(preferences, "quick-actions").widgets.get(0).quickActions;
         require(normalized.size() >= 2 && normalized.size() <= 8 && new java.util.HashSet<>(normalized).size() == normalized.size(), "Malformed quick actions failed safe count/deduplication");
-        for (String id : normalized) require(local.navee.offlinelock.QuickAccessActions.find(id) != null, "Unknown action survived normalization");
+        for (String id : normalized) require(com.jjricks.volt.QuickAccessActions.find(id) != null, "Unknown action survived normalization");
         checks.add("Quick action selections preserve order and 2–8 counts across persistence and slots; legacy defaults and malformed IDs normalize safely");
     }
 

@@ -21,7 +21,7 @@ if not args.app.is_file() or not args.runner.is_file():
     parser.error('Both APKs must exist before installing anything')
 
 prefix = [args.adb, '-s', args.serial]
-app_package = 'local.navee.offlinelock'
+app_package = 'com.jjricks.volt'
 runner_package = app_package + '.tests'
 
 

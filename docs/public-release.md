@@ -7,10 +7,13 @@ Volt is an independent community app, **not affiliated with, sponsored by, or
 endorsed by NAVEE or its app vendor**. NAVEE names and marks identify compatible
 hardware; no trademark rights are granted by this project.
 
-The existing `navee-offline` repository name, Android package and map User-Agent
-identifier are retained for stable project links, in-place app upgrades and
-provider identification. User-facing branding is Volt; the retained identifiers
-do not imply NAVEE endorsement. A rename is not part of this preparation.
+Since 1.5.0 the Android app ID is `com.jjricks.volt` and the map User-Agent is
+`Volt/<version>`. Installations of the earlier `local.navee.offlinelock` app move
+their data with Back up & restore ([how](getting-started.md#moving-from-volt-14x-to-150)).
+NAVEE names remain only where they describe compatible hardware, NAVEE's own app,
+or legacy file formats that must keep importing (`navee-offline-owner-v1`,
+`navee-offline-diagnostics-v1`). Links still use the `navee-offline` repository
+name, which GitHub redirects after a repository rename.
 
 ## Preparation audit — 14 October 2026
 

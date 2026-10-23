@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -24,7 +24,7 @@ import java.util.concurrent.ExecutorService;
 import java.util.concurrent.TimeUnit;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /** Empty disposable emulator only. Holds the real worker to inspect pending UI deterministically. */
 public final class CapacityWidgetValidation extends Instrumentation {

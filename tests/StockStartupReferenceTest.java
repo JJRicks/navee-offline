@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 
 /** First guesses, the 55% regression and composition limits for the standard-charger pack model. */
 public final class StockStartupReferenceTest {

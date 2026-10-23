@@ -49,19 +49,19 @@ try:
     for width, height, font, theme in parsed:
         variant = f"{width}x{height}-{font}-{theme}"
         print(variant, flush=True)
-        adb("uninstall", "local.navee.offlinelock.tests", optional=True)
-        adb("uninstall", "local.navee.offlinelock", optional=True)
+        adb("uninstall", "com.jjricks.volt.tests", optional=True)
+        adb("uninstall", "com.jjricks.volt", optional=True)
         adb("shell", "wm", "density", "480")
         adb("shell", "wm", "size", f"{width * 3}x{height * 3}")
         adb("shell", "settings", "put", "system", "font_scale", font)
         adb("install", args.app)
         adb("install", args.runner)
         for permission in ("BLUETOOTH_SCAN", "BLUETOOTH_CONNECT", "POST_NOTIFICATIONS"):
-            adb("shell", "pm", "grant", "local.navee.offlinelock", f"android.permission.{permission}")
+            adb("shell", "pm", "grant", "com.jjricks.volt", f"android.permission.{permission}")
         result = adb("shell", "am", "instrument", "-w", "-r", "-e", "variant", variant, "-e", "theme", theme, "-e", "text_scale", args.text_scale, "-e", "start_only", str(args.start_only).lower(),
-                     "local.navee.offlinelock.tests/local.navee.offlinelock.tests.RidesAnalysisValidation")
+                     "com.jjricks.volt.tests/com.jjricks.volt.tests.RidesAnalysisValidation")
         (output / f"{variant}.txt").write_text(result)
-        adb("pull", "/sdcard/Android/data/local.navee.offlinelock/files/rides-validation", str(output), optional=True)
+        adb("pull", "/sdcard/Android/data/com.jjricks.volt/files/rides-validation", str(output), optional=True)
         print(result, flush=True)
         if "result=PASS" not in result:
             raise RuntimeError(f"Ride validation failed: {variant}")

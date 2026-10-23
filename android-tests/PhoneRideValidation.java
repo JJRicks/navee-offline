@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Activity;
@@ -26,11 +26,11 @@ import java.util.concurrent.atomic.AtomicReference;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.PhoneRideRecorder;
-import local.navee.offlinelock.PhoneRideStore;
-import local.navee.offlinelock.ScooterService;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.PhoneRideRecorder;
+import com.jjricks.volt.PhoneRideStore;
+import com.jjricks.volt.ScooterService;
 import org.json.JSONObject;
 
 /** Emulator-only fixtures: refuses owner phones, saved profiles, files, or enabled Bluetooth. */

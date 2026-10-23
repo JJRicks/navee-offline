@@ -48,7 +48,7 @@ python3 android-tests/run-live-stats.py \
   --runner /path/to/parked-validation.apk \
   --out /path/to/evidence
 adb -s emulator-5594 shell am instrument -w \
-  local.navee.offlinelock.tests/local.navee.offlinelock.tests.HistoryValidation
+  com.jjricks.volt.tests/com.jjricks.volt.tests.HistoryValidation
 ```
 
 The first command replaces app data on the explicitly selected disposable emulator. This pass does not install on the owner's Pixel. Actual scooter firmware availability still determines which numerical parameters appear.

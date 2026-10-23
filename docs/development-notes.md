@@ -6,7 +6,7 @@ Implementation invariants and native test guidance for contributors. Start with 
 
 | Location | Purpose |
 | --- | --- |
-| `src/local/navee/offlinelock/` | Native screens, Bluetooth authentication/controls, telemetry, profiles, recording and storage |
+| `src/com/jjricks/volt/` | Native screens, Bluetooth authentication/controls, telemetry, profiles, recording and storage |
 | `res/`, `AndroidManifest.xml` | Android resources, permissions, app version and component declarations |
 | `build.sh` | SDK-only APK build, signing and verification |
 | `tests/` | Core Java/Python tests and runner |

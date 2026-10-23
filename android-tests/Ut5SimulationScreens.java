@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -25,12 +25,12 @@ import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Locale;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.DashboardConfig;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.MoreScreen;
-import local.navee.offlinelock.OnboardingScreen;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
+import com.jjricks.volt.DashboardConfig;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.MoreScreen;
+import com.jjricks.volt.OnboardingScreen;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
 
 /**
  * Fresh disposable emulator only. Captures the default UT5 MAX simulator on Home, the Scooter page,

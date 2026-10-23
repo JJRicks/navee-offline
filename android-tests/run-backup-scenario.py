@@ -14,7 +14,7 @@ import pathlib
 import re
 import subprocess
 
-PACKAGE = 'local.navee.offlinelock'
+PACKAGE = 'com.jjricks.volt'
 RUNNER = PACKAGE + '.tests/' + PACKAGE + '.tests.BackupScenarioValidation'
 ROOT = pathlib.Path(__file__).resolve().parent.parent
 parser = argparse.ArgumentParser(description=__doc__)

@@ -1,4 +1,4 @@
-package local.navee.offlinelock;
+package com.jjricks.volt;
 import java.util.*;
 public final class StatsFavouriteOrderTest {
     private static int checks;

@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.app.Instrumentation;
 import android.content.Context;
@@ -28,7 +28,7 @@ public final class BackupInventoryValidation extends Instrumentation {
             String hardware = Build.HARDWARE.toLowerCase(Locale.ROOT);
             require(hardware.contains("ranchu") || hardware.contains("goldfish") || Build.PRODUCT.startsWith("sdk_gphone"), "Refusing physical phone");
             Context app = getTargetContext();
-            Class<?> registry = Class.forName("local.navee.offlinelock.BackupRegistry");
+            Class<?> registry = Class.forName("com.jjricks.volt.BackupRegistry");
             Method rule = registry.getDeclaredMethod("rule", String.class, String.class), namespace = registry.getDeclaredMethod("namespace", String.class), root = registry.getDeclaredMethod("root", String.class);
             for (Method m : new Method[]{rule, namespace, root}) m.setAccessible(true);
             java.lang.reflect.Field privateField = registry.getDeclaredField("PRIVATE_NAMESPACES"); privateField.setAccessible(true);

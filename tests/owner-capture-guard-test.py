@@ -48,14 +48,14 @@ class GuardTest(unittest.TestCase):
         if not javac: raise RuntimeError('A JDK is required for the actual process-timeout regression')
         cls.java = str(pathlib.Path(javac).with_name('java'))
         fixture = classes / 'OwnerCaptureProcessFixture.java'
-        fixture.write_text('''package local.navee.offlinelock;
+        fixture.write_text('''package com.jjricks.volt;
 public class OwnerCaptureProcessFixture {
     public static void main(String[] args) {
         try { OwnerCaptureProcess.runBounded(1, args); }
         catch (Exception expected) { System.exit(2); }
     }
 }''')
-        source_dir = SOURCE.parents[1] / 'src/local/navee/offlinelock'
+        source_dir = SOURCE.parents[1] / 'src/com/jjricks/volt'
         sources = [str(source_dir / (name + '.java')) for name in
                    ('OwnerCaptureProcess', 'OwnerCaptureEngine', 'OwnerIdentityParser', 'Protocol', 'ScooterCommands', 'WireCommands')]
         subprocess.run([javac, '--release', '8', '-d', str(classes), *sources, str(fixture)], check=True,
@@ -103,7 +103,7 @@ public class OwnerCaptureProcessFixture {
         self.fail('Missing ' + name)
     def spawn_bounded(self, action, **env):
         child = subprocess.Popen([self.java, '-cp', str(self.classes),
-                                  'local.navee.offlinelock.OwnerCaptureProcessFixture', '/bin/sh',
+                                  'com.jjricks.volt.OwnerCaptureProcessFixture', '/bin/sh',
                                   str(self.script), action, TOKEN, 'com.navee.ucaret/.MainActivity'],
                                  env=dict(self.env, **env), stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
         self.children.append(child); return child

@@ -10,7 +10,7 @@ import pathlib
 import re
 import subprocess
 
-PACKAGE = 'local.navee.offlinelock'
+PACKAGE = 'com.jjricks.volt'
 RUNNER = PACKAGE + '.tests/' + PACKAGE + '.tests.'
 parser = argparse.ArgumentParser(description=__doc__)
 parser.add_argument('--adb', required=True)

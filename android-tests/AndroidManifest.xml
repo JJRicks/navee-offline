@@ -1,44 +1,44 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="local.navee.offlinelock.tests" android:versionCode="1" android:versionName="1">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android" package="com.jjricks.volt.tests" android:versionCode="1" android:versionName="1">
   <uses-sdk android:minSdkVersion="26" android:targetSdkVersion="36" />
   <application android:allowBackup="false" android:label="Navee local validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.ParkedValidation" android:targetPackage="local.navee.offlinelock" android:label="Parked offline validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.LaunchValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator launch validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.PhoneRideValidation" android:targetPackage="local.navee.offlinelock" android:label="Emulator phone sensor recording validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.UiOrganizationValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator UI organization validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.DashboardValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator dashboard validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.HistoryValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator history validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.SearchFocusValidation" android:targetPackage="local.navee.offlinelock" android:label="Fresh emulator search keyboard validation" />
-  <instrumentation android:name="local.navee.offlinelock.MapTilesValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator map transport validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.RouteGestureValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated route inspection gesture validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.DashboardSlotsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated emulator dashboard layout slot validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.DashboardTransferValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated portable dashboard import and export validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.BackupInventoryValidation" android:targetPackage="local.navee.offlinelock" android:label="Read-only emulator backup storage inventory validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.ResponsiveDashboardValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated responsive dashboard validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.DeveloperSettingsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated developer preview and preferences validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.LiveStatsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated Live Stats validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.RidesAnalysisValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated unified ride analysis validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.BatteryWidgetValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated battery widget presentation validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.CapacityWidgetValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated capacity widget loading validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.MotionPolishValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator Battery cell, charging glow and lock trail rendering validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.ChargeCaptureValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge capture validation" />
-  <instrumentation android:name="local.navee.offlinelock.ChargeScheduleWireValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated schedule command callback validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.ChargeScheduleValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge scheduling UI validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.ChargeEstimateValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated charge estimate history validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.QuickHapticsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated Quick access haptics validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.ConnectionHapticsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated connection haptics validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.AppDataBackupValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated encrypted full app backup validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.AppDataMaintenanceValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated app data maintenance lifecycle validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.BackupUiValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated app backup entry-point UI validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.FullBackupJourneyValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator clear-storage backup journey" />
-  <instrumentation android:name="local.navee.offlinelock.tests.BackupScenarioValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator backup scenario seeding for manual review" />
-  <instrumentation android:name="local.navee.offlinelock.tests.LearnedRangeValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated learned range validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.RideBackupValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator ride archive and restore UI validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.RideAutoStopValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated automatic ride end presentation validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.CompatibilityGatingValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated simulated model compatibility gating validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.CompatControlsValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated simulated OEM control families validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.Ut5SimulationScreens" android:targetPackage="local.navee.offlinelock" android:label="Isolated UT5 MAX simulator screen capture" />
-  <instrumentation android:name="local.navee.offlinelock.GuidedTestValidation" android:targetPackage="local.navee.offlinelock" android:label="Disposable emulator guided setting test validation (synthetic link)" />
-  <instrumentation android:name="local.navee.offlinelock.tests.FirstConnectionValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated first-connection failure validation" />
-  <instrumentation android:name="local.navee.offlinelock.tests.MyScootersValidation" android:targetPackage="local.navee.offlinelock" android:label="Isolated multi-scooter management validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.ParkedValidation" android:targetPackage="com.jjricks.volt" android:label="Parked offline validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.LaunchValidation" android:targetPackage="com.jjricks.volt" android:label="Fresh emulator launch validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.PhoneRideValidation" android:targetPackage="com.jjricks.volt" android:label="Emulator phone sensor recording validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.UiOrganizationValidation" android:targetPackage="com.jjricks.volt" android:label="Fresh emulator UI organization validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.DashboardValidation" android:targetPackage="com.jjricks.volt" android:label="Fresh emulator dashboard validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.HistoryValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated emulator history validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.SearchFocusValidation" android:targetPackage="com.jjricks.volt" android:label="Fresh emulator search keyboard validation" />
+  <instrumentation android:name="com.jjricks.volt.MapTilesValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated emulator map transport validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.RouteGestureValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated route inspection gesture validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.DashboardSlotsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated emulator dashboard layout slot validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.DashboardTransferValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated portable dashboard import and export validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.BackupInventoryValidation" android:targetPackage="com.jjricks.volt" android:label="Read-only emulator backup storage inventory validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.ResponsiveDashboardValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated responsive dashboard validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.DeveloperSettingsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated developer preview and preferences validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.LiveStatsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated Live Stats validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.RidesAnalysisValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated unified ride analysis validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.BatteryWidgetValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated battery widget presentation validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.CapacityWidgetValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated capacity widget loading validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.MotionPolishValidation" android:targetPackage="com.jjricks.volt" android:label="Disposable emulator Battery cell, charging glow and lock trail rendering validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.ChargeCaptureValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated charge capture validation" />
+  <instrumentation android:name="com.jjricks.volt.ChargeScheduleWireValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated schedule command callback validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.ChargeScheduleValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated charge scheduling UI validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.ChargeEstimateValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated charge estimate history validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.QuickHapticsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated Quick access haptics validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.ConnectionHapticsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated connection haptics validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.AppDataBackupValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated encrypted full app backup validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.AppDataMaintenanceValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated app data maintenance lifecycle validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.BackupUiValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated app backup entry-point UI validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.FullBackupJourneyValidation" android:targetPackage="com.jjricks.volt" android:label="Disposable emulator clear-storage backup journey" />
+  <instrumentation android:name="com.jjricks.volt.tests.BackupScenarioValidation" android:targetPackage="com.jjricks.volt" android:label="Disposable emulator backup scenario seeding for manual review" />
+  <instrumentation android:name="com.jjricks.volt.tests.LearnedRangeValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated learned range validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.RideBackupValidation" android:targetPackage="com.jjricks.volt" android:label="Disposable emulator ride archive and restore UI validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.RideAutoStopValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated automatic ride end presentation validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.CompatibilityGatingValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated simulated model compatibility gating validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.CompatControlsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated simulated OEM control families validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.Ut5SimulationScreens" android:targetPackage="com.jjricks.volt" android:label="Isolated UT5 MAX simulator screen capture" />
+  <instrumentation android:name="com.jjricks.volt.GuidedTestValidation" android:targetPackage="com.jjricks.volt" android:label="Disposable emulator guided setting test validation (synthetic link)" />
+  <instrumentation android:name="com.jjricks.volt.tests.FirstConnectionValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated first-connection failure validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.MyScootersValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated multi-scooter management validation" />
 </manifest>

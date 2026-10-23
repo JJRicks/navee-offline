@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -40,15 +40,15 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.BleController;
-import local.navee.offlinelock.DashboardConfig;
-import local.navee.offlinelock.DashboardLayout;
-import local.navee.offlinelock.DashboardScreen;
-import local.navee.offlinelock.MainActivity;
-import local.navee.offlinelock.ScooterProfiles;
-import local.navee.offlinelock.ScooterService;
-import local.navee.offlinelock.TelemetryHistory;
-import local.navee.offlinelock.Ui;
+import com.jjricks.volt.BleController;
+import com.jjricks.volt.DashboardConfig;
+import com.jjricks.volt.DashboardLayout;
+import com.jjricks.volt.DashboardScreen;
+import com.jjricks.volt.MainActivity;
+import com.jjricks.volt.ScooterProfiles;
+import com.jjricks.volt.ScooterService;
+import com.jjricks.volt.TelemetryHistory;
+import com.jjricks.volt.Ui;
 
 /**
  * Isolated native measurement regressions for arbitrary window sizes and OEM fold callbacks.
@@ -698,8 +698,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 invoke(slider,"update",new Class<?>[]{Boolean.class,boolean.class},false,true);
                 for(int[] size:new int[][]{{117,182},{150,182},{312,374},{312,54}}) {
                     measureCard(lockCard,activity.ui().dp(size[0]),activity.ui().dp(size[1]));
-                    local.navee.offlinelock.LockSliderGeometry geometry=
-                            (local.navee.offlinelock.LockSliderGeometry)invoke(slider,"sliderGeometry");
+                    com.jjricks.volt.LockSliderGeometry geometry=
+                            (com.jjricks.volt.LockSliderGeometry)invoke(slider,"sliderGeometry");
                     require(slider.getWidth()>0 && slider.getHeight()>0,"Connected slider was not measured");
                     require(geometry.travel>=slider.getWidth()/2f,"Tall slider lost horizontal travel");
                     for(float position:new float[]{0,.5f,1}) {
@@ -806,7 +806,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 try { require(checked.isCheckable() && checked.isChecked(), "Animation delayed the confirmed accessible lock state"); }
                 finally { checked.recycle(); }
                 require(Boolean.TRUE.equals(field(slider, "value")), "Animation replaced the confirmed value");
-                if (local.navee.offlinelock.Ui.motionEnabled() && resumed && slider.isShown())
+                if (com.jjricks.volt.Ui.motionEnabled() && resumed && slider.isShown())
                     require(field(slider, "motion") != null && ((Number)field(slider, "position")).floatValue() < 1, "Confirmed state change skipped enabled motion");
                 else require(((Number)field(slider, "position")).floatValue() == 1, "Reduced motion did not snap to the confirmed state");
                 invoke(slider, "stopMotion");
@@ -815,8 +815,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 invoke(slider, "update", new Class<?>[] {Boolean.class, boolean.class}, false, true);
                 invoke(slider, "stopMotion");
                 long when = SystemClock.uptimeMillis();
-                local.navee.offlinelock.LockSliderGeometry geometry =
-                        (local.navee.offlinelock.LockSliderGeometry)invoke(slider, "sliderGeometry");
+                com.jjricks.volt.LockSliderGeometry geometry =
+                        (com.jjricks.volt.LockSliderGeometry)invoke(slider, "sliderGeometry");
                 float y = slider.getHeight()/2f, start = geometry.centerFor(0), end = geometry.centerFor(1);
                 for (int event : new int[] {android.view.MotionEvent.ACTION_DOWN, android.view.MotionEvent.ACTION_MOVE, android.view.MotionEvent.ACTION_CANCEL}) {
                     android.view.MotionEvent touch = android.view.MotionEvent.obtain(when, when, event, event == android.view.MotionEvent.ACTION_DOWN ? start : end, y, 0);
@@ -1261,7 +1261,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         android.app.AlertDialog sheet = editorDialog();
         main(() -> {
             String second = quick.quickActions.get(1);
-            String name = local.navee.offlinelock.QuickAccessActions.find(second).label;
+            String name = com.jjricks.volt.QuickAccessActions.find(second).label;
             described(dialogRoot(), "Move " + name + " earlier").performClick();
             require(editorDialog() == sheet, "Reorder recreated the sheet");
             require(quick.quickActions.get(0).equals(second), "Reorder changed wrong shortcut");
@@ -1516,7 +1516,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         });
         screenshot("quick-defaults");
         ArrayList<String> every = new ArrayList<>();
-        for (local.navee.offlinelock.QuickAccessActions.Entry entry : local.navee.offlinelock.QuickAccessActions.catalog()) every.add(entry.id);
+        for (com.jjricks.volt.QuickAccessActions.Entry entry : com.jjricks.volt.QuickAccessActions.catalog()) every.add(entry.id);
         for (int start = 0; start < every.size(); start += 8) {
             final int offset = start;
             main(() -> {
@@ -1613,8 +1613,8 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             BleController ble = activity.service().ble;
             Integer before = ble.featureValue("traction_control"); require(before != null, "Missing sample traction state");
             View card = (View)tileById(settingTiles.id);
-            View traction = tileAction(card, local.navee.offlinelock.QuickAccessActions.find("feature:traction_control").label);
-            View kick = tileAction(card, local.navee.offlinelock.QuickAccessActions.find("feature:start_speed").label);
+            View traction = tileAction(card, com.jjricks.volt.QuickAccessActions.find("feature:traction_control").label);
+            View kick = tileAction(card, com.jjricks.volt.QuickAccessActions.find("feature:start_speed").label);
             require(traction != null && kick != null && traction != kick, "Setting tiles did not show two separate tiles");
             require(traction.isEnabled() && traction.getWidth() >= activity.ui().dp(48) && traction.getHeight() >= activity.ui().dp(48),
                     "Connected setting tile is not a full-size enabled tap target");
@@ -1704,7 +1704,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 android.widget.EditText search=(android.widget.EditText)described(dialogRoot(),"Search quick settings");require(search!=null,"Quick choice search missing");
                 search.setText("nothing_matches_this_fixture");require(dialogRoot().findViewWithTag("quick-choice:stats")==null,"Quick search did not filter choices");search.setText("");
                 for(String id:widget.quickActions) {View duplicate=dialogRoot().findViewWithTag("quick-choice:"+id);require(duplicate!=null&&!duplicate.isEnabled(),"Picker permits duplicate shortcut");}
-                for(local.navee.offlinelock.QuickAccessActions.Entry entry:local.navee.offlinelock.QuickAccessActions.catalog()) if(!widget.quickActions.contains(entry.id)) {
+                for(com.jjricks.volt.QuickAccessActions.Entry entry:com.jjricks.volt.QuickAccessActions.catalog()) if(!widget.quickActions.contains(entry.id)) {
                     View choose=dialogRoot().findViewWithTag("quick-choice:"+entry.id);require(choose!=null&&choose.isEnabled(),"Available shortcut not selectable");selected.set(entry.id);choose.performClick();break;
                 }
                 require(widget.quickActions.size()==before+1 && widget.quickActions.get(before).equals(selected.get()),"Shortcut append lost selection/order");
@@ -1714,7 +1714,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         main(() -> {
             require(described(dialogRoot(),"Add quick shortcut")==null,"Quick options permit more than eight items");
             for(TextView text:texts(dialogRoot()))if(text.isShown()&&text.getWidth()>0)assertText(text,text,"Quick options label");
-            String second=widget.quickActions.get(1);local.navee.offlinelock.QuickAccessActions.Entry entry=local.navee.offlinelock.QuickAccessActions.find(second);
+            String second=widget.quickActions.get(1);com.jjricks.volt.QuickAccessActions.Entry entry=com.jjricks.volt.QuickAccessActions.find(second);
             View earlier=described(dialogRoot(),"Move "+entry.label+" earlier");require(earlier!=null&&earlier.isEnabled(),"Shortcut reorder control unavailable");earlier.performClick();
             require(widget.quickActions.get(0).equals(second),"Shortcut reorder did not move selected action");
             invoke(dashboard(),"dismiss");
@@ -1742,7 +1742,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
         final AtomicReference<Object> reveal=new AtomicReference<>();
         main(() -> {
             Object effect=field(dashboard(),"widgetReveal");require(effect!=null,"New widget arrival outline was not created");reveal.set(effect);
-            if(!local.navee.offlinelock.Ui.motionEnabled())require(field(effect,"scrolling")==null && field(effect,"highlighting")==null,"Reduced motion started a reveal animator");
+            if(!com.jjricks.volt.Ui.motionEnabled())require(field(effect,"scrolling")==null && field(effect,"highlighting")==null,"Reduced motion started a reveal animator");
         });
         await(() -> Boolean.TRUE.equals(field(reveal.get(),"overlayAdded")) && ((Number)field(field(reveal.get(),"glow"),"strength")).floatValue()>0, "Arrival outline never became visible");
         main(() -> {
@@ -1758,10 +1758,10 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             require(Boolean.TRUE.equals(field(reveal.get(),"finished")) && Boolean.FALSE.equals(field(reveal.get(),"overlayAdded"))
                     && field(reveal.get(),"scrolling")==null && field(reveal.get(),"highlighting")==null,"Finished arrival cue retained its overlay or animator");
             View tile=(View)tileById(added.get());
-            local.navee.offlinelock.WidgetReveal focus=local.navee.offlinelock.WidgetReveal.start(tile,(ScrollView)field(activity,"scroll"),activity.ui());
+            com.jjricks.volt.WidgetReveal focus=com.jjricks.volt.WidgetReveal.start(tile,(ScrollView)field(activity,"scroll"),activity.ui());
             require(focus!=null,"Lifecycle reveal fixture failed");focus.onWindowFocusChanged(false);
             require(Boolean.TRUE.equals(field(focus,"finished")) && Boolean.FALSE.equals(field(focus,"overlayAdded")),"Focus loss retained arrival cue");
-            local.navee.offlinelock.WidgetReveal detach=local.navee.offlinelock.WidgetReveal.start(tile,(ScrollView)field(activity,"scroll"),activity.ui());
+            com.jjricks.volt.WidgetReveal detach=com.jjricks.volt.WidgetReveal.start(tile,(ScrollView)field(activity,"scroll"),activity.ui());
             require(detach!=null,"Detach reveal fixture failed");detach.onViewDetachedFromWindow(tile);
             require(Boolean.TRUE.equals(field(detach,"finished")),"Detached widget retained arrival cue");
             invoke(dashboard(),"toggleEditing");
@@ -2346,7 +2346,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 if (label.startsWith("Remove ")) {
                     // The trash glyph sits on the solid text-coloured square: a deep red on the light
                     // square (dark theme), a lightened red on the dark square (light theme).
-                    local.navee.offlinelock.Ui ui = activity.ui();
+                    com.jjricks.volt.Ui ui = activity.ui();
                     int expected = ui.dark ? ui.accentDeep : ((Number)invoke(dashboard(), "blend",
                             new Class<?>[] {int.class, int.class, float.class}, ui.danger, android.graphics.Color.WHITE, .4f)).intValue();
                     require(((Number)field(glyph, "color")).intValue() == expected, "Remove icon lost its destructive color");
@@ -2418,7 +2418,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             described(sourceCard, "Duplicate ").performClick();
             DashboardConfig.Widget justCopied = dashboardConfig().widgets.get(dashboardConfig().widgets.size() - 1);
             Map<String, android.graphics.RectF> previous = (Map<String, android.graphics.RectF>)field(grid(), "previousFrames");
-            if (local.navee.offlinelock.Ui.motionEnabled()) {
+            if (com.jjricks.volt.Ui.motionEnabled()) {
                 android.graphics.RectF frame = previous.get(justCopied.id);
                 require(frame != null && frame.left == sourceCard.getLeft() && frame.top == sourceCard.getTop()
                         && frame.width() == sourceCard.getWidth(), "Duplicate does not split from its source frame");

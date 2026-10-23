@@ -1,4 +1,4 @@
-package local.navee.offlinelock.tests;
+package com.jjricks.volt.tests;
 
 import android.Manifest;
 import android.app.Instrumentation;
@@ -38,7 +38,7 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
 import java.util.function.BooleanSupplier;
-import local.navee.offlinelock.*;
+import com.jjricks.volt.*;
 
 /**
  * Disposable emulator only: legacy Battery cell clipping, the charging hero's glow pulse and the
@@ -512,7 +512,7 @@ public final class MotionPolishValidation extends Instrumentation {
         main(() -> life.set("stopped glow " + (SystemClock.uptimeMillis() - hidden) + " ms after onPause; window visibility " + hero().getWindowVisibility() + ", stage onScreen " + field(field(hero(), "stage"), "onScreen")));
         notes.add(life.get());
         requireNoneRunning(seen, "background");
-        shell("am start -n local.navee.offlinelock/.MainActivity");
+        shell("am start -n com.jjricks.volt/.MainActivity");
         await(() -> (Boolean)field(activity, "resumed"), "App did not return to the foreground");
         require(activity == before, "Returning created a second Activity");
         settle();
