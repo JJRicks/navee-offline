@@ -59,7 +59,7 @@ public final class BleController {
     /** Handshake responses stay private until the transport's hardware belongs to this profile. */
     private Protocol.Frame pendingStatusFrame,pendingSerialFrame;private long pendingStatusMs;
     private long savedProfileMs,lastBatteryPollMs,scanSequence,backgroundDeadlineMs;private ScanCallback scanCallback;private Runnable scanTimeout;
-    private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;MutationGate.Request request;FeatureVariant variant;Consumer<Boolean> completion;Integer before,lastRead;int readsAfterAck;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
+    private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;MutationGate.Request request;FeatureVariant variant;Consumer<Boolean> completion;Integer before,lastRead;int readsAfterAck,inheritedReads;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
     public BleController(Context c,ScooterProfiles p){context=c.getApplicationContext();profiles=p;diagnostics=ConnectionEventLog.open(new File(context.getNoBackupFilesDir(),"connection-events"));testJournal=new TestJournal(TestJournal.file(new File(context.getNoBackupFilesDir(),"compat-tests")));BluetoothManager m=context.getSystemService(BluetoothManager.class);adapter=m==null?null:m.getAdapter();IntentFilter filter=new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);if(Build.VERSION.SDK_INT>=33)context.registerReceiver(bluetoothReceiver,filter,Context.RECEIVER_EXPORTED);else context.registerReceiver(bluetoothReceiver,filter);}
     public void setListener(Listener l){listener=l;}
     /** Runtime only. The transition guard also prevents listeners from persisting display samples. */
@@ -403,7 +403,7 @@ public final class BleController {
                 }
                 boolean guidedReply=mutation!=null&&mutation.sent&&f.cmd==mutation.cmd&&guided(mutation)&&test!=null;
                 if(guidedReply)test.onAck(f.cmd,f.error(),now());
-                if(mutation!=null&&mutation.sent&&f.cmd==mutation.cmd){if(f.error()!=0){String key=mutation.key;clearMutation();result(key,"Rejected ("+f.error()+")");notice("Change rejected","Change rejected ("+f.error()+")");}else if(mutation.key.equals("clock_sync")){finishMutation("Clock sent (unverified)","Accepted; no clock readback available");}else{mutation.ack=true;int s=generation;long token=mutation.token;String key=mutation.key;handler.postDelayed(()->{if(s==generation&&mutation!=null&&mutation.token==token)for(int cmd:ScooterCommands.followUpReads(key))send(Protocol.frame(cmd,null));},250);}}
+                if(mutation!=null&&mutation.sent&&f.cmd==mutation.cmd){if(f.error()!=0){String key=mutation.key;clearMutation();result(key,"Rejected ("+f.error()+")");notice("Change rejected","Change rejected ("+f.error()+")");}else if(mutation.key.equals("clock_sync")){finishMutation("Clock sent (unverified)","Accepted; no clock readback available");}else{mutation.ack=true;mutation.inheritedReads=outstandingStatusReads;int s=generation;long token=mutation.token;String key=mutation.key;handler.postDelayed(()->{if(s==generation&&mutation!=null&&mutation.token==token)for(int cmd:ScooterCommands.followUpReads(key))send(Protocol.frame(cmd,null));},250);}}
                 if(guidedReply)stepTest();
             }
             changed();
@@ -724,7 +724,7 @@ public final class BleController {
         return mutation==pending;
     }
     private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;
-        // Experimental: acknowledged, and two later status reads still without the new value. The link is healthy and the
+        // Experimental: acknowledged, and two status reads requested after the ACK still without the new value. The link is healthy and the
         // scooter simply kept (or showed another) value, so this is the try's result, not a connection failure.
         if(mutation.request!=null&&mutation.request.origin==MutationGate.Origin.EXPERIMENTAL&&mutation.ack&&mutation.readsAfterAck>=2){
             String key=mutation.key;boolean kept=mutation.before!=null&&mutation.before.equals(mutation.lastRead);
@@ -766,7 +766,10 @@ public final class BleController {
         String pid=pendingAdvertised!=null&&gatt!=null&&gatt.getDevice().getAddress().equals(pendingAdvertisedMac)?pendingAdvertised.pid:p==null?"":p.advertisedPid;
         return DeviceDescriptor.of(s,pid,1,null,false,DeviceDescriptor.Transport.STANDARD,p==null?0:p.role);
     }
-    private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);if(value!=null&&value!=mutation.target){mutation.readsAfterAck++;mutation.lastRead=value;}if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
+    private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);
+            // Replies still owed when the ACK came may answer reads sent before the change: they prove nothing either way.
+            boolean inherited=f.cmd==0x70&&mutation.inheritedReads>0;if(inherited)mutation.inheritedReads--;
+            if(value!=null&&value!=mutation.target&&!inherited){mutation.readsAfterAck++;mutation.lastRead=value;}if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;Consumer<Boolean> completion=mutation.completion;mutation.completion=null;result(key,evidence);clearMutation();notice(text);completed(completion,true);}
     private void clearMutation(){Consumer<Boolean> completion=mutation==null?null:mutation.completion;if(mutation!=null){for(Iterator<byte[]> i=queue.iterator();i.hasNext();)if(i.next()==mutation.bytes)i.remove();if(mutation.desiredPin!=null){Arrays.fill(mutation.desiredPin,'\u0000');Arrays.fill(mutation.bytes,(byte)0);}}mutation=null;completed(completion,false);}

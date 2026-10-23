@@ -337,16 +337,25 @@ public final class GuidedTestValidation extends Instrumentation {
      * the readback shows the new value and Set back returns it.
      */
     private void unconfirmed(String label) throws Exception {
-        for (boolean drop : new boolean[]{true, false}) {
+        for (String mode : new String[]{"drop", "timeout", "stale"}) {
+            boolean drop = mode.equals("drop"), stale = mode.equals("stale");
             int sent = fake.writes.size();
+            int[] old = {0};
+            if (stale) {
+                // Two status reads requested before the try, captured with the old value, still unanswered.
+                main(() -> fake.holdStatus = true);
+                await(() -> { int[] n = {0}; main(() -> n[0] = fake.heldStatus.size()); return n[0] >= 2; }, label + ": no pre-try polls to hold", 12000);
+            }
             openTry("turn_sound"); chooseOption(1);
-            main(() -> fake.holdStatus = true);
+            main(() -> { fake.holdStatus = true; old[0] = fake.heldStatus.size(); });
             tapSheet("go");
             await(() -> fake.value("turn_sound") == 1 && fake.writes.size() == sent + 1, label + ": the try never reached the scooter", 10000);
             String expected = drop ? "Cancelled after disconnection" : "Change not confirmed";
             if (drop) { SystemClock.sleep(600); main(() -> activity.service().ble.disconnect()); }
+            // Stale: only the old snapshots (Off) arrive after the ACK; every fresh reply stays held. They must not read as No change.
+            if (stale) { SystemClock.sleep(600); main(() -> { for (int i = 0; i < old[0]; i++) fake.releaseStatus(); }); }
             await(() -> expected.equals(result("turn_sound")), label + ": result " + result("turn_sound") + " expected " + expected, 30000);
-            awaitSheetText("Unconfirmed"); sheetShot(label + (drop ? "-lab-unconfirmed-drop" : "-lab-unconfirmed-timeout"));
+            awaitSheetText("Unconfirmed"); sheetShot(label + "-lab-unconfirmed-" + mode);
             main(() -> { View sheet = (View)field(field(more(), "labSheet"), "status");
                 String shown = String.valueOf(((TextView)sheet).getText());
                 require(!shown.contains("Not sent") && !shown.contains("No change"), label + ": an applied try reads " + shown); });
@@ -360,7 +369,7 @@ public final class GuidedTestValidation extends Instrumentation {
             await(() -> fake.value("turn_sound") == 0 && activity.service().ble.pending() == null && result("turn_sound").startsWith("Confirmed"), label + ": Set back after an unconfirmed try failed: " + result("turn_sound"), 15000);
             closeSheet();
         }
-        checks.add(label + ": a try the scooter applied but never confirmed reads Unconfirmed, not Not sent or No change seen, after a dropped link and after a timeout; the readback then offers Set back");
+        checks.add(label + ": a try the scooter applied but never confirmed reads Unconfirmed, not Not sent or No change seen, after a dropped link, a timeout, and old pre-try snapshots arriving after the ACK; the readback then offers Set back");
     }
     private List<String> labKeys() { List<String> out = new ArrayList<>(); main(() -> { for (Object row : (List<?>)field(more(), "labRows")) if (field(row, "action") != null) out.add(((ScooterCommands.Feature)field(row, "feature")).key); }); return out; }
     private CapabilityResolver.Reason labReason(String key) { CapabilityResolver.Reason[] r = {null}; main(() -> r[0] = activity.service().ble.experimentalDecision(key).reason); return r[0]; }
