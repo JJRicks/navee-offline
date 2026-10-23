@@ -152,7 +152,9 @@ export function startCommand(token, launcher) {
   return `${checkToken(token)} || exit 40
 mkdir ${d}/cleaning 2>/dev/null || exit 40
 child=
-trap 'rmdir ${d}/cleaning 2>/dev/null' EXIT
+# A variable keeps the quoted path intact inside the single-quoted trap action.
+gate=${d}/cleaning
+trap 'rmdir "$gate" 2>/dev/null' EXIT
 trap 'trap "" HUP INT TERM; if [ -n "$child" ]; then wait "$child" 2>/dev/null; fi; exit 1' HUP INT TERM
 run() {
   timeout "$@" &

@@ -1,6 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
-import { closeConnection, runCommand } from '../src/transport.js';
+import { AdbDaemonWebUsbDevice } from '@yume-chan/adb-daemon-webusb';
+import { closeConnection, connectionError, runCommand } from '../src/transport.js';
+import { SetupError } from '../src/protocol.js';
 
 const deferred = () => { let resolve, reject; const promise = new Promise((yes, no) => { resolve = yes; reject = no; }); return { promise, resolve, reject }; };
 function processFixture(exit = 0) {
@@ -10,6 +12,19 @@ function processFixture(exit = 0) {
 test('prepare exit 23 retains a distinct lock-busy error code', async () => {
   const adb = { subprocess: { shellProtocol: { spawn: async () => processFixture(23) } } };
   await assert.rejects(runCommand(adb, 'trusted fixture'), { code: 'lock-busy' });
+});
+test('a claimed interface or refused USB open gets its computer-side fix, never the raw message', () => {
+  // Tango wraps claimInterface's NetworkError, e.g. while a host ADB server runs.
+  const busy = connectionError(new AdbDaemonWebUsbDevice.DeviceBusyError(new DOMException('Unable to claim interface.', 'NetworkError')));
+  assert.equal(busy.code, 'usb-busy'); assert.match(busy.message, /adb kill-server/);
+  // Chrome rejects open() this way when, e.g., Linux udev rules deny access.
+  const denied = connectionError(new DOMException('Access denied.', 'SecurityError'));
+  assert.equal(denied.code, 'usb-access'); assert.match(denied.message, /udev/);
+  const other = connectionError(new Error('serial ABC123 private detail'));
+  assert.equal(other.code, 'usb'); assert.doesNotMatch(other.message, /ABC123|private/);
+  const known = new SetupError('authorize', 'Phone approval timed out.');
+  assert.equal(connectionError(known), known);
+  assert.equal(connectionError(undefined).code, 'usb');
 });
 test('permission removal and key clearing start before a slow transport close settles', async () => {
   const pending = deferred(), events = [];

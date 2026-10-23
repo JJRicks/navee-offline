@@ -3,6 +3,7 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
+import { dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import { runInNewContext } from 'node:vm';
 import { webcrypto } from 'node:crypto';
@@ -12,9 +13,11 @@ const html = await readFile(new URL('../index.html', import.meta.url), 'utf8');
 const bundled = await build({ entryPoints: [entry], bundle: true, write: false, format: 'iife', plugins: [{
   name: 'ui-fixture', setup(build) {
     build.onResolve({ filter: /^\.\/(capture|transport)\.js$/ }, args => ({ path: args.path, namespace: 'fixture' }));
-    build.onLoad({ filter: /./, namespace: 'fixture' }, args => ({ contents: args.path.includes('capture')
+    // The transport double shares the bundle's SetupError, so doubles can raise
+    // the same typed errors the real transport and session would.
+    build.onLoad({ filter: /./, namespace: 'fixture' }, args => ({ resolveDir: dirname(entry), contents: args.path.includes('capture')
       ? 'export const CaptureSession = window.fixture.Session; export const readJournal = () => window.fixture.pending ? {} : null;'
-      : 'export const connectPhone = (...args) => window.fixture.connect(...args);' }));
+      : "import { SetupError } from './protocol.js'; window.fixture.SetupError = SetupError; export const connectPhone = (...args) => window.fixture.connect(...args);" }));
   }
 }] });
 function fixture(mode = 'success', legacy = false) {
@@ -23,6 +26,7 @@ function fixture(mode = 'success', legacy = false) {
     addEventListener(name, fn) { this.listeners[name] = fn; }, classList: { toggle() {} }, setAttribute() {}, removeAttribute() {} });
   const fixture = { mode, pending: false, nextSerial: 'same-phone',
     async connect(_waiting, disconnect) {
+      if (this.mode === 'busy') throw new this.SetupError('usb-busy', 'Fixture busy: run adb kill-server.');
       const phone = { serial: this.nextSerial, name: 'Fixture', disconnect, closed: false,
         async close(forget) { assert.equal(forget, true); this.closed = true; events.push('close'); this.disconnect(); },
         async run() { events.push('save'); if (fixture.mode === 'transfer-failure') throw new Error('Fixture failure'); return 'SAVED'; }
@@ -34,7 +38,10 @@ function fixture(mode = 'success', legacy = false) {
         this.safe = fixture.mode !== 'unsafe-failure'; this.result = fixture.mode === 'success'; fixture.pending = !this.safe;
         if (!this.result) throw new Error('Fixture capture failure');
       }
-      async recover() { this.safe = true; fixture.pending = false; }
+      async recover() {
+        if (fixture.mode === 'wrong-phone') throw new fixture.SetupError('device', 'Choose the same phone to recover its capture.');
+        this.safe = true; fixture.pending = false;
+      }
       document() { assert.equal(this.safe, true); assert.equal(this.result, true); return '{"fixture":true}'; }
       forgetResult() { this.result = false; }
       cancel() {}
@@ -102,6 +109,23 @@ test('unverified file transfer closes USB, retains the verified capture and allo
   assert.match(f.elements.get('error').textContent, /could not be verified/);
   f.fixture.mode = 'success'; await f.click('send');
   assert.equal(f.phones.length, 2); assert.equal(f.phones[1].closed, true);
+});
+test('a busy USB interface shows its computer-side fix and opens connection help', async () => {
+  const f = fixture('busy'); await f.connect();
+  assert.equal(f.phones.length, 0);
+  assert.match(f.elements.get('error').textContent, /adb kill-server/);
+  assert.equal(f.elements.get('connection-help').open, true);
+  assert.equal(f.elements.get('connect-panel').hidden, false);
+});
+test('recovery releases a different phone so the next attempt can choose again', async () => {
+  const f = fixture('wrong-phone'); f.fixture.pending = true;
+  await f.click('recover');
+  assert.equal(f.phones[0].closed, true);
+  assert.match(f.elements.get('error').textContent, /same phone/);
+  assert.equal(f.fixture.pending, true);
+  f.fixture.mode = 'success'; await f.click('recover');
+  assert.equal(f.phones.length, 2); assert.equal(f.phones[1].closed, true);
+  assert.equal(f.fixture.pending, false);
 });
 
 test('legacy origin blocks new capture but preserves same-browser cleanup recovery', async () => {

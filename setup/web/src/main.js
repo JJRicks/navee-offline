@@ -16,6 +16,8 @@ function error(error) {
   // USB, shell and library exceptions can contain phone data. Never render,
   // log, persist or transmit an arbitrary exception's message/stack.
   message('error', error instanceof SetupError ? error.message : 'This step could not finish. Check your USB connection and try again.');
+  // Computer-side USB conflicts: connection help lists the fixes and fallback.
+  if (error instanceof SetupError && ['usb-busy', 'usb-access'].includes(error.code)) $('connection-help').open = true;
 }
 function panel(name, step) {
   for (const id of ['connect-panel', 'capture-panel', 'working-panel', 'save-panel', 'recovery']) $(id).hidden = id !== name;
@@ -121,7 +123,13 @@ $('cancel').addEventListener('click', () => {
 });
 $('recover').addEventListener('click', () => action(async () => {
   await connect({ recovery: true });
-  await session.recover();
+  try { await session.recover(); }
+  catch (e) {
+    // A different phone can never recover this record. Release it so the next
+    // attempt opens the picker; the recovery panel has no disconnect button.
+    if (e instanceof SetupError && e.code === 'device') await releasePhone();
+    throw e;
+  }
   await closePhone();
   message('notice', 'Cleanup verified. NAVEE is closed and the original log setting is restored. USB access is closed; choose your phone again for a fresh capture.');
 }));
