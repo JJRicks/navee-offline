@@ -40,6 +40,7 @@ final class ScooterPhotos {
             case "gt5max": return R.drawable.gt5max;
             case "ut5ultrax": return R.drawable.ut5ultrax;
             case "gt3max": return R.drawable.gt3max;
+            case "xt5ultra": return R.drawable.xt5ultra;
             default: return 0;
         }
     }

@@ -160,6 +160,7 @@ public final class ModelRegistryTest {
             check(keys.add(w.getValue()),"Two models share the photo "+w.getValue());
         }
         check(!ModelRegistry.WAITING_PHOTOS.containsKey("GT5 Max")&&ModelRegistry.WAITING_PHOTOS.containsKey("GT3 Max"),"The GT5 Max left the waiting photos once known; the GT3 Max still waits");
+        check(ModelRegistry.ownerPhoto("XT5 Ultra").equals("xt5ultra"),"An owner's XT5 Ultra answer shows its waiting photo");
         // Each photo key is bundled and decodable by ScooterPhotos, so moving a model into KNOWN needs nothing else.
         String photos=new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("src/com/jjricks/volt/ScooterPhotos.java")),java.nio.charset.StandardCharsets.UTF_8);
         for(String key:keys){

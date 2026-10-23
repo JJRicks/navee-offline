@@ -56,6 +56,20 @@ pending original replacement photos or verified permission. They are separate
 from the MIT-licensed application source; the source licence does not grant
 rights to the photos or NAVEE marks shown in them.
 
+XT5 ULTRA PHOTO
+
+The maintainer supplied a NAVEE product image on 23 October 2026, bundled at:
+  res/drawable-nodpi/xt5ultra.webp
+
+It was re-encoded from an 800 x 800 PNG as WebP with alpha, cropped to a 628 x 628
+square around the scooter so it fills its frame like the other model photos, with
+metadata removed. Volt shows it only when an owner answers that their scooter is
+an XT5 Ultra, until a report brings the model's advertised Model ID.
+Redistribution permission has not been established. Like the other model photos,
+it is a placeholder pending an original replacement photo or verified permission.
+It is separate from the MIT-licensed application source; the source licence does
+not grant rights to the photo or NAVEE marks shown in it.
+
 UT5 ULTRA X PHOTO
 
 The maintainer supplied a NAVEE product image on 23 October 2026, bundled at:
