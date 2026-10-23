@@ -136,6 +136,18 @@ public final class ModelRegistryTest {
         check(ModelRegistry.driveModeLabelProduct(advertised("22131"))==25462&&ModelRegistry.driveModeLabelProduct(advertised("22132"))==0
             &&ModelRegistry.driveModeLabelProduct(advertised("22131").withOwnerModel("GT5 Max"))==25462&&ModelRegistry.driveModeLabelProduct(advertised("23451").withOwnerModel("N65i"))==0,
             "The N65i (exact ID) uses the GT5 Max names; an owner's model answer never names modes");
+        // The UT5 Ultra X: named from an owner's report (25852, US, 2585 group); its sibling stays unnamed.
+        DeviceDescriptor ultra=advertised("25852"),ultraSibling=advertised("25851");
+        check(layer(ultra)==ModelRegistry.Layer.OEM_GROUP&&ModelRegistry.modelName(ultra).equals("UT5 Ultra X")&&ModelRegistry.modelLine(ultra).equals("UT5 Ultra X")
+            &&ModelRegistry.photo(ultra).equals("ut5ultrax")&&ModelRegistry.showsPhoto(ultra),"UT5 Ultra X name, line and photo");
+        check(ModelRegistry.modelName(ultraSibling).isEmpty()&&ModelRegistry.photo(ultraSibling).isEmpty(),"Another 2585-group ID stays unnamed until it is reported");
+        for(String f:new String[]{"lock","maximum_speed","dual_drive","line_light","prompt_tone","charge_limit","speed_limit"}){
+            ModelRegistry.Rule named=ModelRegistry.rule(f,ultra,null,null),plain=ModelRegistry.rule(f,ultraSibling,null,null);
+            check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming the UT5 Ultra X changes no rule: "+f);
+        }
+        check(ModelRegistry.reported(ultra)&&ReportInvite.model(ultra).isEmpty()&&!ReportInvite.model(ultraSibling).isEmpty(),"The UT5 Ultra X is reported; its unreported siblings are still offered");
+        check(ModelRegistry.driveModeLabelProduct(ultra)==0,"The UT5 Ultra X's drive-mode codes stay unnamed until an owner reports them");
+        check(ModelRegistry.ownerPhoto("UT5 Ultra X").equals("ut5ultrax"),"An owner's UT5 Ultra X answer gets its photo");
     }
 
     /** Photos bundled ahead of their Model ID: listed NAVEE models, shown on nothing yet, each ready to use once its ID is known. */
@@ -220,7 +232,7 @@ public final class ModelRegistryTest {
         check(ModelRegistry.rule("display_units",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("charge_limit",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("drive_speed_limit",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM-mapped rows; the D-mode cap stays unmapped");
-        check(ModelRegistry.VERSION==11,"Registry version records the experimental table alongside the known N65i, ST3 Pro and GT5 Max, the regional unions and control tables");
+        check(ModelRegistry.VERSION==12,"Registry version records the experimental table alongside the known N65i, ST3 Pro, GT5 Max and UT5 Ultra X, the regional unions and control tables");
         check(ModelRegistry.rule("display_units",both("Q2547ZZ9US7777777","25381"),null,null).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict reason");
         boolean unknownKey=false;try{ModelRegistry.rule("not_a_feature",us,null,null);}catch(IllegalArgumentException expected){unknownKey=true;}
         check(unknownKey,"Unknown keys are rejected");

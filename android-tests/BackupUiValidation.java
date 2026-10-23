@@ -205,6 +205,7 @@ public final class BackupUiValidation extends Instrumentation {
             main.rebuild();
         });
         require(text(root(main),"A computer with ADB and Python 3")!=null,"Upgrading changed an unfinished legacy default ADB route");
+        require(text(root(main),"The Volt source, extracted")!=null,"The ADB checklist does not say where the capture helper comes from");
         require("capture".equals(getTargetContext().getSharedPreferences("onboarding",0).getString("path","")),"Legacy resumed route was not preserved durably");
         onMain(()->((OnboardingScreen)field(main,"onboarding")).back());
         onMain(()->((OnboardingScreen)field(main,"onboarding")).back());

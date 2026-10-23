@@ -2,6 +2,8 @@
 
 ## Unreleased
 
+- The computer (ADB) setup checklist now includes the extracted Volt source, which holds `setup/capture-owner.py`, and the capture step says to run the command from that folder, as an owner suggested.
+- Name and picture the UT5 Ultra X (Model ID 25852), from an owner's compatibility report. Its controls are not verified; they follow the official app's map for its model group as before. Volt now has a report for it, so its owners aren't asked for one.
 - Line up **Back up & restore** with the other rows in More's menu on wide and unfolded screens; its icon and title no longer sit further left.
 - On models other than the UT5 MAX, a long Charge start value such as **Not scheduled** moves under its label with the **Untested here** caption, like other long values, instead of staying beside the label.
 
