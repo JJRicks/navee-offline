@@ -40,6 +40,9 @@ try {
     assert.equal(await page.locator('#connect').isDisabled(), true);
     await page.locator('#usb-consent').focus();
     assert.equal(await page.locator('#usb-consent').evaluate(element => getComputedStyle(element).outlineWidth), '3px');
+    await page.locator('#usb-consent').blur();
+    assert.match(await page.locator('#connect-panel .permission').innerText(), /regular browser window, not Incognito or Guest/);
+    assert.equal(await page.locator('#connect-panel details').evaluate(element => element.open), false);
     if ([1280, 390, 344].includes(width)) await page.screenshot({ path: join(process.env.QA_DIR, `start-${width}.png`), fullPage: true });
     await page.locator('#usb-consent').check(); assert.equal(await page.locator('#connect').isEnabled(), true);
     // Check real rendered text/background pairs, including the small consent copy.
@@ -75,6 +78,15 @@ try {
       }, id);
       assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${id} width ${width}`);
       if (width === 390 || width === 1280) await page.screenshot({ path: join(process.env.QA_DIR, `${id}-${width}.png`), fullPage: true });
+      // Secondary actions moved into native disclosures: they must stay reachable
+      // by keyboard, and expanded help must fit narrow screens too.
+      for (const detail of await page.locator(`#${id} details`).all()) {
+        const summary = detail.locator('summary'); await summary.focus(); await page.keyboard.press('Enter');
+        assert.equal(await detail.evaluate(element => element.open), true);
+      }
+      if (id === 'save-panel') assert.equal(await page.locator('#download').isVisible(), true);
+      if (id === 'recovery') assert.equal(await page.locator('#recovery-details').isVisible(), true);
+      assert.equal(await page.evaluate(() => document.documentElement.scrollWidth > innerWidth), false, `${id} expanded help width ${width}`);
     }
     await page.emulateMedia({ reducedMotion: 'reduce' });
     assert.equal(await page.locator('.orbit').evaluate(element => getComputedStyle(element).animationName), 'none');

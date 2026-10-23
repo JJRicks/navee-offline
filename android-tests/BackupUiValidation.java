@@ -58,6 +58,7 @@ public final class BackupUiValidation extends Instrumentation {
             MainActivity main=activity;
             await(()->root(main).findViewWithTag("onboarding-restore-backup")!=null,"Welcome backup link missing");
             require(main.service()==null,"Welcome started Bluetooth before permissions");
+            verifySetupPath(main);
             require(text(root(main),"Restore Volt backup")!=null,"Welcome restore label is not distinct from owner setup");
             onMain(()->root(main).findViewWithTag("onboarding-restore-backup").performClick());
             AlertDialog consent=(AlertDialog)field(main,"controlDialog");
@@ -119,6 +120,10 @@ public final class BackupUiValidation extends Instrumentation {
             require(textContaining(root(backup),"Permissions and Bluetooth pairing aren't included.")!=null,"Exclusions are stated");
             render(root(backup),"backup-categories.png");
             EditText secret=(EditText)field(backup,"password");
+            PasswordKeyboardChecks.verify(this,backup,secret,true);
+            PasswordKeyboardChecks.verify(this,backup,(EditText)field(backup,"repeat"));
+            PasswordKeyboardChecks.verify(this,backup,secret);
+            checks.add("New and repeat passwords stay fully visible above the real keyboard while typing, changing focus and reopening the keyboard");
             require(!secret.isSaveEnabled(),"Password would be copied into saved Activity state");
             require((backup.getWindow().getAttributes().flags&android.view.WindowManager.LayoutParams.FLAG_SECURE)!=0,"Backup screenshot protection missing");
             onMain(()->root(backup).findViewWithTag("backup-create").performClick());
@@ -177,6 +182,33 @@ public final class BackupUiValidation extends Instrumentation {
         finally{releaseWork.countDown();if(current!=null)try{onMain(current::finish);}catch(Throwable ignored){}
             result.putInt("assertions",assertions);result.putStringArrayList("checks",checks);result.putInt("scooter_mutations",0);
             finish("PASS".equals(result.getString("result"))?0:1,result);}
+    }
+    /** A fresh install recommends browser setup; a deliberately selected route survives rebuild. */
+    private void verifySetupPath(MainActivity main){
+        onMain(()->clickText(root(main),"Get started"));
+        onMain(()->{
+            require("webadb".equals(invoke(field(main,"onboarding"),"path",new Class<?>[]{})),"Fresh setup does not default to Chrome/USB");
+            require(text(root(main),"Recommended")!=null&&text(root(main),"Preview")==null,"Chrome/USB recommendation missing or still a preview");
+        });
+        SystemClock.sleep(450);waitForIdleSync(); // Let the welcome-to-path crossfade finish before the review image.
+        render(root(main),"setup-paths.png");
+        onMain(()->clickText(root(main),"Continue"));
+        require(text(root(main),"A computer with Chrome or Edge")!=null,"Default Continue did not enter browser preparation");
+        onMain(main::rebuild);
+        require(text(root(main),"A computer with Chrome or Edge")!=null,"New default route did not survive resuming setup");
+        onMain(()->((OnboardingScreen)field(main,"onboarding")).back());
+        onMain(()->clickText(root(main),"Capture it from the NAVEE app"));
+        onMain(main::rebuild);
+        require("capture".equals(invoke(field(main,"onboarding"),"path",new Class<?>[]{})),"Rebuild replaced the owner's selected setup route");
+        onMain(()->{
+            getTargetContext().getSharedPreferences("onboarding",0).edit().putInt("step",2).remove("path").commit();
+            main.rebuild();
+        });
+        require(text(root(main),"A computer with ADB and Python 3")!=null,"Upgrading changed an unfinished legacy default ADB route");
+        require("capture".equals(getTargetContext().getSharedPreferences("onboarding",0).getString("path","")),"Legacy resumed route was not preserved durably");
+        onMain(()->((OnboardingScreen)field(main,"onboarding")).back());
+        onMain(()->((OnboardingScreen)field(main,"onboarding")).back());
+        checks.add("Fresh onboarding recommends Chrome/USB; the new default, a chosen alternative and an unfinished legacy default ADB route all survive resuming setup");
     }
     /** The success screen must route to the same encrypted, all-category backup, not plaintext pairing export. */
     private void verifySetupSuccessBackup(MainActivity main){

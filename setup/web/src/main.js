@@ -91,7 +91,7 @@ async function releasePhone({ keepResult = false } = {}) {
   try { await connected?.close(true); }
   catch { message('notice', 'Disconnected. Remove this site’s USB permission in Chrome’s site settings.'); }
   finally { closing = false; }
-  $('send').textContent = 'Choose phone and save a new file';
+  $('send').textContent = 'Choose phone and save';
 }
 async function closePhone() {
   await releasePhone();
@@ -102,7 +102,7 @@ $('usb-consent').addEventListener('change', validateEnvironment);
 $('capture-consent').addEventListener('change', () => { $('start').disabled = !$('capture-consent').checked || busy; });
 $('connect').addEventListener('click', () => action(async () => {
   if (!$('usb-consent').checked || pendingRecovery()) return;
-  await connect(); $('send').textContent = 'Save a new file to phone Downloads'; panel('capture-panel', 1);
+  await connect(); $('send').textContent = 'Save to phone Downloads'; panel('capture-panel', 1);
 }));
 $('disconnect').addEventListener('click', () => action(closePhone));
 $('start').addEventListener('click', () => action(async () => {
@@ -178,7 +178,7 @@ printf SAVED`;
   try {
     if (await phone.run(command, { input: data }) !== 'SAVED') throw new Error('Unverified transfer');
     $('saved-file').textContent = `Phone Downloads / ${name}`; $('saved-file').hidden = false;
-    message('notice', 'Saved to phone Downloads. USB access is now closed. In Volt, choose Import a backup file and select this new file.');
+    message('notice', 'Saved to phone Downloads. USB access is closed. In Volt’s Import your owner file step, tap Choose file and select the new file.');
     await releasePhone({ keepResult: true });
   } catch {
     await releasePhone({ keepResult: true });

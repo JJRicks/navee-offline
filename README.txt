@@ -13,8 +13,8 @@ Build from source: docs/building.md
 
 Requires Android 8.0+ with Bluetooth LE and an activated, owner-bound US UT5 MAX.
 First setup uses your working NAVEE account; everyday Bluetooth use is local.
-Computer ADB is the established capture route. Chrome/USB is a testing preview;
-on-phone Shizuku has limited validation. See the setup guide before choosing.
+Chrome + USB is the recommended setup route. Computer ADB and on-phone Shizuku
+are also available. See the setup guide for requirements and validation limits.
 
 Read PRIVACY.md for local storage, optional online maps and sensitive exports.
 Keep owner setup files private and back up before clearing app data.

@@ -113,8 +113,9 @@ texts and the Saira license into `THIRD-PARTY-NOTICES.txt`. Android builds packa
 - Record the tested phone, Android, NAVEE app and scooter firmware combinations.
   Current experience is focused on UT5 MAX; do not promise all-model support.
 - Validate successful owner capture, cancellation, timeout, and interrupted
-  cleanup for every setup method advertised as stable. Preserve preview labels
-  for paths with incomplete real-device validation.
+  cleanup for each setup method, and record incomplete real-device coverage in
+  the setup guide. Chrome/USB is the maintainer's recommended default; this
+  positioning does not add hardware-validation evidence.
 - Recheck [Privacy](../PRIVACY.md) against behavior and production hosting.
   Local capture does not mean web servers or tile providers receive no requests.
 - Publish source/asset notices, the changelog, limitations and backup advice with

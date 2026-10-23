@@ -247,6 +247,16 @@ form focus in both themes. Enable the emulator software keyboard; this runner
 refuses physical phones and existing app data. Search bindings must pass touches
 through, release listeners with the field, and leave ordinary form editors alone.
 
+`BackupUiValidation` and the `FullBackupJourneyValidation` restore journey also
+use a real software keyboard. They tap and type into each backup password field,
+verify the entire editor stays above the keyboard, switch between new/repeated
+passwords, and reopen the keyboard. `run-backups.py` enables the emulator software
+keyboard for these checks and restores that setting afterward. The backup UI
+fixture checks the recommended Chrome/USB default on first setup; `MyScootersValidation`
+checks the same default when adding a scooter. The chooser also preserves an
+unfinished default ADB route from older versions that had not saved a path key.
+The backup consent and encryption flow remains the same.
+
 Quick access uses stable catalog IDs (QuickAccessActions) and a normalized 2–8
 item list in each widget. Never accept arbitrary commands or navigation routes.
 The dashboard invokes existing MainActivity editors and BleController gates;

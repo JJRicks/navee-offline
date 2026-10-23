@@ -38,6 +38,7 @@ run('install', str(args.app.resolve()))
 run('install', str(args.runner.resolve()))
 run('shell', 'cmd', 'bluetooth_manager', 'disable')
 results = []
+software_keyboard = run('shell', 'settings', 'get', 'secure', 'show_ime_with_hard_keyboard').strip()
 def instrument(name, runner, *extra):
     output = run('shell', 'am', 'instrument', '-w', *extra, RUNNER + runner, check=False)
     (args.out / (name + '.txt')).write_text(output)
@@ -49,6 +50,7 @@ def clear():
     run('shell', 'pm', 'clear', PACKAGE)
     run('shell', 'mkdir', '-p', external)
 try:
+    run('shell', 'settings', 'put', 'secure', 'show_ime_with_hard_keyboard', '1')
     # Complete export, host copy, Clear storage, push back, Replace everything, compare everything.
     clear()
     if instrument('full-export', 'FullBackupJourneyValidation', '-e', 'mode', 'export'):
@@ -86,6 +88,10 @@ try:
     # Read-only: run last, after the journeys above left real app data in place.
     instrument('inventory', 'BackupInventoryValidation')
 finally:
+    if software_keyboard == 'null':
+        run('shell', 'settings', 'delete', 'secure', 'show_ime_with_hard_keyboard', check=False)
+    else:
+        run('shell', 'settings', 'put', 'secure', 'show_ime_with_hard_keyboard', software_keyboard, check=False)
     run('shell', 'wm', 'size', 'reset', check=False); run('shell', 'wm', 'density', 'reset', check=False)
     run('shell', 'settings', 'put', 'system', 'font_scale', '1.0', check=False)
     (args.out / 'results.json').write_text(json.dumps(results, indent=2) + '\n')

@@ -122,6 +122,8 @@ public final class FullBackupJourneyValidation extends Instrumentation {
         click(backup,"restore-choose");
         await(()->view(backup,"restore-open")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Encrypted backup did not request a password");
         require(picker.getHits()==1,"Restore bypassed the user file picker");removeMonitor(picker);
+        PasswordKeyboardChecks.verify(this,backup,(EditText)field(backup,"password"));
+        PasswordKeyboardChecks.verify(this,backup,(EditText)field(backup,"password"));
         runOnMainSync(()->((EditText)field(backup,"password")).setText(new String(PASSWORD)));click(backup,"restore-open");
         await(()->view(backup,"restore-next")!=null&&!Boolean.TRUE.equals(field(backup,"busy")),"Backup did not reach its content preview");
         AppDataBackup.PreparedRestore staged=(AppDataBackup.PreparedRestore)field(backup,"staged");
