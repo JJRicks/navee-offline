@@ -103,6 +103,15 @@ public final class ModelRegistry {
         KNOWN.put("22131",new Known("N65i","n65i","lock","display_units","headlight","auto_sensor"));
         KNOWN.put("23452",new Known("ST3 Pro","st3pro"));
     }
+    /**
+     * Photos bundled before Volt knows their model's advertised Model ID, by NaveeModels name; nothing shows them yet.
+     * When a report brings the ID, one KNOWN line (Model ID, name, photo) puts the name and photo to work, and the
+     * model leaves this table.
+     */
+    static final Map<String,String> WAITING_PHOTOS;
+    static{Map<String,String> w=new LinkedHashMap<>();w.put("GT5 Max","gt5max");w.put("GT3 Max","gt3max");WAITING_PHOTOS=java.util.Collections.unmodifiableMap(w);}
+    /** The name and photo of each model known by Model ID, for ModelRegistryTest. */
+    static Map<String,String[]> knownModels(){Map<String,String[]> out=new LinkedHashMap<>();for(Map.Entry<String,Known> e:KNOWN.entrySet())out.put(e.getKey(),new String[]{e.getValue().name,e.getValue().photo});return out;}
     /** A known model; the advertised Model ID must agree with the serial and resolve to a standard layer. */
     private static Known known(DeviceDescriptor d){
         if(d==null||d.pidSource()!=DeviceDescriptor.PidSource.ADVERTISED)return null;

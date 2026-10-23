@@ -6,11 +6,11 @@ import java.util.Set;
 /** Layer resolution, prefix precedence, provenance-limited rules and UT5-only model assumptions. */
 public final class ModelRegistryTest {
     private static int assertions;
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         // Touch the registry before ScooterCommands so a static-initialiser cycle would show here.
         check(ModelRegistry.resolve(advertised("25381")).layer==ModelRegistry.Layer.UT5_MAX&&ModelRegistry.variant("clock_sync",advertised("25381"),null,null)==ModelRegistry.CLOCK
             &&ModelRegistry.variant("lock",advertised("25381"),null,null).id.equals("lock.ut5"),"Registry initialises first");
-        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules(); testedModels(); namedOnly();
+        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules(); testedModels(); namedOnly(); waitingPhotos();
         System.out.println("ModelRegistry tests passed: "+assertions+" assertions");
     }
 
@@ -123,6 +123,24 @@ public final class ModelRegistryTest {
         check(!ModelRegistry.reported(st3),"The ST3 Pro still gets the offer to share a report");
     }
 
+    /** Photos bundled ahead of their Model ID: listed NAVEE models, shown on nothing yet, each ready to use once its ID is known. */
+    private static void waitingPhotos() throws java.io.IOException {
+        Set<String> keys=new HashSet<>();keys.add("ut5max");
+        for(String[] known:ModelRegistry.knownModels().values()){keys.add(known[1]);
+            check(!ModelRegistry.WAITING_PHOTOS.containsKey(known[0])&&!ModelRegistry.WAITING_PHOTOS.containsValue(known[1]),"A model known by Model ID still waits: "+known[0]);}
+        for(java.util.Map.Entry<String,String> w:ModelRegistry.WAITING_PHOTOS.entrySet()){
+            check(w.getKey().equals(NaveeModels.exact(w.getKey())),"A waiting photo is not a listed NAVEE model: "+w.getKey());
+            check(keys.add(w.getValue()),"Two models share the photo "+w.getValue());
+        }
+        check(ModelRegistry.WAITING_PHOTOS.containsKey("GT5 Max")&&ModelRegistry.WAITING_PHOTOS.containsKey("GT3 Max"),"The GT5 Max and GT3 Max photos wait for their IDs");
+        // Each photo key is bundled and decodable by ScooterPhotos, so moving a model into KNOWN needs nothing else.
+        String photos=new String(java.nio.file.Files.readAllBytes(java.nio.file.Paths.get("src/com/jjricks/volt/ScooterPhotos.java")),java.nio.charset.StandardCharsets.UTF_8);
+        for(String key:keys){
+            check(new java.io.File("res/drawable-nodpi/"+key+".webp").isFile(),"No bundled photo for "+key);
+            check(photos.contains("case \""+key+"\": return R.drawable."+key+";"),"ScooterPhotos cannot show "+key);
+        }
+        check(ModelRegistry.photo(advertised("23451")).isEmpty()&&ModelRegistry.modelName(advertised("23451")).isEmpty(),"An unknown Model ID gets no waiting photo");
+    }
     private static void assumptions() {
         DeviceDescriptor ut5=serial("Q2538ZZ9US7777777"),other=advertised("25471"),unknown=serial("Q2443ZZ9US7777777");
         check(ModelRegistry.ratedWh(ut5)==716.04&&ModelRegistry.ratedWh(other)==null&&ModelRegistry.ratedWh(unknown)==null,"Rated Wh is UT5 MAX only");
