@@ -933,7 +933,8 @@ public final class GuidedTestValidation extends Instrumentation {
         String label = N65I[0];
         connect(label); parked(label);
         openLab();
-        List<String> expected = Arrays.asList("start_speed", "turn_sound", "traction_control", "hill_start_assist", "parking_assist", "hill_descent_control", "prompt_tone", "range_algorithm");
+        // The custom speed cap joins the experiments the official app hides on the N65i.
+        List<String> expected = Arrays.asList("start_speed", "turn_sound", "speed_limit", "traction_control", "hill_start_assist", "parking_assist", "hill_descent_control", "prompt_tone", "range_algorithm");
         await(() -> labKeys().equals(expected), label + ": Experimental controls rows " + labKeys() + " expected " + expected, 10000);
         main(() -> { for (String key : expected) require(activity.service().ble.tryDecision(key).available(), label + ": " + key + " not available: " + activity.service().ble.tryDecision(key).reasonText()); });
         awaitText("Untested on your model", "Untested here", "Untested"); screenshot(label + "-lab-list");
@@ -942,7 +943,7 @@ public final class GuidedTestValidation extends Instrumentation {
         main(() -> {
             BleController ble = activity.service().ble;
             // Never added here, an offered control never as an experiment, and a hidden one never as an ordinary change.
-            for (String key : new String[]{"maximum_speed", "speed_limit", "charge_limit", "lock", "lock_expiry", "low_power", "acceleration", "dual_drive", "overspeed_control"})
+            for (String key : new String[]{"maximum_speed", "charge_limit", "lock", "lock_expiry", "low_power", "acceleration", "dual_drive", "overspeed_control"})
                 require(!ble.setExperimental(key, key.equals("maximum_speed") ? 25 : key.equals("charge_limit") ? 90 : 1), label + ": " + key + " sent as an experiment");
             require(!ble.setExperimental("display_units", 0), label + ": a verified, offered control sent as a try");
             require(!ble.set("turn_sound", 1), label + ": a hidden control sent as an ordinary change");

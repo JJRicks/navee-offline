@@ -126,16 +126,21 @@ public final class CompatControlsValidation extends Instrumentation {
             int visible = 0; for (Object v : ((java.util.Map<?, ?>)field(row, "options")).values()) if (((View)v).getVisibility() == View.VISIBLE) visible++;
             require(visible == 6, "2585 line colour shows " + visible + " swatches");
         });
-        // Experimental controls keep OEM-mapped controls out: 2585 offers every control Volt could try, so nothing is listed.
+        // Experimental controls keep OEM-mapped controls out: 2585 offers every control Volt could try except the custom speed cap.
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Lab")); settle();
         main(() -> {
             for (String key : new String[]{"prompt_tone", "dual_drive"})
                 require(!activity.service().ble.experimentalDecision(key).experimental(), "Offered " + key + " is not experimental");
             // Its guided-test controls are offered by the official app but unverified by Volt: Help verify only.
-            for (Object row : (List<?>)field(more(), "labRows"))
-                require(!activity.service().ble.experimentalDecision(((ScooterCommands.Feature)field(row, "feature")).key).experimental(), "2585 lists an experimental control");
-            require(((List<?>)field(more(), "labRows")).size() == 5 && "Help verify".contentEquals(((TextView)field(more(), "labTitle")).getText()), "2585 Help verify rows");
+            java.util.List<String> experiments = new java.util.ArrayList<>();
+            for (Object row : (List<?>)field(more(), "labRows")) {
+                String key = ((ScooterCommands.Feature)field(row, "feature")).key;
+                if (activity.service().ble.experimentalDecision(key).experimental()) experiments.add(key);
+            }
+            require(experiments.equals(java.util.Arrays.asList("speed_limit")), "2585 lists only the custom speed cap as an experiment: " + experiments);
+            require(((List<?>)field(more(), "labRows")).size() == 6 && "Untested controls".contentEquals(((TextView)field(more(), "labTitle")).getText()),
+                    "2585 rows: the speed cap and five Help verify rows, titled " + ((TextView)field(more(), "labTitle")).getText());
         });
         screenshot("q-lab");
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
