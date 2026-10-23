@@ -806,8 +806,14 @@ public final class ModelRegistry {
     /** Bundled photo key ("ut5max", "n65i") for this model, or "" for none. */
     public static String photo(DeviceDescriptor d){if(ut5Max(d))return "ut5max";Known t=known(d);return t!=null?t.photo:ownerPhoto(ownerModel(d));}
     public static int chargeReferenceProduct(DeviceDescriptor d){return ut5Max(d)?2538:-1;}
-    /** Models whose drive-mode codes an owner reported: the UT5 MAX (2538) and the GT5 Max (25462); 0 keeps raw codes. */
-    public static int driveModeLabelProduct(DeviceDescriptor d){if(ut5Max(d))return 2538;return known(d)!=null&&"25462".equals(d.rulePid())?25462:0;}
+    /**
+     * Models whose drive-mode codes Volt names: the UT5 MAX (2538) and the GT5 Max (25462) from owner reports, and the
+     * N65i (22131), assumed by the maintainer to match the GT5 Max until an owner reports otherwise; 0 keeps raw codes.
+     */
+    public static int driveModeLabelProduct(DeviceDescriptor d){
+        if(ut5Max(d))return 2538;if(known(d)==null)return 0;
+        return "25462".equals(d.rulePid())||"22131".equals(d.rulePid())?25462:0;
+    }
     public static int rangeFollowProduct(DeviceDescriptor d){return ut5Max(d)?2538:0;}
     public static String modelName(DeviceDescriptor d){if(ut5Max(d))return "UT5 MAX";Known t=known(d);return t!=null?t.name:ownerModel(d);}
     /**
