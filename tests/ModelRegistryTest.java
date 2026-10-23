@@ -10,7 +10,7 @@ public final class ModelRegistryTest {
         // Touch the registry before ScooterCommands so a static-initialiser cycle would show here.
         check(ModelRegistry.resolve(advertised("25381")).layer==ModelRegistry.Layer.UT5_MAX&&ModelRegistry.variant("clock_sync",advertised("25381"),null,null)==ModelRegistry.CLOCK
             &&ModelRegistry.variant("lock",advertised("25381"),null,null).id.equals("lock.ut5"),"Registry initialises first");
-        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules(); testedModels(); namedOnly(); waitingPhotos();
+        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules(); testedModels(); namedOnly(); waitingPhotos(); ownerAnswers();
         System.out.println("ModelRegistry tests passed: "+assertions+" assertions");
     }
 
@@ -151,6 +151,29 @@ public final class ModelRegistryTest {
         }
         check(ModelRegistry.photo(advertised("23451")).isEmpty()&&ModelRegistry.modelName(advertised("23451")).isEmpty(),"An unknown Model ID gets no waiting photo");
     }
+    /** The owner's "Which scooter is this?" answer names and pictures a scooter Volt can't identify, and changes nothing else. */
+    private static void ownerAnswers() {
+        DeviceDescriptor unknown=advertised("23451"),said=unknown.withOwnerModel("GT5 Max");
+        check(ModelRegistry.modelName(said).equals("GT5 Max")&&ModelRegistry.photo(said).equals("gt5max")&&ModelRegistry.showsPhoto(said),"A listed answer names the scooter and shows that model's photo, known by another ID or still waiting");
+        check(ModelRegistry.modelLine(said).equals(ModelRegistry.modelLine(unknown))&&ModelRegistry.modelLine(said).equals("Model 23451"),"The model line stays Volt's own (the Model ID)");
+        check(ModelRegistry.resolve(said).layer==ModelRegistry.resolve(unknown).layer&&ModelRegistry.reported(said)==ModelRegistry.reported(unknown)
+            &&ReportInvite.model(said).equals(ReportInvite.model(unknown)),"The answer changes no layer, report status or report offer");
+        for(String f:new String[]{"lock","display_units","headlight","cruise_control","maximum_speed"}){
+            ModelRegistry.Rule a=ModelRegistry.rule(f,said,null,null),b=ModelRegistry.rule(f,unknown,null,null);
+            check(a.evidence==b.evidence&&a.support==b.support&&a.reason==b.reason&&a.preconditions.equals(b.preconditions)&&a.variant==b.variant,"The answer is no evidence for "+f);
+        }
+        check(ModelRegistry.photo(said.withFirmware(DeviceDescriptor.Firmware.NONE,false)).equals("gt5max")&&ModelRegistry.photo(said.withAdvertised("23451",5)).equals("gt5max"),"The answer survives firmware and advertised updates");
+        check(ModelRegistry.photo(unknown.withOwnerModel("ST3 Pro")).equals("st3pro")&&ModelRegistry.photo(unknown.withOwnerModel("UT5 Max")).equals("ut5max")
+            &&ModelRegistry.photo(unknown.withOwnerModel("N65i")).equals("n65i"),"A model Volt knows by another ID, or the UT5 MAX, uses its photo");
+        check(ModelRegistry.modelName(unknown.withOwnerModel("GT3 Pro")).equals("GT3 Pro")&&ModelRegistry.photo(unknown.withOwnerModel("GT3 Pro")).isEmpty(),"A listed model without a photo is named only");
+        check(ModelRegistry.modelName(advertised("22131").withOwnerModel("GT5 Max")).equals("N65i")&&ModelRegistry.photo(advertised("22131").withOwnerModel("GT5 Max")).equals("n65i")
+            &&ModelRegistry.modelName(advertised("25381").withOwnerModel("GT3 Max")).equals("UT5 MAX"),"Volt's own identification always wins");
+        for(String odd:new String[]{"Mystery GT9","gt5 max","GT5 Max ",""})
+            check(ModelRegistry.modelName(unknown.withOwnerModel(odd)).isEmpty()&&ModelRegistry.photo(unknown.withOwnerModel(odd)).isEmpty(),"Only an exact listed name counts: '"+odd+"'");
+        check(ModelRegistry.modelName(DeviceDescriptor.simulated("23451",0).withOwnerModel("GT5 Max")).isEmpty(),"The simulator ignores an answer");
+        check(unknown.ownerModel.isEmpty()&&unknown.withOwnerModel(null).ownerModel.isEmpty()&&unknown.withOwnerModel("xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx").ownerModel.isEmpty(),"No answer, a null or an oversized one is none");
+    }
+
     private static void assumptions() {
         DeviceDescriptor ut5=serial("Q2538ZZ9US7777777"),other=advertised("25471"),unknown=serial("Q2443ZZ9US7777777");
         check(ModelRegistry.ratedWh(ut5)==716.04&&ModelRegistry.ratedWh(other)==null&&ModelRegistry.ratedWh(unknown)==null,"Rated Wh is UT5 MAX only");

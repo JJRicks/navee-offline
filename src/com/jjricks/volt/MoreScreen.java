@@ -892,8 +892,17 @@ public final class MoreScreen implements AppScreen {
         name.setFilters(new InputFilter[]{new InputFilter.LengthFilter(60)}); name.setText(p.name); name.selectAll(); box.addView(name);
         String modelDetail = ModelRegistry.modelLine(p.savedDescriptor());
         if (!modelDetail.isEmpty()) note(box, modelDetail);
+        // Until Volt can name this scooter itself, the owner can say which model it is (its name and photo, nothing else).
+        boolean volt = !ModelRegistry.modelName(p.savedDescriptor().withOwnerModel("")).isEmpty();
+        TextView model = null;
+        if (!volt) {
+            if (!p.ownerModel.isEmpty()) note(box, "Your answer: " + p.ownerModel);
+            model = ui.secondaryButton(p.ownerModel.isEmpty() ? "Which model is it?" : "Change model", null); model.setTag("scooter-model-" + id);
+            box.addView(model);
+        }
         AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(box).setNegativeButton("Cancel", null)
                 .setPositiveButton("Save name", null).create();
+        if (model != null) model.setOnClickListener(v -> { dialog.dismiss(); host.chooseScooterModel(id); });
         TextView forget = ui.dangerButton("Forget this scooter", () -> {
             if (!canChangeScooter()) return;
             dialog.dismiss(); forgetScooter(id);

@@ -181,6 +181,7 @@ public final class ReportInviteValidation extends Instrumentation {
                 require(!body.toUpperCase(Locale.ROOT).contains(secret.toUpperCase(Locale.ROOT)), "A fixture secret reached the email");
             settle();
             require(!showing() && "sent".equals(settings().getString("report_invite_" + MODEL, "")), "A shared report did not close and persist");
+            main(() -> require(activity.service().profiles.active().ownerModel.isEmpty(), "A check on the simulator kept its answer on the saved scooter"));
             settings().edit().putBoolean("background_connection", false).commit();
 
             // Recreating the Activity mid-check stops the check and sends nothing.
@@ -283,6 +284,7 @@ public final class ReportInviteValidation extends Instrumentation {
         for (String secret : new String[]{FIXTURE_NAME, FIXTURE_IDENTITY, FIXTURE_SERIAL, FIXTURE_MAC, FIXTURE_MAC.replace(":", "")})
             require(!body.toUpperCase(Locale.ROOT).contains(secret.toUpperCase(Locale.ROOT)), "A fixture secret reached the connection details");
         require(!showing() && "sent".equals(settings().getString("connect_report_" + profileId, "")), "Sent connection details did not close and persist");
+        main(() -> require(activity.service().profiles.active().ownerModel.isEmpty(), "A typed, unlisted name was kept as the scooter's model"));
         main(() -> invoke(activity, "maybeOfferConnectionReport", new Class<?>[0])); settle();
         require(!showing(), "The connection-details offer came back after it was sent");
     }

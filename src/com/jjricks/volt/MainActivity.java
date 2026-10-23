@@ -2308,7 +2308,8 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     /** After the check and the owner's answer: optionally name the drive modes, then open the email, still for the same scooter. */
     private void finishReport(String model,CompatibilityReport report,NaveeModels.Choice choice,String scooter,Dialog dialog){
-        dialog.dismiss();
+        // A check on the developer simulator says nothing about the saved scooter it stands in for.
+        dialog.dismiss();if(scooterService!=null&&!scooterService.simulating())rememberModel(scooter,choice,false);
         java.util.function.Consumer<DriveModeSurvey> send=modes->{
             if(destroyed)return;
             ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
@@ -2322,6 +2323,42 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(ble!=null&&ble.ready()&&ble.telemetry.number("driving_mode")!=null)
             reportDialog=new DriveModeStep(this,design,ble,modes->{if(!destroyed)reportDialog=null;send.accept(modes);}).show();
         else send.accept(null);
+    }
+    /**
+     * Keeps the owner's answer on that scooter, so Volt names and pictures it until Volt can identify it itself (ModelRegistry.ownerModel).
+     * A listed model replaces any earlier answer; Not sure clears it only when the owner chose it in Edit scooter (cleared).
+     */
+    private void rememberModel(String profileId,NaveeModels.Choice choice,boolean cleared){
+        ScooterProfiles.Profile p=null;if(scooterService!=null)for(ScooterProfiles.Profile item:scooterService.profiles.all())if(item.id.equals(profileId))p=item;
+        if(p==null||choice==null)return;
+        String model=choice.source==NaveeModels.Choice.Source.LIST?choice.name:cleared&&!choice.known()?"":null;
+        if(model==null||model.equals(p.ownerModel))return;
+        p.ownerModel=model;
+        // A name Volt chose itself follows the answer, as it follows an identified model on connecting.
+        if(p.nameDefault){String name=ModelRegistry.modelName(p.savedDescriptor());p.name=name.isEmpty()?"NAVEE scooter":name;}
+        scooterService.profiles.update(p);redraw();
+    }
+    /** More › My scooters › Edit scooter › Which model is it?: the same sheet as the report flows, saving the owner's answer for that scooter. */
+    @Override public void chooseScooterModel(String profileId){
+        if(scooterService==null||reportDialog!=null&&reportDialog.isShowing())return;
+        ScooterProfiles.Profile p=null;for(ScooterProfiles.Profile item:scooterService.profiles.all())if(item.id.equals(profileId))p=item;
+        if(p==null)return;
+        Dialog[] self={null};ModelPicker[] picker={null};
+        String saved=p.ownerModel;
+        Runnable save=()->{
+            NaveeModels.Choice choice=picker[0].choice();
+            if(choice==null||choice.source==NaveeModels.Choice.Source.TYPED)return; // listed-only below; never a save that keeps nothing
+            rememberModel(profileId,choice,true);if(self[0]!=null)self[0].dismiss();
+        };
+        // Save keeps exactly the row shown as chosen: never an answer the search has hidden.
+        picker[0]=new ModelPicker(this,design,c->picker[0].primary("Save",picker[0].choice()!=null&&picker[0].choiceShown())).listedOnly();
+        LinearLayout content=sheetContent("Which scooter is this?",null,()->{if(self[0]!=null)self[0].dismiss();});
+        picker[0].build(content,null,"Save",save);
+        if(!saved.isEmpty()&&saved.equals(NaveeModels.exact(saved)))picker[0].select(NaveeModels.Choice.listed(saved));
+        picker[0].primary("Save",picker[0].choice()!=null&&picker[0].choiceShown());
+        picker[0].status("Volt shows this model's name and photo until it can identify your scooter itself.",false);
+        Dialog dialog=showTallSheet(content);self[0]=dialog;reportDialog=dialog;
+        dialog.setOnDismissListener(d->{if(reportDialog==dialog)reportDialog=null;});
     }
     /** After repeated failures on a scooter that has never connected, offer once per app session to email its connection details. */
     private static final java.util.Set<String> connectOffered=java.util.Collections.synchronizedSet(new java.util.HashSet<>());
@@ -2355,6 +2392,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         Dialog[] self={null};ModelPicker[] picker={null};
         Runnable send=()->{
             if(picker[0].choice()==null||scooterService==null)return;
+            rememberModel(p.id,picker[0].choice(),false);
             BleController ble=scooterService.ble;String model=ble.advertisedModelId(p);
             String json=ConnectionReport.json(AppVersion.name(this),Build.VERSION.SDK_INT,Build.MANUFACTURER+" "+Build.MODEL,model,ble.advertisedTransport(p),ble.mtu(),
                     ble.connectionAttempts(p.id),ble.connectionActivity(p.id));

@@ -17,4 +17,6 @@ public interface ScreenHost {
     default boolean emailVolt(String subject, String body) { return false; }
     /** Asks which scooter this is (and optionally its drive modes), then drafts the finished check's report to Volt's report address. */
     default void emailReport(CompatibilityReport report) { }
+    /** Asks which listed NAVEE model this scooter is and keeps the answer on its profile. */
+    default void chooseScooterModel(String profileId) { }
 }

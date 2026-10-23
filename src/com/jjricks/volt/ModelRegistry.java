@@ -687,11 +687,25 @@ public final class ModelRegistry {
     /** True when Volt needs no new compatibility report for this model (the UT5 MAX is the reference). */
     public static boolean reported(DeviceDescriptor d){return ut5Max(d)||d!=null&&REPORTED.contains(d.rulePid());}
     /** Bundled photo key ("ut5max", "n65i") for this model, or "" for none. */
-    public static String photo(DeviceDescriptor d){if(ut5Max(d))return "ut5max";Known t=known(d);return t==null?"":t.photo;}
+    public static String photo(DeviceDescriptor d){if(ut5Max(d))return "ut5max";Known t=known(d);return t!=null?t.photo:ownerPhoto(ownerModel(d));}
     public static int chargeReferenceProduct(DeviceDescriptor d){return ut5Max(d)?2538:-1;}
     public static int driveModeLabelProduct(DeviceDescriptor d){return ut5Max(d)?2538:0;}
     public static int rangeFollowProduct(DeviceDescriptor d){return ut5Max(d)?2538:0;}
-    public static String modelName(DeviceDescriptor d){if(ut5Max(d))return "UT5 MAX";Known t=known(d);return t==null?"":t.name;}
+    public static String modelName(DeviceDescriptor d){if(ut5Max(d))return "UT5 MAX";Known t=known(d);return t!=null?t.name:ownerModel(d);}
+    /**
+     * The owner's answer, when it names a listed NAVEE model and Volt can't name this scooter itself (Volt's own identification always
+     * wins); "" otherwise. It only names and pictures the scooter: rules, reports and the model line never use it.
+     */
+    public static String ownerModel(DeviceDescriptor d){
+        if(d==null||d.simulated||d.ownerModel.isEmpty()||ut5Max(d)||known(d)!=null)return "";
+        return d.ownerModel.equals(NaveeModels.exact(d.ownerModel))?d.ownerModel:"";
+    }
+    /** The bundled photo for a listed model's name, whether Volt knows its Model ID yet or not; "" when none. */
+    static String ownerPhoto(String model){
+        if(model.isEmpty())return "";if(model.equals("UT5 Max"))return "ut5max";
+        for(Known k:KNOWN.values())if(k.name.equals(model))return k.photo;
+        String waiting=WAITING_PHOTOS.get(model);return waiting==null?"":waiting;
+    }
     /** "UT5 MAX", a known name such as "N65i", "Model 24431" (advertised), "Model 2443 (unconfirmed)" (serial only) or "". */
     public static String modelLine(DeviceDescriptor d){
         if(d==null)return "";if(ut5Max(d))return "UT5 MAX";

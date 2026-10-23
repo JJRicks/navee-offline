@@ -25,12 +25,19 @@ import java.util.function.Consumer;
 final class ModelPicker {
     private final Activity activity; private final Ui ui; private final Consumer<NaveeModels.Choice> changed;
     private NaveeModels.Choice choice;
+    private boolean writeIn = true, choiceShown;
     private EditText search; private LinearLayout list, statusRow; private ScrollView scroll;
     private TextView status, primary; private View spinner;
 
     ModelPicker(Activity activity, Ui ui, Consumer<NaveeModels.Choice> changed) { this.activity = activity; this.ui = ui; this.changed = changed; }
 
     NaveeModels.Choice choice() { return choice; }
+    /** Listed models and Not sure only, for an answer Volt keeps (a typed name has no model to name or picture). Call before build. */
+    ModelPicker listedOnly() { writeIn = false; return this; }
+    /** The chosen row is in the list as searched now (a search can hide it). */
+    boolean choiceShown() { return choiceShown; }
+    /** Starts with an earlier answer chosen, without reporting it as a change. */
+    void select(NaveeModels.Choice value) { choice = value; if (list != null) render(); }
 
     /** Fills a sheet (its title row already added) whose height is fixed; spinner may be null. */
     void build(LinearLayout sheet, View spinner, String primaryLabel, Runnable action) {
@@ -41,7 +48,7 @@ final class ModelPicker {
         search.addTextChangedListener(new TextWatcher() {
             @Override public void beforeTextChanged(CharSequence s, int a, int b, int c) {}
             @Override public void onTextChanged(CharSequence s, int a, int b, int c) {}
-            @Override public void afterTextChanged(Editable e) { render(); scroll.scrollTo(0, 0); }
+            @Override public void afterTextChanged(Editable e) { render(); scroll.scrollTo(0, 0); if (!writeIn) changed.accept(choice); }
         });
         LinearLayout.LayoutParams sp = ui.searchLayout(); sp.bottomMargin = ui.dp(2); sheet.addView(search, sp);
 
@@ -71,16 +78,20 @@ final class ModelPicker {
     void primary(String label, boolean enabled) { primary.setText(label); primary.setContentDescription(label); primary.setEnabled(enabled); }
 
     private void render() {
-        list.removeAllViews();
+        list.removeAllViews(); choiceShown = false;
         String query = search.getText().toString(), typed = NaveeModels.typed(query);
         if (typed.isEmpty()) {
             LinearLayout card = ui.groupCard(); card.addView(row("Not sure", NaveeModels.Choice.unsure(), "model-unsure"));
             ((LinearLayout.LayoutParams) card.getLayoutParams()).topMargin = ui.dp(12); list.addView(card);
-        } else if (NaveeModels.exact(typed) == null) {
+        } else if (NaveeModels.exact(typed) == null && writeIn) {
             list.addView(ui.sectionLabel("Not listed"));
             LinearLayout card = ui.groupCard(); card.addView(row("Use “" + typed + "”", NaveeModels.Choice.typedName(typed), "model-typed")); list.addView(card);
         }
         List<String> matches = NaveeModels.search(query);
+        if (!writeIn && !typed.isEmpty() && matches.isEmpty()) {
+            TextView none = ui.caption("No listed model matches “" + typed + "”. Clear the search to choose one, or Not sure.");
+            none.setTag("model-none"); none.setPadding(ui.dp(4), ui.dp(16), ui.dp(4), 0); list.addView(none);
+        }
         LinearLayout card = null; NaveeModels.Series shown = null;
         for (String model : matches) {
             NaveeModels.Series series = NaveeModels.seriesOf(model);
@@ -96,6 +107,7 @@ final class ModelPicker {
     /** A radio row like Volt's other choice sheets: the name, then the ring on the right. */
     private View row(String label, NaveeModels.Choice value, String tag) {
         boolean selected = choice != null && choice.source == value.source && choice.name.equals(value.name);
+        choiceShown |= selected;
         LinearLayout row = new LinearLayout(activity); row.setGravity(Gravity.CENTER_VERTICAL); row.setTag(tag);
         row.setMinimumHeight(ui.dp(56)); row.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10));
         TextView name = ui.text(label, 16, false); name.setMaxLines(2); name.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
