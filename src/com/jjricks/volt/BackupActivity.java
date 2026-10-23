@@ -32,6 +32,7 @@ public final class BackupActivity extends Activity {
     private final android.os.Handler handler=new android.os.Handler(android.os.Looper.getMainLooper());
     private Ui ui;
     private float textScale=1f;
+    private ScrollView scroll;
     private LinearLayout content;
     private TextView status, action, closeAction;
     private EditText password, repeat;
@@ -60,14 +61,24 @@ public final class BackupActivity extends Activity {
         setTheme(dark?R.style.VoltDark:R.style.VoltLight);super.onCreate(state);
         getWindow().addFlags(WindowManager.LayoutParams.FLAG_SECURE);
         ui=new Ui(this,dark,textScale);
-        ScrollView scroll=new ScrollView(this);scroll.setFillViewport(true);scroll.setBackgroundColor(ui.bg);
+        if(Build.VERSION.SDK_INT>=30)getWindow().setDecorFitsSystemWindows(false);
+        else getWindow().getDecorView().setSystemUiVisibility(View.SYSTEM_UI_FLAG_LAYOUT_STABLE|View.SYSTEM_UI_FLAG_LAYOUT_FULLSCREEN|View.SYSTEM_UI_FLAG_LAYOUT_HIDE_NAVIGATION);
+        FrameLayout root=new FrameLayout(this);root.setBackgroundColor(ui.bg);
+        scroll=new ScrollView(this);scroll.setFillViewport(true);
         content=new LinearLayout(this);content.setOrientation(LinearLayout.VERTICAL);
-        content.setPadding(ui.dp(24),ui.dp(32),ui.dp(24),ui.dp(32));scroll.addView(content);setContentView(scroll);
-        scroll.setOnApplyWindowInsetsListener((v,insets)->{
-            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets i=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.ime());v.setPadding(i.left,i.top,i.right,i.bottom);}
+        content.setPadding(ui.dp(24),ui.dp(32),ui.dp(24),ui.dp(32));scroll.addView(content);
+        root.addView(scroll,new FrameLayout.LayoutParams(-1,-1));setContentView(root);
+        // Insets shrink the actual viewport. Padding the ScrollView itself leaves its focus
+        // scrolling calculations using the full height, so a password can sit behind the IME.
+        root.setOnApplyWindowInsetsListener((v,insets)->{
+            if(Build.VERSION.SDK_INT>=30){android.graphics.Insets i=insets.getInsets(WindowInsets.Type.systemBars()|WindowInsets.Type.displayCutout()|WindowInsets.Type.ime());v.setPadding(i.left,i.top,i.right,i.bottom);}
             else v.setPadding(insets.getSystemWindowInsetLeft(),insets.getSystemWindowInsetTop(),insets.getSystemWindowInsetRight(),insets.getSystemWindowInsetBottom());
             return insets;
         });
+        scroll.addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{
+            if(r-l!=or-ol||b-t!=ob-ot)revealPassword();
+        });
+        root.requestApplyInsets();
         if(Build.VERSION.SDK_INT>=33){backCallback=this::requestClose;getOnBackInvokedDispatcher().registerOnBackInvokedCallback(android.window.OnBackInvokedDispatcher.PRIORITY_DEFAULT,backCallback);}
         restore=getIntent().getBooleanExtra("restore",false);
         preselect=getIntent().getStringExtra("preselect");if(preselect!=null&&!AppDataBackup.CATEGORIES.contains(preselect))preselect=null;
@@ -117,7 +128,16 @@ public final class BackupActivity extends Activity {
         field.setTextSize(TypedValue.COMPLEX_UNIT_SP,16*textScale);
         field.setSingleLine(true);field.setInputType(InputType.TYPE_CLASS_TEXT|InputType.TYPE_TEXT_VARIATION_PASSWORD);
         field.setSaveEnabled(false);field.setImportantForAutofill(View.IMPORTANT_FOR_AUTOFILL_NO_EXCLUDE_DESCENDANTS);
+        field.setOnFocusChangeListener((v,focused)->{if(focused)revealPassword();});
         field.setFilters(new InputFilter[]{new InputFilter.LengthFilter(128)});field.setMinHeight(ui.dp(56));content.addView(field);return field;
+    }
+    /** Run after focus/viewport layout so the whole editor, not only its cursor, is reachable. */
+    private void revealPassword(){
+        scroll.post(()->{
+            View focused=scroll.findFocus();
+            if((focused==password||focused==repeat)&&focused!=null&&focused.isAttachedToWindow())
+                focused.requestRectangleOnScreen(new android.graphics.Rect(0,-ui.dp(12),focused.getWidth(),focused.getHeight()+ui.dp(12)),true);
+        });
     }
     /** Disabled (empty) categories read as unavailable, not as unchecked choices. */
     private ColorStateList enabledColors(int color){return new ColorStateList(new int[][]{{-android.R.attr.state_enabled},{}},new int[]{ui.muted,color});}

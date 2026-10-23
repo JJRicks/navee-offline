@@ -116,14 +116,15 @@ NEW OWNER-SETUP ROUTES: VALIDATION LIMITS
 
 The existing computer ADB/Python helper, backup import and manual identity entry
 remain available. The optional Shizuku route requires shell-backed Shizuku 13+;
-the browser preview runs in desktop Chrome or Edge with a USB data cable at
+the recommended browser helper runs in desktop Chrome or Edge with a USB data cable at
 https://pairscooter.jjricks.com/ and supports the main personal Android user.
 Both require an already signed-in NAVEE app, the owner's bound scooter nearby,
 and explicit debugging and capture consent. Import/save is another deliberate
 action. Capture processing stays local and introduces no account-login service.
 
 Both new paths include bounded capture, logging restoration, session locking
-and interruption recovery. The browser route remains a testing preview.
+and interruption recovery. Chrome/USB is selected by default for new setup flows;
+previously chosen routes remain selected when resuming.
 Controlled phone checks of both new helpers used an out-of-range scooter and
 exercised timeout/cleanup. A tester later reported successful onboarding without
 identifying the helper used; successful real-scooter capture is not yet confirmed

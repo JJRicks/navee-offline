@@ -125,6 +125,9 @@ public final class OnboardingScreen implements AppScreen {
         this.prefs = prefs(host.activity());
         int saved = prefs.getInt(KEY_STEP, WELCOME);
         step = saved < WELCOME || saved > DONE ? WELCOME : saved;
+        // Older versions could advance with the default ADB path without saving its key.
+        // Preserve that unfinished route; new attempts save their selected default on Continue.
+        if(step>PATH&&!prefs.contains(KEY_PATH))prefs.edit().putString(KEY_PATH,CAPTURE).apply();
         root = new FrameLayout(host.activity());
         root.setBackgroundColor(ui.bg);
         render();
@@ -280,7 +283,7 @@ public final class OnboardingScreen implements AppScreen {
         return false;
     }
 
-    private String path() { return prefs.getString(KEY_PATH, CAPTURE); }
+    private String path() { return prefs.getString(KEY_PATH, WEBADB); }
     private boolean isComputerCapture() { return CAPTURE.equals(path()) || WEBADB.equals(path()); }
     private int importStep() { return TYPED.equals(path()) ? IDENTITY : IMPORT; }
 
@@ -721,10 +724,10 @@ public final class OnboardingScreen implements AppScreen {
         // Wireless debugging needs Android 11; below that the Shizuku card can't be chosen.
         boolean shizukuSupported = Build.VERSION.SDK_INT >= 30;
         String[][] options = {
+                {WEBADB, "screen", "Use Chrome and a USB cable", "Computer · a few minutes", "Recommended"},
                 {RESTORE, "download", "Restore Volt backup", "Scooters, rides, dashboards & settings", null},
                 {CAPTURE, "screen", "Capture it from the NAVEE app", "Computer · 10 min", null},
                 {SHIZUKU, "screen", "Use Shizuku on this phone", "No computer · Android 11+", null},
-                {WEBADB, "screen", "Use Chrome and a USB cable", "Chrome + USB cable", "Preview"},
                 {BACKUP, "download", "Import an owner setup file", "Scooter access only · no rides or history", null},
                 {TYPED, "lock", "Enter a 12-character identity", null, null}};
         LinearLayout group = column();
@@ -736,11 +739,13 @@ public final class OnboardingScreen implements AppScreen {
             View card = option(o[1], o[2], o[3], o[4], on, disabled, disabled
                     ? () -> host.toast("Needs Android 11 or newer")
                     : () -> { prefs.edit().putString(KEY_PATH, o[0]).apply(); render(); });
+            card.setTag("onboarding-path-" + o[0]);
             LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2); cp.bottomMargin = ui.dp(10);
             group.addView(card, cp);
         }
         primary("Continue", () -> {
             String chosen = path();
+            prefs.edit().putString(KEY_PATH, chosen).apply();
             if (RESTORE.equals(chosen)) {
                 host.dataBackup(true, null);
             } else if (SHIZUKU.equals(chosen)) {
@@ -1404,7 +1409,7 @@ public final class OnboardingScreen implements AppScreen {
 
     /**
      * Selectable path card: red outline and a filled radio ring when chosen. An optional status chip
-     * (e.g. Preview) sits beside the title; a disabled card is dimmed and explains itself on tap.
+     * (e.g. Recommended) sits above the title; a disabled card is dimmed and explains itself on tap.
      */
     private View option(String icon, String heading, String detail, String chip, boolean on, boolean disabled, Runnable action) {
         LinearLayout card = row(); card.setGravity(Gravity.CENTER_VERTICAL);
@@ -1423,15 +1428,13 @@ public final class OnboardingScreen implements AppScreen {
         TextView name = ui.text(heading, 16, true);
         if (chip == null) words.addView(name);
         else {
-            LinearLayout top = row(); top.setGravity(Gravity.CENTER_VERTICAL);
-            top.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
             TextView tag = ui.text(chip, 11.5f, false);
-            tag.setTypeface(ui.semibold()); tag.setTextColor(ui.orange);
-            tag.setBackground(ui.shape(Ui.withAlpha(ui.orange, ui.dark ? 40 : 30), 100, 0));
+            tag.setTypeface(ui.semibold()); tag.setTextColor(ui.accent);
+            tag.setBackground(ui.shape(Ui.withAlpha(ui.accent, ui.dark ? 40 : 30), 100, 0));
             tag.setPadding(ui.dp(9), ui.dp(3), ui.dp(9), ui.dp(3));
-            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2); tp.leftMargin = ui.dp(8);
-            top.addView(tag, tp);
-            words.addView(top);
+            // Keep the full title readable beside the icon at narrow widths and larger text.
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2); tp.bottomMargin = ui.dp(6);
+            words.addView(tag, tp);words.addView(name);
         }
         if (detail != null) {
             TextView sub = ui.caption(detail); sub.setTextSize(TypedValue.COMPLEX_UNIT_SP, 12.5f * ui.textScale);

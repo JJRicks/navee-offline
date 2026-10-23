@@ -305,6 +305,13 @@ public final class MyScootersValidation extends Instrumentation {
         await(() -> field(activity, "onboarding") != null, "Add did not enter onboarding");
         main(() -> {
             require(prefs("onboarding").getInt("step", -1) == 1, "Add did not open the path chooser");
+            // Locate by route identity so copy edits do not break navigation coverage.
+            View recommended = tag("onboarding-path-webadb");
+            require(recommended != null && text(recommended, "Use Chrome and a USB cable") != null
+                    && text(recommended, "Recommended") != null, "Add does not recommend Chrome/USB");
+            android.view.accessibility.AccessibilityNodeInfo choice = recommended.createAccessibilityNodeInfo();
+            try { require(choice.isCheckable() && choice.isChecked(), "Add does not default to the recommended browser route"); }
+            finally { choice.recycle(); }
             require(!activity.service().simulating() && !activity.service().ble.ready()
                     && !activity.service().ble.connected(), "Add carried a simulated connection into real setup");
             View banner = tag("simulation-banner");

@@ -4,6 +4,9 @@
 
 - Name and picture the GT5 Max (Model ID 25462), from an owner's compatibility report. Its controls are not verified; they follow the official app's map for its model group as before. Volt now has a report for it, so its owners aren't asked for one.
 - While the check runs, **Help Volt support this scooter** asks which scooter it is: search NAVEE's models or type a name. It then offers an optional, skippable step to name each drive mode. You press the scooter's own mode button, and Volt only watches the mode it reports, so it never changes a setting. **Volt couldn't connect to this scooter** asks for the model too. The answers travel in the email as owner notes, so you no longer type the model name into the message.
+- Simplify USB pairing into one focused card per step, with expandable help and the same explicit access and capture approvals.
+- Recommend Chrome + USB and select it by default when adding a scooter or starting setup; retain routes already chosen in an unfinished setup.
+- Keep the backup password field visible above the on-screen keyboard.
 - Add **Report an issue** to More, under the version line. It opens your email app with a draft to volt-reports@jjricks.com. The draft holds a prompt for you to fill in, then Volt's version, your Android version and phone model, and the selected scooter's model name. Nothing is sent until you send it.
 - Put **Email to Volt** right under **Run again** in the compatibility checker, so a finished check no longer needs a scroll to the preview. It asks **Which scooter is this?** and offers the optional drive-mode step, like the offer for unreported models. Then your email app opens with the report addressed to volt-reports@jjricks.com. The preview's **Share** still opens Android's share sheet.
 - Name and picture the ST3 Pro (Model ID 23452, the German-market model in the protocol reference Volt credits). Its controls are not verified, and it still gets the offer to share a compatibility report.

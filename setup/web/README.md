@@ -1,10 +1,17 @@
 # Volt USB setup helper
 
-A static, browser-local owner-capture wizard for the testing preview at
-`https://pairscooter.jjricks.com/`. This is a testing deployment, not a general
-release. A successful real browser capture with a nearby scooter is still awaiting
-validation. Publication and deployed security headers must be verified separately
-from a local build.
+A static, browser-local owner-capture wizard at `https://pairscooter.jjricks.com/`,
+recommended and selected by default in new Volt setup flows. The page shows one
+step at a time, with connection help, data details and secondary export options
+in expandable sections. USB access and temporary logging each retain a separate,
+explicit approval; no capture/transport behavior changes with the visual refresh.
+Publication and deployed security headers must be verified separately from a local build.
+
+Validation limits: controlled phone checks exercised timeout and cleanup with the
+scooter out of range. A tester later reported successful onboarding without
+identifying which helper was used, so a successful nearby-scooter browser capture
+has not been separately confirmed. The recommended label does not establish
+additional hardware coverage.
 Chrome or Edge on a computer talks directly to the selected Android phone over
 WebUSB. No Python, installed ADB executable, account login endpoint, upload API,
 analytics, CDN scripts, or server-side capture processing is involved. Some

@@ -21,7 +21,7 @@ javac --release 8 -encoding UTF-8 \
     "$SCRIPT_DIR/ParkedValidation.java" "$SCRIPT_DIR/LaunchValidation.java" \
     "$SCRIPT_DIR/PhoneRideValidation.java" "$SCRIPT_DIR/UiOrganizationValidation.java" \
     "$SCRIPT_DIR/DashboardValidation.java" "$SCRIPT_DIR/HistoryValidation.java" \
-    "$SCRIPT_DIR/SearchFocusValidation.java" "$SCRIPT_DIR/WindowTouchTrace.java" \
+    "$SCRIPT_DIR/SearchFocusValidation.java" "$SCRIPT_DIR/PasswordKeyboardChecks.java" "$SCRIPT_DIR/WindowTouchTrace.java" \
     "$SCRIPT_DIR/MapTilesValidation.java" "$SCRIPT_DIR/RouteGestureValidation.java" "$SCRIPT_DIR/DashboardSlotsValidation.java" \
     "$SCRIPT_DIR/DashboardTransferValidation.java" "$SCRIPT_DIR/AppDataBackupValidation.java" "$SCRIPT_DIR/AppDataMaintenanceValidation.java" "$SCRIPT_DIR/BackupUiValidation.java" "$SCRIPT_DIR/RideBackupValidation.java" "$SCRIPT_DIR/FullBackupJourneyValidation.java" "$SCRIPT_DIR/BackupInventoryValidation.java" "$SCRIPT_DIR/BackupScenarioValidation.java" \
     "$SCRIPT_DIR/ResponsiveDashboardValidation.java" "$SCRIPT_DIR/DeveloperSettingsValidation.java" \

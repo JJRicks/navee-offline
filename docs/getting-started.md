@@ -1,6 +1,6 @@
 # Get started with Volt
 
-[Download the APK](https://github.com/JJRicks/volt/releases/latest) · [Owner setup website (testing preview)](https://pairscooter.jjricks.com/) · [User guide](user-guide.md)
+[Download the APK](https://github.com/JJRicks/volt/releases/latest) · [Owner setup website](https://pairscooter.jjricks.com/) · [User guide](user-guide.md)
 
 ## Before you install
 
@@ -30,8 +30,8 @@ The one-time capture retrieves your scooter's Bluetooth owner identity from your
 
 | Method | What you need | Status and instructions |
 | --- | --- | --- |
+| **Chrome/USB — recommended** | Desktop Chrome or Edge and a USB data cable; no installed ADB or Python | Selected by default for first setup and **My scooters → Add a scooter**. Open [pairscooter.jjricks.com](https://pairscooter.jjricks.com/). [Consent, cleanup and recovery](../setup/web/README.md). |
 | **Computer ADB** | Computer, USB data cable, Android Platform-Tools and Python 3 | Established capture route. [Full instructions](../SETUP.txt). |
-| **Chrome/USB** | Desktop Chrome or Edge and a USB data cable; no installed ADB or Python | **Testing preview.** Open [pairscooter.jjricks.com](https://pairscooter.jjricks.com/). [Consent, cleanup and recovery](../setup/web/README.md). |
 | **Shizuku on this phone** | Android 11+ and shell-backed Shizuku 13+ | Real-device validation is limited. Choose **Use Shizuku on this phone** in onboarding. [Setup and recovery](../setup/SHIZUKU.md). |
 | **Existing setup or full backup** | Your own previously exported file | Choose the corresponding import/restore option in onboarding. [Backup guide](user-guide.md#back-up-and-restore). |
 
