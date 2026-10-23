@@ -226,10 +226,11 @@ public final class Telemetry {
             if (code == 3.0) return "SPORT";
         }
         // GT5 Max owner report (October 2026): the same codes, but 2 is Drive, not Eco. The N65i is assumed to match.
+        // The same owner's Sport also reads 5 at times (flickering 3/5), so 5 is Sport too.
         if (productId == 25462) {
             if (code == 11.0) return "WALK";
             if (code == 2.0) return "DRIVE";
-            if (code == 3.0) return "SPORT";
+            if (code == 3.0 || code == 5.0) return "SPORT";
         }
         String value = code == Math.rint(code) ? String.format(Locale.US, "%.0f", code)
                 : Double.toString(code);

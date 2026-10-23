@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Name GT5 Max drive-mode code 5 SPORT as well as 3: an owner's Sport reading alternates between them, so it no longer flickers to **5 (raw)**. The N65i, assumed to match the GT5 Max, follows.
 - The computer (ADB) setup checklist now includes the extracted Volt source, which holds `setup/capture-owner.py`, and the capture step says to run the command from that folder, as an owner suggested.
 - Name and picture the UT5 Ultra X (Model ID 25852), from an owner's compatibility report. Its controls are not verified; they follow the official app's map for its model group as before. Volt now has a report for it, so its owners aren't asked for one.
 - Line up **Back up & restore** with the other rows in More's menu on wide and unfolded screens; its icon and title no longer sit further left.
