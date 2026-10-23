@@ -83,6 +83,8 @@ rode even though Volt does not upload a route file. Tiles are cached locally;
 there is no bulk map download. GPS and the locally drawn route work without
 tiles or an internet connection.
 
+**Reports you choose to email.** Volt itself sends nothing. When it offers to share a compatibility report (after connecting a model it has none for) or a scooter's connection details (after two failed first connections), it opens your email app with the text in the message body, addressed to `volt-reports@jjricks.com`. You can read, edit or discard the message before sending. Reports contain the scooter's numeric Model ID, its read-only check or connection steps and error codes, Volt's version and, for connection details, your Android version and phone model. They never contain a serial, MAC address, owner key, PIN, names, routes or wall-clock times. Your email provider handles the message like any other.
+
 Opening setup, help, attribution, or other external links uses your browser.
 The destination and its host may receive normal web request data such as your
 IP address and browser details. The pairing website has no analytics in its

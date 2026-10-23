@@ -35,6 +35,7 @@
   <instrumentation android:name="com.jjricks.volt.tests.LearnedRangeValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated learned range validation" />
   <instrumentation android:name="com.jjricks.volt.tests.RideBackupValidation" android:targetPackage="com.jjricks.volt" android:label="Disposable emulator ride archive and restore UI validation" />
   <instrumentation android:name="com.jjricks.volt.tests.RideAutoStopValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated automatic ride end presentation validation" />
+  <instrumentation android:name="com.jjricks.volt.tests.ReportInviteValidation" android:targetPackage="com.jjricks.volt" android:label="Compatibility report invite on the simulator" />
   <instrumentation android:name="com.jjricks.volt.tests.CompatibilityGatingValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated simulated model compatibility gating validation" />
   <instrumentation android:name="com.jjricks.volt.tests.CompatControlsValidation" android:targetPackage="com.jjricks.volt" android:label="Isolated simulated OEM control families validation" />
   <instrumentation android:name="com.jjricks.volt.tests.Ut5SimulationScreens" android:targetPackage="com.jjricks.volt" android:label="Isolated UT5 MAX simulator screen capture" />

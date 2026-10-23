@@ -666,6 +666,10 @@ public final class ModelRegistry {
     public static boolean ut5Max(DeviceDescriptor d){return d!=null&&resolve(d).layer==Layer.UT5_MAX;}
     public static Double ratedWh(DeviceDescriptor d){return ut5Max(d)?716.04:null;}
     public static boolean showsPhoto(DeviceDescriptor d){return !photo(d).isEmpty();}
+    /** Exact advertised Model IDs Volt already has a compatibility report for; extend it each release. */
+    static final Set<String> REPORTED=new HashSet<>(java.util.Arrays.asList("22131"));
+    /** True when Volt needs no new compatibility report for this model (the UT5 MAX is the reference). */
+    public static boolean reported(DeviceDescriptor d){return ut5Max(d)||d!=null&&REPORTED.contains(d.rulePid());}
     /** Bundled photo key ("ut5max", "n65i") for this model, or "" for none. */
     public static String photo(DeviceDescriptor d){if(ut5Max(d))return "ut5max";Tested t=tested(d);return t==null?"":t.photo;}
     public static int chargeReferenceProduct(DeviceDescriptor d){return ut5Max(d)?2538:-1;}

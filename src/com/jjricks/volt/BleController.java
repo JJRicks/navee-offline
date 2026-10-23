@@ -719,6 +719,10 @@ public final class BleController {
      * The model this connection has shown so far. On first pairing the profile has no serial until
      * remember() binds it, so the transport's verified serial (or this scan's Model ID) decides.
      */
+    /** The Model ID this scooter advertised, kept after a failed first connection, or the saved one; "" when unknown. */
+    public String advertisedModelId(){ScooterProfiles.Profile p=profile();return pendingAdvertised!=null?pendingAdvertised.pid:p==null?"":p.advertisedPid;}
+    /** The transport its advertisement suggested ("standard", an e-bike or wearable), or "unknown" without one. */
+    public String advertisedTransport(){return pendingAdvertised==null?"unknown":pendingAdvertised.hint.name().toLowerCase(Locale.ROOT);}
     private DeviceDescriptor transportDescriptor(){
         ScooterProfiles.Profile p=profile();
         String s=!serial.isEmpty()?serial:p==null?"":p.serial;
