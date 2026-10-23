@@ -326,9 +326,41 @@ public final class GuidedTestValidation extends Instrumentation {
                 TextView pill = (TextView)field(row, "action"); require("Set back".contentEquals(pill.getText()) && pill.isEnabled(), label + ": row pill " + pill.getText()); pill.performClick(); } });
         await(() -> fake.state[21] == 2 && activity.service().ble.pending() == null, label + ": one-tap Set back did not restore prompt sound", 10000);
         require(fake.writes.size() == writes + 6, label + ": set-back writes " + fake.describeWrites());
+        unconfirmed(label);
         require(fake.matchesBaseline(), label + ": the synthetic scooter did not end at its starting values: " + fake.diff());
         main(() -> activity.service().ble.disconnect()); settle();
         checks.add(label + ": an ignored write reads \"No change seen\" without dropping the link, a rejected one \"Refused by scooter\", and Set back works in one tap from the list; the scooter ends at its starting values");
+    }
+    /**
+     * A try the scooter applied and acknowledged, but no readback confirmed: neither "Not sent" nor "No change seen"
+     * is true, so it reads Unconfirmed, whether the link drops first or the confirmation times out. After reconnecting,
+     * the readback shows the new value and Set back returns it.
+     */
+    private void unconfirmed(String label) throws Exception {
+        for (boolean drop : new boolean[]{true, false}) {
+            int sent = fake.writes.size();
+            openTry("turn_sound"); chooseOption(1);
+            main(() -> fake.holdStatus = true);
+            tapSheet("go");
+            await(() -> fake.value("turn_sound") == 1 && fake.writes.size() == sent + 1, label + ": the try never reached the scooter", 10000);
+            String expected = drop ? "Cancelled after disconnection" : "Change not confirmed";
+            if (drop) { SystemClock.sleep(600); main(() -> activity.service().ble.disconnect()); }
+            await(() -> expected.equals(result("turn_sound")), label + ": result " + result("turn_sound") + " expected " + expected, 30000);
+            awaitSheetText("Unconfirmed"); sheetShot(label + (drop ? "-lab-unconfirmed-drop" : "-lab-unconfirmed-timeout"));
+            main(() -> { View sheet = (View)field(field(more(), "labSheet"), "status");
+                String shown = String.valueOf(((TextView)sheet).getText());
+                require(!shown.contains("Not sent") && !shown.contains("No change"), label + ": an applied try reads " + shown); });
+            closeSheet();
+            main(() -> { fake.holdStatus = false; fake.heldStatus.clear(); });
+            boolean[] ready = {false}; main(() -> ready[0] = activity.service().ble.ready());
+            if (!ready[0]) reconnect(label, fake.writes.size());
+            // The next readback shows On, so Set back is offered and returns it, confirmed.
+            await(() -> { Integer[] v = {null}; main(() -> v[0] = activity.service().ble.featureValue("turn_sound")); return Integer.valueOf(1).equals(v[0]); }, label + ": the applied value never read back", 15000);
+            openTry("turn_sound"); tapSheet("back");
+            await(() -> fake.value("turn_sound") == 0 && activity.service().ble.pending() == null && result("turn_sound").startsWith("Confirmed"), label + ": Set back after an unconfirmed try failed: " + result("turn_sound"), 15000);
+            closeSheet();
+        }
+        checks.add(label + ": a try the scooter applied but never confirmed reads Unconfirmed, not Not sent or No change seen, after a dropped link and after a timeout; the readback then offers Set back");
     }
     private List<String> labKeys() { List<String> out = new ArrayList<>(); main(() -> { for (Object row : (List<?>)field(more(), "labRows")) if (field(row, "action") != null) out.add(((ScooterCommands.Feature)field(row, "feature")).key); }); return out; }
     private CapabilityResolver.Reason labReason(String key) { CapabilityResolver.Reason[] r = {null}; main(() -> r[0] = activity.service().ble.experimentalDecision(key).reason); return r[0]; }

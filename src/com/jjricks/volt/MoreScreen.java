@@ -1681,8 +1681,11 @@ public final class MoreScreen implements AppScreen {
         else if (result.startsWith("Confirmed") || result.startsWith("Setting confirmed")) pill.show(ui.ok, true, "Worked here", "Worked");
         else if (result.startsWith("Rejected")) pill.show(ui.danger, true, "Refused by scooter", "Refused");
         else if (result.equals(BleController.OTHER_VALUE)) pill.show(ui.orange, true, "Other value read", "Other value");
-        else if (result.startsWith("Cancelled")) pill.show(ui.muted, false, "Not sent");
-        else pill.show(ui.muted, false, "No change seen", "No change");
+        // Only these two are known: nothing went out, or the scooter acknowledged and two reads showed no change.
+        else if (result.equals("Cancelled before sending")) pill.show(ui.muted, false, "Not sent");
+        else if (result.equals(BleController.NO_CHANGE)) pill.show(ui.muted, false, "No change seen", "No change");
+        // Interrupted or timed out after sending: the scooter may have applied it. Its next read shows which.
+        else pill.show(ui.orange, true, sheet ? "Unconfirmed · reconnect to check" : "Unconfirmed", "Unconfirmed");
     }
     private void labAction(LabRow row) {
         BleController ble = service() == null ? null : service().ble; if (ble == null) return;
