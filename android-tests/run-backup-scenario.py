@@ -25,6 +25,8 @@ parser.add_argument('--runner', type=pathlib.Path)
 parser.add_argument('--out', type=pathlib.Path, required=True)
 parser.add_argument('--inspect', action='store_true', help='only report the current app state')
 parser.add_argument('--render', action='store_true', help='render the restore screens at each --case')
+parser.add_argument('--render-mode', default='render', choices=('render', 'render-damaged', 'render-scooters'),
+                    help='with --render: also corrupt local profiles first, or check Scooters-only destinations')
 parser.add_argument('--case', action='append', help='widthxheight:theme:system-font-scale')
 args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
@@ -73,10 +75,11 @@ if args.render:
                 run('shell', 'pm', 'grant', PACKAGE, 'android.permission.' + permission)
             for name in ('complete', 'corrupted'):
                 run('push', str(args.out / ('scenario-' + name + '.voltbackup')), external + 'scenario-' + name + '.voltbackup')
-            output = run('shell', 'am', 'instrument', '-w', '-e', 'mode', 'render', '-e', 'theme', theme, RUNNER, check=False)
+            output = run('shell', 'am', 'instrument', '-w', '-e', 'mode', args.render_mode, '-e', 'theme', theme, RUNNER, check=False)
             folder = args.out / case.replace(':', '-'); folder.mkdir(exist_ok=True); (folder / 'render.txt').write_text(output)
-            for image in ('restore-bad-file', 'restore-categories', 'restore-destinations', 'restore-review'):
-                run('pull', external + image + '.png', str(folder / (image + '.png')), check=False)
+            # Every screen this mode rendered (damaged and Scooters-only modes add their own), before the next case clears them.
+            for image in re.findall(r'restore-[a-z-]+\.png', run('shell', 'ls', external, check=False)):
+                run('pull', external + image, str(folder / image), check=False)
             passed = 'result=PASS' in output; results.append(passed)
             print(f'{case}: {"PASS" if passed else "FAIL"}', flush=True)
             if not passed: print(output, flush=True)

@@ -1280,13 +1280,16 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 dashboardConfig().widgetLayouts(quick).put(5, new DashboardLayout.Cell(quick.id, 4, 0, 1, 3));
                 dashboardConfig().widgets.add(photo); invoke(dashboard(), "render");
             }); settleMotion();
+            AtomicReference<Boolean> rail = new AtomicReference<>(false);
             main(() -> {
                 DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid(), "currentCell", new Class<?>[]{DashboardConfig.Widget.class}, quick);
-                require(((Number)field(grid(), "columns")).intValue() == 5 && cell.w == 1 && cell.x == 4 && cell.y == 0,
-                        "Five-column photo/shortcut split was expanded or displaced");
-                float railDp = ((View)tileById(quick.id)).getWidth() / activity.getResources().getDisplayMetrics().density;
-                require(cell.h == 3, "One-column shortcut rail cannot shrink to three rows");
-            }); screenshot("five-column-shortcut-rail");
+                // A one-column rail needs 58 dp; on a narrow five-column grid (344 dp) the shortcut keeps its minimum span instead.
+                int minimum = ((Number)invoke(grid(), "minimumWidth", new Class<?>[]{DashboardConfig.Widget.class}, quick)).intValue();
+                require(((Number)field(grid(), "columns")).intValue() == 5 && (minimum == 1 ? cell.w == 1 && cell.x == 4 && cell.y == 0 : cell.w == minimum && cell.x + cell.w <= 5),
+                        "Five-column photo/shortcut split was expanded or displaced: columns " + field(grid(), "columns") + ", minimum " + minimum + ", shortcut at " + cell.x + "," + cell.y + " " + cell.w + "x" + cell.h);
+                if (minimum == 1) require(cell.h == 3, "One-column shortcut rail cannot shrink to three rows");
+                rail.set(minimum == 1);
+            }); if (rail.get()) screenshot("five-column-shortcut-rail");
         }
         main(() -> {
             View card = (View)tileById(quick.id);
@@ -1424,17 +1427,36 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
             quick.quickActions.clear(); quick.quickActions.addAll(Arrays.asList("feature:timed_charging", "stats"));
             dashboardConfig().widgets.clear(); dashboardConfig().widgets.add(quick);
             settings().edit().putString("time_format", "12h").commit();
-            invoke(dashboard(), "render");
+            dashboardConfig().save(); invoke(dashboard(), "render");
         }); settle();
+        // Since 1.4.6 the shortcut shows Volt's armed schedule, not raw telemetry: arm one (whole hour, 13:00) in the simulator.
+        main(() -> {
+            require(settings().edit().putBoolean("developer_options", true).commit(), "Could not enable isolated simulator");
+            require(activity.service().setSimulation(true), "Could not start isolated simulator");
+        }); settleMotion(); stopUiPulse();
+        await(() -> field(activity, "screen") instanceof DashboardScreen && activity.service().simulating() && activity.service().ble.ready(), "Simulator dashboard did not rebuild");
+        java.util.Calendar at = java.util.Calendar.getInstance(); at.set(java.util.Calendar.HOUR_OF_DAY, 13); at.set(java.util.Calendar.MINUTE, 0);
+        at.set(java.util.Calendar.SECOND, 0); at.set(java.util.Calendar.MILLISECOND, 0);
+        if (at.getTimeInMillis() <= System.currentTimeMillis() + 60_000L) at.add(java.util.Calendar.DAY_OF_MONTH, 1);
+        long start = at.getTimeInMillis();
+        AtomicReference<String> chosen = new AtomicReference<>("pending"), enabled = new AtomicReference<>("pending");
+        main(() -> activity.service().setManualChargeStart(start, result -> chosen.set(result == null ? "ok" : result)));
+        await(() -> !"pending".equals(chosen.get()), "Charge start was not chosen");
+        require("ok".equals(chosen.get()), "Charge start refused: " + chosen.get());
+        main(() -> activity.service().setManualChargeEnabled(true, result -> enabled.set(result == null ? "ok" : result)));
+        await(() -> !"pending".equals(enabled.get()) && !activity.service().chargeSchedule().busy, "Charge schedule did not turn on");
+        require("ok".equals(enabled.get()) && activity.service().chargeSchedule().manualEnabled, "Charge schedule refused: " + enabled.get());
+        main(() -> invoke(dashboard(), "refresh")); settle();
         main(() -> {
             View button = ((View)tileById(quick.id)).findViewWithTag("quick-action:feature:timed_charging");
             String value = ((TextView)field(button, "value")).getText().toString();
-            require(value.startsWith("On • ") && value.contains("1:45") && value.contains("PM"), "Scheduled shortcut lost its 12-hour time: " + value);
+            require(value.startsWith("On • ") && value.contains("1:00") && value.contains("PM"), "Scheduled shortcut lost its 12-hour time: " + value);
             settings().edit().putString("time_format", "24h").commit(); invoke(dashboard(), "refresh");
             value = ((TextView)field(button, "value")).getText().toString();
-            require(value.equals("On • 13:45"), "Scheduled shortcut lost its 24-hour time: " + value);
-            require(button.getContentDescription().toString().contains("13:45"), "Icon-only schedule lost clock accessibility");
+            require(value.equals("On • 13:00"), "Scheduled shortcut lost its 24-hour time: " + value);
+            require(button.getContentDescription().toString().contains("13:00"), "Icon-only schedule lost clock accessibility");
         });
+        main(() -> activity.service().setSimulation(false)); settleMotion(); stopUiPulse();
         check("Scheduled charging shortcut shows the stored time in the selected 12/24-hour format and exposes it accessibly");
     }
 

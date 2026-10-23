@@ -196,7 +196,8 @@ public final class ChargeScheduleValidation extends Instrumentation {
         });
         controls();
         // The row refreshes on the next redraw after the window starts; wait for it rather than racing it.
-        try{await(()->String.valueOf(((TextView)field(field(done(false),"row"),"value")).getText()).startsWith("Measuring · 12 min"),"Row does not show measuring");}
+        // It shows the window's minutes left now (down to 0 in its last minute): a stalled emulator's clock can jump minutes ahead.
+        try{await(()->{int left=service.chargeMeasureMinutesLeft();return left>=0&&left<=12&&String.valueOf(((TextView)field(field(done(false),"row"),"value")).getText()).startsWith("Measuring · "+left+" min");},"Row does not show measuring");}
         catch(IllegalStateException failed){AtomicReference<String> why=new AtomicReference<>();main(()->why.set("row="+((TextView)field(field(done(false),"row"),"value")).getText()+" measuring="+service.isChargeMeasuring()+" left="+service.chargeMeasureMinutesLeft()));throw new IllegalStateException(failed.getMessage()+": "+why.get());}
         main(()->{Object row=done(false);
             require(((View)field(row,"spinner")).getVisibility()==View.VISIBLE&&((Switch)field(row,"toggle")).getVisibility()==View.GONE,"Measuring row still offers the plain switch");});

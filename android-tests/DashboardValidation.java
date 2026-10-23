@@ -828,19 +828,21 @@ public final class DashboardValidation extends Instrumentation {
                 assertSettingToggleCue(true, activity.ui().muted, "Off");
             });
             settingToggleScreenshot("setting-toggle-off");
-            main(() -> {
-                settingToggleTile().performClick();
-                require(Integer.valueOf(1).equals(activity.service().ble.featureValue("timed_charging")),
-                        "Charge schedule tile did not toggle the simulated value On");
-                assertSettingToggleCue(true, activity.ui().accent, "On");
-            });
+            // Turning the schedule on needs a Charge start (since 1.4.6), and both writes finish asynchronously.
+            AtomicReference<String> chosen = new AtomicReference<>("pending");
+            long start = (System.currentTimeMillis() / 3_600_000L + 2) * 3_600_000L;
+            main(() -> activity.service().setManualChargeStart(start, result -> chosen.set(result == null ? "ok" : result)));
+            await(() -> !"pending".equals(chosen.get()), 10000, "Charge start was not chosen");
+            require("ok".equals(chosen.get()), "Charge start refused: " + chosen.get());
+            main(() -> settingToggleTile().performClick());
+            await(() -> Integer.valueOf(1).equals(activity.service().ble.featureValue("timed_charging")) && !activity.service().chargeSchedule().busy,
+                    10000, "Charge schedule tile did not toggle the simulated value On");
+            main(() -> { invoke(dashboard(), "refresh"); assertSettingToggleCue(true, activity.ui().accent, "On"); });
             settingToggleScreenshot("setting-toggle-on");
-            main(() -> {
-                settingToggleTile().performClick();
-                require(Integer.valueOf(0).equals(activity.service().ble.featureValue("timed_charging")),
-                        "Charge schedule tile did not toggle the simulated value Off");
-                assertSettingToggleCue(true, activity.ui().muted, "Off after tap");
-            });
+            main(() -> settingToggleTile().performClick());
+            await(() -> Integer.valueOf(0).equals(activity.service().ble.featureValue("timed_charging")) && !activity.service().chargeSchedule().busy,
+                    10000, "Charge schedule tile did not toggle the simulated value Off");
+            main(() -> { invoke(dashboard(), "refresh"); assertSettingToggleCue(true, activity.ui().muted, "Off after tap"); });
             main(() -> {
                 try {
                     Class<?> mutation = Class.forName("com.jjricks.volt.BleController$Mutation");
