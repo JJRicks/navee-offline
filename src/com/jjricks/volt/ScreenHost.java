@@ -11,6 +11,9 @@ public interface ScreenHost {
     void saveFile(String name,String mime,File content);
     /** Back up & restore. A null direction first asks Back up or Restore; preselect is a category ID or null. */
     default void dataBackup(Boolean restore, String preselect) { }
+    /** A Volt bottom sheet: its body (grab handle, title, close) and the shown sheet around that body. */
+    android.widget.LinearLayout sheetContent(String title, String explanation, Runnable close);
+    android.app.AlertDialog showSheet(android.view.View content);
     default void exportDashboardLayouts() { }
     default void importDashboardLayouts() { }
     /** Opens the owner's email app with a draft to Volt's report address; false when no app can. */

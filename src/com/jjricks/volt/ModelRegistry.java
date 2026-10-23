@@ -30,10 +30,12 @@ import java.util.Set;
  * report-only evidence; it never enables a control. Version 7 defers regional UI restrictions:
  * each already-mapped model gets the union of its OEM regional choices. Region and visibility
  * flags remain provenance, not capability negotiation; model, firmware and runtime guards remain.
+ * Version 11 adds the experimental table (experimentalRule): controls the official app hides for an
+ * identified OEM-group model can be tried from Experimental controls; ordinary rules are unchanged.
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=10;
+    public static final int VERSION=11;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
@@ -544,6 +546,108 @@ public final class ModelRegistry {
         }
     }
     static boolean testable(String feature){for(String t:TESTABLE)if(t.equals(feature))return true;return false;}
+
+    /**
+     * Experimental controls (owner decision, October 2026). The UT5 MAX keeps its catalogue Lab rows. On an
+     * identified OEM-group model, a control the official app hides for that model (MODEL_EXCLUDED) may be tried,
+     * with the wire and readback the official app uses where it offers it. Anything the official app offers for
+     * the model keeps its ordinary rule and place; controls Volt has not mapped stay hidden (Volt can't tell
+     * whether the official app offers them); unidentified, conflicting, unmapped and incompatible models get nothing.
+     */
+    static final String[] EXPERIMENTAL={"cruise_control","traction_control","start_speed","hill_start_assist","parking_assist",
+        "hill_descent_control","headlight","auto_sensor","turn_sound","prompt_tone"};
+    /**
+     * Never tried this way on any OEM-group model, as the guided tests: the lock, lock time, PIN and proximity
+     * unlock; every speed limit (maximum speed, custom and drive-mode caps) and overspeed control, which acts on
+     * speed while riding; Eco/Turbo, whose readback is the riding-mode byte, and dual motor drive, which shares the
+     * 0x6e speed and mode command; the 0x6f block (charging, Low Battery Mode, long range mode, clock); and the
+     * light zones, whose status byte 10 means line lights on some models and ambient light on others.
+     */
+    static final String[] NEVER_EXPERIMENTAL={"lock","lock_expiry","pin","proximity_key","maximum_speed","speed_limit","drive_speed_limit",
+        "overspeed_control","acceleration","dual_drive","charge_limit","timed_charging","charge_start","low_power","long_range_mode","clock_sync",
+        "energy_recovery","display_units","range_algorithm","ambient_light_mode","logo_light","daytime_light"};
+    /** Lab copies of the variants the official app uses where it offers each EXPERIMENTAL control (0–5 km/h kick-start). */
+    private static final Map<String,FeatureVariant> TRY=new LinkedHashMap<>();
+    static{
+        for(FeatureVariant v:new FeatureVariant[]{OEM_CRUISE,OEM_TCS,START_0_5,OEM_WALK_ASSIST,OEM_POWER_ASSIST,OEM_DESCENT,OEM_TAIL,OEM_AUTO,OEM_TURN,OEM_PROMPT_TONE})
+            TRY.put(v.feature,v.lab());
+        if(!TRY.keySet().equals(new HashSet<>(java.util.Arrays.asList(EXPERIMENTAL))))throw new IllegalStateException("Experimental table mismatch");
+        for(String f:NEVER_EXPERIMENTAL)if(TRY.containsKey(f))throw new IllegalStateException("Never experimental: "+f);
+    }
+    /**
+     * The rule for trying a control from Experimental controls (CapabilityResolver.decideExperimental), never the
+     * ordinary one: a UT5 MAX catalogue Lab row, or on an OEM-group model an EXPERIMENTAL control the official app
+     * hides for it, as a Lab variant. Either needs the scooter parked with a motion report, the owner, unlocked and
+     * no scooter warning. Anything else returns the ordinary rule, which the experimental gate refuses (not Lab).
+     */
+    static Rule experimentalRule(String feature,DeviceDescriptor d,Resolution r,StatusFields s){
+        if(r==null)r=resolve(d);
+        Rule rule=rule(feature,d,r,s);
+        if(r.layer==Layer.UT5_MAX)return rule.variant!=null&&rule.variant.lab?tryable(rule.variant,rule.evidence,rule.oemNote):rule;
+        FeatureVariant v=r.layer==Layer.OEM_GROUP&&!r.conflict&&rule.support==CapabilityResolver.Support.INCOMPATIBLE
+            &&rule.reason==CapabilityResolver.Reason.MODEL_EXCLUDED?TRY.get(feature):null;
+        return v==null?rule:tryable(v,CapabilityResolver.Evidence.VOLT_LAB,"OEM 2.1.9 hides this for this model");
+    }
+    private static Rule tryable(FeatureVariant v,CapabilityResolver.Evidence evidence,String note){
+        EnumSet<CapabilityResolver.Precondition> p=preconditions(v);
+        p.add(CapabilityResolver.Precondition.STATIONARY);p.add(CapabilityResolver.Precondition.MOTION_REPORT);p.add(CapabilityResolver.Precondition.OWNER);
+        p.add(CapabilityResolver.Precondition.UNLOCKED);p.add(CapabilityResolver.Precondition.NO_WARNING);
+        return new Rule(CapabilityResolver.Support.KNOWN_ENCODING,CapabilityResolver.Reason.NONE,evidence,note,p,v);
+    }
+    /**
+     * Owner value, most wanted first: a fixed and admittedly subjective list (owner suggestion, October 2026), used only
+     * after the likelihood counts below. Keys the model can't try this way are simply skipped.
+     */
+    static final String[] TRY_PRIORITY={"start_speed","cruise_control","energy_recovery","traction_control","acceleration","turn_sound","headlight",
+        "auto_sensor","display_units","hill_start_assist","parking_assist","hill_descent_control","prompt_tone","dual_drive","overspeed_control",
+        "long_range_mode","speed_limit","drive_speed_limit"};
+    /** OEM 2.1.9's prefix families, for "related models" (P is part of O; SINGLE literals have no family). */
+    private static final String[][] FAMILIES={Q,O,G,H,K,C,B,L,S,D,E,R,M,LEGACY_T};
+    private static final Map<String,int[]> ELSEWHERE=new java.util.concurrent.ConcurrentHashMap<>();
+    /**
+     * Where the official app offers this control instead, from the OEM tables: {related models offering it, related
+     * models, other models offering it, other models}. Related models share this model's OEM prefix family; the
+     * others are every other standard-scooter model ID the official app lists. A model counts as offering a control
+     * when its ordinary rule is a known, non-Lab encoding (firmware and full-ID conditions aside).
+     */
+    public static int[] offeredElsewhere(String feature,DeviceDescriptor d){
+        String own=resolve(d).matchedPrefix;
+        return ELSEWHERE.computeIfAbsent(feature+"|"+own,k->{
+            String[] family=null;for(String[] f:FAMILIES)if(contains(f,own))family=f;
+            int[] out=new int[4];
+            for(String pid:LISTED){
+                if(pid.equals(own))continue;
+                DeviceDescriptor other=DeviceDescriptor.of("",pid,1,null,false,DeviceDescriptor.Transport.STANDARD,0);
+                Resolution r=resolve(other);if(r.layer!=Layer.OEM_GROUP&&r.layer!=Layer.UT5_MAX)continue;
+                Rule rule=rule(feature,other,r,StatusFields.NONE);
+                boolean offered=rule.support==CapabilityResolver.Support.KNOWN_ENCODING&&rule.variant!=null&&!rule.variant.lab;
+                boolean related=family!=null&&contains(family,pid);
+                if(related){out[1]++;if(offered)out[0]++;}
+                out[3]++;if(offered)out[2]++;
+            }
+            return out;
+        }).clone();
+    }
+    /**
+     * The controls Experimental controls lists for this device, most likely to work first: (a) more related models
+     * (same OEM family) whose official app offers it, then more of all other listed models (shared firmware is more
+     * likely for a control most models have; the OEM excludes by family, so the related count is usually zero);
+     * (b) TRY_PRIORITY; then catalogue order. Nothing for a model that gets no experimental rule.
+     */
+    public static java.util.List<String> experimental(DeviceDescriptor d){
+        java.util.List<String> out=new java.util.ArrayList<>();Resolution r=resolve(d);
+        for(ScooterCommands.Feature f:ScooterCommands.catalog()){Rule rule=experimentalRule(f.key,d,r,StatusFields.NONE);if(rule.variant!=null&&rule.variant.lab)out.add(f.key);}
+        final java.util.List<String> catalogue=new java.util.ArrayList<>(out),priority=java.util.Arrays.asList(TRY_PRIORITY);
+        final Map<String,int[]> counts=new java.util.HashMap<>();for(String key:out)counts.put(key,offeredElsewhere(key,d));
+        java.util.Collections.sort(out,(a,b)->{
+            int[] x=counts.get(a),y=counts.get(b);
+            if(x[0]!=y[0])return y[0]-x[0];
+            if(x[2]!=y[2])return y[2]-x[2];
+            int pa=priority.indexOf(a),pb=priority.indexOf(b);pa=pa<0?priority.size():pa;pb=pb<0?priority.size():pb;
+            return pa!=pb?pa-pb:catalogue.indexOf(a)-catalogue.indexOf(b);
+        });
+        return out;
+    }
 
     /** Line and star zones for 2547/2585; any other model's ambient lighting is not mapped. */
     private static Rule zoneLight(String feature,DeviceDescriptor d){

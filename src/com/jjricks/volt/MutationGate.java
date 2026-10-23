@@ -9,7 +9,8 @@ import java.util.Arrays;
  */
 final class MutationGate {
     enum Kind { SET, CHARGE_START, CLOCK, PIN_SET, PIN_ENABLE, PIN_READ, BOND, PROXIMITY }
-    enum Origin { USER, AUTOMATIC_RANGE_FOLLOW, GUIDED_TEST, GUIDED_RESTORE }
+    /** EXPERIMENTAL: a change from Experimental controls, admitted only through the experimental rule (Lab variants). */
+    enum Origin { USER, AUTOMATIC_RANGE_FOLLOW, GUIDED_TEST, GUIDED_RESTORE, EXPERIMENTAL }
     static final class Request {
         final Kind kind; final String feature; final int value; final Origin origin;
         Request(Kind k,String f,int v,Origin o){kind=k;origin=o==null?Origin.USER:o;value=v;feature=feature(k,f);}
@@ -30,13 +31,15 @@ final class MutationGate {
 
     static CapabilityResolver.Decision check(Request r,DeviceDescriptor d,StatusFields s,CapabilityResolver.Runtime rt){
         if(r.origin==Origin.GUIDED_TEST||r.origin==Origin.GUIDED_RESTORE)return guided(r,d,s,rt);
+        if(r.origin==Origin.EXPERIMENTAL)return experimental(r,d,s,rt);
         CapabilityResolver.Decision decision;
         switch(r.kind){
             case SET: {
                 decision=CapabilityResolver.admit(r.feature,r.value,d,s,rt);
-                // PIN, time, clock and proximity writes have dedicated kinds and builders.
+                // PIN, time, clock and proximity writes have dedicated kinds and builders; a Lab row is written
+                // only from Experimental controls, under the experimental rule.
                 ScooterCommands.Feature f=r.feature.equals("clock_sync")?null:ScooterCommands.find(r.feature);
-                if(decision.available()&&(f==null||f.sensitive||f.type==ScooterCommands.Type.TIME||f.requiresBond))
+                if(decision.available()&&(f==null||f.sensitive||f.type==ScooterCommands.Type.TIME||f.requiresBond||decision.variant!=null&&decision.variant.lab))
                     decision=CapabilityResolver.withReason(decision,CapabilityResolver.Reason.MODEL_EXCLUDED);
                 break;
             }
@@ -60,6 +63,19 @@ final class MutationGate {
                 return decision;
             default: return decision;
         }
+    }
+
+    /**
+     * Experimental controls write one value of a Lab variant (ModelRegistry.experimentalRule) through
+     * CapabilityResolver.admitExperimental and its conditions. Only a plain SET of a 0x70-readable
+     * control qualifies: no PIN, time, clock or proximity write, whatever the rule says.
+     */
+    private static CapabilityResolver.Decision experimental(Request r,DeviceDescriptor d,StatusFields s,CapabilityResolver.Runtime rt){
+        CapabilityResolver.Decision decision=CapabilityResolver.admitExperimental(r.feature,r.value,d,s,rt);
+        ScooterCommands.Feature f=r.feature.equals("clock_sync")?null:ScooterCommands.find(r.feature);
+        if(r.kind!=Kind.SET||f==null||f.sensitive||f.type==ScooterCommands.Type.TIME||f.requiresBond||decision.variant==null||!decision.variant.lab)
+            return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.MODEL_EXCLUDED);
+        return decision;
     }
 
     /**

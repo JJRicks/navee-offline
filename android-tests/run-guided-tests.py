@@ -4,7 +4,7 @@
 Each case is widthxheight:theme:system-font-scale[:app-text-scale]. Per case the runner replaces
 the emulator's Volt data, keeps Bluetooth off, runs GuidedTestValidation in guided mode, then the
 process-death pair (interrupt-start is killed between target and restore; interrupt-resume runs on
-the same data). The synthetic link needs reflective access to the framework's GATT internals, so
+the same data), then Experimental controls on a synthetic N65i over the same link. The synthetic link needs reflective access to the framework's GATT internals, so
 the emulator's hidden_api_policy is relaxed for the run and deleted afterwards, together with the
 window size, density and font scale. No frame ever reaches a radio.
 """
@@ -21,7 +21,7 @@ parser.add_argument('--serial', required=True)
 parser.add_argument('--app', type=Path, required=True)
 parser.add_argument('--runner', type=Path, required=True)
 parser.add_argument('--out', type=Path, required=True)
-parser.add_argument('--mode', default='all', choices=('all', 'guided', 'interrupt', 'queue', 'recovery-navigation'))
+parser.add_argument('--mode', default='all', choices=('all', 'guided', 'interrupt', 'queue', 'recovery-navigation', 'experimental'))
 parser.add_argument('--case', action='append', help='widthxheight:theme:system-font-scale[:app-text-scale]')
 args = parser.parse_args()
 if not re.fullmatch(r'emulator-\d+', args.serial):
@@ -89,6 +89,13 @@ try:
             (destination / 'recovery-navigation-result.txt').write_text(output)
             passed['recovery_navigation'] = 'result=PASS' in output and 'result=FAIL' not in output
             if not passed['recovery_navigation']: print(output, flush=True)
+        if args.mode in ('all', 'experimental'):
+            fresh()
+            output = instrument('experimental', theme, text, variant)
+            (destination / 'experimental-result.txt').write_text(output)
+            run('pull', REMOTE, str(destination.resolve()), check=False)
+            passed['experimental'] = 'result=PASS' in output and 'result=FAIL' not in output
+            if not passed['experimental']: print(output, flush=True)
         if args.mode in ('all', 'interrupt'):
             fresh()
             output = instrument('interrupt-start', theme, text, variant)

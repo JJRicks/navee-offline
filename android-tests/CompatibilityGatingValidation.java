@@ -270,28 +270,31 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         });
         screenshot(label + "-more-security");
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Lab")); settle();
+        List<String> listed = new ArrayList<>();
         main(() -> {
             BleController ble = activity.service().ble;
-            int rows = 0;
+            List<String> expected = ModelRegistry.experimental(ble.descriptor());
             for (Object row : (List<?>)field(more(), "labRows")) {
-                ScooterCommands.Feature feature = (ScooterCommands.Feature)field(row, "feature");
-                CapabilityResolver.Decision decision = ble.decision(feature.key);
-                boolean enabled = ((View)field(row, "action")).isEnabled();
-                boolean ordinary = decision.support == CapabilityResolver.Support.KNOWN_ENCODING && decision.variant != null && !decision.variant.lab
-                        && decision.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
-                if (ordinary) {
-                    require(!enabled && "In Scooter settings for this model".equals(invoke(more(), "labReason", new Class<?>[]{ScooterCommands.Feature.class}, feature)), label + ": OEM-mapped " + feature.key + " stays out of the Lab");
-                } else if (!(decision.available() || decision.blockedByRide())) {
-                    require(!enabled, label + ": Lab Inspect enabled for " + feature.key);
-                    String reason = (String)invoke(more(), "labReason", new Class<?>[]{ScooterCommands.Feature.class}, feature);
-                    require(reason != null && (reason.equals(decision.reasonText()) || ble.featureValue(feature.key) == null || !feature.allows(ble.featureValue(feature.key))), label + ": Lab reason " + reason);
-                }
-                if (pid.isEmpty()) require(enabled == (ble.featureValue(feature.key) != null && feature.allows(ble.featureValue(feature.key))), "UT5 MAX Lab row changed: " + feature.key);
-                rows++;
+                ScooterCommands.Feature feature = (ScooterCommands.Feature)field(row, "feature"); listed.add(feature.key);
+                CapabilityResolver.Decision tried = ble.experimentalDecision(feature.key), usual = ble.decision(feature.key);
+                require(tried.experimental(), label + ": Experimental row " + feature.key + " has no Lab rule: " + tried);
+                // Anything the official app offers for this model keeps its Scooter row and never appears here.
+                require(!(usual.support == CapabilityResolver.Support.KNOWN_ENCODING && !usual.variant.lab), label + ": offered " + feature.key + " listed as experimental");
+                View action = (View)field(row, "action");
+                require(action != null && action.isEnabled() == ((tried.available() || tried.blockedByRide()) && ble.pending() == null), label + ": Try pill state for " + feature.key);
+                String status = String.valueOf(((View)field(row, "status")).getContentDescription());
+                require(status.equals("Untested on your model"), label + ": " + feature.key + " status " + status);
             }
-            require(rows > 0, label + ": no Lab rows");
+            require(listed.equals(expected), label + ": Experimental rows " + listed + " expected " + expected);
+            String title = String.valueOf(((TextView)field(more(), "labTitle")).getText());
+            require(pid.equals("39991") == (title.equals("Nothing to try") && ((ViewGroup)field(more(), "labList")).getChildCount() == 0), label + ": empty state \"" + title + "\"");
+            require(pid.equals("39991") == listed.isEmpty(), label + ": unknown model lists nothing, the others list their controls");
+            if (pid.isEmpty()) require(new java.util.HashSet<>(listed).equals(new java.util.HashSet<>(Arrays.asList("acceleration", "speed_limit", "dual_drive",
+                    "drive_speed_limit", "long_range_mode", "overspeed_control", "prompt_tone"))), "UT5 MAX Lab rows changed: " + listed);
+            if (pid.equals("24431")) require(listed.equals(Arrays.asList("hill_start_assist", "parking_assist", "hill_descent_control", "prompt_tone")), "Mapped model rows " + listed);
         });
         screenshot(label + "-more-lab");
+        for (String key : listed) if (ScooterCommands.find(key).type != ScooterCommands.Type.SLIDER) { labTry(label, key); break; }
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Scooters")); settle();
         main(() -> {
             // The model line describes the saved profile; the simulated model never reaches it.
@@ -315,6 +318,56 @@ public final class CompatibilityGatingValidation extends Instrumentation {
      * More › Developer options › Compatibility on the simulator: the check holds every write except the lock, changes
      * no simulated setting, finishes within its bounds and offers the report only as a preview.
      */
+    /**
+     * Experimental controls on the simulator: open a row's Try sheet, choose another value, Try it (memory only), see
+     * the row offer Set back with the earlier value, Set back in one tap and see the value return.
+     */
+    private void labTry(String label, String key) throws Exception {
+        final int[] before = {0}, target = {-1};
+        main(() -> {
+            BleController ble = activity.service().ble; before[0] = ble.featureValue(key);
+            View row = root().findViewWithTag("lab-row-" + key); require(row != null && row.isShown(), label + ": no row for " + key);
+            row.performClick();
+        }); settle();
+        main(() -> {
+            Object sheet = field(more(), "labSheet"); require(sheet != null, label + ": Try sheet did not open");
+            View body = ((android.app.AlertDialog)field(sheet, "dialog")).getWindow().getDecorView();
+            for (int value : activity.service().ble.experimentalDecision(key).values()) if (target[0] < 0 && value != before[0]) target[0] = value;
+            View option = body.findViewWithTag("lab-option-" + target[0]); require(option != null, label + ": no option " + target[0]);
+            option.performClick();
+            require(texts(body).contains("Untested on "), label + ": sheet does not say untested");
+        }); settle();
+        screenshot(label + "-lab-sheet");
+        main(() -> {
+            View go = (View)field(field(more(), "labSheet"), "go"); require(go.isEnabled(), label + ": Try disabled"); go.performClick();
+        }); settle();
+        await(() -> Integer.valueOf(target[0]).equals(activity.service().ble.featureValue(key)), label + ": simulated " + key + " did not change");
+        main(() -> {
+            Object sheet = field(more(), "labSheet");
+            View back = (View)field(sheet, "back"); require(back.isShown() && back.isEnabled(), label + ": Set back missing in the sheet");
+            require(Integer.valueOf(before[0]).equals(activity.service().ble.experimentBaseline(key)), label + ": baseline " + activity.service().ble.experimentBaseline(key));
+            require("Simulated change".contentEquals(((View)field(sheet, "status")).getContentDescription()), label + ": simulated status " + ((View)field(sheet, "status")).getContentDescription());
+        });
+        screenshot(label + "-lab-sheet-tried");
+        main(() -> ((android.app.AlertDialog)field(field(more(), "labSheet"), "dialog")).dismiss()); settle();
+        main(() -> more().refresh()); settle();
+        main(() -> {
+            Object row = null; for (Object r : (List<?>)field(more(), "labRows")) if (((ScooterCommands.Feature)field(r, "feature")).key.equals(key)) row = r;
+            TextView action = (TextView)field(row, "action"), now = (TextView)field(row, "now");
+            require("Set back".contentEquals(action.getText()) && action.isEnabled(), label + ": row action " + action.getText());
+            require(now.getText().toString().contains(" · was "), label + ": row value " + now.getText());
+            View line = (View)field(row, "line"); line.requestRectangleOnScreen(new Rect(0, 0, line.getWidth(), line.getHeight()), true);
+        }); settle();
+        screenshot(label + "-lab-set-back");
+        main(() -> {
+            Object row = null; for (Object r : (List<?>)field(more(), "labRows")) if (((ScooterCommands.Feature)field(r, "feature")).key.equals(key)) row = r;
+            ((View)field(row, "action")).performClick();
+        }); settle();
+        await(() -> Integer.valueOf(before[0]).equals(activity.service().ble.featureValue(key)), label + ": Set back did not restore " + key);
+        main(() -> { if (field(more(), "labSheet") != null) ((android.app.AlertDialog)field(field(more(), "labSheet"), "dialog")).dismiss(); }); settle();
+        checks.add(label + ": Experimental " + key + " tried from its sheet and set back in one tap (simulator, memory only)");
+    }
+
     private void verifyCompatibility(String pid, String label) throws Exception {
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Compatibility")); settle();

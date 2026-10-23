@@ -126,17 +126,18 @@ public final class CompatControlsValidation extends Instrumentation {
             int visible = 0; for (Object v : ((java.util.Map<?, ?>)field(row, "options")).values()) if (((View)v).getVisibility() == View.VISIBLE) visible++;
             require(visible == 6, "2585 line colour shows " + visible + " swatches");
         });
-        // The Lab keeps OEM-mapped controls out ("In Scooter settings for this model").
+        // Experimental controls keep OEM-mapped controls out: 2585 offers every control Volt could try, so nothing is listed.
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Lab")); settle();
         main(() -> {
             for (String key : new String[]{"prompt_tone", "dual_drive"})
-                require("In Scooter settings for this model".equals(invoke(more(), "labReason", new Class<?>[]{ScooterCommands.Feature.class}, ScooterCommands.find(key))), "Lab reason for " + key);
+                require(!activity.service().ble.experimentalDecision(key).experimental(), "Offered " + key + " is not experimental");
+            require(((List<?>)field(more(), "labRows")).isEmpty() && "Nothing to try".contentEquals(((TextView)field(more(), "labTitle")).getText()), "2585 lists experimental controls");
         });
         screenshot("q-lab");
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
         home("q-noregion");
-        checks.add("25851 without region: maximum speed 25/32/40/50/70 km/h, Untested here rows, TCS/single-motor confirm sheets (Cancel keeps, Continue sends to the simulator), 0-5 km/h kick-start, six-colour zones, Lab says In Scooter settings");
+        checks.add("25851 without region: maximum speed 25/32/40/50/70 km/h, Untested here rows, TCS/single-motor confirm sheets (Cancel keeps, Continue sends to the simulator), 0-5 km/h kick-start, six-colour zones, nothing in Experimental controls");
     }
 
     /** 2585: US and DE offer the same model-specific table, retaining high-speed and low-start cautions. */
