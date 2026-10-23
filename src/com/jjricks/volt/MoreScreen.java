@@ -162,8 +162,10 @@ public final class MoreScreen implements AppScreen {
         onboarding();
         sectionMenu = group();
         if (wide) sectionMenu.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), ui.dp(4));
-        row(sectionMenu, "download", "Back up & restore", null,
-                () -> host.dataBackup(null, null)).view.setTag("data-backup");
+        Row backup = row(sectionMenu, "download", "Back up & restore", null, () -> host.dataBackup(null, null));
+        backup.view.setTag("data-backup");
+        // The wide menu pads every row alike, so this one lines up with the section rows below it.
+        if (wide) backup.view.setPadding(ui.dp(8), ui.dp(9), ui.dp(8), ui.dp(9));
         for (int i = 0; i < SECTIONS.length; i++) {
             final String section = SECTIONS[i];
             if (!knownSection(section)) continue;

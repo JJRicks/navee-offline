@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Line up **Back up & restore** with the other rows in More's menu on wide and unfolded screens; its icon and title no longer sit further left.
+
 ## 1.6.0 — 2026-10-23
 
 - Name N65i drive modes WALK, DRIVE and SPORT (codes 11, 2 and 3), assuming they match the GT5 Max until an N65i owner reports otherwise.
