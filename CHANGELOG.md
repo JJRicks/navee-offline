@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Mark cruise control verified on the GT5 Max (Model ID 25462): its owner reports it works, though the official app hides it there by region. The row no longer says **Untested here**; the GT5 Max's other controls still do.
 - Bundle an XT5 Ultra photo, ready for its Model ID. Until a compatibility report brings that ID, it shows only when an owner answers **Which scooter is this?** with XT5 Ultra.
 - Name GT5 Max drive-mode code 5 SPORT as well as 3: an owner's Sport reading alternates between them, so it no longer flickers to **5 (raw)**. The N65i, assumed to match the GT5 Max, follows.
 - The computer (ADB) setup checklist now includes the extracted Volt source, which holds `setup/capture-owner.py`, and the capture step says to run the command from that folder, as an owner suggested.
