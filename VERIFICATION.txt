@@ -1,3 +1,49 @@
+VOLT 1.7.0 — GUIDED EXPERIMENTS, SPEED CAP AND MORE MODELS (versionCode 48)
+October 23, 2026
+
+- Full pure-Java suites, the owner-capture guard and the pinned Shizuku
+  dependency check pass on the release tree. The suites cover journalled
+  Experimental controls tries (slider domains, the cap's enable bit, revision-
+  matched report acknowledgment, interrupted-try recovery), the custom speed
+  cap's try range, and the UT5 Ultra X, XT5 Ultra and GT5 Max registry entries.
+- The first release run of android-tests/run-release-sweep.py: every registered
+  validation and each mode with checks of its own, 59 steps (API 36.1, synthetic
+  data, Bluetooth off), split across two disposable emulators. All passed,
+  including:
+  - guided tests in all modes at 344x882 dark and 725x604 light/140% (guided
+    1,464 and 1,476, Experimental controls 436 and 448, recovery 26,
+    interrupt-resume 44), guided queue, compatibility gating 2,152, mapped
+    controls 1,128, UT5 screens, import name and owner profiles;
+  - backups, the backup scenario and its three render modes, charge capture
+    and estimates, battery widgets, learned range, ride auto-stop and backups,
+    ride analysis 466 checks per run, Live Stats, responsive dashboard and its
+    chart, follow-up, gauge, shortcut and editor-motion modes;
+  - charge schedule 185 and My scooters 114 at both sizes, Developer options
+    2,191, offline lock, the dashboard modes, dashboard slots 8,883, capacity
+    widget 105, first connection 2,032, charge wire 63, launch and phone ride
+    with permissions denied and granted, report flows and model screens in both
+    themes, the More menu at phone and wide sizes, and the map, history, route,
+    search, organization and update checks.
+- Two steps were repeated. motion-polish failed one pixel comparison while both
+  emulators ran at once and passed alone. search-focus failed its dialog-title
+  tap the same way on one emulator for both this build and an earlier build that
+  had passed there, and passed on the other emulator: an emulator-state
+  difference, not an app change. The test should tap a point the search field's
+  padding cannot overlap.
+- The release APK is signed with the project identity. Its certificate matches
+  the 1.6.0 release, and the signature and zip alignment verify. Its dex,
+  resources and manifest are identical to the build the sweep ran. Installed over
+  the published 1.6.0 APK on a fresh emulator, it updates in place (first install
+  time unchanged) and opens cleanly.
+- Physical scope: no new physical validation for this release. Automated checks
+  sent no real scooter commands. Experimental controls, Help verify and the
+  custom speed cap have not been tried on a physical scooter. The GT5 Max's
+  cruise control is marked verified from its owner's reported use, not a guided
+  read-back test; the N65i keeps its earlier tester-reported checks. Volt 1.6.0
+  was installed on the owner's phone at their request; no results were reported.
+
+--- Previous verification ---
+
 VOLT 1.6.0 — MODEL SUPPORT, EXPERIMENTAL CONTROLS AND REPORTS (versionCode 47)
 October 23, 2026
 
