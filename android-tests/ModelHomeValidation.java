@@ -30,7 +30,8 @@ import com.jjricks.volt.ScooterProfiles;
 /**
  * Fresh disposable emulator only. Home follows a known model (the GT5 Max, Model ID 25462): its default
  * Setting tiles swap scheduled charging, which its official app doesn't offer, for cruise control and keep
- * Top speed; an owner's own tile choice is never touched; its reported drive modes read DRIVE and SPORT;
+ * Top speed, including when an open Home learns the model and when defaults are restored (whose Undo survives
+ * a rebuild); an owner's own tile choice is never touched; its reported drive modes read DRIVE and SPORT;
  * and a Top speed outside the model's choices shows a dash, not a raw number.
  */
 public final class ModelHomeValidation extends Instrumentation {
@@ -54,7 +55,17 @@ public final class ModelHomeValidation extends Instrumentation {
             activity = (MainActivity) startActivitySync(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
             await(() -> activity.service() != null, "App did not launch"); settle();
             main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "home")); settle();
-            // The new GT5 Max dashboard: Top speed stays, Charge schedule becomes Cruise control, and that is saved.
+            // Not identified yet: the release pair.
+            main(() -> require(DEFAULT.equals(shortcuts(new DashboardConfig(settings(), gt5Id))) && described(root().findViewWithTag("setting-tiles"), "Charge schedule"),
+                    "An unidentified scooter's Home lost the default tiles"));
+            // The open Home learns the model (its advertised ID is captured): the untouched pair adapts in place, no reopening.
+            main(() -> {
+                ScooterProfiles.Profile p = null; for (ScooterProfiles.Profile q : activity.service().profiles.all()) if (q.id.equals(gt5Id)) p = q;
+                p.advertisedPid = "25462"; p.advertisedPidWall = 1; activity.service().profiles.update(p);
+                invoke(field(activity, "screen"), "refresh", new Class<?>[0]);
+            });
+            settle();
+            // The GT5 Max dashboard: Top speed stays, Charge schedule becomes Cruise control, and that is saved.
             main(() -> {
                 DashboardConfig saved = new DashboardConfig(settings(), gt5Id);
                 require(GT5.equals(shortcuts(saved)), "The GT5 Max's default tiles were not adapted: " + shortcuts(saved));
@@ -62,6 +73,7 @@ public final class ModelHomeValidation extends Instrumentation {
                 require(grid != null && described(grid, "Top speed") && described(grid, "Cruise control") && !described(grid, "Charge schedule"), "Home does not show the GT5 Max tiles");
             });
             screenshot("home-gt5-tiles");
+            restoreKeepsUndo();
 
             // Simulated GT5 Max: its reported codes 2 and 3 read DRIVE and SPORT; the simulator's 50 km/h isn't a GT5 Max choice.
             main(() -> require(activity.service().setSimulation(true), "Simulation did not start")); settle();
@@ -88,6 +100,48 @@ public final class ModelHomeValidation extends Instrumentation {
         }
     }
 
+    /**
+     * On the known GT5 Max: after the owner changes Home, Restore default widgets shows the GT5 Max tiles at once,
+     * and its Undo survives an Activity rebuild and brings the owner's Home back.
+     */
+    private void restoreKeepsUndo() throws Exception {
+        main(() -> invoke(field(activity, "screen"), "toggleEditing", new Class<?>[0])); settle();
+        AtomicReference<String> owners = new AtomicReference<>();
+        main(() -> {
+            DashboardConfig config = (DashboardConfig) field(field(activity, "screen"), "config");
+            for (DashboardConfig.Widget w : config.widgets) if (w.type.equals("shortcuts")) { w.quickActions.clear(); w.quickActions.addAll(Arrays.asList("feature:headlight", "feature:turn_sound")); }
+            config.save(); owners.set(settings().getString("dashboard_v1_" + gt5Id, ""));
+            invoke(field(activity, "screen"), "render", new Class<?>[0]);
+        });
+        settle();
+        main(() -> invoke(field(activity, "screen"), "restoreDefaults", new Class<?>[0])); settle();
+        main(() -> require(GT5.equals(shortcuts((DashboardConfig) field(field(activity, "screen"), "config"))) && GT5.equals(shortcuts(new DashboardConfig(settings(), gt5Id)))
+                && settings().contains("dashboard_restore_undo_v1_" + gt5Id), "Restore default widgets on a GT5 Max did not show its tiles at once, or offered no Undo"));
+        ActivityMonitor recreated = addMonitor(MainActivity.class.getName(), null, false);
+        main(() -> activity.recreate());
+        MainActivity next = (MainActivity) waitForMonitorWithTimeout(recreated, 10000); removeMonitor(recreated);
+        require(next != null && next != activity, "The Activity was not recreated");
+        activity = next; await(() -> activity.service() != null, "The recreated Activity did not bind"); settle();
+        await(() -> { AtomicReference<Boolean> shown = new AtomicReference<>(false);
+            main(() -> { Object notice = field(field(activity, "screen"), "notice"); shown.set(notice instanceof android.widget.PopupWindow && ((android.widget.PopupWindow) notice).isShowing()); });
+            return shown.get(); }, "Restoring defaults lost its Undo after the rebuild");
+        main(() -> {
+            View undo = ((android.widget.PopupWindow) field(field(activity, "screen"), "notice")).getContentView().findViewWithTag("dashboard-notice-action");
+            require(undo != null && undo.isClickable(), "The Defaults restored notice has no Undo"); undo.performClick();
+        });
+        settle();
+        require(owners.get().equals(settings().getString("dashboard_v1_" + gt5Id, "")), "Undo did not bring the owner's Home back");
+        main(() -> require(Arrays.asList("feature:headlight", "feature:turn_sound").equals(shortcuts(new DashboardConfig(settings(), gt5Id))), "The owner's tiles did not come back"));
+        main(() -> invoke(field(activity, "screen"), "toggleEditing", new Class<?>[0])); settle();
+        // Back to the model's defaults for the rest of the run.
+        main(() -> {
+            DashboardConfig config = (DashboardConfig) field(field(activity, "screen"), "config");
+            for (DashboardConfig.Widget w : config.widgets) if (w.type.equals("shortcuts")) { w.quickActions.clear(); w.quickActions.addAll(GT5); }
+            config.save(); invoke(field(activity, "screen"), "render", new Class<?>[0]);
+        });
+        settle();
+    }
+
     /** Before Home opens: a dashboard whose owner chose other tiles keeps them; only the untouched pair adapts. */
     private void ownersChoiceKept() {
         main(() -> {
@@ -100,6 +154,13 @@ public final class ModelHomeValidation extends Instrumentation {
             require(!chosen.adaptSettingTiles(GT5) && owner.equals(tiles.quickActions), "An owner's tile choice was replaced");
             tiles.quickActions.clear(); tiles.quickActions.addAll(DEFAULT);
             require(!chosen.adaptSettingTiles(DEFAULT) && chosen.adaptSettingTiles(GT5) && GT5.equals(tiles.quickActions) && !chosen.adaptSettingTiles(GT5), "The default pair did not adapt exactly once");
+            scratch.edit().clear().commit();
+            // A dashboard made for a known model starts with, and restores to, that model's tiles.
+            DashboardConfig fresh = new DashboardConfig(scratch, "fresh", false, GT5);
+            require(GT5.equals(shortcuts(fresh)), "A new GT5 Max dashboard did not start with its tiles");
+            for (DashboardConfig.Widget w : fresh.widgets) if (w.type.equals("shortcuts")) { w.quickActions.clear(); w.quickActions.add("feature:headlight"); }
+            fresh.reset();
+            require(GT5.equals(shortcuts(fresh)), "Restoring defaults brought back tiles the GT5 Max doesn't offer");
             scratch.edit().clear().commit();
         });
     }
@@ -120,7 +181,8 @@ public final class ModelHomeValidation extends Instrumentation {
         main(() -> {
             ScooterProfiles profiles = new ScooterProfiles(getTargetContext());
             ScooterProfiles.Profile gt5 = profiles.create("Synthetic GT5", "0F1E2D3C4B5A", 0);
-            gt5.mac = "C0:FF:EE:00:00:05"; gt5.advertisedPid = "25462"; gt5.advertisedPidWall = 1; gt5.lastConnected = System.currentTimeMillis() - 60000; profiles.update(gt5);
+            // Not identified yet: the test captures its Model ID while Home is open.
+            gt5.mac = "C0:FF:EE:00:00:05"; gt5.lastConnected = System.currentTimeMillis() - 60000; profiles.update(gt5);
             gt5Id = gt5.id;
         });
         prefs("onboarding").edit().putBoolean("onboarding_done", true).commit();
