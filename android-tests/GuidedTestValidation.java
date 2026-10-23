@@ -337,11 +337,11 @@ public final class GuidedTestValidation extends Instrumentation {
      * the readback shows the new value and Set back returns it.
      */
     private void unconfirmed(String label) throws Exception {
-        for (String mode : new String[]{"drop", "timeout", "stale"}) {
-            boolean drop = mode.equals("drop"), stale = mode.equals("stale");
+        for (String mode : new String[]{"drop", "timeout", "stale", "reordered"}) {
+            boolean drop = mode.equals("drop"), stale = mode.equals("stale"), reordered = mode.equals("reordered");
             int sent = fake.writes.size();
             int[] old = {0};
-            if (stale) {
+            if (stale || reordered) {
                 // Two status reads requested before the try, captured with the old value, still unanswered.
                 main(() -> fake.holdStatus = true);
                 await(() -> { int[] n = {0}; main(() -> n[0] = fake.heldStatus.size()); return n[0] >= 2; }, label + ": no pre-try polls to hold", 12000);
@@ -354,6 +354,20 @@ public final class GuidedTestValidation extends Instrumentation {
             if (drop) { SystemClock.sleep(600); main(() -> activity.service().ble.disconnect()); }
             // Stale: only the old snapshots (Off) arrive after the ACK; every fresh reply stays held. They must not read as No change.
             if (stale) { SystemClock.sleep(600); main(() -> { for (int i = 0; i < old[0]; i++) fake.releaseStatus(); }); }
+            // Reordered: newer polls are answered first with valid short statuses (no turn-sound byte), then the old full
+            // snapshots arrive. Counting replies would take the old ones as fresh; they must still prove nothing.
+            if (reordered) {
+                SystemClock.sleep(600);
+                for (int i = 0; i < 2; i++) {
+                    main(() -> invoke(activity.service().ble, "send", new Class<?>[]{byte[].class}, Protocol.frame(0x70, null)));
+                    final int count = old[0] + i + 1;
+                    await(() -> { int[] n = {0}; main(() -> n[0] = fake.heldStatus.size()); return n[0] >= count; }, label + ": the post-ACK poll was not sent", 4000);
+                }
+                main(() -> {
+                    for (int i = 0; i < 2; i++) { byte[] fresh = fake.heldStatus.remove(old[0]); fake.notify(0x70, 0, java.util.Arrays.copyOf(fresh, 10)); }
+                    for (int i = 0; i < old[0]; i++) fake.releaseStatus();
+                });
+            }
             await(() -> expected.equals(result("turn_sound")), label + ": result " + result("turn_sound") + " expected " + expected, 30000);
             awaitSheetText("Unconfirmed"); sheetShot(label + "-lab-unconfirmed-" + mode);
             main(() -> { View sheet = (View)field(field(more(), "labSheet"), "status");
