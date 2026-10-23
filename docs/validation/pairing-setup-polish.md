@@ -66,3 +66,16 @@ These are copy-only changes. Browser-helper tests, the production build, six-wid
 browser checks and an Android build were repeated; the earlier real-keyboard and
 onboarding behavior checks remain applicable. No new capture or device validation
 is claimed by this follow-up.
+
+## Chooser test follow-up
+
+The subtitle-only change exposed a stale native-test lookup: My scooters located
+the browser card by its entire previous accessibility description. Setup cards
+now expose route-based tags, and that test finds `onboarding-path-webadb` instead.
+It still requires the visible Chrome/USB title, a **Recommended** label and a checkable, checked
+accessibility node. Card copy and spoken descriptions remain independent of the
+test locator.
+
+The app and instrumentation APKs were rebuilt, and both `MyScootersValidation`
+and the full `run-backups.py` journeys were rerun for this follow-up. Results are
+recorded in the companion native validation note.

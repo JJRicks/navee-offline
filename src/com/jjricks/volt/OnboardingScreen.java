@@ -739,6 +739,7 @@ public final class OnboardingScreen implements AppScreen {
             View card = option(o[1], o[2], o[3], o[4], on, disabled, disabled
                     ? () -> host.toast("Needs Android 11 or newer")
                     : () -> { prefs.edit().putString(KEY_PATH, o[0]).apply(); render(); });
+            card.setTag("onboarding-path-" + o[0]);
             LinearLayout.LayoutParams cp = new LinearLayout.LayoutParams(-1, -2); cp.bottomMargin = ui.dp(10);
             group.addView(card, cp);
         }
