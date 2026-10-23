@@ -4,7 +4,7 @@ An independent Android companion for the NAVEE UT5 MAX. Volt is not affiliated
 with, endorsed by, sponsored by, or supported by NAVEE or its app vendor.
 Product names identify compatible hardware only.
 
-Download: https://github.com/JJRicks/navee-offline/releases/latest
+Download: https://github.com/JJRicks/volt/releases/latest
 Start here: README.md
 Install and pair: docs/getting-started.md
 Using Volt: docs/user-guide.md
@@ -21,6 +21,4 @@ Keep owner setup files private and back up before clearing app data.
 CHANGELOG.md lists updates; SECURITY.md explains sensitive reporting.
 
 Application source: MIT. Third-party and image notices: NOTICE.
-The manufacturer-sourced scooter photo is a temporary placeholder; redistribution
-permission has not been established, so it must be replaced or cleared before
-public distribution (see NOTICE). Public-launch preparation: docs/public-release.md.
+Public-launch preparation: docs/public-release.md.

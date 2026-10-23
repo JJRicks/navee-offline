@@ -28,10 +28,11 @@ October 22, 2026
 - The learned-range and usable-ride-energy changes were replayed locally on the
   owner's recorded rides; only aggregates are published, in docs/validation.
 - Physical scope: the signed APK was installed on the owner's phone beside 1.4.8,
-  at the owner's request; the owner's restore, connect, lock and ride checks are
-  pending. Automated checks sent no real scooter commands. Charge done by's
-  measuring window and the paused recorder have not run on a physical scheduled
-  charge, and an N65i's first authentication still needs the controlled retry.
+  at the owner's request, and the owner reported that restoring the 1.4.8 backup,
+  connecting, lock/unlock, reconnecting and a short ride all passed. Automated
+  checks sent no real scooter commands. Charge done by's measuring window and the
+  paused recorder have not run on a physical scheduled charge, and an N65i's first
+  authentication still needs the controlled retry.
 
 --- Previous verification ---
 
@@ -226,14 +227,14 @@ October 17, 2026
   session; it is not independent accuracy validation. Keep the repository private
   while the manufacturer-photo permission hold remains unresolved.
 
-See docs/validation/combined-closeout-2026-10-17.md for evidence and limits.
+The detailed 1.4.0 closeout notes are retained in the repository history before 1.5.0.
 Production signing, exact release-asset verification and the authorized in-place
 phone upgrade are separate release steps.
 
 VOLT 1.3.1 — SIMPLER RANGE SELECTION (versionCode 36)
 October 16, 2026
 
-- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews are clean after
+- Independent reviews are clean after
   fixes for open-picker history changes, immediate taps during invalidation,
   simulation wording and documentation consistency.
 - All 34 core suites pass: 80,719 checks. Includes unchanged admission-rule
@@ -256,7 +257,7 @@ See docs/validation/learned-range.md for the unchanged calculation and limits.
 VOLT 1.3.0 — RIDE BACKUPS AND LEARNED RANGE (versionCode 35)
 October 16, 2026
 
-- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews are clean for both
+- Independent reviews are clean for both
   feature PRs. Backup follow-up fixes cover destination-close failure/retry,
   parser-matched scooter reassignment, and shared transfer-session routing.
 - All 34 core suites pass: 80,693 checks, including 60 ride-archive checks.
@@ -284,7 +285,7 @@ See docs/ride-backups.md and docs/validation/learned-range.md.
 VOLT 1.2.4 — HOME AGE FOOTER CLEANUP (versionCode 34)
 October 16, 2026
 
-- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews found no actionable
+- Independent reviews found no actionable
   issues. App/native runner build, signature and alignment checks pass.
 - Focused Home checks pass at 344x882 dp with normal system font and 725x604 dp
   with 140% system font. Includes older cached readings, absent header timestamp,
@@ -301,7 +302,7 @@ October 16, 2026
 
 - All 32 deterministic core suites pass; final affected-fixture rerun included:
   80,598 checks/assertions. App and native runner build/signature/alignment pass.
-- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews completed. Fixed
+- Independent reviews completed. Fixed
   and rechecked bounded 99% power-grace and recovered-prefix eligibility issues.
 - Native charge capture: 174 assertions each at 344x882 dark/normal system font
   and 725x604 light/140% system font. Battery/dashboard: 81/78 assertions at the
@@ -321,8 +322,8 @@ October 16, 2026
 VOLT 1.2.2 — LOCK BAR BUTTON PADDING (versionCode 32)
 October 15, 2026
 
-- The reviewed UI patch passes independent GPT-6 Astra Ultra and GPT-6.1 Sol
-  Ultra review, plus app and native-runner build/signature/alignment checks.
+- The reviewed UI patch passes independent
+  review, plus app and native-runner build/signature/alignment checks.
 - Existing native responsive checks pass at 344x882 dp with normal text and
   725x604 dp with 140% app text: disconnected, connecting and connected lock
   states fit without clipping or hidden scrolling. Narrow rendering inspected.
@@ -347,7 +348,7 @@ October 15, 2026
 - Existing ride analysis: 181 assertions each at 344x882 dp dark/100% and
   725x604 dp light/140%, including full-detail samples and axis scrolling.
 - Capture guards: 11 passed. Browser-helper tests: 56 passed; web build passed.
-- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews completed.
+- Independent reviews completed.
   Accessibility, preference-type validation and clock-label findings were fixed
   and rechecked; no outstanding actionable findings remain.
 - GitHub Actions jobs could not start because of an account billing/spending-limit
@@ -363,7 +364,7 @@ October 15, 2026
 
 - All 30 deterministic core suites pass (70,671 assertions/checks). App and
   separate native runner builds pass signature/alignment verification.
-- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews found numeric
+- Independent reviews found numeric
   chart-bound edge cases; fixes received follow-up review. No outstanding
   actionable findings remain.
 - Native prediction-history checks pass 85 assertions each at 344x882 dp dark,
@@ -386,7 +387,7 @@ See docs/validation/charge-estimate-history.md.
 VOLT 1.1.0 — HOME, CHARGING AND CONCISE UI (versionCode 29)
 October 15, 2026
 
-- Each PR received independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra review;
+- Each PR received independent review;
   subsequent functional fixes received cross-review. Approved design-reference
   changes were checked across Home, Scooter, Rides, More and owner setup.
 - All 29 deterministic core suites pass (64,080 assertions/checks). App and
@@ -405,7 +406,7 @@ October 15, 2026
   phone installation, scooter command, release or website deployment is part of
   this closeout. Real-device layout and charging-model accuracy remain owner tests.
 
-See docs/validation/ui-closeout.md and docs/validation/charge-finishing-estimates.md.
+See docs/validation/charge-finishing-estimates.md.
 
 HOME REDESIGN FOLLOW-UP GEOMETRY (PR #37)
 October 15, 2026
@@ -901,9 +902,9 @@ Reviewed feature integration:
   Each feature's final head has an exact-commit Claude review requesting no
   further changes; core-tests and web-setup CI checks passed on those heads.
   Review does not substitute for hardware validation.
-- Final integrated product evidence is documented in
-  docs/validation/round2-integrated.md. Its tested product commit is ef169c8;
-  the document preserves earlier runs and the resolved large-text graph issue.
+- Final integrated product evidence was recorded against tested product commit
+  ef169c8, including earlier runs and the resolved large-text graph issue. That
+  working record is retained in the repository history before 1.5.0.
 - All 20 combined pure suites pass: 53,855 checks. During release preparation,
   the combined release branch also passed these suites and all 11 owner-capture
   cleanup guard tests. Final default-preset and release-APK checks are separate.

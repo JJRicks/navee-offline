@@ -41,7 +41,7 @@ final class MapTiles {
     MapTiles(Context context, String url, ConnectionFactory connections, LongSupplier clock) {
         template = validUrl(url) ? url : DEFAULT_URL;
         userAgent = "Volt/" + AppVersion.name(context)
-                + " (Android; https://github.com/JJRicks/navee-offline)";
+                + " (Android; https://github.com/JJRicks/volt)";
         this.connections = connections;
         this.clock = clock;
         directory = new File(context.getCacheDir(), "map-tiles/" + digest(template));

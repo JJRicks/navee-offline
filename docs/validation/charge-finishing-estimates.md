@@ -250,7 +250,7 @@ October 16 validation of this change:
   and 78 at 725×604 dp light/140% app text. Saved-layout regressions also pass.
   The narrow charging hero was visually checked with power and ETA visible and
   no source/charger row. No physical scooter commands are used by these fixtures.
-- Independent GPT-6 Astra Ultra and GPT-6.1 Sol Ultra reviews completed. Their
+- Independent reviews completed. Their
   findings about runtime grace and recovered-prefix legacy eligibility were
   fixed and checked independently. Private exports, absolute recording times,
   scooter identifiers and analysis artifacts are not part of the repository patch.

@@ -7,7 +7,7 @@ maintainers, not NAVEE.
 ## Report a vulnerability privately
 
 Use **Security → Report a vulnerability** on the
-[repository's Security page](https://github.com/JJRicks/navee-offline/security)
+[repository's Security page](https://github.com/JJRicks/volt/security)
 if that option is available. If it is unavailable, open an issue saying only
 that you need a private security contact. Wait for a private channel before
 sending reproduction details or sensitive files. Do not post credentials or

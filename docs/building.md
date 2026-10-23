@@ -18,8 +18,8 @@ The optional browser helper has a separate Node 20+/npm build. Node is not neede
 ## Build the Android app
 
 ```sh
-git clone https://github.com/JJRicks/navee-offline.git
-cd navee-offline
+git clone https://github.com/JJRicks/volt.git
+cd volt
 export ANDROID_SDK_ROOT=/path/to/Android/sdk
 export JAVA_HOME=/path/to/jdk
 python3 setup/shizuku-dependencies.py --fetch

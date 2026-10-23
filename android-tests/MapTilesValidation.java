@@ -84,8 +84,8 @@ public final class MapTilesValidation extends Instrumentation {
                 .header("Last-Modified", "Mon, 12 Oct 2026 12:00:00 GMT");
         require(fixture.tiles.get(3, 1, 2) != null && fixture.tiles.status().isEmpty(), "200 failed");
         String ua = first.getRequestProperty("User-Agent");
-        require(ua.equals("NaveeOffline/" + AppVersion.name(getTargetContext())
-                + " (Android; https://github.com/JJRicks/navee-offline)"), "Identity changed or hidden");
+        require(ua.equals("Volt/" + AppVersion.name(getTargetContext())
+                + " (Android; https://github.com/JJRicks/volt)"), "Identity changed or hidden");
         require(first.getRequestProperty("Referer") == null && first.getRequestProperty("Cache-Control") == null
                 && first.getRequestProperty("Pragma") == null && !first.getInstanceFollowRedirects(),
                 "Unexpected impersonation/cache bypass/redirect");

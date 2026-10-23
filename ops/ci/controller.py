@@ -21,7 +21,7 @@ import urllib.parse
 import urllib.request
 import uuid
 
-REPOSITORY = "JJRicks/navee-offline"
+REPOSITORY = "JJRicks/volt"
 WORKFLOW = ".github/workflows/tests.yml"
 BASE_LABELS = {"self-hosted", "Linux", "volt-ci"}
 JOB_LABELS = {"core-tests": "volt-job-core-tests", "web-setup": "volt-job-web-setup"}
@@ -129,7 +129,7 @@ def mapping(value):
 def load_config(path):
     config = json.loads(Path(path).read_text())
     if config.get("repository", REPOSITORY) != REPOSITORY:
-        raise ValueError("This controller is scoped to JJRicks/navee-offline")
+        raise ValueError("This controller is scoped to JJRicks/volt")
     config["repository"] = REPOSITORY
     config["deployment_id"] = str(uuid.UUID(config["deployment_id"]))
     for field in ("snapshot_id", "firewall_id", "ssh_key_id"):
