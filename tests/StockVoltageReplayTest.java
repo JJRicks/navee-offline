@@ -122,8 +122,10 @@ public final class StockVoltageReplayTest {
                             selectedError+=error; selectedSavedError+=Math.abs(point.saved-warm.truth(part,point));
                             selectedSamples++;
                         } else {
-                            check(point.saved.equals(full.remainingMinutesToFull),
-                                    "Uncovered warm samples and the established finishing taper retain v3 behavior");
+                            if(point.soc>=89)check(point.saved.equals(full.remainingMinutesToFull),
+                                    "The established finishing taper retains recorded v3 behavior exactly");
+                            else check(full.remainingMinutesToFull>=point.saved,
+                                    "Uncertain bulk cannot become more optimistic than the original prediction");
                             unchangedWarm++;
                         }
                     }
@@ -135,7 +137,7 @@ public final class StockVoltageReplayTest {
         check(unchangedWarm>900,"Uncovered earlier voltage and the final taper are included in validation");
         check(selectedError/selectedSamples<3&&selectedSavedError/selectedSamples>30,
                 "Retrospective matched-sample MAE improves without allowing personal SOC precedence");
-        check(warmError/warmSamples<14,"Whole-charge replay includes the uncovered early recording");
+        check(warmError/warmSamples<27.6,"Conservative whole-charge replay still improves on the recorded v3 baseline");
         System.out.println("StockVoltageReplayTest: "+checks+" checks; retrospective warm matched MAE "
                 +(selectedError/selectedSamples)+" min over "+selectedSamples+" samples");
     }

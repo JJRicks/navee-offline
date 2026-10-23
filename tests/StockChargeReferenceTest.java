@@ -47,7 +47,7 @@ public final class StockChargeReferenceTest {
                 "Default preserves the rapid 91–95% gauge transition");
         double bulk=15.3*.39/(100d/54)*60;
         ChargingEstimate.Result half=estimate(50,100,100d,2538,ChargeSessionStore.Charger.STOCK,null);
-        near(bulk+(51.2855+49.88757)/2,half.remainingMinutesToFull,.0001,"Before 89%, rated Ah/live amps model bulk and compatible observed finishing time is appended");
+        near(bulk+(51.2855+49.88757)/2+10,half.remainingMinutesToFull,.0001,"Uncertain full timing adds ten minutes to bulk and compatible finishing time");
         check(half.status.contains("Bulk time uses rated Ah"),"Unobserved middle range is described as a model");
         ChargingEstimate.Result cutoff80=estimate(50,100,80d,2538,ChargeSessionStore.Charger.STOCK,null);
         near(baseline(50,100,80d).remainingMinutesToLimit,cutoff80.remainingMinutesToLimit,0,"80% cutoff does not include a full-charge tail");

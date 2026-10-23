@@ -12,7 +12,7 @@ sources=()
 for name in ChargeScheduleController ChargerDetection Protocol Telemetry ScooterCommands OwnerIdentityParser RideStore RideArchive PhoneRideStore DashboardLayout BatteryCapacityEstimate LearnedRangeEstimate ChargingEstimate OwnerCaptureEngine ScooterSimulation QuickAccessActions DisplayTemperature GaugeScaleInput RangeFollowPolicy RideChartData ChartScale ChargeSessionStore ChargeEstimateHistory ChargeChartData StatsFavouriteOrder AppDataArchive BackupExportCache ConnectionFeedbackState ChargeRecoveryPolicy ConnectionEventLog LockSliderGeometry; do
     sources+=("$APP_DIR/src/local/navee/offlinelock/$name.java" "$TEST_DIR/${name}Test.java")
 done
-sources+=("$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockVoltageReference.java" "$TEST_DIR/StockVoltageReferenceTest.java" "$TEST_DIR/StockVoltageReplayTrace.java" "$TEST_DIR/StockVoltageReplayTest.java" "$TEST_DIR/DualChargerEstimateTest.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxFastChargeReference.java" "$TEST_DIR/Ut5MaxFastChargeReferenceTest.java" "$APP_DIR/src/local/navee/offlinelock/ChargeTaperMatcher.java" "$TEST_DIR/StockChargeHoldoutTrace.java" "$TEST_DIR/ChargeTaperMatcherTest.java" "$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockChargeReference.java" "$APP_DIR/src/local/navee/offlinelock/ChargeReferenceGate.java" "$TEST_DIR/CompletedChargeEstimateTest.java" "$TEST_DIR/StockChargeReferenceTest.java" "$TEST_DIR/ChargeReferenceGateTest.java")
+sources+=("$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockVoltageReference.java" "$TEST_DIR/StockStartupReferenceTest.java" "$TEST_DIR/StockVoltageReferenceTest.java" "$TEST_DIR/StockVoltageReplayTrace.java" "$TEST_DIR/StockVoltageReplayTest.java" "$TEST_DIR/DualChargerEstimateTest.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxFastChargeReference.java" "$TEST_DIR/Ut5MaxFastChargeReferenceTest.java" "$APP_DIR/src/local/navee/offlinelock/ChargeTaperMatcher.java" "$TEST_DIR/StockChargeHoldoutTrace.java" "$TEST_DIR/ChargeTaperMatcherTest.java" "$APP_DIR/src/local/navee/offlinelock/OwnerCaptureProcess.java" "$APP_DIR/src/local/navee/offlinelock/Ut5MaxStockChargeReference.java" "$APP_DIR/src/local/navee/offlinelock/ChargeReferenceGate.java" "$TEST_DIR/CompletedChargeEstimateTest.java" "$TEST_DIR/StockChargeReferenceTest.java" "$TEST_DIR/ChargeReferenceGateTest.java")
 sources+=( )
 # Compile the actual Android coordinator against test-only binding and preferences APIs.
 # These stubs are confined to this test output and never enter the Android build.
@@ -46,6 +46,7 @@ for name in ChargeScheduleController ChargerDetection Protocol Telemetry Scooter
 done
 
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.CompletedChargeEstimateTest
+java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockStartupReferenceTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockChargeReferenceTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.StockVoltageReplayTest
 java -cp "$TEST_BUILD_DIR/classes" local.navee.offlinelock.ChargeTaperMatcherTest

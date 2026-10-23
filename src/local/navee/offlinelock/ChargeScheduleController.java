@@ -15,7 +15,7 @@ import java.util.function.Consumer;
 
 /** One-shot charging intentions. Reconciliation never sends commands or arms another day. */
 public final class ChargeScheduleController {
-    public static final long BUFFER_MS = 10 * 60_000L;
+    public static final long BUFFER_MS = 20 * 60_000L;
     private static final long SETTLE_MS = 30_000L, START_GRACE_MS = 120_000L;
     public interface Store { String read(String scope); void write(String scope, String value); }
     public interface Driver {
@@ -26,7 +26,7 @@ public final class ChargeScheduleController {
     }
     /** All readings must come from the current authenticated transport, never a display cache. */
     public static final class Context {
-        public String scope = "", timeReason, toggleReason;
+        public String scope = "", timeReason, toggleReason, estimateUnavailableReason;
         public boolean ready, wholeHours;
         public int generation;
         public long now, sampleMs;
@@ -50,7 +50,7 @@ public final class ChargeScheduleController {
             manualBlockedReason=busy?"Wait for the current change to finish":doneByEnabled?"Disable Charge done by first":baseReason(c,false);
             manualTimeBlockedReason=manualBlockedReason!=null?manualBlockedReason:baseReason(c,true);
             String unavailable=busy?"Wait for the current change to finish":!chargerConnected?"Connect a charger first":baseReason(c,true);
-            doneByBlockedReason=unavailable;
+            doneByBlockedReason=unavailable!=null?unavailable:c.estimateUnavailableReason;
             // The picker remains available offline. Connected active plans are
             // validated and explicitly reprogrammed by setDoneTime instead.
             timeBlockedReason=busy?"Wait for the current change to finish":c.scope.isEmpty()?"Choose a scooter first":null;
@@ -83,7 +83,7 @@ public final class ChargeScheduleController {
         Context raw=driver.context(),c=new Context();
         c.scope=raw.scope;c.ready=raw.ready;c.wholeHours=raw.wholeHours;c.generation=raw.generation;c.now=raw.now;c.sampleMs=raw.sampleMs;
         c.charging=raw.charging;c.enabled=raw.enabled;c.wireStart=raw.wireStart;c.soc=raw.soc;c.target=raw.target;c.estimateMinutes=raw.estimateMinutes;
-        c.timeReason=raw.timeReason;c.toggleReason=raw.toggleReason;c.zone=(TimeZone)raw.zone.clone();return c;
+        c.timeReason=raw.timeReason;c.toggleReason=raw.toggleReason;c.estimateUnavailableReason=raw.estimateUnavailableReason;c.zone=(TimeZone)raw.zone.clone();return c;
     }
     private State state(Context c){return states.computeIfAbsent(c.scope,k->decode(store.read(k)));}
     public boolean busy(){return busy;}
@@ -158,6 +158,7 @@ public final class ChargeScheduleController {
         String blocked=view.doneByEnabled?(busy?"Wait for the current change to finish":baseReason(c,true)):view.doneByBlockedReason;
         if(blocked!=null){completion.accept(blocked);return;}
         State previous=state(c);boolean paused=!Integer.valueOf(1).equals(c.charging);
+        if(!paused&&c.estimateUnavailableReason!=null){completion.accept(c.estimateUnavailableReason);return;}
         if(paused){
             // Native scheduled charging intentionally pauses current flow. Reuse its
             // captured ETA only while fresh electrical readings still prove that the
