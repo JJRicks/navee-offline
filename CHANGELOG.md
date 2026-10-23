@@ -2,6 +2,7 @@
 
 ## Unreleased
 
+- Name and picture the ST3 Pro (Model ID 23452, the German-market model in the protocol reference Volt credits). Its controls are not verified, and it still gets the offer to share a compatibility report.
 - After connecting to a model Volt has no compatibility report for, offer once to help: one tap runs the 30-second read-only check, and your email app opens with the redacted report addressed to volt-reports@jjricks.com, so you can read it before sending. **Not now** asks again after three days; **Don't ask again** ends the offer for that model. Volt ships the list of models it already has reports for. If a scooter that has never connected fails twice, Volt offers to email its redacted connection details the same way. Both emails ask for the model name, which scooters do not report.
 - Recognize the N65i (Model ID 22131): My scooters names it, Home and My scooters show its photo, and its compatibility check accepts its ten-byte settings read. Controls a tester confirmed on a parked N65i (lock, display units, headlight, auto light sensor) no longer say **Untested here**; its other mapped controls still do.
 - Replace Volt's old default name **My UT5 MAX** on a scooter identified as another model, the first time it connects. New Shizuku owner captures start with Volt's default name, so the model name replaces it.

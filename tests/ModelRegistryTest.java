@@ -10,7 +10,7 @@ public final class ModelRegistryTest {
         // Touch the registry before ScooterCommands so a static-initialiser cycle would show here.
         check(ModelRegistry.resolve(advertised("25381")).layer==ModelRegistry.Layer.UT5_MAX&&ModelRegistry.variant("clock_sync",advertised("25381"),null,null)==ModelRegistry.CLOCK
             &&ModelRegistry.variant("lock",advertised("25381"),null,null).id.equals("lock.ut5"),"Registry initialises first");
-        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules(); testedModels();
+        tables(); layers(); ut5Identity(); helpers(); assumptions(); rules(); testedModels(); namedOnly();
         System.out.println("ModelRegistry tests passed: "+assertions+" assertions");
     }
 
@@ -109,6 +109,20 @@ public final class ModelRegistryTest {
             &&ModelRegistry.rule("lock",conflicting,null,null).evidence==CapabilityResolver.Evidence.SHARED_CONTRACT,"A conflicting serial gets no tested-model name, photo or evidence");
     }
 
+    /** The ST3 Pro is named and pictured from the protocol reference, with nothing verified. */
+    private static void namedOnly() {
+        DeviceDescriptor st3=advertised("23452"),sibling=advertised("23451");
+        check(layer(st3)==ModelRegistry.Layer.OEM_GROUP&&ModelRegistry.modelName(st3).equals("ST3 Pro")&&ModelRegistry.modelLine(st3).equals("ST3 Pro")
+            &&ModelRegistry.photo(st3).equals("st3pro"),"ST3 Pro name, line and photo");
+        check(ModelRegistry.modelName(sibling).isEmpty()&&ModelRegistry.photo(sibling).isEmpty(),"Another regional ID stays unnamed until it is reported");
+        check(ModelRegistry.rule("lock",st3,null,null).evidence==CapabilityResolver.Evidence.SHARED_CONTRACT,"Naming verifies nothing: the shared lock keeps its evidence");
+        for(String f:new String[]{"display_units","headlight","cruise_control","energy_recovery"}){
+            ModelRegistry.Rule named=ModelRegistry.rule(f,st3,null,null),plain=ModelRegistry.rule(f,sibling,null,null);
+            check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming changes no rule: "+f);
+        }
+        check(!ModelRegistry.reported(st3),"The ST3 Pro still gets the offer to share a report");
+    }
+
     private static void assumptions() {
         DeviceDescriptor ut5=serial("Q2538ZZ9US7777777"),other=advertised("25471"),unknown=serial("Q2443ZZ9US7777777");
         check(ModelRegistry.ratedWh(ut5)==716.04&&ModelRegistry.ratedWh(other)==null&&ModelRegistry.ratedWh(unknown)==null,"Rated Wh is UT5 MAX only");
@@ -150,7 +164,7 @@ public final class ModelRegistryTest {
         check(ModelRegistry.rule("display_units",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("charge_limit",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("drive_speed_limit",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM-mapped rows; the D-mode cap stays unmapped");
-        check(ModelRegistry.VERSION==8,"Registry version records the tester-checked N65i alongside the regional unions and control tables");
+        check(ModelRegistry.VERSION==9,"Registry version records the known N65i and ST3 Pro alongside the regional unions and control tables");
         check(ModelRegistry.rule("display_units",both("Q2547ZZ9US7777777","25381"),null,null).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict reason");
         boolean unknownKey=false;try{ModelRegistry.rule("not_a_feature",us,null,null);}catch(IllegalArgumentException expected){unknownKey=true;}
         check(unknownKey,"Unknown keys are rejected");
