@@ -58,6 +58,7 @@ public final class ScooterService extends Service {
     private ChargeSessionStore.Snapshot chargeSnapshot;
     private final ChargeReferenceGate chargeReferenceGate = new ChargeReferenceGate();
     private final ChargerDetection chargerDetection = new ChargerDetection();
+    private final ChargeProgressTracker chargeProgress = new ChargeProgressTracker();
     private boolean chargeModelLoading, chargeUpdating, chargeExporting;
     private long chargeEndingMono;
     private ChargeRecoveryPolicy chargeRecovery;
@@ -485,8 +486,9 @@ public final class ScooterService extends Service {
             return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile==null?null:profile.savedDescriptor()),charger,curve);
         }
         // UT5 MAX reference curves only for the UT5 MAX layer; other models get live measured estimates.
+        long now=SystemClock.elapsedRealtime();
         return ChargingEstimate.forScooter(baseline,soc,rated,ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),charger,curve,chargeReferenceGate,
-                profile.id+":"+ble.currentTransportSerial(),chargingValue(readings,"current_a").observedMs,SystemClock.elapsedRealtime());
+                profile.id+":"+ble.currentTransportSerial(),chargingValue(readings,"current_a").observedMs,now,chargeProgress.progress(profile.id,now));
     }
 
     private ChargeScheduleController schedules(){
@@ -535,7 +537,8 @@ public final class ScooterService extends Service {
         if(raw!=null&&raw>=0&&raw<=0xffffffffL)c.wireStart=raw.longValue();
         if(Integer.valueOf(1).equals(c.charging)){
             ChargingEstimate.Result estimate=chargingEstimate(displayReadings());
-            c.estimateMinutes=estimate.remainingMinutesToLimit;
+            // Plans use the cautious estimate; the dashboard shows the most likely one.
+            c.estimateMinutes=estimate.planningMinutesToLimit;
             // A raw current-rate estimate remains useful on the dashboard while automatic
             // identification gathers its first frames, but must not freeze a finish plan yet.
             if(ModelRegistry.chargeReferenceProduct(active.savedDescriptor())==Ut5MaxStockChargeReference.PRODUCT_ID
@@ -552,6 +555,7 @@ public final class ScooterService extends Service {
     private void resetChargeEstimateContext(){
         chargeReferenceGate.reset();
         chargerDetection.reset();
+        chargeProgress.reset();
     }
 
     /**
@@ -561,7 +565,7 @@ public final class ScooterService extends Service {
      */
     private void updateChargerDetection(){
         ScooterProfiles.Profile profile=profiles==null?null:profiles.active();
-        if(destroyed||simulating()||profile==null){chargerDetection.reset();return;}
+        if(destroyed||simulating()||profile==null){chargerDetection.reset();chargeProgress.reset();return;}
         if(ble!=null&&ble.currentTransportSerial().isEmpty())chargerDetection.disconnected();
         if(ble==null||!ble.ready()||ble.profile()==null||!profile.id.equals(ble.profile().id))return;
         long now=SystemClock.elapsedRealtime();
@@ -571,6 +575,7 @@ public final class ScooterService extends Service {
                 &&liveCharge(frame.current,"current_a",now)&&frame.voltage.mono==frame.current.mono;
         chargerDetection.observe(profile.id,ModelRegistry.chargeReferenceProduct(profile.savedDescriptor()),frame.state.value==1d,paired?frame.soc.value:null,
                 paired?frame.voltage.value:null,paired?frame.current.value:null,paired?frame.current.mono:0,now);
+        chargeProgress.observe(profile.id,frame.state.value==1d,paired?frame.soc.value:null,paired?frame.current.value:null,now);
     }
     private static boolean liveCharge(ChargeSessionStore.Value value,String key,long now){
         return value!=null&&value.value!=null&&Double.isFinite(value.value)&&value.mono>0&&now>=value.mono

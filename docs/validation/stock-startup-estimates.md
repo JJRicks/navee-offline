@@ -1,5 +1,7 @@
 # Conservative standard-charger full-time estimates
 
+> Below 89% with a standard charger, estimator v5 is superseded by [the v6 pack model](stock-pack-estimates.md). This page and its replay bundle remain the record of v5.
+
 Estimator `ut5-stock-startup-v5`, following the [voltage refinement](stock-voltage-estimates.md).
 
 ## Behavior

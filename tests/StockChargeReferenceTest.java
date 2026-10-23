@@ -13,6 +13,10 @@ public final class StockChargeReferenceTest {
             ChargeSessionStore.Charger charger,ChargeSessionStore.Curve personal){
         return ChargingEstimate.forScooter(baseline(soc,watts,target),live(soc),live(15.3),pid,charger,personal);
     }
+    private static ChargingEstimate.Result handover(double soc,double volts,double amps,Double target){
+        ChargingEstimate.Result baseline=ChargingEstimate.calculate(live(1d),live(volts),live(-amps),live(soc),live(15.3),live(target));
+        return ChargingEstimate.forScooter(baseline,live(soc),live(15.3),2538,ChargeSessionStore.Charger.STOCK,null);
+    }
     private static ChargingEstimate.Result taper(double volts,double watts){
         ChargingEstimate.Result baseline=ChargingEstimate.calculate(live(1d),live(volts),live(-watts/volts),live(99d),live(15.3),live(100d));
         return ChargingEstimate.forScooter(baseline,live(99d),live(15.3),2538,ChargeSessionStore.Charger.STOCK,null);
@@ -45,8 +49,11 @@ public final class StockChargeReferenceTest {
         check(!taper(54.387,31).referenceToFull,"A stateless taper cannot enter through runtime-only grace");
         near((42.38310+48.70993)/2,estimate(92,114,100d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToFull,.01,
                 "Default preserves the rapid 91–95% gauge transition");
+        // These bulk-stage cases pair 54 V with a half-empty gauge, which the v6 pack model rejects as
+        // contradictory; they keep exercising the earlier rated-Ah reference that remains the fallback.
         double bulk=15.3*.39/(100d/54)*60;
         ChargingEstimate.Result half=estimate(50,100,100d,2538,ChargeSessionStore.Charger.STOCK,null);
+        check(!half.stockPackModel,"A contradictory voltage/percentage pair never reaches the pack model");
         near(bulk+(51.2855+49.88757)/2+10,half.remainingMinutesToFull,.0001,"Uncertain full timing adds ten minutes to bulk and compatible finishing time");
         check(half.status.contains("Bulk time uses rated Ah"),"Unobserved middle range is described as a model");
         ChargingEstimate.Result cutoff80=estimate(50,100,80d,2538,ChargeSessionStore.Charger.STOCK,null);
@@ -57,16 +64,14 @@ public final class StockChargeReferenceTest {
         check(cutoff95.referenceToLimit&&cutoff95.status.contains("higher charge limit"),"Inside-reference cutoff is explicit and full time remains hypothetical");
         ChargingEstimate.Result closeCutoff=estimate(95,114,98d,2538,ChargeSessionStore.Charger.STOCK,null);
         near((41.03345+47.36630-28.39457-33.75782)/2,closeCutoff.remainingMinutesToLimit,.01,"Near-full lower cutoff subtracts each observed boundary before averaging");
-        double justBelow=estimate(88.999,114,100d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToFull;
-        double atBoundary=estimate(89,114,100d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToFull;
-        near(atBoundary,justBelow,.01,"Bulk and observed stages share a continuous 89% anchor");
-        near(estimate(89,114,90d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToLimit,
-                estimate(88.999,114,90d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToLimit,.01,
-                "Lower-cutoff estimates also stay continuous at the bulk/reference boundary");
-        for(double watts:new double[]{100,114,130}){
-            near(estimate(89,watts,100d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToFull,
-                    estimate(88.999,watts,100d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToFull,.01,
-                    "The selected compatible subset is continuous at 89% for different live power");
+        // The v6 pack model hands over to the finishing reference at 89%. With a realistic 88-89% pack
+        // voltage the step stays small; the exact anchor only applied to the earlier rated-Ah bulk model.
+        for(double amps:new double[]{1.94,2.1}){
+            double justBelow=handover(88.999,53.3,amps,100d).remainingMinutesToFull;
+            double atBoundary=handover(89,53.3,amps,100d).remainingMinutesToFull;
+            check(Math.abs(atBoundary-justBelow)<=6,"The 89% handover changes full time by at most six minutes: "+(atBoundary-justBelow));
+            check(Math.abs(handover(89,53.3,amps,90d).remainingMinutesToLimit-handover(88.999,53.3,amps,90d).remainingMinutesToLimit)<=6,
+                    "The 89% handover changes a 90% cutoff by at most six minutes");
         }
         near(41.03345,estimate(95,130,100d,2538,ChargeSessionStore.Charger.STOCK,null).remainingMinutesToFull,.01,
                 "One compatible trajectory remains available when the other has different power");

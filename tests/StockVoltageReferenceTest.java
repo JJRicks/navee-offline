@@ -12,31 +12,40 @@ public final class StockVoltageReferenceTest {
     private static ChargingEstimate.Result estimate(double soc,double volts,double amps,Double target){
         return ChargingEstimate.forScooter(base(soc,volts,amps,target),value(soc),value(15.3),2538,ChargeSessionStore.Charger.STOCK,null);
     }
+    /** A charge observed from its start minutesAgo, at startSoc (as ChargeProgressTracker reports it). */
+    private static ChargingEstimate.Result estimate(double soc,double volts,double amps,Double target,double minutesAgo,double startSoc){
+        return ChargingEstimate.forScooter(base(soc,volts,amps,target),value(soc),value(15.3),2538,ChargeSessionStore.Charger.STOCK,null,
+                null,null,0,0,new ChargeProgressTracker.Progress(minutesAgo,startSoc,true,false));
+    }
     public static void main(String[] args) throws Exception {
-        ChargingEstimate.Result warm=estimate(55,49.702,1.94,100d);
-        check(warm.remainingMinutesToFull>=175.8677&&warm.remainingMinutesToFull<175.8677+20
+        // The recorded warm charge at 55%, 150 minutes after it started at 22%, had 175.87 min left.
+        ChargingEstimate.Result warm=estimate(55,49.702,1.94,100d,150,22);
+        check(Math.abs(warm.remainingMinutesToFull-175.8677)<=5&&warm.planningMinutesToFull>=175.8677
                 &&warm.remainingMinutesToFull<base(55,49.702,1.94,100d).remainingMinutesToFull-15,
-                "Partial current-boundary matching stays conservative while improving raw-rate error by at least15minutes");
-        check(warm.stockVoltageToFull&&warm.referenceToFull&&warm.referenceToLimit&&!warm.learnedToFull&&warm.learnedSessions==0,"Bundled voltage evidence has honest provenance");
+                "Pack voltage locates the warm charge within five minutes, a cautious plan is not late, and the raw rate improves by 15+ minutes");
+        check(warm.stockPackModel&&warm.referenceToFull&&warm.referenceToLimit&&!warm.learnedToFull&&warm.learnedSessions==0,"Bundled pack evidence has honest provenance");
         near(warm.remainingMinutesToFull,warm.remainingMinutesToLimit,0,"Full and 100% cutoff agree");
-        near(warm.remainingMinutesToFull,estimate(55,49.702,1.94,null).remainingMinutesToFull,0,"Unknown cutoff does not change hypothetical full");
-        check(estimate(55,49.702,1.94,null).remainingMinutesToLimit==null,"Unknown cutoff stays unknown");
+        near(warm.remainingMinutesToFull,estimate(55,49.702,1.94,null,150,22).remainingMinutesToFull,0,"Unknown cutoff does not change hypothetical full");
+        check(estimate(55,49.702,1.94,null,150,22).remainingMinutesToLimit==null,"Unknown cutoff stays unknown");
         double previous=0;
         for(double target:new double[]{40,55,60,70,80,85,88,89,90,95,98,99,100}){
-            ChargingEstimate.Result r=estimate(55,49.702,1.94,target);
+            ChargingEstimate.Result r=estimate(55,49.702,1.94,target,150,22);
             check(r.remainingMinutesToLimit>=previous&&r.remainingMinutesToLimit<=r.remainingMinutesToFull,"Cutoffs are ordered and cannot exceed full: "+target);
             if(target<=55)near(0,r.remainingMinutesToLimit,0,"Reached cutoff stays zero");
             previous=r.remainingMinutesToLimit;
         }
-        near(56.722,estimate(80,53.030,1.91,100d).remainingMinutesToFull,3,"Same voltage locates warm high SOC catch-up");
-        near(73.66,estimate(76,52.5,1.94,100d).remainingMinutesToFull,3,"Warm percentage offset");
-        near(73.24,estimate(83,52.5,1.94,100d).remainingMinutesToFull,3,"Older percentage at same electrical stage");
+        near(56.722,estimate(80,53.030,1.91,100d,240,22).remainingMinutesToFull,3,"Same voltage locates warm high SOC catch-up");
+        near(73.66,estimate(76,52.5,1.94,100d,240,22).remainingMinutesToFull,3,"Warm percentage offset");
+        check(Math.abs(estimate(83,52.5,1.94,100d,240,22).remainingMinutesToFull-estimate(76,52.5,1.94,100d,240,22).remainingMinutesToFull)<=10,
+                "A different percentage at the same electrical stage stays within ten minutes");
         for(double soc:new double[]{89,90,95,98,99,100}){
             ChargingEstimate.Result r=estimate(soc,53.817,1.91,100d);
-            check(!r.stockVoltageToFull,"89% and later preserve existing finish and taper");
+            check(!r.stockVoltageToFull&&!r.stockPackModel,"89% and later preserve existing finish and taper");
         }
-        for(double[] point:new double[][]{{40,47,2},{50,49,1.94},{70,55,2},{55,49.702,.8},{55,49.702,5}})
-            check(!estimate(point[0],point[1],point[2],100d).stockVoltageToFull,"Outside observed voltage/current retains fallback");
+        for(double[] point:new double[][]{{70,55,2},{55,49.702,.8},{55,49.702,5}})
+            check(!estimate(point[0],point[1],point[2],100d).stockPackModel,"Contradictory voltage or out-of-range current retains fallback");
+        for(double[] point:new double[][]{{40,47,2},{50,49,1.94}})
+            check(estimate(point[0],point[1],point[2],100d).stockPackModel,"The pack model covers the whole recorded bulk voltage range");
         for(double invalid:new double[]{Double.NaN,Double.NEGATIVE_INFINITY,Double.POSITIVE_INFINITY,-1}){
             check(Ut5MaxStockVoltageReference.refine(invalid,15.3,1.94,99,200)==null,"Invalid SOC rejected");
             check(Ut5MaxStockVoltageReference.refine(55,invalid,1.94,99,200)==null,"Invalid capacity rejected");
@@ -96,7 +105,7 @@ public final class StockVoltageReferenceTest {
             else near(before.remainingMinutesToLimit,after.remainingMinutesToLimit,.001,"Lower-cutoff cap uses the selected full fallback");
         }
         ChargeSessionStore.Estimate snapshot=ChargingEstimate.recordingSnapshot(warm);
-        check(snapshot.version.equals("ut5-stock-startup-v5")&&snapshot.fullSource==ChargeSessionStore.Source.STOCK_REFERENCE,"New captures identify changed algorithm and source");
+        check(snapshot.version.equals("ut5-stock-pack-v6")&&snapshot.fullSource==ChargeSessionStore.Source.STOCK_REFERENCE,"New captures identify changed algorithm and source");
         System.out.println("StockVoltageReference: "+checks+" checks passed");
     }
 }
