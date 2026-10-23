@@ -7,7 +7,7 @@ import java.util.Random;
 public final class DriveModeSurveyTest {
     private static int assertions;
     public static void main(String[] args) {
-        cycle(); duplicates(); liveFollow(); email();
+        cycle(); duplicates(); liveFollow(); pressOnBeforeAnswering(); email();
         System.out.println("DriveModeSurvey tests passed: " + assertions + " assertions");
     }
 
@@ -43,6 +43,20 @@ public final class DriveModeSurveyTest {
         check(s.summary().equals("Drive") && !s.observe(2), "The answer belongs to the mode shown when it was given");
     }
 
+    /** The owner presses on before answering: a mode already named keeps its name and is never asked about again. */
+    private static void pressOnBeforeAnswering() {
+        DriveModeSurvey s = new DriveModeSurvey();
+        s.observe(3); s.name(DriveModeSurvey.Label.SPORT); s.observe(2); s.name(DriveModeSurvey.Label.ECO);
+        check(s.observe(11) && s.asking() == 11, "A new mode is asked about");
+        check(!s.observe(3) && s.asking() == null, "Pressing on to a named mode before answering does not ask about it again");
+        check(s.closed() && s.named().get(3) == DriveModeSurvey.Label.SPORT && s.count() == 2, "Back at the first mode closes the cycle and keeps its name");
+        check(!s.name(DriveModeSurvey.Label.UNSURE) && s.named().get(3) == DriveModeSurvey.Label.SPORT, "Not sure cannot overwrite a named mode");
+        DriveModeSurvey t = new DriveModeSurvey(); t.observe(3); t.name(DriveModeSurvey.Label.SPORT); t.observe(2);
+        check(!t.observe(3) && t.asking() == null && !t.closed(), "Back at the only named mode before answering just waits");
+        check(!t.name(DriveModeSurvey.Label.UNSURE) && t.named().get(3) == DriveModeSurvey.Label.SPORT, "Nothing is being asked, so nothing is overwritten");
+        check(t.observe(2) && t.asking() == 2 && t.name(DriveModeSurvey.Label.ECO) && t.summary().equals("Sport → Eco"), "The skipped mode is asked about when it comes round again");
+    }
+
     private static void email() {
         DriveModeSurvey s = new DriveModeSurvey(); s.observe(2); s.name(DriveModeSurvey.Label.ECO); s.observe(3); s.name(DriveModeSurvey.Label.SPORT); s.observe(2);
         String json = OwnerNotes.json("39991", null, s);
@@ -55,7 +69,7 @@ public final class DriveModeSurveyTest {
                 .reads(check.reads(), check.passive(), check.startMs()).fields(StatusFields.NONE)
                 .decisions(Collections.<CapabilityResolver.Decision>emptyList()).tests(null).build();
         String body = ReportInvite.body(report, null, s, "39991");
-        check(body.startsWith(ReportInvite.body(report)) && body.contains("Drive modes, named by the owner: Eco → Sport") && body.endsWith(json),
+        check(body.startsWith(ReportInvite.body(report)) && body.contains("}\n\nThe owner's answers:\nDrive modes: Eco → Sport\n{") && body.endsWith(json),
                 "The email adds the names after the unchanged report");
         check(ReportInvite.body(report, null, null, "39991").equals(ReportInvite.body(report)) && ReportInvite.body(report, null, new DriveModeSurvey(), "39991").equals(ReportInvite.body(report)),
                 "Skipping leaves the report as it was");

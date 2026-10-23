@@ -125,7 +125,7 @@ final class ConnectionReport {
 
     /** The same, opening with the model the owner picked (or a prompt to type it), with their answer after the details. */
     static String body(String json, NaveeModels.Choice model, String modelId) {
-        return OwnerNotes.firstLine(model) + "\n\nVolt could not connect to this scooter. These are its connection details; it is everything Volt sends, and nothing is attached.\n\n"
-                + json + OwnerNotes.section(modelId, model, null);
+        return OwnerNotes.appendTo(OwnerNotes.firstLine(model) + "\n\nVolt could not connect to this scooter. These are its connection details; it is everything Volt sends, and nothing is attached.\n\n"
+                + json, modelId, model, null);
     }
 }

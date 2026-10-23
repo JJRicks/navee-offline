@@ -38,7 +38,7 @@ final class ReportInvite {
 
     /** The email: the model the owner picked (or a prompt to type it), the report, then anything else the owner added. */
     static String body(CompatibilityReport report, NaveeModels.Choice model, DriveModeSurvey modes, String modelId) {
-        return OwnerNotes.firstLine(model) + "\n\nThis came from Volt's read-only compatibility check. It is everything Volt sends; nothing is attached.\n\n"
-                + report.summary() + "\n" + report.json() + OwnerNotes.section(modelId, model, modes);
+        return OwnerNotes.appendTo(OwnerNotes.firstLine(model) + "\n\nThis came from Volt's read-only compatibility check. It is everything Volt sends; nothing is attached.\n\n"
+                + report.summary() + "\n" + report.json(), modelId, model, modes);
     }
 }

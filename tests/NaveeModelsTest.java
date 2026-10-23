@@ -51,19 +51,22 @@ public final class NaveeModelsTest {
                 && json.contains("\"label\": \"eco\"") && json.contains("\"code\": 3") && json.contains("\"drive_mode_cycle_closed\": true"), "Owner notes hold both answers");
         String unsure = OwnerNotes.json("", NaveeModels.Choice.unsure(), null);
         check(unsure.contains("\"pid\": \"unknown\"") && unsure.contains("\"source\": \"unsure\"") && !unsure.contains("\"name\"") && !unsure.contains("drive_modes"), "Not sure is recorded without a name");
-        check(OwnerNotes.section("1", null, null).isEmpty() && OwnerNotes.section("1", NaveeModels.Choice.unsure(), new DriveModeSurvey()).isEmpty(), "Nothing added, nothing appended");
+        check(OwnerNotes.appendTo("x\n", "1", null, null).equals("x\n") && OwnerNotes.appendTo("x\n", "1", NaveeModels.Choice.unsure(), new DriveModeSurvey()).equals("x\n"), "Nothing added, nothing appended");
+        check(OwnerNotes.appendTo("{}\n\n\n", "1", gt3, null).startsWith("{}\n\nThe owner's answers:\n{") && OwnerNotes.appendTo("{}", "1", gt3, null).startsWith("{}\n\nThe owner's answers:\n{"),
+                "Exactly one blank line before the owner's answers, whatever the email ended with");
         DeviceDescriptor d = ModelRegistryTest.advertised("39991");
         DiscoveryCoordinator c = new DiscoveryCoordinator(1000, false); c.interrupt(1010);
         CompatibilityReport report = new CompatibilityReport.Builder("1.5.1", new Random(5)).device(d, ModelRegistry.resolve(d), "challenge_free")
                 .reads(c.reads(), c.passive(), c.startMs()).fields(StatusFields.NONE).decisions(Collections.<CapabilityResolver.Decision>emptyList()).tests(null).build();
         String body = ReportInvite.body(report, gt3, modes, "39991");
         check(body.startsWith("Scooter model, from the owner: GT3 Pro\n\nThis came from Volt's read-only compatibility check.") && body.contains(report.json())
-                && body.contains("Drive modes, named by the owner: Eco → Sport") && body.endsWith(OwnerNotes.json("39991", gt3, modes)), "Report email with the owner's answers");
+                && body.contains("}\n\nThe owner's answers:\nDrive modes: Eco → Sport\n{") && body.endsWith(OwnerNotes.json("39991", gt3, modes)), "Report email with the owner's answers");
         check(ReportInvite.body(report).startsWith(ReportInvite.NAME_PROMPT) && !ReportInvite.body(report).contains("volt-owner-notes"), "Without answers the email asks for the name");
         String connection = ConnectionReport.json("1.5.1", 36, "x", "", "unknown", 23, Collections.<ConnectionEventLog.Record>emptyList(), Collections.<String>emptyList());
         String details = ConnectionReport.body(connection, NaveeModels.Choice.typedName("GT3"), "");
         check(details.startsWith("Scooter model, from the owner: GT3\n\nVolt could not connect to this scooter.") && details.contains("\"name\": \"GT3\"")
                 && details.contains("\"pid\": \"unknown\""), "Connection details carry the picked model even without a Model ID");
+        check(details.contains("}\n\nThe owner's answers:\n{") && !details.contains("}{"), "A model-only answer is its own block, after a blank line and a heading");
     }
 
     private static void check(boolean condition, String message) { assertions++; if (!condition) throw new AssertionError(message); }

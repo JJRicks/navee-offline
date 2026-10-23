@@ -3,6 +3,7 @@ package com.jjricks.volt;
 import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
+import android.app.Dialog;
 import android.app.TimePickerDialog;
 import android.bluetooth.BluetoothAdapter;
 import android.bluetooth.le.ScanResult;
@@ -2105,17 +2106,6 @@ public final class MainActivity extends Activity implements ScreenHost {
             if(resumed&&isShown()&&Ui.motionEnabled())postInvalidateDelayed(32);
         }
     }
-    /** Radio indicator: a grey ring, or a thick red ring when selected. */
-    private final class RadioDot extends View {
-        private final Paint paint=new Paint(Paint.ANTI_ALIAS_FLAG);boolean checked;
-        RadioDot(){super(MainActivity.this);setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);}
-        void set(boolean value){if(checked!=value){checked=value;invalidate();}}
-        @Override protected void onDraw(Canvas canvas){
-            float width=design.dp(checked?5:2),radius=Math.min(getWidth(),getHeight())/2f-width/2f;
-            paint.setStyle(Paint.Style.STROKE);paint.setStrokeWidth(width);paint.setColor(checked?design.accent:isEnabled()?design.muted:design.dim);
-            canvas.drawCircle(getWidth()/2f,getHeight()/2f,radius,paint);
-        }
-    }
     /** Volt top speed card (ph/24): the current maximum in the rider's units and four raised choices. Commands stay in km/h. */
     private final class TopSpeedCard {
         final ScooterCommands.Feature feature=ScooterCommands.find("maximum_speed");
@@ -2224,7 +2214,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     // ---- Volt dialogs ------------------------------------------------------------------------------
     /** Rounded Volt surface and Saira buttons for the small AlertDialogs; only the primary action (if any) is red. */
     /** One offer per Model ID per app session (it survives Activity recreation), a few seconds after a connection settles; answers persist under ReportInvite.PREFIX. */
-    private static final java.util.Set<String> reportInvited=java.util.Collections.synchronizedSet(new java.util.HashSet<>());private AlertDialog reportDialog;private long reportReadySinceMs;
+    private static final java.util.Set<String> reportInvited=java.util.Collections.synchronizedSet(new java.util.HashSet<>());private Dialog reportDialog;private long reportReadySinceMs;
     /** The offer's read-only check is running; onDestroy stops it (a dialog's dismiss listener runs too late). */
     private boolean reportChecking;
     private void maybeInviteReport(){
@@ -2238,60 +2228,77 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(model.isEmpty()||reportInvited.contains(model)||!ReportInvite.due(preferences.getString(ReportInvite.PREFIX+model,""),System.currentTimeMillis()))return;
         reportInvited.add(model);showReportInvite(model);
     }
-    /** Help Volt support this scooter: one tap runs the read-only check, then the email app opens with the report to read before sending. */
+    /** Help Volt support this scooter: one tap starts the read-only check and opens "Which scooter is this?"; the email app then opens with the report to read before sending. */
     private void showReportInvite(String model){
         LinearLayout box=column();box.setPadding(design.dp(24),design.dp(4),design.dp(24),design.dp(4));
-        TextView about=design.text("Volt hasn't seen a Model "+model+" before. A 30-second check reads the scooter without changing anything. Then your email app opens a short report you can read before you send it.",15,false);
-        box.addView(about);addressLine(box);
+        box.addView(design.text("Volt hasn't seen a Model "+model+" before. A 30-second check reads the scooter without changing anything. Then your email app opens a short report you can read before you send it.",15,false));
+        addressLine(box);
         TextView privacy=design.caption("No serial, MAC, owner key, PIN, names or routes are included.");privacy.setPadding(0,design.dp(6),0,0);box.addView(privacy);
         TextView status=design.caption("");status.setPadding(0,design.dp(10),0,0);status.setVisibility(View.GONE);status.setTag("report-invite-status");
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);box.addView(status);
-        // The check takes about 30 seconds; the owner says which scooter it is meanwhile.
-        CompatibilityReport[] ready={null};String[] scooter={""};android.widget.Button[] next={null};
-        ModelPicker picker=new ModelPicker(this,design,c->{if(next[0]!=null)next[0].setEnabled(ready[0]!=null);});
-        View pick=picker.view();pick.setPadding(0,design.dp(14),0,0);pick.setVisibility(View.GONE);box.addView(pick);
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(box);
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Help Volt support this scooter")).setView(scroll)
                 .setPositiveButton("Check & share",null).setNegativeButton("Not now",null).setNeutralButton("Don't ask again",null).create();
         reportDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
-        android.widget.Button share=dialog.getButton(AlertDialog.BUTTON_POSITIVE),later=dialog.getButton(AlertDialog.BUTTON_NEGATIVE),never=dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
-        next[0]=share;reportChecking=false;
-        later.setOnClickListener(v->{
-            if(reportChecking){scooterService.ble.stopDiscovery();return;}
-            preferences.edit().putString(ReportInvite.PREFIX+model,ReportInvite.later(System.currentTimeMillis())).apply();dialog.dismiss();
+        reportChecking=false;
+        dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->{preferences.edit().putString(ReportInvite.PREFIX+model,ReportInvite.later(System.currentTimeMillis())).apply();dialog.dismiss();});
+        dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{preferences.edit().putString(ReportInvite.PREFIX+model,"never").apply();dialog.dismiss();});
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+            String[] scooter={""};String problem=startReportCheck(scooter);
+            if(problem!=null){status.setText(problem);status.setVisibility(View.VISIBLE);return;}
+            dialog.dismiss();showReportPicker(model,scooter);
         });
-        never.setOnClickListener(v->{preferences.edit().putString(ReportInvite.PREFIX+model,"never").apply();dialog.dismiss();});
-        share.setOnClickListener(v->{
-            if(ready[0]!=null){finishReport(model,ready[0],picker.choice(),scooter[0],dialog);return;}
+        dialog.setOnDismissListener(d->{if(reportDialog==dialog)reportDialog=null;});
+    }
+    /** Starts the offer's read-only check on the active scooter (its id goes in scooter[0]); what stopped it, or null once it runs. */
+    private String startReportCheck(String[] scooter){
+        BleController ble=scooterService==null?null:scooterService.ble;
+        if(ble==null||!ble.ready())return "Connect your scooter first.";
+        ScooterProfiles.Profile checked=scooterService.profiles.active();scooter[0]=checked==null?"":checked.id;
+        ble.startDiscovery();
+        if(!ble.discovering())return ble.message();
+        reportChecking=true;return null;
+    }
+    /** The check runs while the owner says which scooter this is. Next waits for both; a check that stops offers Try again whatever the answer. */
+    private void showReportPicker(String model,String[] scooter){
+        CompatibilityReport[] ready={null};Dialog[] self={null};ModelPicker[] picker={null};
+        Runnable phase=()->{
+            ModelPicker p=picker[0];
+            if(reportChecking){p.primary("Next",false);p.status("Checking your scooter, about 30 seconds…",true);}
+            else if(ready[0]==null)p.primary("Try again",true);
+            else{p.primary("Next",p.choice()!=null);p.status(p.choice()==null?"Check finished ✓ Choose your scooter, or Not sure.":"Check finished ✓",false);}
+        };
+        Runnable watch=new Runnable(){@Override public void run(){
+            Dialog dialog=self[0];
+            if(destroyed||dialog==null||!dialog.isShowing()||!reportChecking)return;
             BleController ble=scooterService==null?null:scooterService.ble;
-            if(ble==null||!ble.ready()){status.setText("Connect your scooter first.");status.setVisibility(View.VISIBLE);return;}
-            ScooterProfiles.Profile checked=scooterService.profiles.active();scooter[0]=checked==null?"":checked.id;
-            ble.startDiscovery();
-            if(!ble.discovering()){status.setText(ble.message());status.setVisibility(View.VISIBLE);return;}
-            reportChecking=true;share.setEnabled(false);share.setText("Next");later.setText("Stop");never.setVisibility(View.GONE);
-            about.setVisibility(View.GONE);pick.setVisibility(View.VISIBLE);
-            status.setText("Checking your scooter, about 30 seconds.");status.setVisibility(View.VISIBLE);
-            handler.postDelayed(new Runnable(){@Override public void run(){
-                if(destroyed||!dialog.isShowing())return;
-                // A check that finishes while Volt is in the background waits: the email app opens only in front of Volt.
-                if(ble.discovering()||!resumed){handler.postDelayed(this,400);return;}
-                reportChecking=false;
-                ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
-                DiscoveryCoordinator finished=now==null||!now.id.equals(scooter[0])?null:ble.discovery();
-                ready[0]=finished==null||finished.interrupted()?null:ble.compatibilityReport(AppVersion.name(MainActivity.this));
-                later.setText("Not now");
-                if(ready[0]==null){
-                    share.setEnabled(true);share.setText("Try again");never.setVisibility(View.VISIBLE);
-                    status.setText("The check stopped before it finished.");return;
-                }
-                share.setEnabled(picker.choice()!=null);
-                status.setText(picker.choice()==null?"Check finished ✓ Choose your scooter (or Not sure), then Next.":"Check finished ✓");
-            }},400);
-        });
+            // A check that finishes while Volt is in the background waits: the email app opens only in front of Volt.
+            if(ble!=null&&ble.discovering()||!resumed){handler.postDelayed(this,400);return;}
+            reportChecking=false;
+            ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
+            DiscoveryCoordinator finished=ble==null||now==null||!now.id.equals(scooter[0])?null:ble.discovery();
+            ready[0]=finished==null||finished.interrupted()?null:ble.compatibilityReport(AppVersion.name(MainActivity.this));
+            if(ready[0]==null)picker[0].status("The check stopped before it finished.",false);
+            phase.run();
+        }};
+        Runnable next=()->{
+            if(reportChecking)return;
+            if(ready[0]!=null){if(picker[0].choice()!=null)finishReport(model,ready[0],picker[0].choice(),scooter[0],self[0]);return;}
+            String problem=startReportCheck(scooter);
+            if(problem!=null){picker[0].status(problem,false);return;}
+            phase.run();handler.postDelayed(watch,400);
+        };
+        Runnable close=()->{preferences.edit().putString(ReportInvite.PREFIX+model,ReportInvite.later(System.currentTimeMillis())).apply();if(self[0]!=null)self[0].dismiss();};
+        picker[0]=new ModelPicker(this,design,c->phase.run());
+        LinearLayout content=sheetContent("Which scooter is this?",null,close);
+        picker[0].build(content,new Spinner(),"Next",next);
+        Dialog dialog=showTallSheet(content);self[0]=dialog;reportDialog=dialog;
+        dialog.setOnCancelListener(d->close.run());
         dialog.setOnDismissListener(d->{if(reportChecking&&scooterService!=null)scooterService.ble.stopDiscovery();reportChecking=false;if(reportDialog==dialog)reportDialog=null;});
+        phase.run();handler.postDelayed(watch,400);
     }
     /** After the check and the owner's answer: optionally name the drive modes, then open the email, still for the same scooter. */
-    private void finishReport(String model,CompatibilityReport report,NaveeModels.Choice choice,String scooter,AlertDialog dialog){
+    private void finishReport(String model,CompatibilityReport report,NaveeModels.Choice choice,String scooter,Dialog dialog){
         dialog.dismiss();
         java.util.function.Consumer<DriveModeSurvey> send=modes->{
             if(destroyed)return;
@@ -2318,14 +2325,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(!ConnectionReport.due(p.lastConnected==0,ble.connectionAttempts(p.id),preferences.getString(ConnectionReport.PREFIX+p.id,""),System.currentTimeMillis()))return;
         connectOffered.add(p.id);showConnectionReportOffer(p);
     }
-    /** Volt couldn't connect: one tap opens the email app with the redacted connection details to read before sending. */
+    /** Volt couldn't connect: Send details asks which scooter this is, then the email app opens with the redacted connection details to read before sending. */
     private void showConnectionReportOffer(ScooterProfiles.Profile p){
         LinearLayout box=column();box.setPadding(design.dp(24),design.dp(4),design.dp(24),design.dp(4));
         box.addView(design.text("Sending Volt's connection details helps fix this for your model. Your email app opens a short report you can read before you send it.",15,false));
         addressLine(box);
         TextView privacy=design.caption("It lists each connection step and error code, the scooter's model ID, and your Android version and phone model. No serial, MAC, owner key, PIN or names.");
         privacy.setPadding(0,design.dp(6),0,0);box.addView(privacy);
-        ModelPicker picker=new ModelPicker(this,design,c->{});View pick=picker.view();pick.setPadding(0,design.dp(14),0,0);box.addView(pick);
         android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(box);
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Volt couldn't connect to this scooter")).setView(scroll)
                 .setPositiveButton("Send details",null).setNegativeButton("Not now",null).setNeutralButton("Don't ask again",null).create();
@@ -2333,13 +2339,26 @@ public final class MainActivity extends Activity implements ScreenHost {
         String key=ConnectionReport.PREFIX+p.id;
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->{preferences.edit().putString(key,ReportInvite.later(System.currentTimeMillis())).apply();dialog.dismiss();});
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{preferences.edit().putString(key,"never").apply();dialog.dismiss();});
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
+        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{dialog.dismiss();showConnectionPicker(p,key);});
+        dialog.setOnDismissListener(d->{if(reportDialog==dialog)reportDialog=null;});
+    }
+    private void showConnectionPicker(ScooterProfiles.Profile p,String key){
+        Dialog[] self={null};ModelPicker[] picker={null};
+        Runnable send=()->{
+            if(picker[0].choice()==null||scooterService==null)return;
             BleController ble=scooterService.ble;String model=ble.advertisedModelId(p);
             String json=ConnectionReport.json(AppVersion.name(this),Build.VERSION.SDK_INT,Build.MANUFACTURER+" "+Build.MODEL,model,ble.advertisedTransport(p),ble.mtu(),
                     ble.connectionAttempts(p.id),ble.connectionActivity(p.id));
-            if(email(ConnectionReport.subject(model),ConnectionReport.body(json,picker.choice(),model))){preferences.edit().putString(key,"sent").apply();dialog.dismiss();toast("Your email app has the details. Thanks for helping!");}
+            if(email(ConnectionReport.subject(model),ConnectionReport.body(json,picker[0].choice(),model))){preferences.edit().putString(key,"sent").apply();self[0].dismiss();toast("Your email app has the details. Thanks for helping!");}
             else toast("No email app could open the details.");
-        });
+        };
+        Runnable close=()->{preferences.edit().putString(key,ReportInvite.later(System.currentTimeMillis())).apply();if(self[0]!=null)self[0].dismiss();};
+        picker[0]=new ModelPicker(this,design,c->{picker[0].primary("Send",true);picker[0].status("Your email app opens next, so you can read it first.",false);});
+        LinearLayout content=sheetContent("Which scooter is this?",null,close);
+        picker[0].build(content,null,"Send",send);
+        picker[0].primary("Send",false);picker[0].status("Choose your scooter, or Not sure, then Send.",false);
+        Dialog dialog=showTallSheet(content);self[0]=dialog;reportDialog=dialog;
+        dialog.setOnCancelListener(d->close.run());
         dialog.setOnDismissListener(d->{if(reportDialog==dialog)reportDialog=null;});
     }
     /** The report address on its own line, so it never wraps mid-address. */
@@ -2405,6 +2424,24 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
         return dialog;
     }
+    /** A bottom sheet of fixed height whose content fills it, so a long list scrolls between a fixed title and footer. */
+    private Dialog showTallSheet(LinearLayout content){
+        Dialog dialog=new Dialog(dialogContext());dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
+        dialog.setContentView(content,new ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.MATCH_PARENT));
+        content.setFocusableInTouchMode(true);content.requestFocus();
+        android.view.Window window=dialog.getWindow();
+        Motion.present(dialog,Motion.SHEET);
+        if(window!=null){
+            android.graphics.drawable.GradientDrawable sheet=new android.graphics.drawable.GradientDrawable();sheet.setColor(design.bg);
+            float r=design.dp(24);sheet.setCornerRadii(new float[]{r,r,r,r,0,0,0,0});sheet.setStroke(design.dp(1),design.raised);
+            window.setBackgroundDrawable(sheet);window.setGravity(Gravity.BOTTOM);window.getDecorView().setPadding(0,0,0,0);
+            // The keyboard waits for a tap on the search box; while it is up, the sheet rises so the results above it stay in view.
+            window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN|WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
+        }
+        dialog.show();
+        if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,Math.round(getResources().getDisplayMetrics().heightPixels*.9f));
+        return dialog;
+    }
     private static final String RANGE_INTRO_SEEN="range_learned_intro_seen";
     private RangeSourceSheet rangeSourceSheet;
     private void showRangeSource(){
@@ -2417,7 +2454,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         final String profile=scooterService.profiles.active().id;
         final AlertDialog dialog;
         final ArrayList<LinearLayout> options=new ArrayList<>();
-        final ArrayList<RadioDot> dots=new ArrayList<>();
+        final ArrayList<Ui.RadioDot> dots=new ArrayList<>();
         final ArrayList<TextView> names=new ArrayList<>();
         final TextView status;
         final View progress;
@@ -2440,7 +2477,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                 option.setMinimumHeight(design.dp(64));option.setPadding(design.dp(4),design.dp(12),design.dp(4),design.dp(12));
                 TextView name=design.text(labels[i],16,false);name.setMaxLines(3);
                 option.addView(name,new LinearLayout.LayoutParams(0,-2,1));
-                RadioDot dot=new RadioDot();LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(design.dp(24),design.dp(24));dp.leftMargin=design.dp(14);option.addView(dot,dp);
+                Ui.RadioDot dot=design.radioDot();LinearLayout.LayoutParams dp=new LinearLayout.LayoutParams(design.dp(24),design.dp(24));dp.leftMargin=design.dp(14);option.addView(dot,dp);
                 option.setTag(learned?"range-source-volt":"range-source-scooter");
                 option.setClickable(true);option.setFocusable(true);option.setBackground(rowRipple());option.setContentDescription(labels[i]);
                 name.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
@@ -2661,7 +2698,7 @@ public final class MainActivity extends Activity implements ScreenHost {
     /** Choice picker (ph/27). It stays open until the scooter confirms the new value by readback. */
     private final class ChoiceSheet {
         final ScooterCommands.Feature feature;final int[] choices;final AlertDialog dialog;
-        final ArrayList<LinearLayout> options=new ArrayList<>();final ArrayList<RadioDot> dots=new ArrayList<>();final ArrayList<TextView> names=new ArrayList<>();
+        final ArrayList<LinearLayout> options=new ArrayList<>();final ArrayList<Ui.RadioDot> dots=new ArrayList<>();final ArrayList<TextView> names=new ArrayList<>();
         final SegmentedSelector selector;
         final LinearLayout wait;final TextView status;
         Integer target;boolean sent;String failure;
@@ -2689,7 +2726,7 @@ public final class MainActivity extends Activity implements ScreenHost {
                     chip.setBackground(design.shape(Ui.withAlpha(design.blue,design.dark?40:28),100,0));chip.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
                     LinearLayout.LayoutParams chipSize=new LinearLayout.LayoutParams(-2,-2);chipSize.setMarginStart(design.dp(8));option.addView(chip,chipSize);
                 }
-                RadioDot dot=new RadioDot();LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(design.dp(22),design.dp(22));dotParams.leftMargin=design.dp(10);option.addView(dot,dotParams);
+                Ui.RadioDot dot=design.radioDot();LinearLayout.LayoutParams dotParams=new LinearLayout.LayoutParams(design.dp(22),design.dp(22));dotParams.leftMargin=design.dp(10);option.addView(dot,dotParams);
                 option.setClickable(true);option.setFocusable(true);option.setBackground(rowRipple());option.setContentDescription(label.getText());
                 option.setAccessibilityDelegate(new View.AccessibilityDelegate(){@Override public void onInitializeAccessibilityNodeInfo(View host,AccessibilityNodeInfo info){super.onInitializeAccessibilityNodeInfo(host,info);info.setClassName(android.widget.RadioButton.class.getName());info.setCheckable(true);info.setChecked(dot.checked);}});
                 option.setOnClickListener(v->choose(index));

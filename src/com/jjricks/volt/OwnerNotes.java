@@ -7,6 +7,7 @@ import java.util.Map;
 
 /** What the owner told Volt about their scooter (its model and drive-mode names), added to a report they choose to email. */
 final class OwnerNotes {
+    static final String HEADING = "The owner's answers:";
     private OwnerNotes() {}
 
     static boolean any(NaveeModels.Choice model, DriveModeSurvey modes) {
@@ -42,10 +43,10 @@ final class OwnerNotes {
         return CompatibilityReport.json(tree);
     }
 
-    /** "Drive modes, named by the owner: …" and the block, or "" when the owner added nothing. */
-    static String section(String modelId, NaveeModels.Choice model, DriveModeSurvey modes) {
-        if (!any(model, modes)) return "";
-        return (modes != null && modes.count() > 0 ? "Drive modes, named by the owner: " + modes.summary() + "\n" : "")
+    /** The email so far, then one blank line, "The owner's answers:", "Drive modes: …" and the block; unchanged when the owner added nothing. */
+    static String appendTo(String email, String modelId, NaveeModels.Choice model, DriveModeSurvey modes) {
+        if (!any(model, modes)) return email;
+        return email.replaceAll("\\s+$", "") + "\n\n" + HEADING + "\n" + (modes != null && modes.count() > 0 ? "Drive modes: " + modes.summary() + "\n" : "")
                 + json(modelId, model, modes);
     }
 }

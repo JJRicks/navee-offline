@@ -30,7 +30,7 @@ import com.jjricks.volt.ScooterProfiles;
  * Fresh disposable emulator only. The "help Volt support this scooter" offer on the developer
  * simulator's unknown model (39991): Check & share runs the read-only check and hands the email
  * app a report addressed to Volt's alias (intercepted in-process, never sent), with no fixture
- * secrets in it; Not now, Don't ask again and Stop behave and persist. The automatic offer itself
+ * secrets in it; Not now, Don't ask again, Close and Try again behave and persist. The automatic offer itself
  * skips simulated scooters, so the flow is opened directly once that is confirmed.
  * Then, without the simulator, a never-connected scooter whose owner check timed out twice gets the
  * "Send connection details" offer on its own, and its email holds the steps but no fixture secrets.
@@ -80,11 +80,25 @@ public final class ReportInviteValidation extends Instrumentation {
 
             settings().edit().remove("report_invite_" + MODEL).commit();
             open(); click(AlertDialog.BUTTON_POSITIVE); settle();
-            require(activity.service().ble.discovering() && "Stop".contentEquals(button(AlertDialog.BUTTON_NEGATIVE).getText()), "Check & share did not start the check");
+            require(activity.service().ble.discovering() && "Which scooter is this?".equals(firstText()) && "Next".equals(textOf("model-next")) && !view("model-next").isEnabled()
+                    && status().startsWith("Checking your scooter"), "Check & share did not start the check in the picker sheet");
+            // The list is the sheet: taller than its window, scrolling between the fixed title and footer.
+            main(() -> {
+                android.widget.ScrollView list = (android.widget.ScrollView) find("model-list"); View footer = find("model-next");
+                require(list.getChildAt(0).getHeight() > list.getHeight() && list.getHeight() > footer.getHeight() * 4 && footer.isShown(), "The model list does not scroll in the sheet");
+            });
             screenshot("checking");
-            click(AlertDialog.BUTTON_NEGATIVE);
-            await(() -> !activity.service().ble.discovering() && button(AlertDialog.BUTTON_POSITIVE).isEnabled(), "Stop did not end the check");
-            require(showing() && emailed.get() == null && status().contains("stopped"), "A stopped check sent a report or closed the offer");
+            main(() -> ((android.widget.ScrollView) find("model-list")).fullScroll(View.FOCUS_DOWN)); settle();
+            require(onScreen("model-k100plus") && !onScreen("model-ut3max"), "The end of the list is unreachable"); screenshot("list-end");
+            main(() -> ((android.widget.ScrollView) find("model-list")).fullScroll(View.FOCUS_UP)); settle();
+            // A check that stops (here, stopped directly) offers Try again, and answering the question keeps it available.
+            main(() -> activity.service().ble.stopDiscovery());
+            await(() -> !activity.service().ble.discovering() && "Try again".equals(textOf("model-next")) && view("model-next").isEnabled(), "A stopped check did not offer Try again");
+            require(showing() && emailed.get() == null && status().contains("stopped"), "A stopped check sent a report or closed the sheet");
+            main(() -> find("model-unsure").performClick()); settle();
+            require("Try again".equals(textOf("model-next")) && view("model-next").isEnabled() && find("model-unsure").isSelected(), "Answering disabled Try again");
+            main(() -> find("model-gt3").performClick()); settle();
+            require("Try again".equals(textOf("model-next")) && view("model-next").isEnabled() && !view("model-unsure").isSelected(), "Changing the answer disabled Try again");
 
             // The same guard Check & share uses: the recording flag that rides, charge capture and charge measurement set blocks it.
             main(() -> {
@@ -95,7 +109,9 @@ public final class ReportInviteValidation extends Instrumentation {
 
             // A check that finishes while Volt is in the background waits for Volt to return before opening email.
             settings().edit().putBoolean("background_connection", true).commit();
-            click(AlertDialog.BUTTON_POSITIVE); settle();
+            main(() -> find("model-unsure").performClick()); settle();
+            tap("model-next"); settle();
+            require(activity.service().ble.discovering() && !view("model-next").isEnabled() && status().startsWith("Checking"), "Try again did not restart the check");
             main(() -> activity.moveTaskToBack(true)); settle();
             await(() -> !activity.service().ble.discovering(), "The check did not finish in the background");
             SystemClock.sleep(1500);
@@ -103,13 +119,19 @@ public final class ReportInviteValidation extends Instrumentation {
             getTargetContext().startActivity(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
             // Back in front: the check is done, and Next waits for the owner to say which scooter this is.
             await(() -> status().startsWith("Check finished"), "The finished check was not shown after Volt returned");
-            require(!button(AlertDialog.BUTTON_POSITIVE).isEnabled() && emailed.get() == null, "Next was available before the owner chose a scooter");
-            main(() -> ((android.widget.EditText) find("model-search")).setText("gt3 pro")); settle();
-            require(view("model-gt3pro") != null && view("model-gt3") == null && view("model-typed") == null, "Search did not narrow to GT3 Pro");
-            screenshot("model-picker");
+            require(view("model-next").isEnabled() && "Check finished ✓".equals(status()) && emailed.get() == null, "Not sure, chosen while stopped, did not carry over");
+            // Search with the keyboard up: the sheet keeps its title, results and footer in view.
+            main(() -> {
+                android.widget.EditText search = (android.widget.EditText) find("model-search"); search.requestFocus();
+                activity.getSystemService(android.view.inputmethod.InputMethodManager.class).showSoftInput(search, 0); search.setText("gt3 pro");
+            });
+            SystemClock.sleep(1500); settle();
+            require(view("model-gt3pro") != null && view("model-gt3") == null && view("model-typed") == null && view("model-unsure") == null, "Search did not narrow to GT3 Pro");
+            screenshot("search-keyboard");
             main(() -> find("model-gt3pro").performClick()); settle();
-            require(button(AlertDialog.BUTTON_POSITIVE).isEnabled() && "Chosen: GT3 Pro".equals(textOf("model-chosen")), "Picking a model did not enable Next");
-            click(AlertDialog.BUTTON_POSITIVE); settle();
+            require(view("model-next").isEnabled() && find("model-gt3pro").isSelected(), "Picking a model did not select it");
+            screenshot("model-picker");
+            tap("model-next"); settle();
             // The owner presses the scooter's own mode button; the simulator's reported mode stands in for it.
             await(() -> "Which mode is your scooter in now?".equals(textOf("drive-mode-prompt")), "The drive-mode step did not ask about the current mode");
             screenshot("drive-modes");
@@ -117,6 +139,17 @@ public final class ReportInviteValidation extends Instrumentation {
             require(textOf("drive-mode-prompt").startsWith("Press your scooter's mode button"), "Volt did not ask for the next mode");
             simulateMode(2); await(() -> "And this mode?".equals(textOf("drive-mode-prompt")), "A changed mode was not asked about");
             require(!view("drive-mode-sport").isEnabled(), "A used name stayed available");
+            // Disconnected, nothing can be named (not even by a click that gets through); after reconnecting, naming waits for a fresh reading.
+            main(() -> require(activity.service().setSimulation(false), "Simulation did not stop"));
+            await(() -> "Reconnect your scooter to keep going.".equals(textOf("drive-mode-prompt")) && !view("drive-mode-eco").isEnabled() && !view("drive-mode-unsure").isEnabled(),
+                    "Naming stayed available while disconnected");
+            main(() -> find("drive-mode-eco").performClick()); settle();
+            require(!textOf("drive-mode-named").contains("Eco"), "An answer given while disconnected was saved");
+            screenshot("drive-modes-disconnected");
+            main(() -> require(activity.service().setSimulation(true), "Simulation did not restart")); settle();
+            main(() -> activity.service().ble.setSimulationModel(MODEL)); settle();
+            await(() -> activity.service().ble.ready(), "Simulated scooter did not reconnect");
+            simulateMode(2); await(() -> "And this mode?".equals(textOf("drive-mode-prompt")) && view("drive-mode-eco").isEnabled(), "Naming did not resume after reconnecting");
             main(() -> find("drive-mode-eco").performClick()); settle();
             simulateMode(11); await(() -> "And this mode?".equals(textOf("drive-mode-prompt")), "The third mode was not asked about");
             main(() -> find("drive-mode-walk").performClick()); settle();
@@ -133,7 +166,7 @@ public final class ReportInviteValidation extends Instrumentation {
             require(to != null && to.length == 1 && ADDRESS.equals(to[0]), "Email is not addressed to the alias");
             require(("Volt compatibility report · Model " + MODEL).equals(subject), "Email subject: " + subject);
             require(body != null && body.contains("\"format\": \"volt-compat-report-v1\"") && body.contains("\"pid\": \"" + MODEL + "\""), "Email lacks the report");
-            require(body.startsWith("Scooter model, from the owner: GT3 Pro\n") && body.contains("Drive modes, named by the owner: Sport → Eco → Walk")
+            require(body.startsWith("Scooter model, from the owner: GT3 Pro\n") && body.contains("}\n\nThe owner's answers:\nDrive modes: Sport → Eco → Walk\n{")
                     && body.contains("\"format\": \"volt-owner-notes-v1\"") && body.contains("\"code\": 11") && body.contains("\"label\": \"walk\""), "Email lacks the owner's answers");
             for (String secret : new String[]{FIXTURE_NAME, FIXTURE_IDENTITY, FIXTURE_SERIAL, FIXTURE_MAC, FIXTURE_MAC.replace(":", "")})
                 require(!body.toUpperCase(Locale.ROOT).contains(secret.toUpperCase(Locale.ROOT)), "A fixture secret reached the email");
@@ -156,13 +189,22 @@ public final class ReportInviteValidation extends Instrumentation {
                     "Recreation sent a report, stored an answer or re-offered");
 
             // Not sure and Skip: the plain report, still asking for the name in the email.
+            // Close stops the check, sends nothing and waits like Not now.
+            settings().edit().remove("report_invite_" + MODEL).commit();
+            open(); click(AlertDialog.BUTTON_POSITIVE); settle();
+            require(activity.service().ble.discovering(), "The check did not start");
+            main(() -> first(v -> "Close".equals(String.valueOf(v.getContentDescription()))).performClick()); settle();
+            require(!showing() && !activity.service().ble.discovering() && emailed.get() == null && settings().getString("report_invite_" + MODEL, "").startsWith("later:"),
+                    "Close did not stop the check and wait");
+            settings().edit().remove("report_invite_" + MODEL).commit();
             simulateMode(3); emailed.set(null);
             open(); click(AlertDialog.BUTTON_POSITIVE); settle();
             long checkEnd = SystemClock.uptimeMillis() + 45000;
             while (!(status().startsWith("Check finished")) && SystemClock.uptimeMillis() < checkEnd) SystemClock.sleep(200);
-            require(status().startsWith("Check finished"), "The check did not finish");
+            require(status().startsWith("Check finished") && !view("model-next").isEnabled(), "The check did not finish, or Next came before an answer");
+            screenshot("finished");
             main(() -> find("model-unsure").performClick()); settle();
-            click(AlertDialog.BUTTON_POSITIVE); settle();
+            tap("model-next"); settle();
             await(() -> view("drive-mode-skip") != null, "The drive-mode step did not open");
             main(() -> find("drive-mode-skip").performClick());
             end = SystemClock.uptimeMillis() + 15000;
@@ -209,11 +251,15 @@ public final class ReportInviteValidation extends Instrumentation {
         String profileId = activity.service().profiles.active().id;
         main(() -> invoke(activity, "maybeOfferConnectionReport", new Class<?>[0])); settle();
         require(showing() && "Send details".contentEquals(button(AlertDialog.BUTTON_POSITIVE).getText()), "No connection-details offer after two failed first connections");
+        screenshot("connection-offer");
+        click(AlertDialog.BUTTON_POSITIVE); settle();
+        require(showing() && "Send".equals(textOf("model-next")) && !view("model-next").isEnabled() && emailed.get() == null, "Send details did not ask which scooter it is");
         main(() -> ((android.widget.EditText) find("model-search")).setText("Mystery GT9")); settle();
         require(view("model-typed") != null && view("model-gt3") == null, "An unlisted name did not offer a write-in");
         main(() -> find("model-typed").performClick()); settle();
-        screenshot("connection-offer");
-        click(AlertDialog.BUTTON_POSITIVE); settle();
+        require(view("model-next").isEnabled(), "A write-in did not enable Send");
+        screenshot("connection-picker");
+        tap("model-next"); settle();
         Intent mail = emailed.get(); require(mail != null, "No email was opened for the connection details");
         if (Intent.ACTION_CHOOSER.equals(mail.getAction())) mail = mail.getParcelableExtra(Intent.EXTRA_INTENT);
         String[] to = mail.getStringArrayExtra(Intent.EXTRA_EMAIL);
@@ -234,15 +280,14 @@ public final class ReportInviteValidation extends Instrumentation {
         main(() -> invoke(activity, "showReportInvite", new Class<?>[]{String.class}, MODEL)); settle();
         require(showing() && "Check & share".contentEquals(button(AlertDialog.BUTTON_POSITIVE).getText()), "The offer did not open");
     }
-    private AlertDialog dialog() { return (AlertDialog) field(activity, "reportDialog"); }
+    private android.app.Dialog dialog() { return (android.app.Dialog) field(activity, "reportDialog"); }
     private boolean showing() { AtomicReference<Boolean> open = new AtomicReference<>(false); main(() -> open.set(dialog() != null && dialog().isShowing())); return open.get(); }
-    private Button button(int which) { AtomicReference<Button> found = new AtomicReference<>(); main(() -> found.set(dialog().getButton(which))); return found.get(); }
-    private void click(int which) { main(() -> dialog().getButton(which).performClick()); }
-    private String status() {
-        AtomicReference<String> text = new AtomicReference<>("");
-        main(() -> { TextView view = dialog().getWindow().getDecorView().findViewWithTag("report-invite-status"); if (view != null) text.set(String.valueOf(view.getText())); });
-        return text.get();
-    }
+    /** The offer's own buttons (the picker sheet has none of these). */
+    private Button button(int which) { AtomicReference<Button> found = new AtomicReference<>(); main(() -> found.set(((AlertDialog) dialog()).getButton(which))); return found.get(); }
+    private void click(int which) { main(() -> ((AlertDialog) dialog()).getButton(which).performClick()); }
+    private void tap(String tag) { main(() -> { View v = find(tag); require(v != null && v.isEnabled(), "Cannot tap " + tag); v.performClick(); }); }
+    /** The picker sheet's footer line. */
+    private String status() { return textOf("model-status"); }
 
     private void admit() {
         String hardware = Build.HARDWARE.toLowerCase(Locale.ROOT);
@@ -290,8 +335,29 @@ public final class ReportInviteValidation extends Instrumentation {
             throw new NoSuchFieldException(name);
         } catch (Exception error) { throw new IllegalStateException(error); }
     }
+    /** On the main thread: the first view, depth first, in the showing offer, sheet or step that matches. */
+    private View first(java.util.function.Predicate<View> match) { android.app.Dialog d = dialog(); return d != null && d.isShowing() ? first(d.getWindow().getDecorView(), match) : null; }
+    private static View first(View view, java.util.function.Predicate<View> match) {
+        if (match.test(view)) return view;
+        if (view instanceof android.view.ViewGroup) for (int i = 0; i < ((android.view.ViewGroup) view).getChildCount(); i++) {
+            View found = first(((android.view.ViewGroup) view).getChildAt(i), match); if (found != null) return found;
+        }
+        return null;
+    }
+    /** The first text in the showing sheet: nothing may come before its title. */
+    private String firstText() {
+        AtomicReference<String> text = new AtomicReference<>("");
+        main(() -> { View v = first(c -> c instanceof TextView && c.isShown() && ((TextView) c).getText().length() > 0); if (v != null) text.set(String.valueOf(((TextView) v).getText())); });
+        return text.get();
+    }
+    /** Some of the view with this tag is drawn inside the window (not scrolled out of view). */
+    private boolean onScreen(String tag) {
+        AtomicReference<Boolean> shown = new AtomicReference<>(false);
+        main(() -> { View v = find(tag); shown.set(v != null && v.isShown() && v.getGlobalVisibleRect(new android.graphics.Rect())); });
+        return shown.get();
+    }
     /** On the main thread: the view with this tag in the showing offer or step. */
-    private View find(String tag) { AlertDialog d = dialog(); return d != null && d.isShowing() ? d.getWindow().getDecorView().findViewWithTag(tag) : null; }
+    private View find(String tag) { android.app.Dialog d = dialog(); return d != null && d.isShowing() ? d.getWindow().getDecorView().findViewWithTag(tag) : null; }
     private View view(String tag) { AtomicReference<View> found = new AtomicReference<>(); main(() -> found.set(find(tag))); return found.get(); }
     private String textOf(String tag) {
         AtomicReference<String> text = new AtomicReference<>("");

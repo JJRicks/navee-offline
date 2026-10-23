@@ -15,28 +15,27 @@ final class DriveModeSurvey {
         Label(String text) { this.text = text; }
     }
     private final LinkedHashMap<Integer, Label> named = new LinkedHashMap<>();
-    private Integer asking, last;
+    private Integer asking;
     private boolean closed;
 
     /** A fresh reading of the reported mode; true when the owner should now name it. */
     synchronized boolean observe(int code) {
         if (closed) return false;
-        if (asking != null) { asking = code; return true; } // follow the live mode while asking
-        if (last != null && code == last) return false;     // still waiting for the next press
         if (named.containsKey(code)) {
+            // A mode already named keeps its name, even when the owner pressed on before answering the last question.
+            asking = null;
             // Back at the first mode after naming others: the scooter has shown every mode it cycles through.
             if (code == named.keySet().iterator().next() && named.size() >= 2) closed = true;
-            last = code;
             return false;
         }
-        asking = code;
+        asking = code; // a new mode, or the live mode while still asking
         return true;
     }
 
-    /** Names the mode being asked about; a label already used (other than Not sure) is refused. */
+    /** Names the mode being asked about; a label already used (other than Not sure) is refused, and a name already given is kept. */
     synchronized boolean name(Label label) {
-        if (asking == null || label == null || used(label)) return false;
-        named.put(asking, label); last = asking; asking = null;
+        if (asking == null || label == null || used(label) || named.containsKey(asking)) return false;
+        named.put(asking, label); asking = null;
         return true;
     }
 

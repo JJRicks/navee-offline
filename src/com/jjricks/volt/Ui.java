@@ -258,6 +258,18 @@ public final class Ui {
         return box;
     }
     public View icon(String key, int size, int color) { return new IconView(key, size, color); }
+    public RadioDot radioDot() { return new RadioDot(); }
+    /** Radio indicator: a grey ring, or a thick red ring when selected. */
+    public final class RadioDot extends View {
+        private final Paint paint = new Paint(Paint.ANTI_ALIAS_FLAG); boolean checked;
+        RadioDot() { super(context); setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); }
+        void set(boolean value) { if (checked != value) { checked = value; invalidate(); } }
+        @Override protected void onDraw(Canvas canvas) {
+            float width = dp(checked ? 5 : 2), radius = Math.min(getWidth(), getHeight()) / 2f - width / 2f;
+            paint.setStyle(Paint.Style.STROKE); paint.setStrokeWidth(width); paint.setColor(checked ? accent : isEnabled() ? muted : dim);
+            canvas.drawCircle(getWidth() / 2f, getHeight() / 2f, radius, paint);
+        }
+    }
     /** A compound symbol preserves row child indices and the label's spoken text. */
     public void decorate(TextView label, String iconKey) {
         if (iconKey == null || iconKey.isEmpty()) return;

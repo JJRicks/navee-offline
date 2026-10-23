@@ -22,7 +22,9 @@ final class DriveModeStep {
     private final Activity activity; private final Ui ui; private final BleController ble; private final Consumer<DriveModeSurvey> done;
     private DriveModeSurvey survey = new DriveModeSurvey();
     private final Handler handler = new Handler(Looper.getMainLooper());
-    private final long startedMs = android.os.SystemClock.elapsedRealtime();
+    /** A reading older than this, or from before the scooter was last seen disconnected, no longer shows the live mode. */
+    private static final long FRESH_MS = 5000;
+    private long lostMs = Long.MIN_VALUE;
     private final TextView[] chips = new TextView[CHOICES.length];
     private TextView prompt, reported, named, unsure, finish, skip;
     private LinearLayout body, choices; private View pulseDot; private ObjectAnimator pulse;
@@ -32,11 +34,13 @@ final class DriveModeStep {
         this.activity = activity; this.ui = ui; this.ble = ble; this.done = done;
     }
 
-    /** The live drive mode from a settings read since this step began (or a very recent one at its start). */
+    /** The live drive mode: connected now, read in the last few seconds and since any disconnection; null otherwise. */
     private Integer reading() {
+        long now = android.os.SystemClock.elapsedRealtime();
+        if (!ble.ready()) { lostMs = now; return null; }
         for (Telemetry.Metric m : ble.telemetry.metrics()) {
             if (!m.key.equals("driving_mode") || m.numericValue == null || m.updatedMs < 0) continue;
-            if (m.updatedMs < startedMs - 10000) return null;
+            if (now - m.updatedMs > FRESH_MS || m.updatedMs <= lostMs) return null;
             double v = m.numericValue;
             return v == Math.rint(v) && v >= 0 && v <= 255 ? (int) v : null;
         }
@@ -127,23 +131,30 @@ final class DriveModeStep {
         handler.postDelayed(this::tick, 400);
     }
 
+    /** An answer counts only for the mode the scooter is reporting right now, the one on screen. */
     private void choose(DriveModeSurvey.Label label) {
-        if (survey.name(label)) { activity.getWindow().getDecorView().performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM); refresh(); }
+        Integer code = reading(), asking = survey.asking();
+        if (code != null && code.equals(asking) && survey.name(label)) activity.getWindow().getDecorView().performHapticFeedback(android.view.HapticFeedbackConstants.CONFIRM);
+        refresh();
     }
 
     private void refresh() {
         Integer code = reading(), asking = survey.asking();
-        reported.setText(code == null ? "Waiting for your scooter's mode…" : "Your scooter reports mode " + code);
-        if (asking != null) prompt.setText(survey.count() == 0 ? "Which mode is your scooter in now?" : "And this mode?");
+        // Naming waits for a live reading of the mode being asked about: never while disconnected or stale.
+        boolean live = code != null && code.equals(asking);
+        reported.setText(!ble.ready() ? "Scooter disconnected" : code == null ? "Waiting for your scooter's mode…" : "Your scooter reports mode " + code);
+        if (!ble.ready()) prompt.setText("Reconnect your scooter to keep going.");
+        else if (asking != null && !live) prompt.setText("Reading your scooter's mode…");
+        else if (asking != null) prompt.setText(survey.count() == 0 ? "Which mode is your scooter in now?" : "And this mode?");
         else if (survey.count() == 0) prompt.setText("Connecting to your scooter's mode…");
         else prompt.setText("Press your scooter's mode button to switch to the next mode.");
         for (int i = 0; i < CHOICES.length; i++) {
             boolean used = survey.used(CHOICES[i]);
             chips[i].setText(used ? CHOICES[i].text + " ✓" : CHOICES[i].text);
-            chips[i].setEnabled(asking != null && !used); chips[i].setAlpha(asking != null || used ? 1f : 0.5f);
+            chips[i].setEnabled(live && !used); chips[i].setAlpha(live || used ? 1f : 0.5f);
             ui.styleChip(chips[i], used);
         }
-        unsure.setEnabled(asking != null); unsure.setAlpha(asking != null ? 1f : 0.5f);
+        unsure.setEnabled(live); unsure.setAlpha(live ? 1f : 0.5f);
         named.setText(survey.count() == 0 ? "" : "Named: " + survey.summary());
         finish.setEnabled(survey.count() > 0); finish.setAlpha(survey.count() > 0 ? 1f : 0.5f);
     }
