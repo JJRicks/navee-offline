@@ -86,7 +86,8 @@ public final class UiOrganizationValidation extends Instrumentation {
             requireVisibleControl("start_speed"); requireVisibleControl("energy_recovery");
             main(() -> {
                 require(topSpeedShown(), "Top speed card missing from the Scooter page");
-                require(!allFeatures().contains("maximum_speed"), "Maximum speed must live only in the top speed card");
+                // Every control has a row, hidden unless offered; Maximum speed's row shows only where another model's map replaces the card.
+                require(allFeatures().contains("maximum_speed") && !visibleFeatures().contains("maximum_speed"), "Maximum speed must live only in the top speed card");
                 for (String key : visibleFeatures()) require(!key.startsWith("line_") && !key.startsWith("star_"), "Line and star zones belong to the Lights page");
                 require(findText(root(), "Line & star lights") != null, "Lights group must link to the line and star zones");
             });

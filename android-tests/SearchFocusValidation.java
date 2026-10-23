@@ -115,7 +115,8 @@ public final class SearchFocusValidation extends Instrumentation {
         int before = scroll.getScrollY(); Rect bounds = new Rect(), fieldBounds = new Rect();
         main(() -> { require(scroll.getGlobalVisibleRect(bounds), "Stats scroller is not visible");
             require(search.getGlobalVisibleRect(fieldBounds), "Stats search is not visible"); });
-        float x = bounds.centerX(), start = bounds.bottom - activity.ui().dp(18);
+        // Start above the scroller's bottom padding: the floating navigation bar sits over it and takes touches there.
+        float x = bounds.centerX(), start = bounds.bottom - scroll.getPaddingBottom() - activity.ui().dp(18);
         float end = Math.max(fieldBounds.bottom + activity.ui().dp(18), start - activity.ui().dp(120));
         require(start - end > activity.ui().dp(25), "No outside-search area available for a real swipe");
         long now = SystemClock.uptimeMillis();
@@ -123,7 +124,13 @@ public final class SearchFocusValidation extends Instrumentation {
         for (int i = 1; i <= 10; i++) { inject(now, MotionEvent.ACTION_MOVE, x, start + (end - start) * i / 10f); SystemClock.sleep(16); }
         inject(now, MotionEvent.ACTION_UP, x, end);
         assertDismissed(search, activity.getWindow(), "battery", "Outside swipe");
-        await(() -> scroll.getScrollY() > before, 3000, "Dismissing search consumed the scrolling gesture");
+        try { await(() -> scroll.getScrollY() > before, 3000, "Dismissing search consumed the scrolling gesture"); }
+        catch (IllegalStateException failed) {
+            AtomicReference<String> why = new AtomicReference<>();
+            main(() -> why.set("scrollY " + before + "->" + scroll.getScrollY() + ", content " + scroll.getChildAt(0).getHeight() + " in " + scroll.getHeight()
+                    + " (padding " + scroll.getPaddingTop() + "/" + scroll.getPaddingBottom() + ")"));
+            throw new IllegalStateException(failed.getMessage() + ": " + why.get());
+        }
         checks.add(theme + ": measurement search preserves its query while outside taps and swipes still filter and scroll");
     }
     private void dialogChecks(String theme) throws Exception {
