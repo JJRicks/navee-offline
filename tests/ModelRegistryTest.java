@@ -126,10 +126,14 @@ public final class ModelRegistryTest {
         check(layer(gt5)==ModelRegistry.Layer.OEM_GROUP&&ModelRegistry.modelName(gt5).equals("GT5 Max")&&ModelRegistry.modelLine(gt5).equals("GT5 Max")
             &&ModelRegistry.photo(gt5).equals("gt5max")&&ModelRegistry.showsPhoto(gt5),"GT5 Max name, line and photo");
         check(ModelRegistry.modelName(gt5Sibling).isEmpty()&&ModelRegistry.photo(gt5Sibling).isEmpty(),"Another GT5-group ID stays unnamed until it is reported");
-        for(String f:new String[]{"lock","start_speed","display_units","cruise_control","energy_recovery","maximum_speed"}){
+        for(String f:new String[]{"lock","start_speed","display_units","energy_recovery","maximum_speed"}){
             ModelRegistry.Rule named=ModelRegistry.rule(f,gt5,null,null),plain=ModelRegistry.rule(f,gt5Sibling,null,null);
             check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming the GT5 Max changes no rule: "+f);
         }
+        // Its owner reported cruise control works (hidden by region in the official app); only that row becomes verified.
+        ModelRegistry.Rule cruise=ModelRegistry.rule("cruise_control",gt5,null,null),siblingCruise=ModelRegistry.rule("cruise_control",gt5Sibling,null,null);
+        check(cruise.support==CapabilityResolver.Support.KNOWN_ENCODING&&cruise.evidence==CapabilityResolver.Evidence.VOLT_VERIFIED
+            &&cruise.variant==siblingCruise.variant&&siblingCruise.evidence==CapabilityResolver.Evidence.OEM_MAPPED,"GT5 Max cruise control is verified, on the same variant; its sibling's stays OEM-mapped");
         check(ModelRegistry.reported(gt5)&&ReportInvite.model(gt5).isEmpty()&&!ReportInvite.model(gt5Sibling).isEmpty(),"The GT5 Max is reported; its unreported siblings are still offered");
         check(ModelRegistry.driveModeLabelProduct(gt5)==25462&&ModelRegistry.driveModeLabelProduct(gt5Sibling)==0&&ModelRegistry.driveModeLabelProduct(advertised("23452"))==0,
             "Only the GT5 Max's reported drive-mode codes get names");

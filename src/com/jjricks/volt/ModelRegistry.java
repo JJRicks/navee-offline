@@ -96,7 +96,8 @@ public final class ModelRegistry {
      * 0.0.0.5, controller 0.0.1.1) passed guided tests and a confirmed lock in October 2026. The ST3 Pro is
      * named from the MIT protocol reference Volt credits (23452, German market); nothing on it is verified. The
      * GT5 Max (25462, EU; meter 1.0.0.4) is named from an owner's compatibility report, its model confirmed by the
-     * maintainer in October 2026; nothing on it is verified either.
+     * maintainer in October 2026. Its owner reported using cruise control (which the official app hides there by
+     * region) in October 2026, and the maintainer chose to mark it verified; nothing else on it is.
      */
     private static final class Known {
         final String name,photo;final Set<String> features;
@@ -106,7 +107,7 @@ public final class ModelRegistry {
     static{
         KNOWN.put("22131",new Known("N65i","n65i","lock","display_units","headlight","auto_sensor"));
         KNOWN.put("23452",new Known("ST3 Pro","st3pro"));
-        KNOWN.put("25462",new Known("GT5 Max","gt5max"));
+        KNOWN.put("25462",new Known("GT5 Max","gt5max","cruise_control"));
         KNOWN.put("25852",new Known("UT5 Ultra X","ut5ultrax"));
     }
     /**
