@@ -15,10 +15,13 @@ October 22, 2026
   - charge capture 2/2, battery widgets 5/5, learned range 2/2;
   - ride auto-stop 4/4, ride backups 4/4, ride analysis 466 checks per run;
   - Live Stats 5/5, responsive dashboard 37/37;
-  - charge schedule 185, My scooters 112, Developer options 2,191 and
-    offline lock 4, each at 344x882 dp dark and 725x604 dp light/140% text;
+  - charge schedule 185 and My scooters 112, each at 344x882 dp dark and
+    725x604 dp light/140% text;
+  - Developer options 2,191 and offline lock 4 at both widths, with default text
+    and the runners' dark fixture;
   - full dashboard 17, dashboard slots 8,883, capacity widget 105;
-  - synthetic-GATT charge wire 63 and first connection 1,500;
+  - synthetic-GATT first connection 1,500, and charge wire 63 in a rerun with
+    its registered component, com.jjricks.volt.ChargeScheduleWireValidation;
   - launch with permissions denied and granted.
 - The release APK is signed with the project identity. Its certificate matches
   the 1.4.8 release, and the signature and zip alignment verify.
