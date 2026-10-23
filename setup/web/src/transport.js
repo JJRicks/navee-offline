@@ -1,5 +1,5 @@
 import { Adb, AdbDaemonTransport } from '@yume-chan/adb';
-import { AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb';
+import { AdbDaemonWebUsbDevice, AdbDaemonWebUsbDeviceManager } from '@yume-chan/adb-daemon-webusb';
 import { MAX_CAPTURE_BYTES, SetupError } from './protocol.js';
 
 // No IndexedDB credential store: the browser key exists only for this page.
@@ -18,7 +18,7 @@ export async function connectPhone(onWaiting, onDisconnect) {
   const manager = AdbDaemonWebUsbDeviceManager.BROWSER;
   if (!manager || !globalThis.isSecureContext) throw new SetupError('browser', 'Use desktop Chrome or Edge over HTTPS (or localhost). Safari and Firefox do not support this USB setup.');
   const device = await manager.requestDevice();
-  if (!device) throw new SetupError('cancelled', 'No phone selected.');
+  if (!device) throw new SetupError('cancelled', 'No phone selected. If your phone wasn’t listed, unlock it, turn on USB debugging, and try a USB data cable.');
   const credentials = new MemoryCredentialStore();
   let adb;
   try {
@@ -29,6 +29,8 @@ export async function connectPhone(onWaiting, onDisconnect) {
     const transport = await Promise.race([auth, new Promise((_, reject) => {
       timer = setTimeout(() => reject(new SetupError('authorize', 'Phone approval timed out. Unlock the phone and try Connect again.')), 60_000);
     })]).finally(() => clearTimeout(timer));
+    // Tango reads the key only during this handshake; don't keep it any longer.
+    credentials.clear();
     adb = new Adb(transport);
     if (!adb.subprocess.shellProtocol) throw new SetupError('shell', 'This phone does not support the verified shell protocol required for capture.');
     // Attach both paths: USB transport failures must not become unhandled logs.
@@ -40,8 +42,18 @@ export async function connectPhone(onWaiting, onDisconnect) {
     };
   } catch (error) {
     await closeConnection(adb, device.raw, credentials, true).catch(() => {});
-    throw error instanceof SetupError ? error : new SetupError('usb', 'Could not connect. Unlock the phone, approve USB debugging, and close other ADB tools or browser tabs. On Windows, an Android USB driver may be needed.');
+    throw connectionError(error);
   }
+}
+// Classify by exception type only; USB and library messages are never shown.
+export function connectionError(error) {
+  if (error instanceof SetupError) return error;
+  // claimInterface failed: usually a computer ADB server holds the interface.
+  // It keeps running in the background after `adb devices` returns.
+  if (error instanceof AdbDaemonWebUsbDevice.DeviceBusyError) return new SetupError('usb-busy', 'Another program is using your phone’s USB debugging connection, usually a computer ADB server that keeps running after “adb devices” finishes. In a terminal, run “adb kill-server”. Close Android Studio, scrcpy and other USB setup tabs, then reconnect the phone and try again.');
+  // open() was refused: on Linux, usually missing udev permission or a sandboxed browser.
+  if (error?.name === 'SecurityError') return new SetupError('usb-access', 'The browser was not allowed to open your phone over USB. On Linux, install Android udev rules (Ubuntu or Debian: android-sdk-platform-tools-common) and use a browser not installed as a Snap or Flatpak. On Windows, install your phone’s USB driver. If ADB runs on this computer, also run “adb kill-server”. Then reconnect the phone and try again.');
+  return new SetupError('usb', 'Could not connect. Unlock the phone, approve USB debugging, and close other ADB tools or browser tabs. On Windows, an Android USB driver may be needed.');
 }
 // Begin permission removal synchronously, before awaiting transport shutdown.
 // In particular, pagehide cannot reliably resume after an awaited adb.close().

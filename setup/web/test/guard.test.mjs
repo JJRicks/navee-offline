@@ -58,6 +58,8 @@ test('real shell commands preserve an unusual printable original and exclude con
     await f.arm();
     assert.equal((await f.run(startCommand(token))).code, 0);
     assert.equal(await f.property(), 'VERBOSE');
+    // start's EXIT trap releases the shared gate it took.
+    await assert.rejects(access(join(f.lock, 'cleaning')));
     assert.equal((await f.run('sh -s clean', cleanupCommand(token))).code, 0);
     assert.equal(await f.property(), "  INFO';$HOME  ");
     assert.equal((await f.run(releaseCommand(token))).code, 0);

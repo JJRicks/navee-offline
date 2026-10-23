@@ -15,7 +15,11 @@ additional hardware coverage.
 Chrome or Edge on a computer talks directly to the selected Android phone over
 WebUSB. No Python, installed ADB executable, account login endpoint, upload API,
 analytics, CDN scripts, or server-side capture processing is involved. Some
-Windows phones still need an Android USB driver.
+Windows phones still need an Android USB driver. A running computer ADB server
+holds the phone's ADB interface, so the browser cannot claim it; the page reports
+that case and asks for `adb kill-server`. A refused USB open (on Linux, usually
+missing udev rules or a Snap/Flatpak browser) gets its own guidance. Raw USB error
+messages are still never shown.
 
 The owner must already have activated/bound the scooter, signed into the official
 NAVEE app, and be able to connect to the nearby scooter. This helper obtains the

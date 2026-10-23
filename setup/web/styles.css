@@ -55,6 +55,7 @@ summary { cursor:pointer; padding:14px 0; font-weight:600; }
 details p { font-size:13px; margin:4px 0 14px; }
 details ol { padding-left:22px; display:grid; gap:12px; color:var(--muted); margin:0 0 16px; }
 details .full { margin:0 0 14px; }
+code { font-family:ui-monospace,monospace; color:var(--text); overflow-wrap:anywhere; }
 .permission { background:var(--raised); border-left:3px solid var(--accent); border-radius:4px 14px 14px 4px; padding:15px 17px; margin:18px 0 8px; }
 .permission > strong { display:block; color:var(--text); font-size:13px; font-weight:600; }
 .permission p { font-size:12px; line-height:1.65; margin:6px 0 0; color:#c6c8c0; }
