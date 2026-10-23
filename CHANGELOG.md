@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 1.6.0 — 2026-10-23
 
 - Name N65i drive modes WALK, DRIVE and SPORT (codes 11, 2 and 3), assuming they match the GT5 Max until an N65i owner reports otherwise.
 - Try controls the official app doesn't offer for your model in **More → Experimental controls**. On an identified model it lists any of kick-start speed (including Standing start), cruise control, traction control, tail light, automatic lights, turn signal sound, the three assists and prompt sound that the official app hides for it, most likely to work first; the UT5 MAX keeps its Lab controls. Everything the official app offers stays in Scooter settings as before. Each row says **Untested on your model** until you try it, then **Worked here**, **No change seen** or **Refused by scooter** from what the scooter reads back, and **Set back** returns the earlier value in one tap. A try needs the scooter stopped, unlocked and connected as the owner, with nothing else changing or recording. Speed limits, charging, the lock, PIN, proximity unlock, the clock and firmware are never added there. When the scooter accepts a try but keeps its value, Volt says so and stays connected.

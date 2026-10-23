@@ -1,3 +1,59 @@
+VOLT 1.6.0 — MODEL SUPPORT, EXPERIMENTAL CONTROLS AND REPORTS (versionCode 47)
+October 23, 2026
+
+- Full pure-Java suites, the owner-capture guard and the pinned Shizuku
+  dependency check pass on the release tree. The suites cover Experimental
+  controls' admission and read-back rules, model-fitted Home tiles, the model
+  picker and remembered model answers, and the N65i and GT5 Max drive-mode names.
+- Emulator suites on the 1.6.0 build (API 36.1, synthetic data, Bluetooth off),
+  all passing:
+  - backups 12/12, compatibility gating 2/2 (2,119 assertions each), and guided
+    tests 2/2: guided, recovery navigation, interrupted test and Experimental
+    controls (385 and 393 assertions) at each width;
+  - charge capture 2/2, battery widgets 5/5, learned range 2/2;
+  - ride auto-stop 4/4, ride backups 4/4, ride analysis 466 checks per run;
+  - Live Stats 5/5, responsive dashboard 37/37;
+  - charge schedule 185 and My scooters 114, each at 344x882 dp dark and
+    725x604 dp light/140% text;
+  - Developer options 2,191 and offline lock 4 at both widths, with default text
+    and the runners' dark fixture;
+  - full dashboard 17, dashboard slots 8,883, capacity widget 105;
+  - synthetic-GATT first connection 2,032 and charge wire 63;
+  - launch with permissions denied and granted (8 checks each), and phone ride
+    recording with location denied and granted (6 each);
+  - report offer 125, report shortcuts 50, remembered model 57 and model-fitted
+    Home 39, each in dark and light.
+- Two sweep runs were repeated. The 725x604 charge schedule run failed once
+  when the shared host stalled the emulator: its twelve-minute measuring window
+  read 4 min left inside a ten-second wait. It passed twice on rerun. The
+  location-denied ride run had been started without its Nearby devices
+  precondition; it passed once that was granted.
+- Known gap since 1.4.6: the mapped-controls run fails one layout check. On
+  another model, a long Charge start value ("Not scheduled") stays in the value
+  field rather than moving into the caption, because the charge rows' own
+  refresh skips that rule; narrow rows can still stack their text. The row code
+  is unchanged from 1.5.0. With that
+  one check skipped, the run passes 1,125 assertions at each width on 1.6.0.
+- Field evidence for the unchanged charging estimates: one UT5 MAX charge the
+  owner recorded on 1.5.0, from 79% on the stock charger. The first finish
+  estimate was 96.9 min against 94.7 min actual. Across its 567 estimates the
+  mean absolute error was 0.52 min (p95 1.53, max 2.66, bias −0.08). It began
+  above the mid-charge stretch where earlier models erred most, so a charge from
+  about 50% remains the stronger test. Only aggregates are published.
+- The release APK is signed with the project identity. Its certificate matches
+  the 1.5.0 release, and the signature and zip alignment verify. Its dex,
+  resources and manifest are identical to the build the emulator suites ran, and
+  it installs and opens cleanly on a fresh emulator.
+- Physical scope: no new physical validation for this release. Automated checks
+  sent no real scooter commands, and 1.6.0 has not been installed on a phone.
+  The N65i keeps its earlier tester-reported parked checks (connection, lock
+  readback, display units, headlight, auto light sensor); its other mapped
+  controls and all GT5 Max controls follow the official app's map and remain
+  unverified, and N65i drive-mode names are assumed to match the GT5 Max.
+  Experimental controls have not been tried on a physical scooter.
+
+--- Previous verification ---
+
 VOLT 1.5.0 — NEW APP ID, UNIFIED BACKUP, MULTI-SCOOTER SETUP AND ESTIMATES (versionCode 46)
 October 22, 2026
 
