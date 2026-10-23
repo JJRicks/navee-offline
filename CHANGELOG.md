@@ -3,6 +3,7 @@
 ## Unreleased
 
 - Line up **Back up & restore** with the other rows in More's menu on wide and unfolded screens; its icon and title no longer sit further left.
+- On models other than the UT5 MAX, a long Charge start value such as **Not scheduled** moves under its label with the **Untested here** caption, like other long values, instead of staying beside the label.
 
 ## 1.6.0 — 2026-10-23
 

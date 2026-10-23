@@ -2007,7 +2007,9 @@ public final class MainActivity extends Activity implements ScreenHost {
             boolean pending=charge!=null&&charge.busy,on=charge!=null&&charge.manualEnabled;
             String shown=toggle!=null?(on?"On":"Off"):charge==null||charge.manualStartWallMs<=0?"Not scheduled"
                     :DisplayTime.clock(MainActivity.this,preferences,charge.manualStartWallMs);
-            name.setTextColor(blocked==null?design.text:design.muted);value.setText(shown);row.setSub(note);
+            // As in refresh(): another model's caption takes a long time value under the label with it (never on the UT5 MAX).
+            boolean wide=toggle==null&&note!=null&&decision!=null&&decision.layer!=ModelRegistry.Layer.UT5_MAX&&shown.length()>10;
+            name.setTextColor(blocked==null?design.text:design.muted);value.setText(wide?"":shown);row.setSub(wide?joinNote(shown,note):note);
             action.setEnabled(true);row.line.setAlpha(blocked==null?1f:.5f);parkedBlocked=false;
             spinner.setVisibility(pending?View.VISIBLE:View.GONE);result.setVisibility(View.GONE);
             action.setContentDescription(shortLabel(feature)+", "+shown+(blocked==null?"":", "+blocked)
