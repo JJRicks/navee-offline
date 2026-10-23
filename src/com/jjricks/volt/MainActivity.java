@@ -2439,7 +2439,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(Build.VERSION.SDK_INT>=28)view.setAccessibilityHeading(true);return view;
     }
     /** Bottom sheet frame (ph/27): grab handle, title, close button and an optional one-line explanation. */
-    private LinearLayout sheetContent(String title,String explanation,Runnable close){
+    @Override public LinearLayout sheetContent(String title,String explanation,Runnable close){
         LinearLayout content=column();content.setPadding(design.dp(18),design.dp(8),design.dp(18),design.dp(18));
         View grab=new View(this);grab.setBackground(design.shape(design.outline,2,0));
         LinearLayout.LayoutParams grabParams=new LinearLayout.LayoutParams(design.dp(36),design.dp(4));grabParams.gravity=Gravity.CENTER_HORIZONTAL;grabParams.bottomMargin=design.dp(8);content.addView(grab,grabParams);
@@ -2456,7 +2456,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         else{View gap=new View(this);content.addView(gap,new LinearLayout.LayoutParams(1,design.dp(10)));}
         return content;
     }
-    private AlertDialog showSheet(View content){
+    @Override public AlertDialog showSheet(View content){
         ScrollView holder=new ScrollView(this);holder.addView(content,new ScrollView.LayoutParams(-1,-2));
         AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setView(holder).create();
         android.view.Window window=dialog.getWindow();

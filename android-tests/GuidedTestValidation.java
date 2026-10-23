@@ -58,6 +58,10 @@ import org.json.JSONObject;
  *   kills this process before the restore (no cleanup runs).
  * - interrupt-resume: the relaunched app must show the outstanding restoration, write nothing on
  *   start or reconnect, and restore only after the explicit Restore tap.
+ * - experimental: More › Experimental controls on a synthetic N65i: refusals with zero writes (never-added
+ *   controls, an ordinary change of a hidden control, moving, locked, recording), then a try the scooter
+ *   confirms ("Worked here") and Set back, one it acknowledges but ignores ("No change seen", the link stays
+ *   up), one it rejects ("Refused by scooter"), and Set back in one tap from the list.
  */
 public final class GuidedTestValidation extends Instrumentation {
     // Synthetic private values: none of them may reach a report.
@@ -67,6 +71,8 @@ public final class GuidedTestValidation extends Instrumentation {
             {"mapped", "Q2443ZZ9US7777771", "24431", "C0:FF:EE:00:24:43", "A1B2C3D4E5F7", "Synthetic guided mapped"},
             {"unknown", "Q3999ZZ9US7777772", "39991", "C0:FF:EE:00:39:99", "A1B2C3D4E5F8", "Synthetic guided unknown"}};
     private static final String[] FEATURES = {"display_units", "headlight", "turn_sound", "auto_sensor", "range_algorithm"};
+    /** Experimental mode only: a synthetic N65i (22131), whose official app hides turn sound, traction control, kick-start and more. */
+    private static final String[] N65I = {"n65i", "Q2213ZZ9US7777773", "22131", "C0:FF:EE:00:22:13", "A1B2C3D4E5F9", "Synthetic guided N65i"};
     private Bundle arguments;
     private MainActivity activity;
     private boolean admitted;
@@ -93,6 +99,7 @@ public final class GuidedTestValidation extends Instrumentation {
             else if (mode.equals("interrupt-start")) interruptStart();
             else if (mode.equals("interrupt-resume")) interruptResume();
             else if (mode.equals("recovery-navigation")) recoveryNavigation();
+            else if (mode.equals("experimental")) experimental();
             else throw new IllegalArgumentException("Unknown mode " + mode);
             result.putString("result", "PASS");
         } catch (Throwable error) {
@@ -138,7 +145,9 @@ public final class GuidedTestValidation extends Instrumentation {
     private void seed() {
         main(() -> {
             ScooterProfiles profiles = new ScooterProfiles(getTargetContext());
-            for (String[] m : MODELS) {
+            List<String[]> models = new ArrayList<>(Arrays.asList(MODELS));
+            if (arguments.getString("mode", "guided").equals("experimental")) models.add(N65I);
+            for (String[] m : models) {
                 ScooterProfiles.Profile p = profiles.create(m[5], m[4], 0);
                 p.serial = m[1]; p.mac = m[3]; p.lastConnected = System.currentTimeMillis() - 60000;
                 if (!m[2].isEmpty()) { p.advertisedPid = m[2]; p.advertisedPidWall = System.currentTimeMillis() - 120000; }
@@ -155,7 +164,7 @@ public final class GuidedTestValidation extends Instrumentation {
         await(() -> activity.service() != null && root().isAttachedToWindow() && root().getWidth() > 0, "App did not launch"); settle();
     }
     private ScooterProfiles.Profile profileFor(String label) {
-        String serial = null; for (String[] m : MODELS) if (m[0].equals(label)) serial = m[1];
+        String serial = label.equals(N65I[0]) ? N65I[1] : null; for (String[] m : MODELS) if (m[0].equals(label)) serial = m[1];
         for (ScooterProfiles.Profile p : activity.service().profiles.all()) if (p.serial.equals(serial)) return p;
         throw new IllegalStateException("No profile " + label);
     }
@@ -234,9 +243,167 @@ public final class GuidedTestValidation extends Instrumentation {
             DeviceDescriptor d = ble.descriptor(); ModelRegistry.Layer layer = ble.resolution().layer;
             require(label.equals("ut5") ? layer == ModelRegistry.Layer.UT5_MAX && d.pidSource() == DeviceDescriptor.PidSource.SERIAL
                     : label.equals("mapped") ? layer == ModelRegistry.Layer.OEM_GROUP && d.advertisedPid.equals("24431")
+                    : label.equals(N65I[0]) ? layer == ModelRegistry.Layer.OEM_GROUP && d.advertisedPid.equals("22131")
                     : layer == ModelRegistry.Layer.SHARED && d.advertisedPid.equals("39991"), label + ": descriptor " + d + " layer " + layer);
         });
     }
+    // ---- Experimental controls ----------------------------------------------------------------
+
+    private void experimental() throws Exception {
+        String label = N65I[0];
+        connect(label);
+        fake.motion = true; fake.speed = 0;
+        await(() -> { boolean[] r = {false}; main(() -> r[0] = activity.service().ble.stationary()); return r[0]; }, label + ": no parked motion report", 10000);
+        main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
+        main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Lab")); settle();
+        List<String> expected = Arrays.asList("start_speed", "turn_sound", "traction_control", "hill_start_assist", "parking_assist", "hill_descent_control", "prompt_tone");
+        await(() -> labKeys().equals(expected), label + ": Experimental rows " + labKeys() + " expected " + expected, 10000);
+        main(() -> { for (String key : expected) require(activity.service().ble.experimentalDecision(key).available(), label + ": " + key + " not available: " + activity.service().ble.experimentalDecision(key).reasonText()); });
+        awaitText("Untested on your model", "Untested here", "Untested"); screenshot(label + "-lab-list");
+        int writes = fake.writes.size();
+        main(() -> {
+            BleController ble = activity.service().ble;
+            // Never added here, an offered control never as an experiment, and a hidden one never as an ordinary change.
+            for (String key : new String[]{"maximum_speed", "speed_limit", "charge_limit", "lock", "lock_expiry", "low_power", "acceleration", "dual_drive", "overspeed_control"})
+                require(!ble.setExperimental(key, key.equals("maximum_speed") ? 25 : key.equals("charge_limit") ? 90 : 1), label + ": " + key + " sent as an experiment");
+            require(!ble.setExperimental("display_units", 0), label + ": an offered control sent as an experiment");
+            require(!ble.set("turn_sound", 1), label + ": a hidden control sent as an ordinary change");
+            // A ride or charge recording holds every experiment.
+            ble.visibility(true, true, 0);
+            require(ble.experimentalDecision("turn_sound").reason == CapabilityResolver.Reason.RECORDING && !ble.setExperimental("turn_sound", 1), label + ": sent while recording");
+            ble.visibility(true, false, 0);
+        });
+        fake.speed = 3;
+        await(() -> labReason("turn_sound") == CapabilityResolver.Reason.MOVING, label + ": moving not refused: " + labReason("turn_sound"), 10000);
+        main(() -> require(!activity.service().ble.setExperimental("turn_sound", 1), label + ": sent while moving"));
+        awaitText("Stop the scooter to try these."); screenshot(label + "-lab-moving");
+        fake.speed = 0; fake.set(2, 1);
+        await(() -> labReason("turn_sound") == CapabilityResolver.Reason.LOCKED, label + ": locked not refused: " + labReason("turn_sound"), 10000);
+        main(() -> require(!activity.service().ble.setExperimental("turn_sound", 1), label + ": sent while locked"));
+        awaitText("Unlock the scooter to try these."); screenshot(label + "-lab-locked");
+        fake.set(2, 0);
+        await(() -> labReason("turn_sound") == CapabilityResolver.Reason.NONE, label + ": parked and unlocked not admitted: " + labReason("turn_sound"), 10000);
+        require(fake.writes.size() == writes, label + ": refusals wrote " + fake.describeWrites());
+        checks.add(label + ": never-added controls, an offered control, an ordinary change of a hidden control, moving, locked and recording all refused with zero writes");
+
+        // Worked here: the scooter reads back the new value; Set back returns it, both confirmed.
+        openTry("turn_sound"); chooseOption(1); sheetShot(label + "-lab-sheet");
+        tapSheet("go");
+        await(() -> result("turn_sound").startsWith("Confirmed") && fake.value("turn_sound") == 1, label + ": turn sound not confirmed: " + result("turn_sound"), 10000);
+        awaitSheetText("Worked here"); sheetShot(label + "-lab-worked");
+        tapSheet("back");
+        await(() -> fake.value("turn_sound") == 0 && activity.service().ble.pending() == null, label + ": Set back did not restore turn sound", 10000);
+        require(fake.writes.size() == writes + 2, label + ": worked-here writes " + fake.describeWrites());
+        closeSheet();
+        checks.add(label + ": turn signal sound tried (readback confirmed, \"Worked here\") and set back from the sheet, two writes");
+
+        // No change seen: acknowledged but ignored. Two later reads still show the old value; the link stays up.
+        fake.ignoreWrites = true;
+        try {
+            openTry("traction_control"); chooseOption(0); tapSheet("go");
+            await(() -> BleController.NO_CHANGE.equals(result("traction_control")), label + ": ignored write not reported: " + result("traction_control"), 15000);
+        } finally { fake.ignoreWrites = false; }
+        main(() -> require(activity.service().ble.ready() && activity.service().ble.state() == BleController.State.READY, label + ": an ignored experiment dropped the connection"));
+        awaitSheetText("No change seen"); sheetShot(label + "-lab-no-change");
+        closeSheet();
+        require(fake.state[11] == 1 && fake.writes.size() == writes + 3, label + ": no-change writes " + fake.describeWrites());
+
+        // Refused: the scooter rejects the write with a status code.
+        fake.rejectNext = 3;
+        openTry("start_speed"); chooseOption(0); tapSheet("go");
+        await(() -> result("start_speed").startsWith("Rejected"), label + ": rejection not reported: " + result("start_speed"), 10000);
+        awaitSheetText("Refused by scooter"); sheetShot(label + "-lab-refused");
+        closeSheet();
+        require(fake.state[19] == 3 && fake.writes.size() == writes + 4, label + ": refused writes " + fake.describeWrites());
+
+        // Set back in one tap from the list.
+        openTry("prompt_tone"); chooseOption(4); tapSheet("go");
+        await(() -> result("prompt_tone").startsWith("Confirmed") && fake.state[21] == 4 && activity.service().ble.pending() == null, label + ": prompt sound not confirmed", 10000);
+        closeSheet();
+        awaitText("Set back"); revealText("Prompt sound"); screenshot(label + "-lab-results");
+        main(() -> { View action = root().findViewWithTag("lab-row-prompt_tone"); require(action != null, label + ": no prompt sound row");
+            for (Object row : (List<?>)field(more(), "labRows")) if (((ScooterCommands.Feature)field(row, "feature")).key.equals("prompt_tone")) {
+                TextView pill = (TextView)field(row, "action"); require("Set back".contentEquals(pill.getText()) && pill.isEnabled(), label + ": row pill " + pill.getText()); pill.performClick(); } });
+        await(() -> fake.state[21] == 2 && activity.service().ble.pending() == null, label + ": one-tap Set back did not restore prompt sound", 10000);
+        require(fake.writes.size() == writes + 6, label + ": set-back writes " + fake.describeWrites());
+        unconfirmed(label);
+        require(fake.matchesBaseline(), label + ": the synthetic scooter did not end at its starting values: " + fake.diff());
+        main(() -> activity.service().ble.disconnect()); settle();
+        checks.add(label + ": an ignored write reads \"No change seen\" without dropping the link, a rejected one \"Refused by scooter\", and Set back works in one tap from the list; the scooter ends at its starting values");
+    }
+    /**
+     * A try the scooter applied and acknowledged, but no readback confirmed: neither "Not sent" nor "No change seen"
+     * is true, so it reads Unconfirmed, whether the link drops first or the confirmation times out. After reconnecting,
+     * the readback shows the new value and Set back returns it.
+     */
+    private void unconfirmed(String label) throws Exception {
+        for (String mode : new String[]{"drop", "timeout", "stale", "reordered"}) {
+            boolean drop = mode.equals("drop"), stale = mode.equals("stale"), reordered = mode.equals("reordered");
+            int sent = fake.writes.size();
+            int[] old = {0};
+            if (stale || reordered) {
+                // Two status reads requested before the try, captured with the old value, still unanswered.
+                main(() -> fake.holdStatus = true);
+                await(() -> { int[] n = {0}; main(() -> n[0] = fake.heldStatus.size()); return n[0] >= 2; }, label + ": no pre-try polls to hold", 12000);
+            }
+            openTry("turn_sound"); chooseOption(1);
+            main(() -> { fake.holdStatus = true; old[0] = fake.heldStatus.size(); });
+            tapSheet("go");
+            await(() -> fake.value("turn_sound") == 1 && fake.writes.size() == sent + 1, label + ": the try never reached the scooter", 10000);
+            String expected = drop ? "Cancelled after disconnection" : "Change not confirmed";
+            if (drop) { SystemClock.sleep(600); main(() -> activity.service().ble.disconnect()); }
+            // Stale: only the old snapshots (Off) arrive after the ACK; every fresh reply stays held. They must not read as No change.
+            if (stale) { SystemClock.sleep(600); main(() -> { for (int i = 0; i < old[0]; i++) fake.releaseStatus(); }); }
+            // Reordered: newer polls are answered first with valid short statuses (no turn-sound byte), then the old full
+            // snapshots arrive. Counting replies would take the old ones as fresh; they must still prove nothing.
+            if (reordered) {
+                SystemClock.sleep(600);
+                for (int i = 0; i < 2; i++) {
+                    main(() -> invoke(activity.service().ble, "send", new Class<?>[]{byte[].class}, Protocol.frame(0x70, null)));
+                    final int count = old[0] + i + 1;
+                    await(() -> { int[] n = {0}; main(() -> n[0] = fake.heldStatus.size()); return n[0] >= count; }, label + ": the post-ACK poll was not sent", 4000);
+                }
+                main(() -> {
+                    for (int i = 0; i < 2; i++) { byte[] fresh = fake.heldStatus.remove(old[0]); fake.notify(0x70, 0, java.util.Arrays.copyOf(fresh, 10)); }
+                    for (int i = 0; i < old[0]; i++) fake.releaseStatus();
+                });
+            }
+            await(() -> expected.equals(result("turn_sound")), label + ": result " + result("turn_sound") + " expected " + expected, 30000);
+            awaitSheetText("Unconfirmed"); sheetShot(label + "-lab-unconfirmed-" + mode);
+            main(() -> { View sheet = (View)field(field(more(), "labSheet"), "status");
+                String shown = String.valueOf(((TextView)sheet).getText());
+                require(!shown.contains("Not sent") && !shown.contains("No change"), label + ": an applied try reads " + shown); });
+            closeSheet();
+            main(() -> { fake.holdStatus = false; fake.heldStatus.clear(); });
+            boolean[] ready = {false}; main(() -> ready[0] = activity.service().ble.ready());
+            if (!ready[0]) reconnect(label, fake.writes.size());
+            // The next readback shows On, so Set back is offered and returns it, confirmed.
+            await(() -> { Integer[] v = {null}; main(() -> v[0] = activity.service().ble.featureValue("turn_sound")); return Integer.valueOf(1).equals(v[0]); }, label + ": the applied value never read back", 15000);
+            openTry("turn_sound"); tapSheet("back");
+            await(() -> fake.value("turn_sound") == 0 && activity.service().ble.pending() == null && result("turn_sound").startsWith("Confirmed"), label + ": Set back after an unconfirmed try failed: " + result("turn_sound"), 15000);
+            closeSheet();
+        }
+        checks.add(label + ": a try the scooter applied but never confirmed reads Unconfirmed, not Not sent or No change seen, after a dropped link, a timeout, and old pre-try snapshots arriving after the ACK; the readback then offers Set back");
+    }
+    private List<String> labKeys() { List<String> out = new ArrayList<>(); main(() -> { for (Object row : (List<?>)field(more(), "labRows")) if (field(row, "action") != null) out.add(((ScooterCommands.Feature)field(row, "feature")).key); }); return out; }
+    private CapabilityResolver.Reason labReason(String key) { CapabilityResolver.Reason[] r = {null}; main(() -> r[0] = activity.service().ble.experimentalDecision(key).reason); return r[0]; }
+    private String result(String key) { String[] r = {""}; main(() -> { String v = activity.service().ble.commandResults().get(key); r[0] = v == null ? "" : v; }); return r[0]; }
+    private Object sheet() { Object sheet = field(more(), "labSheet"); require(sheet != null, "No Try sheet"); return sheet; }
+    private View sheetRoot() { return ((android.app.AlertDialog)field(sheet(), "dialog")).getWindow().getDecorView(); }
+    private void openTry(String key) {
+        main(() -> { View row = root().findViewWithTag("lab-row-" + key); require(row != null, "No row " + key); row.performClick(); }); settle();
+        main(() -> require(sheet() != null && texts(sheetRoot()).contains("Untested on the N65i"), "Try sheet for " + key + ": " + texts(sheetRoot()).replace('\n', '|')));
+    }
+    private void chooseOption(int value) { main(() -> { View option = sheetRoot().findViewWithTag("lab-option-" + value); require(option != null, "No option " + value); option.performClick(); }); settle(); }
+    private void tapSheet(String button) { main(() -> { View b = (View)field(sheet(), button); require(b.isShown() && b.isEnabled(), "Sheet " + button + " unavailable"); b.performClick(); }); settle(); }
+    private void awaitSheetText(String text) {
+        long end = SystemClock.uptimeMillis() + 10000; final boolean[] found = {false};
+        do { main(() -> found[0] = texts(sheetRoot()).contains(text)); if (found[0]) break; SystemClock.sleep(120); } while (SystemClock.uptimeMillis() < end);
+        require(found[0], "Sheet never showed " + text); settle();
+    }
+    private void sheetShot(String name) throws Exception { settle(); screenshot(name); }
+    private void closeSheet() { main(() -> ((android.app.AlertDialog)field(sheet(), "dialog")).dismiss()); settle(); }
+
     private void openCompatibility() {
         main(() -> invoke(activity, "select", new Class<?>[]{String.class}, "more")); settle();
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Compatibility")); settle();
@@ -801,7 +968,8 @@ public final class GuidedTestValidation extends Instrumentation {
             switch (feature) { case "headlight": return 4; case "range_algorithm": return 6; case "display_units": return 7; case "auto_sensor": return 8; case "turn_sound": return 12; default: throw new IllegalArgumentException(feature); }
         }
         static int offset(int cmd) {
-            switch (cmd) { case 0x54: return 4; case 0x56: return 6; case 0x55: return 7; case 0x57: return 8; case 0x60: return 12; default: return -1; }
+            switch (cmd) { case 0x54: return 4; case 0x56: return 6; case 0x55: return 7; case 0x57: return 8; case 0x60: return 12;
+                case 0x5f: return 11; case 0x6a: return 19; case 0x6c: return 21; default: return -1; }
         }
         int value(String feature) { return state[offset(feature)] & 255; }
         int lastWriteValue() { byte[] f = writes.get(writes.size() - 1); return f[5] & 255; }

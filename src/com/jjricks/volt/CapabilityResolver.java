@@ -48,6 +48,8 @@ public final class CapabilityResolver {
             this.status=status==null?StatusFields.NONE:status;this.choices=choices==null?new int[0]:choices;
         }
         public boolean available(){return support==Support.KNOWN_ENCODING&&reason==Reason.NONE;}
+        /** An Experimental controls row: a known encoding with a Lab variant (decideExperimental decides when it may be tried). */
+        public boolean experimental(){return support==Support.KNOWN_ENCODING&&variant!=null&&variant.lab;}
         /**
          * Refused only because the scooter is moving, has sent no motion report yet, or (lock) has a
          * warning. The UI keeps such a control tappable so the tap can say why; admission still refuses.
@@ -171,6 +173,48 @@ public final class CapabilityResolver {
     /** decideTest plus the value: it must be in the variant domain and, for dynamic choices, offered now. */
     public static Decision admitTest(String feature,int value,DeviceDescriptor d,StatusFields s,Runtime rt){
         Decision decision=decideTest(feature,d,s,rt);
+        if(!decision.available()||decision.allows(value))return decision;
+        return withReason(decision,Reason.MODEL_EXCLUDED);
+    }
+
+    /**
+     * Whether a control may be tried from Experimental controls now. It uses the experimental rule
+     * (ModelRegistry.experimentalRule), never the ordinary one, and only a Lab variant qualifies: an
+     * offered control keeps its ordinary row and anything else stays refused. Beyond decide(): no
+     * guided test at all, no ride or charge recording, the field present in a fresh status and inside
+     * the variant domain (a readback is how the owner sees whether it took), then the rule's parked,
+     * owner, unlocked and no-warning conditions. Simulation needs only ready, idle and not recording.
+     */
+    public static Decision decideExperimental(String feature,DeviceDescriptor d,StatusFields s,Runtime rt){
+        StatusFields status=s==null?StatusFields.NONE:s;
+        ModelRegistry.Resolution r=ModelRegistry.resolve(d);
+        ModelRegistry.Rule rule=ModelRegistry.experimentalRule(feature,d,r,status);
+        if(rule.support!=Support.KNOWN_ENCODING||rule.reason!=Reason.NONE)return new Decision(feature,r.layer,rule,rule.reason,status,null);
+        FeatureVariant v=rule.variant;
+        if(v==null||!v.lab)return new Decision(feature,r.layer,rule,Reason.MODEL_EXCLUDED,status,null);
+        if(rt==null||!rt.ready)return new Decision(feature,r.layer,rule,Reason.NOT_CONNECTED,status,v.choices(status));
+        if(rt.simulation){
+            int[] values=v.dynamicChoices&&status.accepted()?v.choices(status):v.values.clone();
+            return new Decision(feature,r.layer,rule,rt.busy?Reason.BUSY:rt.recording?Reason.RECORDING:Reason.NONE,status,values);
+        }
+        Reason reason=Reason.NONE;int[] choices=null;
+        if(rt.discovery)reason=Reason.DISCOVERY_ACTIVE;
+        else if(rt.test)reason=Reason.TEST_ACTIVE;
+        else if(rt.busy)reason=Reason.BUSY;
+        else if(rt.recording)reason=Reason.RECORDING;
+        else if(!status.fresh(rt.nowMs,STATUS_MAX_AGE_MS))reason=Reason.STATUS_STALE;
+        else {
+            Integer current=v.readable?v.read(status):null;
+            if(current==null)reason=Reason.FIELD_ABSENT;
+            else if(!v.allows(current))reason=Reason.VALUE_UNKNOWN;
+            else {choices=v.choices(status);if(v.dynamicChoices&&choices.length==0)reason=Reason.NO_CHOICES;}
+        }
+        if(reason==Reason.NONE)reason=preconditions(rule.preconditions,status,rt);
+        return new Decision(feature,r.layer,rule,reason,status,choices==null?v.choices(status):choices);
+    }
+    /** decideExperimental plus the value: inside the Lab variant's domain (and offered now, for dynamic choices). */
+    public static Decision admitExperimental(String feature,int value,DeviceDescriptor d,StatusFields s,Runtime rt){
+        Decision decision=decideExperimental(feature,d,s,rt);
         if(!decision.available()||decision.allows(value))return decision;
         return withReason(decision,Reason.MODEL_EXCLUDED);
     }

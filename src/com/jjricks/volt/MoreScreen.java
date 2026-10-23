@@ -72,7 +72,7 @@ public final class MoreScreen implements AppScreen {
     private static final String[] SECTION_LABELS = {"App preferences", "My scooters", "PIN & proximity unlock",
             "Experimental controls", "Data & history", "About & permissions", "Developer options"};
     private static final String[] SECTION_TITLES = {"App preferences", "My scooters", "PIN & proximity",
-            "Firmware lab", "Data & history", "About & permissions", "Developer options"};
+            "Experimental controls", "Data & history", "About & permissions", "Developer options"};
     private static final String[] SECTION_ICONS = {"settings", "scooter", "shield", "lab", "history", "info", "lab"};
     /** More › Developer options › Compatibility; legacy unfinished tests retain a recovery-only route. */
     private CompatibilityPanel compatibilityPanel;
@@ -113,7 +113,11 @@ public final class MoreScreen implements AppScreen {
     private ImageView indexPhoto;
     private View indexPhotoFallback;
     private TextView indexProfileName, indexProfileState;
-    private TextView labCount, labConnect, historyUsage, historyStatus;
+    private TextView labConnect, labTitle, labIntro, labFoot, labNotice, historyUsage, historyStatus;
+    private LinearLayout labList;
+    private String labSignature = "", labModelKey = "";
+    private List<String> labKeys = new ArrayList<>();
+    private LabSheet labSheet;
     private TextView[] historyCounts;
     private LinearLayout historyBar;
     private View historyBarFill, historyBarRest;
@@ -121,11 +125,12 @@ public final class MoreScreen implements AppScreen {
     private boolean historyStoragePending;
     private long historyStorageChecked;
     private final List<LabRow> labRows = new ArrayList<>();
+    /** An Experimental controls row; status, now and action are null for a control this scooter doesn't report. */
     private static final class LabRow {
         final ScooterCommands.Feature feature;
-        final TextView value, action;
-        LabRow(ScooterCommands.Feature feature, TextView value, TextView action) {
-            this.feature = feature; this.value = value; this.action = action;
+        final LinearLayout line; final LadderPill status; final TextView now, action;
+        LabRow(ScooterCommands.Feature feature, LinearLayout line, LadderPill status, TextView now, TextView action) {
+            this.feature = feature; this.line = line; this.status = status; this.now = now; this.action = action;
         }
     }
 
@@ -602,7 +607,7 @@ public final class MoreScreen implements AppScreen {
         if (row.icon != null) { row.icon.setEnabled(live); row.icon.invalidate(); }
         toggle.setContentDescription(row.title.getText() + (state == null ? ", state not reported" : ""));
     }
-    /** Wrapping row of chips; each chip keeps a 48dp touch target around a slimmer visible pill. */
+    /** Wrapping row of small views (a status pill and its value): 8dp apart, 4dp between lines, centred on each line. */
     private final class Flow extends ViewGroup {
         Flow() { super(host.activity()); }
         @Override protected void onMeasure(int widthSpec, int heightSpec) {
@@ -610,19 +615,32 @@ public final class MoreScreen implements AppScreen {
             int x = 0, y = getPaddingTop(), rowHeight = 0;
             for (int i = 0; i < getChildCount(); i++) {
                 View child = getChildAt(i);
+                if (child.getVisibility() == GONE) continue;
                 child.measure(MeasureSpec.makeMeasureSpec(available, MeasureSpec.AT_MOST), MeasureSpec.makeMeasureSpec(0, MeasureSpec.UNSPECIFIED));
-                if (x > 0 && x + child.getMeasuredWidth() > available) { y += rowHeight; x = 0; rowHeight = 0; }
+                if (x > 0 && x + child.getMeasuredWidth() > available) { y += rowHeight + ui.dp(4); x = 0; rowHeight = 0; }
                 x += child.getMeasuredWidth() + ui.dp(8); rowHeight = Math.max(rowHeight, child.getMeasuredHeight());
             }
             setMeasuredDimension(resolveSize(width, widthSpec), resolveSize(y + rowHeight + getPaddingBottom(), heightSpec));
         }
         @Override protected void onLayout(boolean changed, int l, int t, int r, int b) {
-            int available = getWidth() - getPaddingLeft() - getPaddingRight(), x = 0, y = getPaddingTop(), rowHeight = 0;
-            for (int i = 0; i < getChildCount(); i++) {
-                View child = getChildAt(i); int w = child.getMeasuredWidth(), h = child.getMeasuredHeight();
-                if (x > 0 && x + w > available) { y += rowHeight; x = 0; rowHeight = 0; }
-                child.layout(getPaddingLeft() + x, y, getPaddingLeft() + x + w, y + h);
-                x += w + ui.dp(8); rowHeight = Math.max(rowHeight, h);
+            int available = getWidth() - getPaddingLeft() - getPaddingRight(), y = getPaddingTop(), start = 0;
+            while (start < getChildCount()) {
+                // One line: as many children as fit, then each centred on the line's height.
+                int end = start, x = 0, height = 0;
+                for (; end < getChildCount(); end++) {
+                    View child = getChildAt(end); if (child.getVisibility() == GONE) continue;
+                    if (x > 0 && x + child.getMeasuredWidth() > available) break;
+                    x += child.getMeasuredWidth() + ui.dp(8); height = Math.max(height, child.getMeasuredHeight());
+                }
+                if (end == start) end++;
+                x = 0;
+                for (int i = start; i < end; i++) {
+                    View child = getChildAt(i); if (child.getVisibility() == GONE) continue;
+                    int w = child.getMeasuredWidth(), h = child.getMeasuredHeight(), top = y + (height - h) / 2;
+                    child.layout(getPaddingLeft() + x, top, getPaddingLeft() + x + w, top + h);
+                    x += w + ui.dp(8);
+                }
+                y += height + ui.dp(4); start = end;
             }
         }
     }
@@ -1462,164 +1480,411 @@ public final class MoreScreen implements AppScreen {
         }
     }
 
-    // ---- Firmware lab -------------------------------------------------------------------
+    // ---- Experimental controls ------------------------------------------------------------
 
+    /**
+     * Controls the official app doesn't offer for this model (ModelRegistry.experimental), most likely to work first.
+     * A row says whether the control is untested here or what this session's last try read back; Try opens its sheet
+     * and Set back returns, in one tap, to the value before the first try. Everything the official app offers stays
+     * in Scooter settings. Rows rebuild when the model or the fields this scooter reports change.
+     */
     private void lab() {
-        LinearLayout warning = ui.card(); warning.setOrientation(LinearLayout.HORIZONTAL); warning.setGravity(Gravity.CENTER_VERTICAL);
-        warning.setBackground(ui.shape(Ui.withAlpha(ui.orange, ui.dark ? 30 : 26), 20, Ui.withAlpha(ui.orange, 100)));
-        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(ui.dp(24), ui.dp(24)); ip.rightMargin = ui.dp(14);
-        warning.addView(ui.icon("lab", 24, ui.orange), ip);
+        LinearLayout intro = ui.card(); intro.setOrientation(LinearLayout.HORIZONTAL); intro.setGravity(Gravity.TOP);
+        intro.setPadding(ui.dp(16), ui.dp(16), ui.dp(16), ui.dp(16)); intro.setTag("lab-intro");
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)); ip.rightMargin = ui.dp(14);
+        intro.addView(ui.iconSquare("lab", ui.orange), ip);
         LinearLayout words = column();
-        words.addView(ui.text("Unverified on UT5 MAX", 15, true));
-        TextView body = ui.text("From other NAVEE models.", 12.5f, false);
-        body.setTextColor(ui.muted); body.setPadding(0, ui.dp(4), 0, 0); words.addView(body);
-        warning.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
-        cardDestination.addView(warning);
+        TextView title = labTitle = ui.text("Untested controls", 16, true);
+        if (Build.VERSION.SDK_INT >= 28) title.setAccessibilityHeading(true);
+        words.addView(title);
+        labIntro = ui.text("", 13.5f, false); labIntro.setTextColor(ui.muted); labIntro.setPadding(0, ui.dp(5), 0, 0);
+        words.addView(labIntro);
+        intro.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        cardDestination.addView(intro);
         labConnect = ui.button("Connect", host::connect);
         cardDestination.addView(labConnect);
-        // Section label with the number of fields this firmware supplies, e.g. "3/7".
-        LinearLayout header = row();
-        TextView heading = ui.sectionLabel("Experimental"); heading.setText("Experimental"); heading.setAllCaps(true);
-        header.addView(heading, new LinearLayout.LayoutParams(0, -2, 1));
-        labCount = ui.text("", 11.5f, false); labCount.setTypeface(ui.semibold()); labCount.setTextColor(ui.muted);
-        labCount.setPadding(ui.dp(8), ui.dp(14), ui.dp(6), ui.dp(6));
-        header.addView(labCount);
-        cardDestination.addView(header);
-        LinearLayout list = group();
-        for (ScooterCommands.Feature f : ScooterCommands.catalog()) {
-            if (!f.experimental) continue;
-            if (list.getChildCount() > 0) ui.divider(list);
-            LinearLayout line = row(); line.setMinimumHeight(ui.dp(58)); line.setPadding(ui.dp(2), ui.dp(9), 0, ui.dp(9));
-            LinearLayout text = column();
-            // M46: rows show only the label; any short description lives in the Inspect dialog.
-            text.addView(ui.text(f.label, 15, false));
-            line.addView(text, new LinearLayout.LayoutParams(0, -2, 1));
-            TextView state = ui.text("", 11.5f, false);
-            LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-2, -2); sp.leftMargin = ui.dp(8);
-            line.addView(state, sp);
-            TextView inspect = inspectPill(f);
-            // While Inspect is unavailable, tapping the row says why.
-            clickable(line, () -> {
-                String reason = labReason(f);
-                if (reason == null) experimental(f); else host.toast(reason);
-            });
-            LinearLayout.LayoutParams pp = new LinearLayout.LayoutParams(-2, -2); pp.leftMargin = ui.dp(10);
-            line.addView(inspect, pp);
-            list.addView(line, new LinearLayout.LayoutParams(-1, -2));
-            labRows.add(new LabRow(f, state, inspect));
-        }
-        TextView evidence = ui.text("View command evidence", 13.5f, false); evidence.setTypeface(ui.medium());
-        evidence.setTextColor(ui.accent); evidence.setGravity(Gravity.CENTER); evidence.setMinHeight(ui.dp(48));
-        clickable(evidence, this::commandEvidence);
-        cardDestination.addView(evidence, new LinearLayout.LayoutParams(-1, -2));
-        footnote("Never changes firmware.");
+        // What holds every row right now (moving, locked, recording…), said once instead of on each row.
+        labNotice = ui.text("", 14, false); labNotice.setTag("lab-notice"); labNotice.setPadding(ui.dp(16), ui.dp(12), ui.dp(16), ui.dp(12));
+        labNotice.setBackground(ui.shape(Ui.withAlpha(ui.accent, ui.dark ? 30 : 18), 16, Ui.withAlpha(ui.accent, ui.dark ? 90 : 70)));
+        labNotice.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
+        LinearLayout.LayoutParams np = new LinearLayout.LayoutParams(-1, -2); np.bottomMargin = ui.dp(4);
+        cardDestination.addView(labNotice, np);
+        labList = column(); cardDestination.addView(labList, new LinearLayout.LayoutParams(-1, -2));
+        labFoot = footnote("");
+        LinearLayout tools = group();
+        row(tools, "stats", "Command evidence", null, this::commandEvidence).view.setTag("lab-evidence");
     }
-    /** Small red "Inspect" pill; grey while its field is unavailable. The touch target stays 48dp tall. */
-    private TextView inspectPill(ScooterCommands.Feature feature) {
-        TextView pill = ui.text("Inspect", 12.5f, true);
-        pill.setGravity(Gravity.CENTER); pill.setMinHeight(ui.dp(48)); pill.setMinWidth(ui.dp(48));
-        pill.setPadding(ui.dp(14), 0, ui.dp(14), 0);
-        pill.setTextColor(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}},
-                new int[] {ui.dim, ui.onAccent}));
+    private void refreshLab(ScooterService s) {
+        BleController ble = s.ble; boolean ready = ble.ready();
+        DeviceDescriptor d = ble.descriptor(); ModelRegistry.Resolution r = ModelRegistry.resolve(d);
+        String model = r.layer + "|" + r.matchedPrefix + "|" + r.conflict + "|" + d.rulePid() + "|" + d.pidSource();
+        if (!model.equals(labModelKey)) { labModelKey = model; labKeys = ModelRegistry.experimental(d); }
+        // Split into controls to try and controls this scooter doesn't report; rebuild only when that changes.
+        List<String> tryable = new ArrayList<>(), absent = new ArrayList<>();
+        for (String key : labKeys) {
+            CapabilityResolver.Decision decision = ble.experimentalDecision(key);
+            if (!decision.experimental()) continue;
+            (ready && decision.reason == CapabilityResolver.Reason.FIELD_ABSENT ? absent : tryable).add(key);
+        }
+        String signature = model + tryable + absent;
+        if (!signature.equals(labSignature)) { labSignature = signature; buildLab(r, d, tryable, absent); }
+        boolean rows = !tryable.isEmpty() || !absent.isEmpty();
+        labTitle.setText(rows ? "Untested controls" : "Nothing to try");
+        labIntro.setText(rows ? "The official app doesn't offer these for " + labModel(d) + ". Try one while parked; Volt reads it back." : labEmpty(r, d));
+        boolean offeredElsewhere = r.layer == ModelRegistry.Layer.OEM_GROUP || r.layer == ModelRegistry.Layer.UT5_MAX;
+        labFoot.setText(r.layer == ModelRegistry.Layer.OEM_GROUP
+                ? "Controls the official app offers for your model stay in Scooter settings. Speed limits, charging, the lock, PIN, proximity unlock and the clock are never added here. Volt never changes firmware."
+                : offeredElsewhere ? "Controls the official app offers for your model stay in Scooter settings. Volt never changes firmware." : "Volt never changes firmware.");
+        labConnect.setVisibility(ble.state() == BleController.State.DISCONNECTED ? View.VISIBLE : View.GONE);
+        CapabilityResolver.Reason held = null;
+        for (String key : tryable) { CapabilityResolver.Reason reason = ble.experimentalDecision(key).reason; if (held == null && LAB_HELD.contains(reason)) held = reason; }
+        // Disconnected, the Connect button says it; while connecting, the notice does.
+        String notice = held == null || held == CapabilityResolver.Reason.NOT_CONNECTED && labConnect.getVisibility() == View.VISIBLE ? ""
+                : held == CapabilityResolver.Reason.NOT_CONNECTED ? "Connecting…" : labHeld(held);
+        labNotice.setText(notice); labNotice.setVisibility(notice.isEmpty() ? View.GONE : View.VISIBLE);
+        for (LabRow row : labRows) refreshLabRow(ble, row);
+        if (labSheet != null) labSheet.refresh();
+    }
+    private void buildLab(ModelRegistry.Resolution r, DeviceDescriptor d, List<String> tryable, List<String> absent) {
+        labList.removeAllViews(); labRows.clear();
+        LinearLayout destination = cardDestination; cardDestination = labList;
+        try {
+            if (!tryable.isEmpty()) {
+                label("Try on this scooter");
+                LinearLayout list = group(); list.setTag("lab-try");
+                for (String key : tryable) labRows.add(labRow(list, ScooterCommands.find(key), true));
+            }
+            if (!absent.isEmpty()) {
+                label("Not reported by this scooter");
+                LinearLayout list = group(); list.setTag("lab-absent");
+                for (String key : absent) labRows.add(labRow(list, ScooterCommands.find(key), false));
+                footnote("Volt can't read these back, so it doesn't offer them.");
+            }
+        } finally { cardDestination = destination; }
+    }
+    private static String labEmpty(ModelRegistry.Resolution r, DeviceDescriptor d) {
+        switch (r.layer) {
+            case UNSUPPORTED_PRODUCT: case UNSUPPORTED_TRANSPORT: return "Volt sends no scooter commands to this product.";
+            case OEM_GROUP: return "Nothing to try on " + labModel(d) + ": the official app already offers the controls Volt could try. They're in Scooter settings.";
+            case UT5_MAX: return "Nothing to try on the UT5 MAX.";
+            default:
+                if (r.conflict) return "This scooter's model ID doesn't match its serial number, so Volt offers nothing to try.";
+                if (d.pidSource() == DeviceDescriptor.PidSource.ADVERTISED) return "The official app doesn't list this model, so Volt can't tell which controls it lacks. Nothing to try yet.";
+                if (d.pidSource() == DeviceDescriptor.PidSource.SERIAL) return "Identify your model on the Scooter page first. Volt then lists what you can try.";
+                return "Connect your scooter to see what you can try.";
+        }
+    }
+    /** "the UT5 MAX", "the N65i", "Model 24431" or "your model". */
+    private static String labModel(DeviceDescriptor d) {
+        String name = ModelRegistry.modelName(d); if (!name.isEmpty()) return "the " + name;
+        String line = ModelRegistry.modelLine(d); return line.isEmpty() ? "your model" : line;
+    }
+    /** The value as the rider reads it: another model's labels, speeds in the rider's units, 0 km/h kick-start as Standing start. */
+    private String labValue(ScooterCommands.Feature f, CapabilityResolver.Decision d, int value) {
+        if (f.key.equals("start_speed") && value == 0) return "Standing start";
+        String oem = d.oemLabel(value);
+        return oem != null ? oem : DisplayUnits.featureValue(f, value, settings().getString("units", "mi"));
+    }
+    /** One experimental row: icon, name, status pill and current value, and a Try (or Set back) pill. */
+    private LabRow labRow(LinearLayout group, ScooterCommands.Feature f, boolean reported) {
+        if (group.getChildCount() > 0) ui.divider(group);
+        LinearLayout line = row(); line.setMinimumHeight(ui.dp(reported ? 64 : 52)); line.setPadding(0, ui.dp(10), 0, ui.dp(10));
+        line.setTag("lab-row-" + f.key);
+        RowIcon icon = new RowIcon(ui.featureIcon(f.key)); icon.setEnabled(reported);
+        LinearLayout.LayoutParams ip = new LinearLayout.LayoutParams(ui.dp(34), ui.dp(34)); ip.rightMargin = ui.dp(12);
+        line.addView(icon, ip);
+        LinearLayout words = column();
+        TextView title = ui.text(f.label, 15, false); if (!reported) title.setTextColor(ui.muted);
+        title.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO); words.addView(title);
+        LadderPill status = null; TextView now = null, action = null;
+        if (reported) {
+            Flow meta = new Flow(); meta.setPadding(0, ui.dp(6), 0, 0);
+            status = new LadderPill(); now = ui.text("", 12.5f, false); now.setTextColor(ui.muted);
+            meta.addView(status); meta.addView(now); words.addView(meta);
+            meta.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO_HIDE_DESCENDANTS);
+        }
+        line.addView(words, new LinearLayout.LayoutParams(0, -2, 1));
+        if (reported) {
+            action = actionPill();
+            LinearLayout.LayoutParams ap = new LinearLayout.LayoutParams(-2, -2); ap.leftMargin = ui.dp(10);
+            line.addView(action, ap);
+            clickable(line, () -> openTry(f));
+        } else { line.setFocusable(true); line.setContentDescription(f.label + ", not reported by this scooter"); }
+        group.addView(line, new LinearLayout.LayoutParams(-1, -2));
+        LabRow row = new LabRow(f, line, status, now, action);
+        if (action != null) action.setOnClickListener(v -> labAction(row));
+        return row;
+    }
+    /** Red action pill (Try / Set back); grey while unavailable. The touch target stays 48dp tall. */
+    private TextView actionPill() {
+        TextView pill = ui.text("Try", 13, true); pill.setTypeface(ui.semibold());
+        pill.setGravity(Gravity.CENTER); pill.setMinHeight(ui.dp(48)); pill.setMinWidth(ui.dp(64)); pill.setMaxLines(1);
+        pill.setTextColor(new ColorStateList(new int[][] {new int[] {-android.R.attr.state_enabled}, new int[] {}}, new int[] {ui.dim, ui.onAccent}));
         StateListDrawable fill = new StateListDrawable();
         fill.addState(new int[] {-android.R.attr.state_enabled}, ui.shape(ui.raised, 100, 0));
         fill.addState(new int[] {}, ui.shape(ui.accent, 100, 0));
-        pill.setBackground(new InsetDrawable(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(Color.WHITE, 45)), fill, null),
-                0, ui.dp(8), 0, ui.dp(8)));
-        pill.setContentDescription("Inspect " + feature.label.toLowerCase(Locale.ROOT));
+        pill.setBackground(new InsetDrawable(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(Color.WHITE, 45)), fill, null), 0, ui.dp(7), 0, ui.dp(7)));
+        // After the background: an inset background replaces the view's padding with its own.
+        pill.setPadding(ui.dp(16), 0, ui.dp(16), 0);
         pill.setFocusable(true); pill.setEnabled(false);
-        pill.setOnClickListener(v -> experimental(feature));
         return pill;
     }
-    /** Why Inspect is unavailable for this field right now, or null when it can be opened. */
-    private String labReason(ScooterCommands.Feature feature) {
-        ScooterService s = service(); if (s == null) return "Connect first";
-        BleController ble = s.ble; ScooterProfiles.Profile p = active();
-        if (!ble.ready()) return "Connect first";
-        // Lab on the UT5 MAX, but an ordinary OEM-mapped control on this model: it lives in Scooter settings.
-        if (oemMapped(ble.decision(feature.key))) return "In Scooter settings for this model";
-        Integer current = ble.featureValue(feature.key);
-        if (current == null) return "Not reported by firmware";
-        if (!feature.allows(current)) return "Unknown value · can't change safely";
-        CapabilityResolver.Decision decision = ble.decision(feature.key);
-        if (decision.support != CapabilityResolver.Support.KNOWN_ENCODING || (!decision.available() && !decision.blockedByRide()
-                && decision.reason != CapabilityResolver.Reason.BUSY)) return decision.reasonText();
-        if (ble.pending() != null) return "Wait for the current change";
-        return null;
+    private void refreshLabRow(BleController ble, LabRow row) {
+        if (row.status == null) return;
+        String key = row.feature.key; CapabilityResolver.Decision d = ble.experimentalDecision(key);
+        Integer current = ble.ready() ? ble.featureValue(key) : null, before = ble.experimentBaseline(key);
+        labStatus(ble, key, row.status, false);
+        boolean back = labBack(d, current, before);
+        String text = current == null ? "" : "Now " + labValue(row.feature, d, current) + (back ? " · was " + labValue(row.feature, d, before) : "");
+        if (!d.available() && d.reason != CapabilityResolver.Reason.BUSY && !LAB_HELD.contains(d.reason)) text = (text.isEmpty() ? "" : text + " · ") + d.reasonText();
+        row.now.setText(text); row.now.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
+        // Ride-blocked stays tappable so the tap can say why; the write gate still refuses it.
+        boolean usable = (d.available() || d.blockedByRide()) && ble.pending() == null;
+        row.action.setText(back ? "Set back" : "Try"); row.action.setEnabled(usable); row.action.setClickable(usable);
+        row.action.setContentDescription(back ? "Set " + row.feature.label.toLowerCase(Locale.ROOT) + " back to " + labValue(row.feature, d, before)
+                : "Try " + row.feature.label.toLowerCase(Locale.ROOT));
+        row.line.setContentDescription(row.feature.label + ", " + row.status.getContentDescription() + (text.isEmpty() ? "" : ", " + text));
     }
-    /** A known, non-Lab variant from another model's mapping (never the UT5 MAX catalogue). */
-    private static boolean oemMapped(CapabilityResolver.Decision d) {
-        return d.support == CapabilityResolver.Support.KNOWN_ENCODING && d.variant != null && !d.variant.lab
-                && d.variant.decode != FeatureVariant.Decode.UT5_FEATURE;
+    /** Conditions that hold every experimental row at once; the section says them once (labHeld). */
+    private static final java.util.EnumSet<CapabilityResolver.Reason> LAB_HELD = java.util.EnumSet.of(CapabilityResolver.Reason.NOT_CONNECTED,
+            CapabilityResolver.Reason.STATUS_STALE, CapabilityResolver.Reason.MOVING, CapabilityResolver.Reason.NO_MOTION_REPORT, CapabilityResolver.Reason.WARNING_ACTIVE,
+            CapabilityResolver.Reason.LOCKED, CapabilityResolver.Reason.OWNER_ONLY, CapabilityResolver.Reason.DISCOVERY_ACTIVE, CapabilityResolver.Reason.TEST_ACTIVE,
+            CapabilityResolver.Reason.RECORDING);
+    private static String labHeld(CapabilityResolver.Reason reason) {
+        switch (reason) {
+            case NOT_CONNECTED: return "Connect to try these.";
+            case STATUS_STALE: return "Waiting for fresh scooter status.";
+            case MOVING: return "Stop the scooter to try these.";
+            case NO_MOTION_REPORT: return "Waiting for the scooter to report that it's parked.";
+            case WARNING_ACTIVE: return "Resolve the scooter's warning to try these.";
+            case LOCKED: return "Unlock the scooter to try these.";
+            case OWNER_ONLY: return "Only the owner's profile can try these.";
+            case DISCOVERY_ACTIVE: return "Wait for the compatibility check to finish.";
+            case TEST_ACTIVE: return "Finish the setting test first.";
+            case RECORDING: return "Stop recording to try these.";
+            default: return CapabilityResolver.text(reason);
+        }
+    }
+    /** Set back is offered once a try left the control on another valid value than before the first try. */
+    private static boolean labBack(CapabilityResolver.Decision d, Integer current, Integer before) {
+        return before != null && current != null && !before.equals(current) && d.variant != null && d.variant.allows(before);
+    }
+    /** What this session's last try read back, or that the control is untested here (quiet orange words, not a pill). */
+    private void labStatus(BleController ble, String key, LadderPill pill, boolean sheet) {
+        String result = ble.commandResults().get(key);
+        boolean tried = result != null && ble.commandResultTime(key) > 0;
+        if (key.equals(ble.pending())) pill.show(ui.muted, false, "Checking…");
+        // The simulator changes only its own memory and reads nothing back: no scooter evidence either way.
+        else if (ble.simulating() && ble.experimentBaseline(key) != null) pill.quiet(ui.muted, "Simulated change", "Simulated");
+        else if (!tried && sheet) pill.quiet(ui.muted, "Not tried yet");
+        else if (!tried) pill.quiet(ui.orange, "Untested on your model", "Untested here", "Untested");
+        else if (result.startsWith("Confirmed") || result.startsWith("Setting confirmed")) pill.show(ui.ok, true, "Worked here", "Worked");
+        else if (result.startsWith("Rejected")) pill.show(ui.danger, true, "Refused by scooter", "Refused");
+        else if (result.equals(BleController.OTHER_VALUE)) pill.show(ui.orange, true, "Other value read", "Other value");
+        // Only these two are known: nothing went out, or the scooter acknowledged and two reads showed no change.
+        else if (result.equals("Cancelled before sending")) pill.show(ui.muted, false, "Not sent");
+        else if (result.equals(BleController.NO_CHANGE)) pill.show(ui.muted, false, "No change seen", "No change");
+        // Interrupted or timed out after sending: the scooter may have applied it. Its next read shows which.
+        else pill.show(ui.orange, true, sheet ? "Unconfirmed · reconnect to check" : "Unconfirmed", "Unconfirmed");
+    }
+    private void labAction(LabRow row) {
+        BleController ble = service() == null ? null : service().ble; if (ble == null) return;
+        CapabilityResolver.Decision d = ble.experimentalDecision(row.feature.key);
+        Integer current = ble.ready() ? ble.featureValue(row.feature.key) : null, before = ble.experimentBaseline(row.feature.key);
+        if (labBack(d, current, before)) labSend(row.feature, before); else openTry(row.feature);
+    }
+    private boolean labSend(ScooterCommands.Feature f, int value) {
+        BleController ble = service().ble; boolean sent = ble.setExperimental(f.key, value);
+        if (!ble.message().isEmpty()) host.toast(ble.message());
+        refresh(); return sent;
     }
     void inspectQuickFeature(ScooterCommands.Feature feature) {
-        if (!closed && feature != null && feature.experimental) experimental(feature);
+        if (!closed && feature != null && service() != null && service().ble.experimentalDecision(feature.key).experimental()) openTry(feature);
     }
-    private void experimental(ScooterCommands.Feature feature) {
-        BleController ble = service().ble; Integer current = ble.featureValue(feature.key);
-        if (!ble.ready() || current == null) { host.toast("Not reported by firmware"); return; }
-        if (!feature.allows(current)) {
-            host.toast("Unknown value · can't change safely"); return;
+    private void openTry(ScooterCommands.Feature feature) {
+        if (closed || service() == null) return;
+        if (labSheet != null) labSheet.dialog.dismiss();
+        labSheet = new LabSheet(feature);
+    }
+    /** A status pill that shortens its wording (full, then shorter) instead of wrapping or clipping when space is tight. */
+    private final class LadderPill extends TextView {
+        private String[] ladder = {""}; private String style = "";
+        LadderPill() {
+            super(host.activity());
+            setTextSize(android.util.TypedValue.COMPLEX_UNIT_SP, 11.5f * ui.textScale); setTypeface(ui.semibold());
+            setMaxLines(1); setIncludeFontPadding(false); setGravity(Gravity.CENTER_VERTICAL);
+            setPadding(ui.dp(9), ui.dp(4), ui.dp(9), ui.dp(4));
         }
-        LinearLayout box = dialogBox(feature.label, feature.description);
-        TextView parked = ui.text("Apply while parked.", 13.5f, true); parked.setTextColor(ui.orange);
-        parked.setPadding(0, ui.dp(4), 0, ui.dp(4)); box.addView(parked);
-        // Source details stay one tap away under Details.
-        TextView source = ui.caption("Current field: " + DisplayUnits.featureValue(feature, current, settings().getString("units", "mi")) + "\nSource command: "
-                + String.format(Locale.ROOT, "0x%02X", feature.cmd) + " · status byte " + feature.payloadOffset + " of 0x70");
-        source.setPadding(0, 0, 0, ui.dp(7)); source.setVisibility(View.GONE);
-        TextView details = ui.text("Details ⌄", 13, false); details.setTextColor(ui.muted);
-        details.setGravity(Gravity.CENTER_VERTICAL); details.setMinHeight(ui.dp(40));
-        details.setContentDescription("Details");
-        clickable(details, () -> {
-            boolean open = source.getVisibility() != View.VISIBLE;
-            source.setVisibility(open ? View.VISIBLE : View.GONE); details.setText(open ? "Details ⌃" : "Details ⌄");
-            if (Build.VERSION.SDK_INT >= 30) details.setStateDescription(open ? "Expanded" : "Collapsed");
-        });
-        if (Build.VERSION.SDK_INT >= 30) details.setStateDescription("Collapsed");
-        box.addView(details, new LinearLayout.LayoutParams(-2, -2)); box.addView(source);
-        final int[] selected = {current};
-        if (feature.type == ScooterCommands.Type.SLIDER) {
-            TextView amount = value(box, DisplayUnits.featureValue(feature, selected[0], settings().getString("units", "mi")));
-            List<Integer> valid = new ArrayList<>();
-            for (int n = feature.min; n <= feature.max; n += feature.step) if (feature.allows(n)) valid.add(n);
-            SeekBar slider = new SeekBar(host.activity()); slider.setMax(Math.max(0, valid.size() - 1));
-            int currentIndex = valid.indexOf(current); slider.setProgress(Math.max(0, currentIndex)); box.addView(slider);
-            // End labels show the range, e.g. "Off" … "20 mph".
-            LinearLayout ends = row(); ends.setPadding(ui.dp(4), 0, ui.dp(4), ui.dp(4));
-            TextView low = ui.caption(valid.isEmpty() ? "" : DisplayUnits.featureValue(feature, valid.get(0), settings().getString("units", "mi")));
-            TextView high = ui.caption(valid.isEmpty() ? "" : DisplayUnits.featureValue(feature, valid.get(valid.size() - 1), settings().getString("units", "mi")));
-            high.setGravity(Gravity.END);
-            ends.addView(low, new LinearLayout.LayoutParams(0, -2, 1)); ends.addView(high, new LinearLayout.LayoutParams(0, -2, 1));
-            box.addView(ends);
-            slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
-                @Override public void onProgressChanged(SeekBar s, int n, boolean user) {
-                    selected[0] = valid.get(n); amount.setText(DisplayUnits.featureValue(feature, selected[0], settings().getString("units", "mi")));
+        void show(int color, boolean filled, String... words) {
+            if (restyle("pill" + color + filled)) {
+                setTextColor(filled ? color : ui.muted);
+                setBackground(ui.shape(filled ? Ui.withAlpha(color, ui.dark ? 46 : 34) : ui.raised, 100, 0));
+                setPadding(ui.dp(9), ui.dp(4), ui.dp(9), ui.dp(4));
+            }
+            words(words);
+        }
+        /** Words only, for the resting state, so the result pills stand out. */
+        void quiet(int color, String... words) {
+            if (restyle("quiet" + color)) { setTextColor(color); setBackground(null); setPadding(0, ui.dp(4), 0, ui.dp(4)); }
+            words(words);
+        }
+        private boolean restyle(String next) { if (next.equals(style)) return false; style = next; return true; }
+        private void words(String... words) {
+            if (Arrays.equals(ladder, words)) return;
+            ladder = words; setContentDescription(words[0]); setText(words[0]); requestLayout();
+        }
+        @Override protected void onMeasure(int widthSpec, int heightSpec) {
+            if (MeasureSpec.getMode(widthSpec) != MeasureSpec.UNSPECIFIED) {
+                int room = MeasureSpec.getSize(widthSpec) - getPaddingLeft() - getPaddingRight();
+                String pick = ladder[ladder.length - 1];
+                for (String word : ladder) if (getPaint().measureText(word) <= room) { pick = word; break; }
+                if (!pick.contentEquals(getText())) setText(pick);
+            }
+            super.onMeasure(widthSpec, heightSpec);
+        }
+    }
+    /**
+     * One control's Try sheet: why it is untested, the current value and last result, Volt-style radio rows (or a
+     * slider for a range), the reason it can't be sent now, Try and Set back. The sheet stays open to show the result.
+     */
+    private final class LabSheet {
+        final ScooterCommands.Feature feature; final AlertDialog dialog;
+        final TextView now, warn, reason, go, back; final LadderPill status;
+        final List<Ui.RadioDot> dots = new ArrayList<>(); final List<Integer> values = new ArrayList<>(); final List<View> nowTags = new ArrayList<>();
+        SeekBar slider; TextView sliderValue; final List<Integer> range = new ArrayList<>();
+        Integer selected;
+        LabSheet(ScooterCommands.Feature f) {
+            feature = f; BleController ble = service().ble; CapabilityResolver.Decision d = ble.experimentalDecision(f.key);
+            final AlertDialog[] self = new AlertDialog[1];
+            LinearLayout body = host.sheetContent(f.label, null, () -> { if (self[0] != null) self[0].dismiss(); });
+            body.setTag("lab-sheet");
+            LinearLayout caution = row(); caution.setGravity(Gravity.TOP); caution.setPadding(ui.dp(14), ui.dp(14), ui.dp(14), ui.dp(14));
+            caution.setBackground(ui.shape(Ui.withAlpha(ui.orange, ui.dark ? 26 : 18), 18, Ui.withAlpha(ui.orange, ui.dark ? 80 : 70)));
+            caution.addView(ui.icon("lab", 22, ui.orange), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
+            LinearLayout cw = column();
+            cw.addView(ui.text("Untested on " + labModel(ble.descriptor()), 15, true));
+            TextView why = ui.text(labWhy(f.key, ble.descriptor()), 13.5f, false); why.setTextColor(ui.muted); why.setPadding(0, ui.dp(4), 0, 0);
+            cw.addView(why);
+            LinearLayout.LayoutParams cwp = new LinearLayout.LayoutParams(0, -2, 1); cwp.leftMargin = ui.dp(12); caution.addView(cw, cwp);
+            body.addView(caution);
+            LinearLayout facts = ui.groupCard(); LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2); fp.topMargin = ui.dp(12);
+            body.addView(facts, fp);
+            now = fact(facts, "Now", ui.text("", 15, true));
+            ui.divider(facts);
+            status = new LadderPill(); fact(facts, "Last try", status);
+            // A range without listed values (the UT5 MAX speed caps) is a slider; anything else is radio rows.
+            boolean sliding = d.variant != null && d.variant.values.length == 0;
+            body.addView(ui.sectionLabel(sliding ? "Choose a limit" : "Choose a value"));
+            if (sliding) {
+                LinearLayout card = ui.card(); body.addView(card);
+                for (int n = d.variant.min; n <= d.variant.max; n += d.variant.step) if (d.variant.allows(n)) range.add(n);
+                sliderValue = ui.text("", 16, true); card.addView(sliderValue);
+                slider = new SeekBar(host.activity()); slider.setMax(Math.max(0, range.size() - 1));
+                slider.setProgressTintList(ColorStateList.valueOf(ui.accent)); slider.setThumbTintList(ColorStateList.valueOf(ui.accent));
+                slider.setContentDescription(f.label); slider.setTag("lab-slider");
+                LinearLayout.LayoutParams sp = new LinearLayout.LayoutParams(-1, ui.dp(48)); card.addView(slider, sp);
+                slider.setOnSeekBarChangeListener(new SeekBar.OnSeekBarChangeListener() {
+                    @Override public void onProgressChanged(SeekBar s, int n, boolean user) { if (user && n < range.size()) { selected = range.get(n); refresh(); } }
+                    @Override public void onStartTrackingTouch(SeekBar s) { }
+                    @Override public void onStopTrackingTouch(SeekBar s) { }
+                });
+            } else {
+                LinearLayout list = ui.groupCard(); body.addView(list);
+                for (int value : d.values()) { if (list.getChildCount() > 0) ui.divider(list); list.addView(option(d, value)); }
+            }
+            // The ordinary rows' cautions (kick-start below 3 km/h, traction control or motor braking off) apply here too.
+            warn = ui.text("", 13.5f, false); warn.setTextColor(ui.orange); warn.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); warn.setTag("lab-caution");
+            warn.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); body.addView(warn);
+            reason = ui.text("", 13.5f, false); reason.setTextColor(ui.danger); reason.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0);
+            reason.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); body.addView(reason);
+            go = ui.button("Try", this::send); go.setTag("lab-try-button"); body.addView(go);
+            back = ui.secondaryButton("Set back", this::setBack); back.setTag("lab-back-button"); body.addView(back);
+            TextView note = ui.caption("Volt sends one change while the scooter is parked and unlocked, then reads it back. Set back returns to the value from before your first try.");
+            note.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); body.addView(note);
+            if (d.variant != null) {
+                TextView source = ui.caption(String.format(Locale.ROOT, "Command 0x%02X%s · status byte %d", d.variant.cmd,
+                        d.variant.selector.length == 0 ? "" : ", selector " + d.variant.selector[0], d.variant.offset));
+                source.setTextColor(ui.dim); source.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); body.addView(source);
+            }
+            dialog = host.showSheet(body); self[0] = dialog; dialogs.add(dialog);
+            dialog.setOnDismissListener(x -> { dialogs.remove(dialog); if (labSheet == this) labSheet = null; });
+            refresh();
+        }
+        private TextView fact(LinearLayout card, String label, TextView value) {
+            LinearLayout line = row(); line.setMinimumHeight(ui.dp(50)); line.setPadding(ui.dp(2), ui.dp(8), ui.dp(2), ui.dp(8));
+            TextView name = ui.text(label, 14, false); name.setTextColor(ui.muted);
+            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            value.setGravity(Gravity.END | Gravity.CENTER_VERTICAL);
+            LinearLayout.LayoutParams vp = new LinearLayout.LayoutParams(-2, -2); vp.leftMargin = ui.dp(12); line.addView(value, vp);
+            card.addView(line); return value;
+        }
+        /** A radio row like Volt's other choice sheets: the value, "Now" beside the current one, then the ring. */
+        private View option(CapabilityResolver.Decision d, int value) {
+            LinearLayout line = row(); line.setMinimumHeight(ui.dp(56)); line.setPadding(ui.dp(4), ui.dp(10), ui.dp(4), ui.dp(10));
+            line.setTag("lab-option-" + value);
+            String label = labValue(feature, d, value);
+            TextView name = ui.text(label, 16, false); name.setMaxLines(2); name.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            line.addView(name, new LinearLayout.LayoutParams(0, -2, 1));
+            TextView tag = ui.text("Now", 12, false); tag.setTextColor(ui.muted); tag.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            LinearLayout.LayoutParams tp = new LinearLayout.LayoutParams(-2, -2); tp.leftMargin = ui.dp(10); line.addView(tag, tp);
+            Ui.RadioDot dot = ui.radioDot();
+            LinearLayout.LayoutParams dp = new LinearLayout.LayoutParams(ui.dp(24), ui.dp(24)); dp.leftMargin = ui.dp(14); line.addView(dot, dp);
+            line.setClickable(true); line.setFocusable(true); line.setContentDescription(label);
+            line.setBackground(new RippleDrawable(ColorStateList.valueOf(Ui.withAlpha(ui.accent, 26)), null, ui.shape(Color.WHITE, 10, 0)));
+            line.setAccessibilityDelegate(new View.AccessibilityDelegate() {
+                @Override public void onInitializeAccessibilityNodeInfo(View v, android.view.accessibility.AccessibilityNodeInfo info) {
+                    super.onInitializeAccessibilityNodeInfo(v, info);
+                    info.setClassName(android.widget.RadioButton.class.getName()); info.setCheckable(true); info.setChecked(dot.checked);
                 }
-                @Override public void onStartTrackingTouch(SeekBar s) { }
-                @Override public void onStopTrackingTouch(SeekBar s) { }
             });
-        } else {
-            LinearLayout options = column(); box.addView(options);
-            TextView selectedText = value(box, "Selected: " + DisplayUnits.featureValue(feature, selected[0], settings().getString("units", "mi")));
-            for (int i = 0; i < feature.optionValues.length; i++) {
-                final int choice = feature.optionValues[i];
-                button(options, DisplayUnits.featureValue(feature, choice, settings().getString("units", "mi")), () -> { selected[0] = choice; selectedText.setText("Selected: " + DisplayUnits.featureValue(feature, choice, settings().getString("units", "mi"))); }, false);
-            }
+            line.setOnClickListener(v -> { selected = value; refresh(); });
+            dots.add(dot); values.add(value); nowTags.add(tag);
+            return line;
         }
-        TextView error = ui.caption(""); error.setTextColor(ui.danger); box.addView(error);
-        ScrollView inner = new ScrollView(host.activity()); inner.addView(box);
-        AlertDialog dialog = new AlertDialog.Builder(host.activity()).setView(inner).setNegativeButton("Cancel", null)
-                .setPositiveButton("Apply experimental setting", null).create(); show(dialog);
-        dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v -> {
-            if (!feature.allows(selected[0])) return;
-            Integer latest = service().ble.featureValue(feature.key);
-            if (!service().ble.ready() || latest == null || !feature.allows(latest) || !latest.equals(current)) {
-                error.setText("Scooter changed · reopen"); return;
+        void refresh() {
+            BleController ble = service() == null || closed ? null : service().ble;
+            CapabilityResolver.Decision d = ble == null ? null : ble.experimentalDecision(feature.key);
+            if (d == null || !d.experimental()) { dialog.dismiss(); return; }
+            Integer current = ble.ready() ? ble.featureValue(feature.key) : null, before = ble.experimentBaseline(feature.key);
+            now.setText(current == null ? "—" : labValue(feature, d, current));
+            labStatus(ble, feature.key, status, true);
+            if (selected == null && current != null) {
+                for (int v : values) if (v != current) { selected = v; break; }
+                if (selected == null && range.size() > 1) selected = range.get(range.indexOf(current) == 0 ? 1 : 0);
             }
-            if (service().ble.set(feature.key, selected[0])) { host.toast(service().ble.message()); dialog.dismiss(); }
-            else error.setText(service().ble.message()); refresh();
-        });
+            for (int i = 0; i < values.size(); i++) {
+                dots.get(i).set(values.get(i).equals(selected));
+                nowTags.get(i).setVisibility(values.get(i).equals(current) ? View.VISIBLE : View.GONE);
+            }
+            if (slider != null) {
+                int at = selected == null ? (current == null ? -1 : range.indexOf(current)) : range.indexOf(selected);
+                if (at >= 0 && slider.getProgress() != at) slider.setProgress(at);
+                sliderValue.setText(selected == null ? "—" : labValue(feature, d, selected));
+            }
+            boolean pending = feature.key.equals(ble.pending()), busy = ble.pending() != null;
+            boolean change = selected != null && current != null && !selected.equals(current) && d.allows(selected);
+            go.setText(pending ? "Checking…" : selected == null ? "Try" : current != null && selected.equals(current) ? "Already " + labValue(feature, d, selected)
+                    : "Try " + labValue(feature, d, selected));
+            go.setContentDescription(go.getText()); go.setEnabled(d.available() && !busy && change);
+            String caution = change ? ModelRegistry.experimentalCaution(feature.key, selected) : null;
+            warn.setText(caution == null ? "" : caution); warn.setVisibility(caution == null ? View.GONE : View.VISIBLE);
+            String why = d.available() || d.reason == CapabilityResolver.Reason.BUSY ? "" : d.reasonText();
+            reason.setText(why); reason.setVisibility(why.isEmpty() ? View.GONE : View.VISIBLE);
+            boolean showBack = labBack(d, current, before);
+            // After a try, Set back is the one action unless another value is chosen.
+            go.setVisibility(showBack && !pending && (selected == null || selected.equals(current) || selected.equals(before)) ? View.GONE : View.VISIBLE);
+            back.setVisibility(showBack ? View.VISIBLE : View.GONE);
+            if (showBack) { back.setText("Set back to " + labValue(feature, d, before)); back.setContentDescription(back.getText()); }
+            back.setEnabled(d.available() && !busy);
+        }
+        void send() { if (selected != null) labSend(feature, selected); }
+        void setBack() { Integer before = service().ble.experimentBaseline(feature.key); if (before != null) labSend(feature, before); }
+    }
+    /** Where the official app offers this control instead (OEM tables), in plain words. */
+    private static String labWhy(String key, DeviceDescriptor d) {
+        int[] n = ModelRegistry.offeredElsewhere(key, d);
+        return (n[2] > 0 ? "The official app offers this on " + n[2] + (n[2] == 1 ? " other model" : " other models") + ", but not on yours."
+                : "The official app doesn't offer this on your model.") + " It may do nothing here, or work differently.";
     }
     private void commandEvidence() {
         LinearLayout box = dialogBox("Command evidence", "PIN and auth bytes hidden");
@@ -2153,36 +2418,6 @@ public final class MoreScreen implements AppScreen {
         String notice = owner ? "Test while parked." : link == BleController.State.READY ? modelReason : "";
         securityNotice.setText(notice);
         securityNotice.setVisibility(notice.isEmpty() ? View.GONE : View.VISIBLE);
-        int available = 0;
-        Map<String,String> results = s.ble.commandResults();
-        for (LabRow row : labRows) {
-            Integer current = s.ble.featureValue(row.feature.key);
-            String result = results.get(row.feature.key);
-            if (current != null) available++;
-            boolean knownBaseline = current != null && row.feature.allows(current);
-            // Grey "—": not supplied. Orange "?": outside the explained range. Otherwise the value with
-            // a green dot once a change was confirmed by readback, orange while behaviour is unverified.
-            boolean confirmed = result != null && (result.startsWith("Confirmed") || result.startsWith("Setting confirmed"));
-            if (current == null) {
-                pill(row.value, "—", ui.muted, false);
-                row.value.setContentDescription("Not reported by firmware");
-            } else if (!knownBaseline) {
-                pill(row.value, "?", ui.orange, true);
-                row.value.setContentDescription("Unknown value " + current);
-            } else {
-                String shown = DisplayUnits.featureValue(row.feature, current, settings().getString("units", "mi"));
-                pill(row.value, "● " + shown, confirmed ? ui.ok : ui.orange, true);
-                row.value.setContentDescription(shown + (confirmed ? ", confirmed" : result == null ? ", unverified" : ", " + result));
-            }
-            CapabilityResolver.Decision decision = s.ble.decision(row.feature.key);
-            boolean inspectable = s.ble.ready() && (decision.available() || decision.blockedByRide()) && !busy && knownBaseline && !oemMapped(decision);
-            row.action.setEnabled(inspectable);
-            // A disabled pill passes its taps to the row, which explains why.
-            row.action.setClickable(inspectable);
-        }
-        boolean disconnected = s.ble.state() == BleController.State.DISCONNECTED;
-        labConnect.setVisibility(disconnected ? View.VISIBLE : View.GONE);
-        labCount.setText(s.ble.ready() ? available + "/" + labRows.size() : "");
-        labCount.setContentDescription(s.ble.ready() ? available + " of " + labRows.size() + " fields reported" : null);
+        refreshLab(s);
     }
 }

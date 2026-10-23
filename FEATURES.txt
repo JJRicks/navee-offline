@@ -270,6 +270,9 @@ and value restrictions are noted, not applied: each model offers its widest
 mapped domain, with no values borrowed from other models. The scooter's
 firmware can still reject a setting. A control that is Lab
 on the UT5 MAX is an ordinary row on a model the official app maps it for.
+Controls the official app hides for an identified model can be tried from
+More > Experimental controls (see EXPERIMENTAL CONTROLS below); the rows above
+are unchanged.
 Firmware conditions need the version read in the current connection, and a
 value the scooter reports outside the mapped choices reads as unknown.
 
@@ -333,7 +336,63 @@ No decoded per-cell voltages, cell balance, motor/controller temperature,
 torque, direct per-trip Wh or exact remaining pack Wh were found. Unknown fields
 retain honest raw labels; firmware faults are not silently cleared.
 
-FIRMWARE LAB: EXPERIMENTAL OR UNAVAILABLE
+EXPERIMENTAL CONTROLS (FORMERLY FIRMWARE LAB)
+
+More > Experimental controls lists, for the connected (or last identified)
+scooter, controls the official NAVEE app does not offer for that model, so an
+owner can try them while parked. Everything the official app offers for the
+model keeps its place in Scooter settings, verified or not.
+
+Model                  What Experimental controls lists
+---------------------  -------------------------------------------------------
+UT5 MAX                Its Lab rows, as before: acceleration, custom and drive
+                       speed caps, dual motor, long range, overspeed, prompt
+                       sound
+Identified OEM models  Each of these the official app hides for that model:
+                       kick-start speed (0-5 km/h, Standing start at 0),
+                       cruise control, traction control, tail light,
+                       automatic lights, turn signal sound, walk, power and
+                       descent assist, prompt sound
+Anything else          Nothing: unidentified, model ID mismatch, models the
+                       official app does not list, golf carts, e-bikes, Exo
+
+For example the N65i (22131) lists kick-start speed, turn signal sound,
+traction control, the three assists and prompt sound; the ST3 Pro (23452)
+and the GT5 Max (25462) the three assists and prompt sound; 2585 nothing.
+The GT5 Max's kick-start speed, Standing start included, stays in Scooter
+settings: the official app offers kick-start speed for that model.
+
+Never added on another model, where the official app does not offer them:
+maximum speed and every speed cap, overspeed control (it acts on speed while
+riding), Eco/Turbo (its readback is the riding-mode byte), dual motor (it
+shares the speed and mode command), charging, Low Battery Mode, long range
+mode, lock time and the clock (the 0x6f parameter block), the lock, PIN and
+proximity unlock, and ambient, logo, daytime, line and star lights (status
+byte 10 means different lights on different models). Where the official app
+does offer one of these for a model, it stays in Scooter settings as before.
+Volt sends only the encoding the official app uses on models that do offer a
+control; no new commands, and never firmware.
+
+Order: most likely to work first. Volt counts, from the official app's model
+tables, how many related models (the same OEM model-ID family) and how many
+other listed models offer each control; ties follow a fixed owner priority
+(kick-start, cruise, energy recovery, traction, acceleration, turn sound, tail
+light, automatic lights, units, then the rest). The family count is usually
+zero, because the official app hides controls by family.
+
+A try needs a fresh, owner-authenticated status with the field present and a
+known value, the scooter stopped with a recent motion report, unlocked, no
+scooter warning, no pending change, compatibility check, setting test or ride
+or charge recording. Volt sends one value, then shows what the scooter read
+back: "Worked here" (the new value read back), "No change seen" (acknowledged
+but two later reads kept the old value; the connection stays up), "Refused by
+scooter" (an error code) or "Untested on your model" before any try. Set back
+writes the value from before the session's first try, in one tap, under the
+same conditions. Controls the scooter does not report are listed as not
+reported and cannot be tried. Results last for the session, like other
+command results; nothing new is stored or shared.
+
+Earlier UT5 MAX evidence for its Lab rows:
 
 Candidate              Evidence on this UT5 MAX
 ---------------------  -------------------------------------------------------
@@ -349,10 +408,8 @@ Long range mode        Status field absent on this observed firmware.
 Overspeed control      Status field absent on this observed firmware.
 Separate Drive cap     Status field absent on this observed firmware.
 
-Lab controls require an exposed status field, an understood original value,
-fresh stationary data and a matching readback after an accepted command.
-Missing or unexplained baseline values keep controls unavailable. The app has
-no arbitrary command console, ownership reset or firmware-write feature.
+Missing or unexplained values keep a control unavailable. The app has no
+arbitrary command console, ownership reset or firmware-write feature.
 
 APP TOOLS AND REMAINING VALIDATION
 

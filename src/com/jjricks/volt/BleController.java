@@ -59,7 +59,7 @@ public final class BleController {
     /** Handshake responses stay private until the transport's hardware belongs to this profile. */
     private Protocol.Frame pendingStatusFrame,pendingSerialFrame;private long pendingStatusMs;
     private long savedProfileMs,lastBatteryPollMs,scanSequence,backgroundDeadlineMs;private ScanCallback scanCallback;private Runnable scanTimeout;
-    private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;MutationGate.Request request;FeatureVariant variant;Consumer<Boolean> completion;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
+    private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;MutationGate.Request request;FeatureVariant variant;Consumer<Boolean> completion;Integer before,lastRead;int readsAfterAck;boolean drained;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
     public BleController(Context c,ScooterProfiles p){context=c.getApplicationContext();profiles=p;diagnostics=ConnectionEventLog.open(new File(context.getNoBackupFilesDir(),"connection-events"));testJournal=new TestJournal(TestJournal.file(new File(context.getNoBackupFilesDir(),"compat-tests")));BluetoothManager m=context.getSystemService(BluetoothManager.class);adapter=m==null?null:m.getAdapter();IntentFilter filter=new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);if(Build.VERSION.SDK_INT>=33)context.registerReceiver(bluetoothReceiver,filter,Context.RECEIVER_EXPORTED);else context.registerReceiver(bluetoothReceiver,filter);}
     public void setListener(Listener l){listener=l;}
     /** Runtime only. The transition guard also prevents listeners from persisting display samples. */
@@ -70,7 +70,7 @@ public final class BleController {
         // Cancel pending real operations before any sample can be displayed. In-flight
         // callbacks also lose their generation/GATT identity when close() runs.
         wanted=false;recoverableConnectionLoss=false;handler.removeCallbacksAndMessages(null);clearMutation();
-        close(State.DISCONNECTED);clearDiscovery();telemetry.clear();profile=null;scanner=null;discoveries.clear();advertised.clear();commandResults.clear();
+        close(State.DISCONNECTED);clearDiscovery();telemetry.clear();profile=null;scanner=null;discoveries.clear();advertised.clear();commandResults.clear();experimentBaselines.clear();
         simulation=enabled?new ScooterSimulation():null;if(simulation!=null)simulation.setModel(simulationModel);
         state=enabled?State.READY:State.DISCONNECTED;
         if(enabled)updateSimulation();
@@ -100,7 +100,7 @@ public final class BleController {
         if(simulation!=null&&!Objects.equals(DeviceDescriptor.simulated(simulation.model(),0,next).region,DeviceDescriptor.simulated(simulation.model(),0,simulationRegion).region)){if(discovering)stopDiscovery();clearDiscovery();}
         simulationRegion=next;tickSimulation();changed();
     }
-    public void setSimulationModel(String pid){String next=pid==null?"":pid;if(simulation!=null&&!next.equals(simulationModel)){if(discovering)stopDiscovery();clearDiscovery();}simulationModel=next;if(simulation!=null){simulation.setModel(simulationModel);tickSimulation();}changed();}
+    public void setSimulationModel(String pid){String next=pid==null?"":pid;if(simulation!=null&&!next.equals(simulationModel)){if(discovering)stopDiscovery();clearDiscovery();experimentBaselines.clear();}simulationModel=next;if(simulation!=null){simulation.setModel(simulationModel);tickSimulation();}changed();}
     public void setSimulationCharging(boolean charging){if(simulation==null)return;simulation.setCharging(charging);tickSimulation();changed();}
     private void connectSimulation(){if(simulation==null)return;state=State.READY;updateSimulation();notice("Simulated connection");}
     /** Simulation changes need no caption or toast: the persistent banner already says the data is simulated. */
@@ -152,6 +152,15 @@ public final class BleController {
     }
     /** The decision the UI shows for a control; the same resolver admits every write. */
     public CapabilityResolver.Decision decision(String key){return duringDiscovery(CapabilityResolver.decide(key,descriptor(),status(),runtime(key)));}
+    /** Experimental controls: whether this control may be tried now (ModelRegistry.experimentalRule; only Lab variants). */
+    public CapabilityResolver.Decision experimentalDecision(String key){return duringDiscovery(CapabilityResolver.decideExperimental(key,descriptor(),status(),runtime(key)));}
+    /** A change from Experimental controls: the experimental rule admits it, and the scooter's readback says whether it took. */
+    public boolean setExperimental(String key,int value){return set(key,value,MutationGate.Origin.EXPERIMENTAL);}
+    /** The value before this session's first experimental change of key (Set back), or null. Cleared with the session's results. */
+    public Integer experimentBaseline(String key){return experimentBaselines.get(key);}
+    private final LinkedHashMap<String,Integer> experimentBaselines=new LinkedHashMap<>();
+    /** Command result when an acknowledged experimental change never read back: the scooter kept its value, or showed another. */
+    public static final String NO_CHANGE="No change seen",OTHER_VALUE="Read back a different value";
     /** Value-specific decision (lock direction): unlock follows the recovery contract. */
     public CapabilityResolver.Decision decision(String key,int value){return duringDiscovery(CapabilityResolver.admit(key,value,descriptor(),status(),runtime(key)));}
     private StatusFields status(){return StatusFields.of(statusFrame,statusMs);}
@@ -188,8 +197,8 @@ public final class BleController {
         if(p==null)return DeviceDescriptor.of("","",0,fw,false,DeviceDescriptor.Transport.STANDARD,0);
         return p.descriptor(fw,connected()&&fw.any(),DeviceDescriptor.Transport.STANDARD);
     }
-    /** Live value from this session's status. Another model's variant decodes its own field (the UT5 MAX keeps the catalogue decoder). */
-    public Integer featureValue(String key){if(simulating())return simulation==null?null:simulation.featureValue(key);try{ScooterCommands.Feature f=ScooterCommands.find(key);FeatureVariant v=f.sensitive?null:ModelRegistry.variant(key,descriptor(),null,status());if(v!=null&&v.decode!=FeatureVariant.Decode.UT5_FEATURE&&v.readable)return v.read(status());return f.readback(statusFrame);}catch(Exception e){return null;}}
+    /** Live value from this session's status. Another model's variant (or its experimental one) decodes its own field (the UT5 MAX keeps the catalogue decoder). */
+    public Integer featureValue(String key){if(simulating())return simulation==null?null:simulation.featureValue(key);try{ScooterCommands.Feature f=ScooterCommands.find(key);DeviceDescriptor d=descriptor();StatusFields s=status();FeatureVariant v=f.sensitive?null:ModelRegistry.variant(key,d,null,s);if(v==null&&!f.sensitive)v=ModelRegistry.experimentalRule(key,d,null,s).variant;if(v!=null&&v.decode!=FeatureVariant.Decode.UT5_FEATURE&&v.readable)return v.read(status());return f.readback(statusFrame);}catch(Exception e){return null;}}
     /** Values this model offers now (UT5 MAX: today's catalogue choices); empty when not mapped. */
     public int[] featureChoices(String key){try{return decision(key).values();}catch(Exception e){return new int[0];}}
     public boolean permissions(){return Build.VERSION.SDK_INT>=31?context.checkSelfPermission(Manifest.permission.BLUETOOTH_SCAN)==PackageManager.PERMISSION_GRANTED&&context.checkSelfPermission(Manifest.permission.BLUETOOTH_CONNECT)==PackageManager.PERMISSION_GRANTED:context.checkSelfPermission(Manifest.permission.ACCESS_FINE_LOCATION)==PackageManager.PERMISSION_GRANTED;}
@@ -227,7 +236,7 @@ public final class BleController {
         if(gatt==null&&!scanning&&state==State.DISCONNECTED&&mutation==null&&queue.isEmpty())return;
         recordDiagnostic(ConnectionEventLog.Reason.BACKGROUND_PAUSE,-1);close(State.DISCONNECTED);notice("Paused in background");
     }
-    public void destroy(){recordDiagnostic(ConnectionEventLog.Reason.SERVICE_CLOSED,-1);recoverableConnectionLoss=false;if(simulating()){telemetry.clear();simulation=null;simulationChanging=false;commandResults.clear();}wanted=false;close(State.DISCONNECTED);handler.removeCallbacksAndMessages(null);listener=null;try{context.unregisterReceiver(bluetoothReceiver);}catch(Exception ignored){}diagnostics.flush();}
+    public void destroy(){recordDiagnostic(ConnectionEventLog.Reason.SERVICE_CLOSED,-1);recoverableConnectionLoss=false;if(simulating()){telemetry.clear();simulation=null;simulationChanging=false;commandResults.clear();experimentBaselines.clear();}wanted=false;close(State.DISCONNECTED);handler.removeCallbacksAndMessages(null);listener=null;try{context.unregisterReceiver(bluetoothReceiver);}catch(Exception ignored){}diagnostics.flush();}
     public void scan(){scan("");}
     /** only: a saved MAC to reconnect to (Identify), or "" for discovery. */
     private void scan(String only){
@@ -271,7 +280,7 @@ public final class BleController {
         if(test!=null&&!test.terminal()){test.onDisconnect(now());event("Guided test interrupted");}testParked=false;
         readPolicy=null;authVariant="";
         ++generation;++writeOperation;stopScan();BluetoothGatt old=gatt;gatt=null;writer=null;if(old!=null){try{old.disconnect();}catch(Exception ignored){}try{old.close();}catch(Exception ignored){}}
-        queue.clear();discoveryQueue.clear();outstandingStatusReads=0;decoder.reset();invalidFrameNoted=checksumNoted=false;if(mutation!=null)result(mutation.key,"Cancelled after disconnection");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=pendingStatusFrame=pendingSerialFrame=null;pendingStatusMs=0;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
+        queue.clear();discoveryQueue.clear();outstandingStatusReads=0;decoder.reset();invalidFrameNoted=checksumNoted=false;if(mutation!=null)result(mutation.key,mutation.sent?"Cancelled after disconnection":"Cancelled before sending");clearMutation();pinState=null;pinStateMs=pinReadToken=0;pinReadPending=false;authenticated=writing=mtuRequested=discovered=subscribing=subscribed=challengePending=false;authRounds=0;statusFrame=pendingStatusFrame=pendingSerialFrame=null;pendingStatusMs=0;sessionFirmware=null;bondCheckedMs=0;statusMs=motionMs=warningMs=lastFrameMs=0;serial="";speedRaw=driving=-1;warning=0;state=next;changed();
     }
     private void failed(String text,boolean retry,ConnectionEventLog.Reason reason,int code){
         if(simulating())return;
@@ -394,7 +403,7 @@ public final class BleController {
                 }
                 boolean guidedReply=mutation!=null&&mutation.sent&&f.cmd==mutation.cmd&&guided(mutation)&&test!=null;
                 if(guidedReply)test.onAck(f.cmd,f.error(),now());
-                if(mutation!=null&&mutation.sent&&f.cmd==mutation.cmd){if(f.error()!=0){String key=mutation.key;clearMutation();result(key,"Rejected ("+f.error()+")");notice("Change rejected","Change rejected ("+f.error()+")");}else if(mutation.key.equals("clock_sync")){finishMutation("Clock sent (unverified)","Accepted; no clock readback available");}else{mutation.ack=true;int s=generation;long token=mutation.token;String key=mutation.key;handler.postDelayed(()->{if(s==generation&&mutation!=null&&mutation.token==token)for(int cmd:ScooterCommands.followUpReads(key))send(Protocol.frame(cmd,null));},250);}}
+                if(mutation!=null&&mutation.sent&&f.cmd==mutation.cmd){if(f.error()!=0){String key=mutation.key;clearMutation();result(key,"Rejected ("+f.error()+")");notice("Change rejected","Change rejected ("+f.error()+")");}else if(mutation.key.equals("clock_sync")){finishMutation("Clock sent (unverified)","Accepted; no clock readback available");}else{mutation.ack=true;mutation.drained=outstandingStatusReads==0;int s=generation;long token=mutation.token;String key=mutation.key;handler.postDelayed(()->{if(s==generation&&mutation!=null&&mutation.token==token)for(int cmd:ScooterCommands.followUpReads(key))send(Protocol.frame(cmd,null));},250);}}
                 if(guidedReply)stepTest();
             }
             changed();
@@ -478,7 +487,7 @@ public final class BleController {
         if(simulating()){
             if(simulation==null||!ready()){notice("Connect the simulated scooter first.");return completed(completion,false);}
             CapabilityResolver.Decision d=check(request);if(!d.available()){notice(d.reasonText());return completed(completion,false);}
-            try{simulation.set(key,value,d.variant);updateSimulation();quiet();return completed(completion,true);}
+            try{Integer before=featureValue(key);simulation.set(key,value,d.variant);if(origin==MutationGate.Origin.EXPERIMENTAL&&before!=null)experimentBaselines.putIfAbsent(key,before);updateSimulation();quiet();return completed(completion,true);}
             catch(IllegalArgumentException invalid){notice(invalid.getMessage());return completed(completion,false);}
         }
         CapabilityResolver.Decision d=check(request);boolean proximity=request.kind==MutationGate.Kind.PROXIMITY;
@@ -491,7 +500,10 @@ public final class BleController {
             if(proximity){if(!pinFresh()){readPin();notice("Read the PIN state, then apply proximity unlock.");return completed(completion,false);}if(!d.available()){refused(request,d);return completed(completion,false);}boolean bonded=gatt.getDevice().getBondState()==BluetoothDevice.BOND_BONDED;bytes=ScooterCommands.setProximity(value==1,profile.role==0,bonded,pinState);}
             else if(d.variant.decode==FeatureVariant.Decode.UT5_FEATURE)bytes=ScooterCommands.set(key,value,statusFrame);
             else bytes=d.variant.encode(value);
-            return begin(request,d.variant,value,bytes,null,completion);
+            if(origin!=MutationGate.Origin.EXPERIMENTAL)return begin(request,d.variant,value,bytes,null,completion);
+            // Set back returns to the value before this session's first experimental change of this control.
+            if(!begin(request,d.variant,value,bytes,null,completion))return false;
+            if(mutation!=null)mutation.before=current;if(current!=null)experimentBaselines.putIfAbsent(key,current);return true;
         }catch(IllegalArgumentException e){notice(e.getMessage());return completed(completion,false);}}
     public void setChargeStart(long seconds,int offset){setChargeStart(seconds,offset,null);}
     public void setChargeStart(long seconds,int offset,Consumer<Boolean> completion){MutationGate.Request request=new MutationGate.Request(MutationGate.Kind.CHARGE_START,"charge_start",0,MutationGate.Origin.USER);
@@ -711,7 +723,13 @@ public final class BleController {
         message=key.equals("clock_sync")?"Setting the scooter’s clock from this phone…":"Applying "+ScooterCommands.find(key).label.toLowerCase(Locale.ROOT)+"…";changed();send(bytes);
         return mutation==pending;
     }
-    private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;if(guided(mutation)&&test!=null)test.onMutationTimeout(mutation.ack,now());String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed("Change not confirmed",true,ConnectionEventLog.Reason.COMMAND_CONFIRMATION_TIMEOUT,-1);}
+    private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;
+        // Experimental: acknowledged, and two status replies after every earlier read drained still without the new value. The link is healthy and the
+        // scooter simply kept (or showed another) value, so this is the try's result, not a connection failure.
+        if(mutation.request!=null&&mutation.request.origin==MutationGate.Origin.EXPERIMENTAL&&mutation.ack&&mutation.readsAfterAck>=2){
+            String key=mutation.key;boolean kept=mutation.before!=null&&mutation.before.equals(mutation.lastRead);
+            result(key,kept?NO_CHANGE:OTHER_VALUE);clearMutation();notice(ScooterCommands.find(key).label+(kept?": no change seen":": read back a different value"));return;
+        }if(guided(mutation)&&test!=null)test.onMutationTimeout(mutation.ack,now());String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed("Change not confirmed",true,ConnectionEventLog.Reason.COMMAND_CONFIRMATION_TIMEOUT,-1);}
     /**
      * A settings read to bind on: the lock byte at payload offset 2 is present and plausible. The UT5 MAX
      * keeps its full 14-byte minimum; other models may send less (the N65i sends ten bytes), and every
@@ -748,12 +766,17 @@ public final class BleController {
         String pid=pendingAdvertised!=null&&gatt!=null&&gatt.getDevice().getAddress().equals(pendingAdvertisedMac)?pendingAdvertised.pid:p==null?"":p.advertisedPid;
         return DeviceDescriptor.of(s,pid,1,null,false,DeviceDescriptor.Transport.STANDARD,p==null?0:p.role);
     }
-    private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
+    private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);
+            // Replies can arrive in any order, so a count can't say which answer which read. Only once every status read
+            // requested by the ACK has been answered (none outstanding) can a later reply only answer a read sent after
+            // the change; until then (including the reply that empties the count) a reply proves nothing either way.
+            boolean fresh=f.cmd==0x70&&mutation.drained;if(f.cmd==0x70&&!mutation.drained&&outstandingStatusReads==0)mutation.drained=true;
+            if(value!=null&&value!=mutation.target&&fresh){mutation.readsAfterAck++;mutation.lastRead=value;}if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;Consumer<Boolean> completion=mutation.completion;mutation.completion=null;result(key,evidence);clearMutation();notice(text);completed(completion,true);}
     private void clearMutation(){Consumer<Boolean> completion=mutation==null?null:mutation.completion;if(mutation!=null){for(Iterator<byte[]> i=queue.iterator();i.hasNext();)if(i.next()==mutation.bytes)i.remove();if(mutation.desiredPin!=null){Arrays.fill(mutation.desiredPin,'\u0000');Arrays.fill(mutation.bytes,(byte)0);}}mutation=null;completed(completion,false);}
     // Results describe this session only. Neither row captions nor Command evidence reload old outcomes.
     private void result(String key,String text){commandResults.put(key,text);resultTimes.put(key,System.currentTimeMillis());}
     /** A reconnect keeps this session's results (a cancelled change stays visible); another scooter starts clean. */
-    private void loadResults(){String id=profile==null?null:profile.id;if(id!=null&&id.equals(resultsProfileId))return;commandResults.clear();resultTimes.clear();resultsProfileId=id;}
+    private void loadResults(){String id=profile==null?null:profile.id;if(id!=null&&id.equals(resultsProfileId))return;commandResults.clear();resultTimes.clear();experimentBaselines.clear();resultsProfileId=id;}
 }

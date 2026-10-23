@@ -53,6 +53,10 @@ public final class FeatureVariant {
     FeatureVariant withSentinel(int raw,String label){
         return new FeatureVariant(id,feature,cmd,selector,values,labels,unit,min,max,step,offset,mask,shift,decode,parked,owner,lab,dynamicChoices,readable,raw,label);
     }
+    /** The same wire field and readback as an experimental (Lab) variant: parked and owner only, id + ".lab". */
+    FeatureVariant lab(){
+        return new FeatureVariant(id+".lab",feature,cmd,selector,values,labels,unit,min,max,step,offset,mask,shift,decode,true,true,true,dynamicChoices,readable,sentinel,sentinelLabel);
+    }
 
     /** Current value from an accepted status, or null when absent. Never 0-for-absent. */
     public Integer read(StatusFields s){
