@@ -115,7 +115,7 @@ public final class ModelRegistry {
      * model leaves this table.
      */
     static final Map<String,String> WAITING_PHOTOS;
-    static{Map<String,String> w=new LinkedHashMap<>();w.put("GT3 Max","gt3max");WAITING_PHOTOS=java.util.Collections.unmodifiableMap(w);}
+    static{Map<String,String> w=new LinkedHashMap<>();w.put("GT3 Max","gt3max");w.put("XT5 Ultra","xt5ultra");WAITING_PHOTOS=java.util.Collections.unmodifiableMap(w);}
     /** The name and photo of each model known by Model ID, for ModelRegistryTest. */
     static Map<String,String[]> knownModels(){Map<String,String[]> out=new LinkedHashMap<>();for(Map.Entry<String,Known> e:KNOWN.entrySet())out.put(e.getKey(),new String[]{e.getValue().name,e.getValue().photo});return out;}
     /** A known model; the advertised Model ID must agree with the serial and resolve to a standard layer. */

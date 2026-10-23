@@ -78,8 +78,9 @@ that permission was not established and chose to keep it as a temporary
 placeholder while preparing an original photo. The N65i render added on 23
 October 2026 (`res/drawable-nodpi/n65i.webp`), the ST3 Pro image
 (`res/drawable-nodpi/st3pro.webp`), the GT5 Max and GT3 Max images
-(`res/drawable-nodpi/gt5max.webp`, `gt3max.webp`) and the UT5 Ultra X image
-(`res/drawable-nodpi/ut5ultrax.webp`) are in the same position. Before
+(`res/drawable-nodpi/gt5max.webp`, `gt3max.webp`) the UT5 Ultra X image
+(`res/drawable-nodpi/ut5ultrax.webp`) and the XT5 Ultra image (`res/drawable-nodpi/xt5ultra.webp`) are in the
+same position. Before
 public distribution, replace each with an appropriately licensed original or
 obtain verified permission.
 Update the source asset, APK, screenshots and notices together. Older Git tags,
