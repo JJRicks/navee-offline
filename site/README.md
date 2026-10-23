@@ -17,6 +17,8 @@ bash site/build.sh
 
 This writes `site/dist/` and a SHA-256 manifest, `site/dist.sha256`, kept beside it rather than served. The Saira fonts and their SIL OFL license come straight from `res/font/` and `licenses/`, so they aren't duplicated. The download buttons link to GitHub Releases; this site doesn't host an APK.
 
+`build.sh` fills the download line's `@VERSION@` from `AndroidManifest.xml`'s `versionName`, so rebuilding after a release keeps the page current. Deploying still needs the owner's OK.
+
 ## Deploy
 
 The site is served from the jjricks.com VPS by its own nginx site, `volt-homepage`. Every other site's configuration is left untouched.

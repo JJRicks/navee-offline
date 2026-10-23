@@ -9,10 +9,16 @@ dist="$here/dist"
 
 rm -rf "$dist"
 mkdir -p "$dist/fonts" "$dist/img"
-for file in index.html styles.css main.js favicon.svg favicon-32.png apple-touch-icon.png icon-192.png icon-512.png \
+for file in styles.css main.js favicon.svg favicon-32.png apple-touch-icon.png icon-192.png icon-512.png \
             og.png site.webmanifest robots.txt sitemap.xml; do
   cp "$src/$file" "$dist/$file"
 done
+# The download line names the app's own version, so the page can't fall behind a release.
+version="$(sed -n 's/.*android:versionName="\([0-9][0-9]*\.[0-9][0-9]*\.[0-9][0-9]*\)".*/\1/p' "$repo/AndroidManifest.xml" | head -n 1)"
+[ -n "$version" ] || { echo "No versionName in AndroidManifest.xml" >&2; exit 1; }
+grep -q '@VERSION@' "$src/index.html" || { echo "index.html has no @VERSION@ placeholder" >&2; exit 1; }
+sed "s/@VERSION@/$version/g" "$src/index.html" > "$dist/index.html"
+if grep -q '@VERSION@' "$dist/index.html"; then echo "Unreplaced @VERSION@ in index.html" >&2; exit 1; fi
 cp "$src"/img/*.webp "$dist/img/"
 for weight in regular medium semibold bold; do
   cp "$repo/res/font/saira_$weight.ttf" "$dist/fonts/saira-$weight.ttf"
