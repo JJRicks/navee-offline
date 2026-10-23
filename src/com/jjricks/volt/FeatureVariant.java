@@ -75,6 +75,14 @@ public final class FeatureVariant {
         if(decode==Decode.UT5_FEATURE)return ScooterCommands.find(feature).timeReadback(s.frame());
         return decode==Decode.BE32?s.be32(offset):null;
     }
+    /**
+     * The status bits this value occupies. A speed cap's bit 7 is its own enable flag (clear reads Off), so the cap owns
+     * its whole byte; any other masked field shares its byte with coupled settings.
+     */
+    int valueMask(){
+        boolean cap=decode==Decode.CAP7||decode==Decode.UT5_FEATURE&&ScooterCommands.find(feature).zeroIsOff();
+        return cap?255:mask&255;
+    }
     /** Values offered now: dynamic choices come from the status (range estimate sets), else the domain. */
     public int[] choices(StatusFields s){
         if(!dynamicChoices)return values.clone();

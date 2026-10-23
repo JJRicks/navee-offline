@@ -270,30 +270,45 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         });
         screenshot(label + "-more-security");
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Lab")); settle();
-        List<String> listed = new ArrayList<>();
+        List<String> listed = new ArrayList<>(), verifying = new ArrayList<>();
         main(() -> {
             BleController ble = activity.service().ble;
-            List<String> expected = ModelRegistry.experimental(ble.descriptor());
+            List<String> expected = ModelRegistry.experimental(ble.descriptor()), verify = ModelRegistry.verifiable(ble.descriptor());
             for (Object row : (List<?>)field(more(), "labRows")) {
-                ScooterCommands.Feature feature = (ScooterCommands.Feature)field(row, "feature"); listed.add(feature.key);
-                CapabilityResolver.Decision tried = ble.experimentalDecision(feature.key), usual = ble.decision(feature.key);
-                require(tried.experimental(), label + ": Experimental row " + feature.key + " has no Lab rule: " + tried);
-                // Anything the official app offers for this model keeps its Scooter row and never appears here.
-                require(!(usual.support == CapabilityResolver.Support.KNOWN_ENCODING && !usual.variant.lab), label + ": offered " + feature.key + " listed as experimental");
+                ScooterCommands.Feature feature = (ScooterCommands.Feature)field(row, "feature");
+                CapabilityResolver.Decision tried = ble.tryDecision(feature.key), usual = ble.decision(feature.key);
+                require(tried.support == CapabilityResolver.Support.KNOWN_ENCODING, label + ": Experimental controls row " + feature.key + " has no try rule: " + tried);
+                String status = String.valueOf(((View)field(row, "status")).getContentDescription());
+                if (tried.experimental()) {
+                    listed.add(feature.key);
+                    // Anything the official app offers for this model keeps its Scooter row and never appears as an experiment.
+                    require(!(usual.support == CapabilityResolver.Support.KNOWN_ENCODING && !usual.variant.lab), label + ": offered " + feature.key + " listed as experimental");
+                    require(status.equals("Untested on your model"), label + ": " + feature.key + " status " + status);
+                } else {
+                    // Help verify: the official app offers it here and Volt hasn't verified it; its Scooter row is unchanged.
+                    verifying.add(feature.key);
+                    require(tried.evidence == CapabilityResolver.Evidence.OEM_MAPPED && !tried.variant.lab, label + ": Help verify " + feature.key + " evidence " + tried.evidence);
+                    require(status.equals("Unverified on your model"), label + ": " + feature.key + " status " + status);
+                }
                 View action = (View)field(row, "action");
                 require(action != null && action.isEnabled() == ((tried.available() || tried.blockedByRide()) && ble.pending() == null), label + ": Try pill state for " + feature.key);
-                String status = String.valueOf(((View)field(row, "status")).getContentDescription());
-                require(status.equals("Untested on your model"), label + ": " + feature.key + " status " + status);
             }
             require(listed.equals(expected), label + ": Experimental rows " + listed + " expected " + expected);
+            require(verifying.equals(verify), label + ": Help verify rows " + verifying + " expected " + verify);
+            View group = root().findViewWithTag("lab-verify");
+            require((group != null && group.isShown()) == !verify.isEmpty(), label + ": Help verify group shown=" + (group != null && group.isShown()));
             String title = String.valueOf(((TextView)field(more(), "labTitle")).getText());
-            require(pid.equals("39991") == (title.equals("Nothing to try") && ((ViewGroup)field(more(), "labList")).getChildCount() == 0), label + ": empty state \"" + title + "\"");
-            require(pid.equals("39991") == listed.isEmpty(), label + ": unknown model lists nothing, the others list their controls");
+            require(title.equals(pid.equals("39991") ? "Help verify" : "Untested controls"), label + ": section title \"" + title + "\"");
+            require(pid.equals("39991") == listed.isEmpty(), label + ": unknown model lists no experiments, the others list their controls");
+            if (pid.equals("39991")) require(verifying.equals(Arrays.asList("display_units")), "Unknown model: dashboard units to verify, as the guided tests offered " + verifying);
+            if (pid.isEmpty()) require(verifying.isEmpty(), "UT5 MAX: everything is verified " + verifying);
+            if (pid.equals("24431")) require(verifying.equals(Arrays.asList("display_units", "headlight", "turn_sound", "auto_sensor", "range_algorithm")), "Mapped model Help verify " + verifying);
             if (pid.isEmpty()) require(new java.util.HashSet<>(listed).equals(new java.util.HashSet<>(Arrays.asList("acceleration", "speed_limit", "dual_drive",
                     "drive_speed_limit", "long_range_mode", "overspeed_control", "prompt_tone"))), "UT5 MAX Lab rows changed: " + listed);
             if (pid.equals("24431")) require(listed.equals(Arrays.asList("hill_start_assist", "parking_assist", "hill_descent_control", "prompt_tone")), "Mapped model rows " + listed);
         });
         screenshot(label + "-more-lab");
+        if (!verifying.isEmpty()) { reveal("lab-verify"); screenshot(label + "-more-lab-verify"); }
         for (String key : listed) if (ScooterCommands.find(key).type != ScooterCommands.Type.SLIDER) { labTry(label, key); break; }
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Scooters")); settle();
         main(() -> {
@@ -373,18 +388,13 @@ public final class CompatibilityGatingValidation extends Instrumentation {
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "Compatibility")); settle();
         main(() -> require(field(more(), "compatibilityPanel") != null && texts(root()).contains("Run check"), label + ": Compatibility panel without Run check"));
         screenshot(label + "-more-compatibility");
-        // Guided setting tests need a real scooter: the simulator offers none and starts none.
+        // Try a setting moved to Experimental controls (Help verify): the checker offers no setting change, and runs no guided test.
         main(() -> {
-            BleController ble = activity.service().ble; Map<String, Integer> unchanged = new TreeMap<>(ble.simulationFeatures());
-            for (String f : new String[]{"display_units", "headlight", "turn_sound", "auto_sensor", "range_algorithm"}) {
-                CapabilityResolver.Decision d = ble.testDecision(f);
-                require(!d.available() && (d.reason == CapabilityResolver.Reason.NEEDS_REAL_SCOOTER || d.support != CapabilityResolver.Support.KNOWN_ENCODING), label + ": simulated test offered for " + f + ": " + d);
-            }
-            ble.startTest("display_units", 0);
-            require(!ble.testing() && ble.guidedTest() == null && ble.unresolvedTests().isEmpty() && unchanged.equals(new TreeMap<>(ble.simulationFeatures())), label + ": the simulator ran a guided test");
-            require(ble.decision("display_units").reason != CapabilityResolver.Reason.TEST_ACTIVE, label + ": controls held by a test that never started");
+            BleController ble = activity.service().ble; String shown = texts(root());
+            require(!shown.contains("Try a setting") && !shown.contains("TRY A SETTING") && !shown.contains("Change to"), label + ": the checker still offers a setting test");
+            for (String f : new String[]{"display_units", "headlight", "turn_sound", "auto_sensor", "range_algorithm"}) require(!ble.testDecision(f).available(), label + ": a simulated guided test is possible for " + f);
+            require(!ble.testing() && ble.guidedTest() == null && ble.unresolvedTests().isEmpty(), label + ": a guided test exists");
         });
-        revealText("TRY A SETTING", "Try a setting"); screenshot(label + "-compatibility-try");
         final Map<String, Integer> before = new TreeMap<>();
         main(() -> {
             BleController ble = activity.service().ble; before.putAll(ble.simulationFeatures());

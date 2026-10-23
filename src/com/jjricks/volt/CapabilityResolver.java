@@ -31,6 +31,8 @@ public final class CapabilityResolver {
         public boolean recording;
         /** The owner ticked "Scooter is parked" because no motion report has arrived this session. */
         public boolean parkedConfirmed;
+        /** The running test is an Experimental controls try: its own writes use the try rule (decideTry), not the guided-test one. */
+        public boolean testTry;
         public long nowMs;
     }
 
@@ -190,8 +192,38 @@ public final class CapabilityResolver {
         ModelRegistry.Resolution r=ModelRegistry.resolve(d);
         ModelRegistry.Rule rule=ModelRegistry.experimentalRule(feature,d,r,status);
         if(rule.support!=Support.KNOWN_ENCODING||rule.reason!=Reason.NONE)return new Decision(feature,r.layer,rule,rule.reason,status,null);
+        // An offered (non-Lab) control is not an experiment here: refused outright, so a try decision is KNOWN only where it can be tried.
+        if(rule.variant==null||!rule.variant.lab)return new Decision(feature,r.layer,new ModelRegistry.Rule(Support.INCOMPATIBLE,Reason.MODEL_EXCLUDED,Evidence.NONE,"",
+            EnumSet.noneOf(Precondition.class),null),Reason.MODEL_EXCLUDED,status,null);
+        return tryNow(feature,r,rule,status,rt);
+    }
+    /**
+     * Whether a Help verify control (ModelRegistry.verifyRule: offered by the official app, not verified by Volt)
+     * may be tried now, under the same conditions as an experimental try.
+     */
+    public static Decision decideVerify(String feature,DeviceDescriptor d,StatusFields s,Runtime rt){
+        StatusFields status=s==null?StatusFields.NONE:s;
+        ModelRegistry.Resolution r=ModelRegistry.resolve(d);
+        ModelRegistry.Rule rule=ModelRegistry.verifyRule(feature,d,r,status);
+        if(rule.support!=Support.KNOWN_ENCODING||rule.reason!=Reason.NONE)return new Decision(feature,r.layer,rule,rule.reason,status,null);
+        return tryNow(feature,r,rule,status,rt);
+    }
+    /** An Experimental controls try of either group: the experimental decision where it has a Lab rule, else Help verify's; KNOWN_ENCODING only where a try is possible. */
+    public static Decision decideTry(String feature,DeviceDescriptor d,StatusFields s,Runtime rt){
+        Decision experimental=decideExperimental(feature,d,s,rt);
+        if(experimental.experimental())return experimental;
+        Decision verify=decideVerify(feature,d,s,rt);
+        return verify.support==Support.KNOWN_ENCODING?verify:experimental;
+    }
+    /** decideTry plus the value: inside the variant's domain (and offered now, for dynamic choices). */
+    public static Decision admitTry(String feature,int value,DeviceDescriptor d,StatusFields s,Runtime rt){
+        Decision decision=decideTry(feature,d,s,rt);
+        if(!decision.available()||decision.allows(value))return decision;
+        return withReason(decision,Reason.MODEL_EXCLUDED);
+    }
+    /** The runtime part shared by both groups; only the running try's own writes pass while it runs. */
+    private static Decision tryNow(String feature,ModelRegistry.Resolution r,ModelRegistry.Rule rule,StatusFields status,Runtime rt){
         FeatureVariant v=rule.variant;
-        if(v==null||!v.lab)return new Decision(feature,r.layer,rule,Reason.MODEL_EXCLUDED,status,null);
         if(rt==null||!rt.ready)return new Decision(feature,r.layer,rule,Reason.NOT_CONNECTED,status,v.choices(status));
         if(rt.simulation){
             int[] values=v.dynamicChoices&&status.accepted()?v.choices(status):v.values.clone();
@@ -199,7 +231,7 @@ public final class CapabilityResolver {
         }
         Reason reason=Reason.NONE;int[] choices=null;
         if(rt.discovery)reason=Reason.DISCOVERY_ACTIVE;
-        else if(rt.test)reason=Reason.TEST_ACTIVE;
+        else if(rt.test&&!(rt.testTry&&feature.equals(rt.testFeature)))reason=Reason.TEST_ACTIVE;
         else if(rt.busy)reason=Reason.BUSY;
         else if(rt.recording)reason=Reason.RECORDING;
         else if(!status.fresh(rt.nowMs,STATUS_MAX_AGE_MS))reason=Reason.STATUS_STALE;

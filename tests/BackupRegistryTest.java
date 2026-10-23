@@ -15,7 +15,7 @@ public final class BackupRegistryTest {
     /** Reviewed non-preference keys: Activity Bundle state, JSON fields read with typed getters,
      * and the two private namespaces' keys (never read by backups). */
     private static final Set<String> IGNORED=new HashSet<>(Arrays.asList(
-                "path","name","mime","ready","picker",                                     // pending_documents
+                "path","name","mime","ready","picker","report_tests",                      // pending_documents
         "pending","token","original"));                                            // owner_capture_cleanup
     private static final Pattern CALL=Pattern.compile("\\b(?:get|put)(String|Int|Boolean|Long|Float|StringSet)\\(\\s*(\"((?:[^\"\\\\]|\\\\.)*)\"\\s*(\\+)?|([A-Za-z_][A-Za-z0-9_]*\\.)?([A-Z][A-Z0-9_]+)\\s*(\\+)?)");
     private static final Pattern CONSTANT=Pattern.compile("([A-Z][A-Z0-9_]+)\\s*=\\s*\"([^\"]*)\"");

@@ -59,7 +59,7 @@ public final class BleController {
     /** Handshake responses stay private until the transport's hardware belongs to this profile. */
     private Protocol.Frame pendingStatusFrame,pendingSerialFrame;private long pendingStatusMs;
     private long savedProfileMs,lastBatteryPollMs,scanSequence,backgroundDeadlineMs;private ScanCallback scanCallback;private Runnable scanTimeout;
-    private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;MutationGate.Request request;FeatureVariant variant;Consumer<Boolean> completion;Integer before,lastRead;int readsAfterAck;boolean drained;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
+    private static final class Mutation {String key;int cmd,target;long token;boolean ack,sent;Long time;byte[] bytes;char[] desiredPin;MutationGate.Request request;FeatureVariant variant;Consumer<Boolean> completion;Mutation(String k,int c,int v,long t){key=k;cmd=c;target=v;token=t;}}
     public BleController(Context c,ScooterProfiles p){context=c.getApplicationContext();profiles=p;diagnostics=ConnectionEventLog.open(new File(context.getNoBackupFilesDir(),"connection-events"));testJournal=new TestJournal(TestJournal.file(new File(context.getNoBackupFilesDir(),"compat-tests")));BluetoothManager m=context.getSystemService(BluetoothManager.class);adapter=m==null?null:m.getAdapter();IntentFilter filter=new IntentFilter(BluetoothDevice.ACTION_BOND_STATE_CHANGED);filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);if(Build.VERSION.SDK_INT>=33)context.registerReceiver(bluetoothReceiver,filter,Context.RECEIVER_EXPORTED);else context.registerReceiver(bluetoothReceiver,filter);}
     public void setListener(Listener l){listener=l;}
     /** Runtime only. The transition guard also prevents listeners from persisting display samples. */
@@ -154,13 +154,25 @@ public final class BleController {
     public CapabilityResolver.Decision decision(String key){return duringDiscovery(CapabilityResolver.decide(key,descriptor(),status(),runtime(key)));}
     /** Experimental controls: whether this control may be tried now (ModelRegistry.experimentalRule; only Lab variants). */
     public CapabilityResolver.Decision experimentalDecision(String key){return duringDiscovery(CapabilityResolver.decideExperimental(key,descriptor(),status(),runtime(key)));}
-    /** A change from Experimental controls: the experimental rule admits it, and the scooter's readback says whether it took. */
-    public boolean setExperimental(String key,int value){return set(key,value,MutationGate.Origin.EXPERIMENTAL);}
-    /** The value before this session's first experimental change of key (Set back), or null. Cleared with the session's results. */
-    public Integer experimentBaseline(String key){return experimentBaselines.get(key);}
+    /** Help verify: whether this guided-test control (offered by the official app, not verified by Volt) may be tried now. */
+    public CapabilityResolver.Decision verifyDecision(String key){return duringDiscovery(CapabilityResolver.decideVerify(key,descriptor(),status(),runtime(key)));}
+    /** Either group's try decision (CapabilityResolver.decideTry). */
+    public CapabilityResolver.Decision tryDecision(String key){return duringDiscovery(CapabilityResolver.decideTry(key,descriptor(),status(),runtime(key)));}
+    /**
+     * A try from Experimental controls. On a scooter it is a journalled guided write (startTry): baseline, journal,
+     * write, readback, the owner's answer, then the value stays until Set back. The simulator changes its memory.
+     */
+    public boolean setExperimental(String key,int value){return simulating()?set(key,value,MutationGate.Origin.EXPERIMENTAL):startTry(key,value);}
+    /** The value Set back returns to, or null: a kept try's value before it (the simulator: its first change this session). */
+    public Integer experimentBaseline(String key){
+        if(simulating())return experimentBaselines.get(key);
+        ScooterProfiles.Profile p=profile();TestJournal.Entry e=p==null?null:testJournal.latestTry(p.id,key);
+        return e!=null&&e.resolved&&"kept".equals(e.resolution)?e.baseline:null;
+    }
+    /** The latest try of this control on the active scooter (journalled, so it survives restarts), or null. */
+    public TestJournal.Entry latestTry(String key){ScooterProfiles.Profile p=profile();return p==null?null:testJournal.latestTry(p.id,key);}
+    /** The simulator's Set back values, per control, for this session only. */
     private final LinkedHashMap<String,Integer> experimentBaselines=new LinkedHashMap<>();
-    /** Command result when an acknowledged experimental change never read back: the scooter kept its value, or showed another. */
-    public static final String NO_CHANGE="No change seen",OTHER_VALUE="Read back a different value";
     /** Value-specific decision (lock direction): unlock follows the recovery contract. */
     public CapabilityResolver.Decision decision(String key,int value){return duringDiscovery(CapabilityResolver.admit(key,value,descriptor(),status(),runtime(key)));}
     private StatusFields status(){return StatusFields.of(statusFrame,statusMs);}
@@ -169,7 +181,7 @@ public final class BleController {
         CapabilityResolver.Runtime rt=new CapabilityResolver.Runtime();long now=now();ScooterProfiles.Profile p=profile();
         rt.discovery=discovering&&!"lock".equals(feature);
         // A guided test holds every other change; locking stays a normal decision (a pending test write still makes it wait).
-        rt.test=testing()&&!"lock".equals(feature);rt.testFeature=test==null?"":test.feature;rt.recording=recording;rt.parkedConfirmed=testParked;
+        rt.test=testing()&&!"lock".equals(feature);rt.testFeature=test==null?"":test.feature;rt.recording=recording;rt.parkedConfirmed=testParked;rt.testTry=test!=null&&test.keeps();
         rt.simulation=simulating();rt.ready=ready();rt.busy=mutation!=null;rt.stationary=stationary();rt.motionSeen=rt.simulation||motionMs>0;
         rt.warningActive=warning!=0&&now-warningMs<6000;rt.owner=p!=null&&p.role==0;
         if(bondCheckedMs==0||now-bondCheckedMs>1000){bondCache=bonded();bondCheckedMs=now;}rt.bonded=bondCache;
@@ -403,7 +415,7 @@ public final class BleController {
                 }
                 boolean guidedReply=mutation!=null&&mutation.sent&&f.cmd==mutation.cmd&&guided(mutation)&&test!=null;
                 if(guidedReply)test.onAck(f.cmd,f.error(),now());
-                if(mutation!=null&&mutation.sent&&f.cmd==mutation.cmd){if(f.error()!=0){String key=mutation.key;clearMutation();result(key,"Rejected ("+f.error()+")");notice("Change rejected","Change rejected ("+f.error()+")");}else if(mutation.key.equals("clock_sync")){finishMutation("Clock sent (unverified)","Accepted; no clock readback available");}else{mutation.ack=true;mutation.drained=outstandingStatusReads==0;int s=generation;long token=mutation.token;String key=mutation.key;handler.postDelayed(()->{if(s==generation&&mutation!=null&&mutation.token==token)for(int cmd:ScooterCommands.followUpReads(key))send(Protocol.frame(cmd,null));},250);}}
+                if(mutation!=null&&mutation.sent&&f.cmd==mutation.cmd){if(f.error()!=0){String key=mutation.key;clearMutation();result(key,"Rejected ("+f.error()+")");notice("Change rejected","Change rejected ("+f.error()+")");}else if(mutation.key.equals("clock_sync")){finishMutation("Clock sent (unverified)","Accepted; no clock readback available");}else{mutation.ack=true;int s=generation;long token=mutation.token;String key=mutation.key;handler.postDelayed(()->{if(s==generation&&mutation!=null&&mutation.token==token)for(int cmd:ScooterCommands.followUpReads(key))send(Protocol.frame(cmd,null));},250);}}
                 if(guidedReply)stepTest();
             }
             changed();
@@ -500,10 +512,7 @@ public final class BleController {
             if(proximity){if(!pinFresh()){readPin();notice("Read the PIN state, then apply proximity unlock.");return completed(completion,false);}if(!d.available()){refused(request,d);return completed(completion,false);}boolean bonded=gatt.getDevice().getBondState()==BluetoothDevice.BOND_BONDED;bytes=ScooterCommands.setProximity(value==1,profile.role==0,bonded,pinState);}
             else if(d.variant.decode==FeatureVariant.Decode.UT5_FEATURE)bytes=ScooterCommands.set(key,value,statusFrame);
             else bytes=d.variant.encode(value);
-            if(origin!=MutationGate.Origin.EXPERIMENTAL)return begin(request,d.variant,value,bytes,null,completion);
-            // Set back returns to the value before this session's first experimental change of this control.
-            if(!begin(request,d.variant,value,bytes,null,completion))return false;
-            if(mutation!=null)mutation.before=current;if(current!=null)experimentBaselines.putIfAbsent(key,current);return true;
+            return begin(request,d.variant,value,bytes,null,completion);
         }catch(IllegalArgumentException e){notice(e.getMessage());return completed(completion,false);}}
     public void setChargeStart(long seconds,int offset){setChargeStart(seconds,offset,null);}
     public void setChargeStart(long seconds,int offset,Consumer<Boolean> completion){MutationGate.Request request=new MutationGate.Request(MutationGate.Kind.CHARGE_START,"charge_start",0,MutationGate.Origin.USER);
@@ -555,6 +564,11 @@ public final class BleController {
     public boolean discovering(){return discovering;}
     /** The running or last check for the active scooter this app session, or null. */
     public DiscoveryCoordinator discovery(){ScooterProfiles.Profile p=profile();return discovery!=null&&(p==null?"":p.id).equals(discoveryProfileId)?discovery:null;}
+    /** The journal changed since this report was built (an entry of its scooter gained evidence, was added or cleared). */
+    public boolean reportOutdated(CompatibilityReport report){
+        if(report==null||discoveryProfileId==null)return false;
+        return !new HashSet<>(report.included()).equals(new HashSet<>(testJournal.revisions(discoveryProfileId)));
+    }
     /** The finished check's sanitized report (fresh report ID per call), or null while running or when there is none. */
     public CompatibilityReport compatibilityReport(String appVersion){
         if(discovering||discovery()==null||discoveryDescriptor==null)return null;
@@ -620,29 +634,56 @@ public final class BleController {
     /** The owner's "Scooter is parked" tick, used only while no motion report has arrived this session. */
     public void setTestParked(boolean parked){testParked=parked;changed();}
     public boolean testParked(){return testParked;}
-    /** Prepares a test of one value: reads a fresh baseline; nothing is written until approveTest(). */
-    public void startTest(String feature,int target){
-        if(simulating()){notice("Guided tests need a real scooter");return;}
-        if(testing()){notice("Finish the current test first");return;}
-        ScooterProfiles.Profile p=profile();if(p==null||!ready()){notice("Connect first");return;}
-        if(!testJournal.healthy()){notice("Test records are unavailable");return;}
-        if(!unresolvedTests().isEmpty()||!testJournal.canStart()){notice("Review the unfinished test first");return;}
-        CapabilityResolver.Decision d=CapabilityResolver.admitTest(feature,target,descriptor(),status(),runtime(feature));
-        if(!d.available()){notice(d.reasonText());return;}
-        try{test=new GuidedTest(testJournal,p.id,descriptor(),d.variant,target,now(),System.currentTimeMillis(),new java.security.SecureRandom());test.inheritOutstandingReads(outstandingStatusReads);}
-        catch(IllegalArgumentException e){notice(e.getMessage());return;}
-        event("Guided test prepared");stepTest();
+    /**
+     * An Experimental controls try of one value (either group), from the value the owner saw: a guided test that
+     * keeps the value. It reads a fresh baseline, journals, writes once through the try rule, reads it back and asks
+     * the owner; any interruption leaves it unfinished for review, and nothing is ever written again by itself.
+     */
+    private boolean startTry(String key,int target){
+        if(testing()){notice("Finish the current try first");return false;}
+        ScooterProfiles.Profile p=profile();if(p==null||!ready()){notice("Connect first");return false;}
+        if(!testJournal.healthy()){notice("Test records are unavailable");return false;}
+        if(!unresolvedTests().isEmpty()||!testJournal.canStart()){notice("Review the unfinished try first");return false;}
+        CapabilityResolver.Decision d=CapabilityResolver.admitTry(key,target,descriptor(),status(),runtime(key));
+        if(!d.available()){notice(d.reasonText());return false;}
+        Integer current=d.current();
+        if(current==null){notice("Not available now");return false;}
+        if(current==target){notice(ScooterCommands.find(key).label+" is already set.");return false;}
+        String kind=d.experimental()?TestJournal.EXPERIMENTAL:TestJournal.VERIFY;
+        try{test=GuidedTest.trial(testJournal,p.id,descriptor(),d.variant,kind,target,current,now(),System.currentTimeMillis(),new java.security.SecureRandom());test.inheritOutstandingReads(outstandingStatusReads);}
+        catch(IllegalArgumentException e){notice(e.getMessage());return false;}
+        event("Try prepared");message="Reading "+ScooterCommands.find(key).label.toLowerCase(Locale.ROOT)+"…";stepTest();return true;
     }
-    /** The owner's explicit approval of the shown baseline, test value and restoration. */
-    public void approveTest(){
-        if(test==null||test.phase()!=GuidedTest.Phase.BASELINE)return;
-        CapabilityResolver.Decision d=CapabilityResolver.admitTest(test.feature,test.target,descriptor(),status(),runtime(test.feature));
-        if(!d.available()){notice(d.reasonText());return;}
-        if(!test.approve(now())){notice(test.note());return;}
-        event("Guided test approved");stepTest();
+    /** Set back a kept try in one tap: reopened in the journal, then the earlier value is written and read back. */
+    public boolean setBack(String key){
+        if(simulating()){Integer before=experimentBaselines.get(key);return before!=null&&set(key,before,MutationGate.Origin.EXPERIMENTAL);}
+        if(testing()){notice("Finish the current try first");return false;}
+        ScooterProfiles.Profile p=profile();if(p==null||!ready()){notice("Connect first");return false;}
+        TestJournal.Entry e=testJournal.latestTry(p.id,key);
+        if(e==null||!e.resolved||!"kept".equals(e.resolution)){notice("Nothing to set back");return false;}
+        CapabilityResolver.Decision d=CapabilityResolver.admitTry(key,e.baseline,descriptor(),status(),runtime(key));
+        if(!d.available()){notice(d.reasonText());return false;}
+        try{test=GuidedTest.restoreFrom(testJournal,e,d.variant,descriptor(),status(),now(),System.currentTimeMillis());test.inheritOutstandingReads(outstandingStatusReads);}
+        catch(IOException|IllegalArgumentException failed){notice("Couldn't set it back. Nothing was changed.");return false;}
+        event("Set back approved");stepTest();return true;
+    }
+    /** Clears the active scooter's finished tries (their results and Set back). Unfinished ones stay for review. */
+    public int clearTries(){
+        ScooterProfiles.Profile p=profile();if(p==null)return 0;
+        try{int n=testJournal.clearTries(p.id);changed();return n;}catch(IOException failed){notice("Test records are unavailable");return 0;}
+    }
+    /**
+     * A report the owner shared or emailed: its tries (and tests) may now be pruned like any other record. Only entries
+     * that still read as the report shows them are marked; newer evidence waits for the next report.
+     */
+    public void markReported(CompatibilityReport report){if(report!=null)markReported(report.included());}
+    /** The entry revisions a report included (a written file's, kept through the document picker). */
+    public void markReported(List<String> revisions){
+        if(revisions==null||revisions.isEmpty())return;
+        try{testJournal.markReported(revisions,System.currentTimeMillis());}catch(IOException kept){/* they stay unreported */}
     }
     public void cancelTest(){if(test!=null&&test.cancel()){event("Guided test cancelled");changed();}}
-    /** Owner's answer to the effect prompt (true, false, or null for Skip); then the baseline is written back. */
+    /** Owner's answer to the effect prompt (true, false, or null for Skip); a guided test then writes the baseline back, a try keeps its value. */
     public void testEffect(Boolean observed){if(test==null||test.phase()!=GuidedTest.Phase.OBSERVE)return;test.ownerEffect(observed,now());stepTest();}
     /** Hides a finished test card; an outstanding one stays as an unfinished-test review. */
     public void closeTest(){if(test!=null&&test.terminal()){test=null;changed();}}
@@ -652,7 +693,7 @@ public final class BleController {
     public GuidedTest.Review reviewTest(String testId){
         TestJournal.Entry e=testJournal.find(testId);if(e==null)return null;ScooterProfiles.Profile p=profile();
         if(liveTest(testId))return new GuidedTest.Review(GuidedTest.ReviewState.WAITING,"The test is still running.",null,false);
-        FeatureVariant v=CapabilityResolver.decideTest(e.feature,descriptor(),status(),runtime(e.feature)).variant;
+        FeatureVariant v=(e.isTry()?CapabilityResolver.decideTry(e.feature,descriptor(),status(),runtime(e.feature)):CapabilityResolver.decideTest(e.feature,descriptor(),status(),runtime(e.feature))).variant;
         return GuidedTest.review(e,p==null?"":p.id,ready()&&!simulating(),descriptor(),status(),now(),v,testFirmwareConfirmed.contains(testId));
     }
     /** The owner accepts that the firmware changed since the test. */
@@ -662,7 +703,8 @@ public final class BleController {
         if(testing()){notice("Finish the current test first");return;}
         TestJournal.Entry e=testJournal.find(testId);GuidedTest.Review r=reviewTest(testId);
         if(e==null||r==null||(r.state!=GuidedTest.ReviewState.RESTORE_NEEDED&&r.state!=GuidedTest.ReviewState.CHANGED_OUTSIDE)||!r.restorable){notice(r==null?"Test not found":r.text);return;}
-        CapabilityResolver.Decision d=CapabilityResolver.admitTest(e.feature,e.baseline,descriptor(),status(),runtime(e.feature));
+        CapabilityResolver.Decision d=e.isTry()?CapabilityResolver.admitTry(e.feature,e.baseline,descriptor(),status(),runtime(e.feature))
+            :CapabilityResolver.admitTest(e.feature,e.baseline,descriptor(),status(),runtime(e.feature));
         if(!d.available()){notice(d.reasonText());return;}
         try{test=GuidedTest.restoreFrom(testJournal,e,d.variant,descriptor(),status(),now(),System.currentTimeMillis());test.inheritOutstandingReads(outstandingStatusReads);}
         catch(IOException|IllegalArgumentException failed){notice("Couldn't start the restore. Nothing was changed.");return;}
@@ -693,6 +735,13 @@ public final class BleController {
     private void stepTest(){
         if(test==null)return;
         test.tick(now());
+        // A try's Try tap was the owner's consent: once its fresh baseline matches what the sheet showed, approve it under the try rule.
+        if(test.keeps()&&test.phase()==GuidedTest.Phase.BASELINE){
+            CapabilityResolver.Decision d=CapabilityResolver.admitTry(test.feature,test.target,descriptor(),status(),runtime(test.feature));
+            if(!d.available()){test.cancel();notice(d.reasonText());}
+            else if(!test.approve(now()))notice(test.note());
+            else event("Try approved");
+        }
         if(mutation!=null&&guided(mutation)&&!test.awaitingWrite()){String key=mutation.key;List<String> o=test.outcomeTexts();result(key,o.isEmpty()?"Guided test":o.get(o.size()-1));clearMutation();message="Connected";}
         if(test.wantsRead()&&gatt!=null&&authenticated)send(Protocol.frame(0x70,null));
         Integer value=test.writeNow();
@@ -723,13 +772,7 @@ public final class BleController {
         message=key.equals("clock_sync")?"Setting the scooter’s clock from this phone…":"Applying "+ScooterCommands.find(key).label.toLowerCase(Locale.ROOT)+"…";changed();send(bytes);
         return mutation==pending;
     }
-    private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;
-        // Experimental: acknowledged, and two status replies after every earlier read drained still without the new value. The link is healthy and the
-        // scooter simply kept (or showed another) value, so this is the try's result, not a connection failure.
-        if(mutation.request!=null&&mutation.request.origin==MutationGate.Origin.EXPERIMENTAL&&mutation.ack&&mutation.readsAfterAck>=2){
-            String key=mutation.key;boolean kept=mutation.before!=null&&mutation.before.equals(mutation.lastRead);
-            result(key,kept?NO_CHANGE:OTHER_VALUE);clearMutation();notice(ScooterCommands.find(key).label+(kept?": no change seen":": read back a different value"));return;
-        }if(guided(mutation)&&test!=null)test.onMutationTimeout(mutation.ack,now());String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed("Change not confirmed",true,ConnectionEventLog.Reason.COMMAND_CONFIRMATION_TIMEOUT,-1);}
+    private void mutationTimeout(int session,long token){if(simulating())return;if(session!=generation||mutation==null||mutation.token!=token)return;if(guided(mutation)&&test!=null)test.onMutationTimeout(mutation.ack,now());String key=mutation.key;boolean missing=key.equals("clock_sync")||statusFrame==null||ScooterCommands.find(key).payloadOffset>=statusFrame.data.length-1;String text=mutation.ack&&missing?"Accepted; state not exposed by firmware":"Change not confirmed";result(key,text);clearMutation();failed("Change not confirmed",true,ConnectionEventLog.Reason.COMMAND_CONFIRMATION_TIMEOUT,-1);}
     /**
      * A settings read to bind on: the lock byte at payload offset 2 is present and plausible. The UT5 MAX
      * keeps its full 14-byte minimum; other models may send less (the N65i sends ten bytes), and every
@@ -766,12 +809,7 @@ public final class BleController {
         String pid=pendingAdvertised!=null&&gatt!=null&&gatt.getDevice().getAddress().equals(pendingAdvertisedMac)?pendingAdvertised.pid:p==null?"":p.advertisedPid;
         return DeviceDescriptor.of(s,pid,1,null,false,DeviceDescriptor.Transport.STANDARD,p==null?0:p.role);
     }
-    private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);
-            // Replies can arrive in any order, so a count can't say which answer which read. Only once every status read
-            // requested by the ACK has been answered (none outstanding) can a later reply only answer a read sent after
-            // the change; until then (including the reply that empties the count) a reply proves nothing either way.
-            boolean fresh=f.cmd==0x70&&mutation.drained;if(f.cmd==0x70&&!mutation.drained&&outstandingStatusReads==0)mutation.drained=true;
-            if(value!=null&&value!=mutation.target&&fresh){mutation.readsAfterAck++;mutation.lastRead=value;}if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
+    private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;Consumer<Boolean> completion=mutation.completion;mutation.completion=null;result(key,evidence);clearMutation();notice(text);completed(completion,true);}
     private void clearMutation(){Consumer<Boolean> completion=mutation==null?null:mutation.completion;if(mutation!=null){for(Iterator<byte[]> i=queue.iterator();i.hasNext();)if(i.next()==mutation.bytes)i.remove();if(mutation.desiredPin!=null){Arrays.fill(mutation.desiredPin,'\u0000');Arrays.fill(mutation.bytes,(byte)0);}}mutation=null;completed(completion,false);}

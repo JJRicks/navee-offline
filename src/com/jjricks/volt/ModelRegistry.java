@@ -590,6 +590,33 @@ public final class ModelRegistry {
             &&rule.reason==CapabilityResolver.Reason.MODEL_EXCLUDED?TRY.get(feature):null;
         return v==null?rule:tryable(v,CapabilityResolver.Evidence.VOLT_LAB,"OEM 2.1.9 hides this for this model");
     }
+    /** A key Experimental controls may try as an experiment on some layer: EXPERIMENTAL, or a UT5 MAX catalogue Lab row. */
+    static boolean experimentalKey(String feature){
+        if(contains(EXPERIMENTAL,feature))return true;
+        for(ScooterCommands.Feature f:ScooterCommands.catalog())if(f.key.equals(feature))return f.experimental;
+        return false;
+    }
+    /**
+     * Help verify (owner decision, October 2026, replacing the checker's guided tests): a control of the guided-test
+     * table (TESTABLE, testRule) that the official app offers for this model but Volt hasn't verified on it
+     * (OEM_MAPPED evidence, never VOLT_VERIFIED). Its ordinary row is unchanged; a try uses the experimental
+     * conditions. Anything else is NOT_TESTABLE.
+     */
+    static Rule verifyRule(String feature,DeviceDescriptor d,Resolution r,StatusFields s){
+        if(r==null)r=resolve(d);
+        if(!testable(feature))return refused(CapabilityResolver.Support.INCOMPATIBLE,CapabilityResolver.Reason.NOT_TESTABLE);
+        Rule rule=testRule(feature,d,r,s);
+        if(rule.support!=CapabilityResolver.Support.KNOWN_ENCODING||rule.reason!=CapabilityResolver.Reason.NONE)return rule;
+        if(rule.evidence!=CapabilityResolver.Evidence.OEM_MAPPED||rule.variant==null||rule.variant.lab||!rule.variant.readable)
+            return refused(CapabilityResolver.Support.INCOMPATIBLE,CapabilityResolver.Reason.NOT_TESTABLE);
+        return tryable(rule.variant,rule.evidence,rule.oemNote);
+    }
+    /** The Help verify controls for this device, in the guided-test table's order. */
+    public static java.util.List<String> verifiable(DeviceDescriptor d){
+        java.util.List<String> out=new java.util.ArrayList<>();Resolution r=resolve(d);
+        for(String key:TESTABLE){Rule rule=verifyRule(key,d,r,StatusFields.NONE);if(rule.support==CapabilityResolver.Support.KNOWN_ENCODING)out.add(key);}
+        return out;
+    }
     private static Rule tryable(FeatureVariant v,CapabilityResolver.Evidence evidence,String note){
         EnumSet<CapabilityResolver.Precondition> p=preconditions(v);
         p.add(CapabilityResolver.Precondition.STATIONARY);p.add(CapabilityResolver.Precondition.MOTION_REPORT);p.add(CapabilityResolver.Precondition.OWNER);

@@ -32,6 +32,9 @@ final class CompatibilityReport {
     /** What the owner saw on the scooter itself; never inferred from packets. */
     enum Observation { OBSERVED, NOT_OBSERVED, NOT_CHECKED }
     enum Restoration { CONFIRMED, OUTSTANDING, DECLINED }
+    /** An Experimental controls try's result, from its first wire outcome (not_sent: refused before it was sent, then verified). */
+    static final String[] TRY_RESULTS={"worked_here","no_change_seen","refused","other_value","unconfirmed","not_sent","interrupted"};
+    static final String[] TRY_GROUPS={"experimental","help_verify"};
 
     /** Every key the report may contain, at any depth. */
     static final Set<String> KEYS=Collections.unmodifiableSet(new HashSet<>(Arrays.asList(
@@ -41,7 +44,8 @@ final class CompatibilityReport {
         "cmd","class","outcome","status","length","attempts","first_ms","late","seen",
         "offset","name","present","value",
         "feature","support","available","reason","evidence",
-        "variant","baseline","target","packet_evidence","outcomes","elapsed_ms","step_values","owner_observation","effect","restoration")));
+        "variant","baseline","target","packet_evidence","outcomes","elapsed_ms","step_values","owner_observation","effect","restoration",
+        "experimental","group","result","kept")));
     /** 0x70 offsets whose value may be reported; 0, 14, 40 and 41 are presence only; 27–30 (time of day) never appear. */
     static boolean valueOffset(int o){return o>=1&&o<=13||o>=15&&o<=26||o>=31&&o<=39||o==42;}
     static boolean presenceOffset(int o){return o==0||o==14||o==40||o==41;}
@@ -50,12 +54,18 @@ final class CompatibilityReport {
     private static final String[] READ_OUTCOMES={"pending","read_supported","rejected","no_response","malformed","empty_reply","interrupted"};
 
     private final Map<String,Object> tree;
-    private CompatibilityReport(Map<String,Object> tree){this.tree=tree;}
+    /** The journal entry revisions this report included (never written into it), so sharing it can mark them reported. */
+    private final List<String> included;
+    private CompatibilityReport(Map<String,Object> tree){this(tree,Collections.<String>emptyList());}
+    private CompatibilityReport(Map<String,Object> tree,List<String> included){this.tree=tree;this.included=Collections.unmodifiableList(new ArrayList<>(included));}
+    /** Revisions (TestJournal.revision: test ID and record digest) of the journal entries in this report; empty for an imported one. */
+    List<String> included(){return included;}
 
     // ---- Builder --------------------------------------------------------------------------
 
     static final class Builder {
         private final Map<String,Object> raw=new LinkedHashMap<>();
+        private final List<String> included=new ArrayList<>();
         private ModelRegistry.Layer layer=ModelRegistry.Layer.SHARED;
         /** secure: SecureRandom in production, seeded in tests. */
         Builder(String appVersion,java.util.Random secure){
@@ -136,10 +146,14 @@ final class CompatibilityReport {
          * observation and the restoration state. No profile, test ID or wall time is copied.
          */
         Builder tests(List<TestJournal.Entry> entries){
-            List<Object> out=new ArrayList<>();
+            List<Object> out=new ArrayList<>(),tries=new ArrayList<>();
             if(entries!=null)for(TestJournal.Entry t:entries){
                 Map<String,Object> m=new LinkedHashMap<>();
-                m.put("feature",t.feature);m.put("variant",t.variantId);m.put("baseline",(long)t.baseline);m.put("target",(long)t.target);
+                m.put("feature",t.feature);
+                if(t.isTry())m.put("group",TestJournal.VERIFY.equals(t.kind)?"help_verify":"experimental");
+                m.put("variant",t.variantId);
+                if(t.isTry()&&!t.layer.isEmpty())m.put("layer",t.layer);
+                m.put("baseline",(long)t.baseline);m.put("target",(long)t.target);
                 Map<String,Object> packet=new LinkedHashMap<>();List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>(),values=new ArrayList<>();
                 for(int i=0;i<t.outcomes.size();i++){
                     GuidedTest.Outcome o=GuidedTest.Outcome.parse(t.outcomes.get(i));
@@ -147,18 +161,42 @@ final class CompatibilityReport {
                     outcomes.add(o.reportToken());times.add(i<t.elapsedMs.size()?t.elapsedMs.get(i):null);
                     int code=GuidedTest.Outcome.code(t.outcomes.get(i));values.add(code>=0?(Object)(long)code:null);
                 }
+                if(t.isTry())m.put("result",tryResult(outcomes));
                 packet.put("outcomes",outcomes);packet.put("elapsed_ms",times);packet.put("step_values",values);m.put("packet_evidence",packet);
                 Map<String,Object> owner=new LinkedHashMap<>();owner.put("effect",t.effect);m.put("owner_observation",owner);
                 m.put("restoration",t.restoration);
-                out.add(m);
+                if(t.isTry())m.put("kept",t.resolved&&"kept".equals(t.resolution));
+                (t.isTry()?tries:out).add(m);included.add(TestJournal.revision(t));
             }
             raw.put("tests",out);
+            if(!tries.isEmpty())raw.put("experimental",tries);
             return this;
         }
-        CompatibilityReport build(){Map<String,Object> clean=sanitize(raw);return clean==null?null:new CompatibilityReport(clean);}
+        CompatibilityReport build(){Map<String,Object> clean=sanitize(raw);return clean==null?null:new CompatibilityReport(clean,included);}
         private static void putIf(Map<String,Object> m,String k,String v){if(v!=null)m.put(k,v);}
     }
 
+    /** A journalled try's result, as its report entry says it. */
+    static String tryResult(TestJournal.Entry e){
+        List<Object> outcomes=new ArrayList<>();
+        for(String token:e.outcomes){GuidedTest.Outcome o=GuidedTest.Outcome.parse(token);if(o!=null&&o!=GuidedTest.Outcome.EFFECT_OBSERVED)outcomes.add(o.reportToken());}
+        return tryResult(outcomes);
+    }
+    /** A try's result from its report outcome tokens: its first wire outcome decides. */
+    static String tryResult(List<Object> outcomes){
+        if(outcomes.isEmpty())return "interrupted";
+        String first=String.valueOf(outcomes.get(0));
+        switch(first){
+            case "setting_confirmed": return "worked_here";
+            case "readback_unchanged": return "no_change_seen";
+            case "rejected": return "refused";
+            case "readback_different": return "other_value";
+            case "acknowledged_unconfirmed": return "unconfirmed";
+            // Only Volt's own refusal before sending is "not sent"; an interrupted write may have reached the scooter.
+            case "not_sent": return "not_sent";
+            default: return "interrupted";
+        }
+    }
     /** challenge_free, xor, aes_extended or aes, from the 0x30 reply's data length (status byte included) and method byte. */
     static String authVariant(int dataLength,int methodByte){
         if(dataLength<=1)return "challenge_free";
@@ -249,6 +287,23 @@ final class CompatibilityReport {
                 s.append("    Restoration: ").append(restoration.equals("confirmed")?"Restoration confirmed":restoration.equals("declined")?"Declined by the owner (not restored by Volt)":"Outstanding (not confirmed)").append('\n');
             }
         }
+        List<Object> tries=list(tree.get("experimental"));
+        if(tries!=null&&!tries.isEmpty()){
+            s.append("\nExperimental controls tries\n");
+            for(Object o:tries){Map<String,Object> t=map(o);
+                s.append("  ").append(t.get("feature")).append(' ').append(t.get("baseline")).append(" → ").append(t.get("target"))
+                 .append(" · ").append("help_verify".equals(t.get("group"))?"Help verify":"experimental");
+                if(t.get("layer")!=null)s.append(" · layer ").append(t.get("layer"));
+                s.append(" · ").append(resultText(str(t.get("result"),"interrupted"))).append('\n');
+                Map<String,Object> owner=map(t.get("owner_observation"));String effect=owner==null?"not_checked":str(owner.get("effect"),"not_checked");
+                s.append("    Owner saw it change: ").append(effect.equals("observed")?"Yes":effect.equals("not_observed")?"No":"Not answered").append('\n');
+                String restoration=str(t.get("restoration"),"outstanding");
+                // A try that never took (refused, unchanged, held back) was not set back: it stayed, and a readback confirmed that.
+                String result=str(t.get("result"),"interrupted");boolean stayed=result.equals("refused")||result.equals("no_change_seen")||result.equals("not_sent");
+                s.append("    Afterwards: ").append(Boolean.TRUE.equals(t.get("kept"))?"Kept by the owner":restoration.equals("confirmed")?(stayed?"Still "+t.get("baseline")+", confirmed":"Back to "+t.get("baseline")+", confirmed")
+                    :restoration.equals("declined")?"Left as is by the owner":"Outstanding (not confirmed)").append('\n');
+            }
+        }
         s.append("\nNo serial, MAC, owner key, PIN, names, routes or raw payloads are included.\n");
         return s.toString();
     }
@@ -262,7 +317,20 @@ final class CompatibilityReport {
             case "setting_confirmed": return "Setting confirmed";
             case "restoration_confirmed": return "Restoration confirmed";
             case "interrupted": return "Interrupted/no response";
+            case "not_sent": return "Not sent";
             default: return token.replace('_',' ');
+        }
+    }
+    /** The words Experimental controls shows for a try result. */
+    static String resultText(String result){
+        switch(result){
+            case "worked_here": return "Worked here";
+            case "no_change_seen": return "No change seen";
+            case "refused": return "Refused by scooter";
+            case "other_value": return "Other value read";
+            case "unconfirmed": return "Unconfirmed";
+            case "not_sent": return "Not sent";
+            default: return "Unconfirmed (interrupted)";
         }
     }
     static String readText(Map<String,Object> r){
@@ -313,6 +381,9 @@ final class CompatibilityReport {
         List<Object> tests=new ArrayList<>();
         for(Object o:bounded(in.get("tests"),32)){Map<String,Object> t=test(map(o));if(t!=null)tests.add(t);}
         if(in.containsKey("tests"))out.put("tests",tests);
+        List<Object> tries=new ArrayList<>();
+        for(Object o:bounded(in.get("experimental"),32)){Map<String,Object> t=tryEntry(map(o));if(t!=null)tries.add(t);}
+        if(!tries.isEmpty())out.put("experimental",tries);
         return out;
     }
     private static Map<String,Object> device(Map<String,Object> in){
@@ -376,8 +447,10 @@ final class CompatibilityReport {
         put(out,"evidence",oneOf(in.get("evidence"),lowerAll(CapabilityResolver.Evidence.values())));
         return out;
     }
-    private static Map<String,Object> test(Map<String,Object> in){
-        if(in==null||!knownFeature(in.get("feature"))||!testable((String)in.get("feature")))return null;
+    private static Map<String,Object> test(Map<String,Object> in){return test(in,false);}
+    /** A guided test (the test table only), or with anyFeature a try's common part (its caller checks the feature). */
+    private static Map<String,Object> test(Map<String,Object> in,boolean anyFeature){
+        if(in==null||!knownFeature(in.get("feature"))||!anyFeature&&!testable((String)in.get("feature")))return null;
         Map<String,Object> out=new LinkedHashMap<>();out.put("feature",in.get("feature"));
         putPattern(out,"variant",in.get("variant"),"[a-z0-9_.]{1,48}");
         putInt(out,"baseline",in.get("baseline"),0,255);putInt(out,"target",in.get("target"),0,255);
@@ -385,7 +458,7 @@ final class CompatibilityReport {
         List<Object> outcomes=new ArrayList<>(),times=new ArrayList<>(),values=new ArrayList<>();
         if(packet!=null){
             List<Object> steps=bounded(packet.get("outcomes"),16),at=bounded(packet.get("elapsed_ms"),16),codes=bounded(packet.get("step_values"),16);
-            for(int i=0;i<steps.size();i++){String v=oneOf(steps.get(i),TEST_OUTCOMES);if(v!=null){outcomes.add(v);times.add(i<at.size()?integer(at.get(i),0,24L*3600*1000):null);
+            for(int i=0;i<steps.size();i++){String v=anyFeature&&"not_sent".equals(steps.get(i))?"not_sent":oneOf(steps.get(i),TEST_OUTCOMES);if(v!=null){outcomes.add(v);times.add(i<at.size()?integer(at.get(i),0,24L*3600*1000):null);
                 values.add(VALUED_OUTCOMES.contains(v)&&i<codes.size()?integer(codes.get(i),0,255):null);}}
         }
         p.put("outcomes",outcomes);p.put("elapsed_ms",times);p.put("step_values",values);out.put("packet_evidence",p);
@@ -394,6 +467,21 @@ final class CompatibilityReport {
         ob.put("effect",effect==null?"not_checked":effect);out.put("owner_observation",ob);
         String restoration=oneOf(in.get("restoration"),lowerAll(Restoration.values()));
         out.put("restoration",restoration==null?"outstanding":restoration); // never upgraded to a success
+        return out;
+    }
+    /** One Experimental controls try: like a test, plus its group, layer, result and whether the owner kept it. */
+    private static Map<String,Object> tryEntry(Map<String,Object> in){
+        if(in==null||!knownFeature(in.get("feature")))return null;
+        String group=oneOf(in.get("group"),TRY_GROUPS);if(group==null)return null;
+        String feature=(String)in.get("feature");
+        if(!(group.equals("experimental")?ModelRegistry.experimentalKey(feature):ModelRegistry.testable(feature)))return null;
+        Map<String,Object> copy=new LinkedHashMap<>(in);copy.remove("group");
+        Map<String,Object> base=test(copy,true);if(base==null)return null;
+        Map<String,Object> out=new LinkedHashMap<>();out.put("feature",feature);out.put("group",group);
+        for(Map.Entry<String,Object> e:base.entrySet())if(!e.getKey().equals("feature"))out.put(e.getKey(),e.getValue());
+        put(out,"layer",oneOf(in.get("layer"),lowerAll(ModelRegistry.Layer.values())));
+        String result=oneOf(in.get("result"),TRY_RESULTS);out.put("result",result==null?"interrupted":result);
+        out.put("kept",Boolean.TRUE.equals(in.get("kept"))&&"declined".equals(out.get("restoration")));
         return out;
     }
     private static boolean knownFeature(Object key){

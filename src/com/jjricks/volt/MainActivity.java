@@ -1328,7 +1328,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             testBanner.setBackground(design.shape(Ui.withAlpha(design.accent,design.dark?36:22),16,Ui.withAlpha(design.accent,design.dark?100:80)));
             testBanner.addView(design.icon("lab",18,design.text),new LinearLayout.LayoutParams(design.dp(18),design.dp(18)));
             testBannerText=design.text("Unfinished test",13,false);LinearLayout.LayoutParams testWords=new LinearLayout.LayoutParams(0,-2,1);testWords.leftMargin=design.dp(10);testWords.rightMargin=design.dp(8);testBanner.addView(testBannerText,testWords);
-            testReviewAction=pill("Review",()->openMoreSection("Compatibility"));testReviewAction.setContentDescription("Review unfinished test");testReviewAction.setTag("scooter-review-test");testBanner.addView(testReviewAction);
+            testReviewAction=pill("Review",()->{GuidedTest running=scooterService==null?null:scooterService.ble.guidedTest();openMoreSection(running!=null&&!running.terminal()&&running.keeps()?"Lab":"Compatibility");});testReviewAction.setContentDescription("Review unfinished test");testReviewAction.setTag("scooter-review-test");testBanner.addView(testReviewAction);
             testBanner.setVisibility(View.GONE);view.addView(testBanner,new LinearLayout.LayoutParams(-1,-2));
             ((LinearLayout.LayoutParams)testBanner.getLayoutParams()).bottomMargin=design.dp(10);
             // Wide: the banner spans both columns; search, results and top speed lead the left column.
@@ -1488,11 +1488,12 @@ public final class MainActivity extends Activity implements ScreenHost {
             testBanner.setVisibility(reviewNeeded?View.VISIBLE:View.GONE);
             if(reviewNeeded){
                 String text=recordsLost?"Test records unavailable"
-                        :!unfinished.isEmpty()?"Unfinished test · "+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"")
+                        :!unfinished.isEmpty()?(unfinished.get(0).isTry()?"Unfinished try · ":"Unfinished test · ")+ScooterCommands.find(unfinished.get(0).feature).label+(unfinished.size()>1?" +"+(unfinished.size()-1):"")
                         :orphaned>0?"Unfinished test · removed scooter"
-                        :elsewhere>0?"Unfinished test · another scooter":"Setting test in progress";
+                        :elsewhere>0?"Unfinished test · another scooter"
+                        :ble.guidedTest()!=null&&ble.guidedTest().keeps()?"Trying "+ScooterCommands.find(ble.guidedTest().feature).label.toLowerCase(Locale.ROOT)+"…":"Setting test in progress";
                 if(!text.contentEquals(testBannerText.getText()))testBannerText.setText(text);
-                testReviewAction.setContentDescription(recordsLost?"Review test records":testing?"Review setting test":"Review unfinished test");
+                testReviewAction.setContentDescription(recordsLost?"Review test records":testing?"Review setting test":"Review unfinished "+(!unfinished.isEmpty()&&unfinished.get(0).isTry()?"try":"test"));
             }
             identifyAction.setVisibility(ble!=null&&ble.modelUnidentified()?View.VISIBLE:View.GONE);
             // Rows follow the model's decisions; re-filter when the set of mapped controls changes.
@@ -2317,6 +2318,8 @@ public final class MainActivity extends Activity implements ScreenHost {
             ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
             if(now==null||!now.id.equals(scooter)){toast("The scooter changed, so Volt didn't open the report.");return;}
             if(email(ReportInvite.subject(model),ReportInvite.body(report,choice,modes,model))){
+                // Its tries now travel with a report the owner is sending: they keep their results but may be pruned.
+                if(scooterService!=null)scooterService.ble.markReported(report);
                 if(!model.isEmpty())preferences.edit().putString(ReportInvite.PREFIX+model,"sent").apply();toast("Your email app has the report. Thanks for helping!");
             }else toast("No email app could open the report.");
         };
@@ -2954,11 +2957,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(pendingOwnerFile().exists()){maybeApplyOwnerImport();if(pendingOwnerFile().exists())toast("Owner import waiting…");return;}
         Intent intent=new Intent(Intent.ACTION_OPEN_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType("*/*");intent.putExtra(Intent.EXTRA_MIME_TYPES,new String[]{"application/json","text/plain","application/octet-stream"});startActivityForResult(intent,IMPORT_OWNER);
     }
-    @Override public void saveText(String name,String mime,String content){prepareSave(name,mime,null,content==null?"":content);}
-    @Override public void saveFile(String name,String mime,File content){if(content==null||!content.isFile()){toast("The export file is unavailable.");return;}prepareSave(name,mime,content,null);}
-    private void prepareSave(String name,String mime,File source,String text){
+    @Override public void saveText(String name,String mime,String content){prepareSave(name,mime,null,content==null?"":content,"");}
+    @Override public void saveFile(String name,String mime,File content){if(content==null||!content.isFile()){toast("The export file is unavailable.");return;}prepareSave(name,mime,content,null,"");}
+    /** Like saveText; the report's tries count as reported only once the file is written (a refused, cancelled or failed save leaves them unreported). */
+    @Override public void saveReport(CompatibilityReport report){prepareSave("volt-compat-report.json","application/json",null,report.json(),android.text.TextUtils.join(",",report.included()));}
+    private void prepareSave(String name,String mime,File source,String text,String reportTests){
         if(documents.contains("path")){toast("Finish the current save before starting another export.");return;}
-        File staging=new File(getFilesDir(),"pending-export-"+System.currentTimeMillis());preparingExports.add(staging.getAbsolutePath());documents.edit().putString("path",staging.getAbsolutePath()).putString("name",name).putString("mime",mime).putBoolean("ready",false).putBoolean("picker",false).commit();
+        File staging=new File(getFilesDir(),"pending-export-"+System.currentTimeMillis());preparingExports.add(staging.getAbsolutePath());documents.edit().putString("path",staging.getAbsolutePath()).putString("name",name).putString("mime",mime).putString("report_tests",reportTests).putBoolean("ready",false).putBoolean("picker",false).commit();
         new Thread(()->{try(OutputStream out=new FileOutputStream(staging)){if(source==null)out.write(text.getBytes(StandardCharsets.UTF_8));else try(InputStream in=new FileInputStream(source)){copy(in,out);}documents.edit().putBoolean("ready",true).commit();handler.post(this::maybeLaunchSave);}catch(Exception e){staging.delete();documents.edit().clear().commit();handler.post(()->toast("Could not prepare the export."));}finally{preparingExports.remove(staging.getAbsolutePath());}},"Volt-export").start();
     }
     private void maybeLaunchSave(){
@@ -2981,7 +2986,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             return;
         }
         if(request==ENABLE_BLUETOOTH){if(result==RESULT_OK){if(pendingScan){pendingScan=false;showScanner(true);}else if(pendingConnect){pendingConnect=false;connect();}}else pendingConnect=pendingScan=false;return;}
-        if(request==SAVE_DOCUMENT){File staging=new File(documents.getString("path",new File(getFilesDir(),"missing-export").getAbsolutePath()));if(result!=RESULT_OK||data==null||data.getData()==null){staging.delete();documents.edit().clear().apply();return;}Uri destination=data.getData();new Thread(()->{try(InputStream in=new FileInputStream(staging);OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null)throw new java.io.IOException();copy(in,out);handler.post(()->toast("Saved."));}catch(Exception e){handler.post(()->toast("The export could not be saved."));}finally{staging.delete();documents.edit().clear().commit();}},"Volt-save").start();return;}
+        if(request==SAVE_DOCUMENT){File staging=new File(documents.getString("path",new File(getFilesDir(),"missing-export").getAbsolutePath()));String reportTests=documents.getString("report_tests","");if(result!=RESULT_OK||data==null||data.getData()==null){staging.delete();documents.edit().clear().apply();return;}Uri destination=data.getData();new Thread(()->{try(InputStream in=new FileInputStream(staging);OutputStream out=getContentResolver().openOutputStream(destination,"wt")){if(out==null)throw new java.io.IOException();copy(in,out);handler.post(()->{toast("Saved.");if(!reportTests.isEmpty()&&scooterService!=null)scooterService.ble.markReported(java.util.Arrays.asList(reportTests.split(",")));});}catch(Exception e){handler.post(()->toast("The export could not be saved."));}finally{staging.delete();documents.edit().clear().commit();}},"Volt-save").start();return;}
         if(request==IMPORT_LAYOUTS&&result==RESULT_OK&&data!=null&&data.getData()!=null){
             Uri uri=data.getData();
             new Thread(()->{try(InputStream in=getContentResolver().openInputStream(uri)){

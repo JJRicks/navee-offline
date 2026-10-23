@@ -132,12 +132,15 @@ public final class CompatControlsValidation extends Instrumentation {
         main(() -> {
             for (String key : new String[]{"prompt_tone", "dual_drive"})
                 require(!activity.service().ble.experimentalDecision(key).experimental(), "Offered " + key + " is not experimental");
-            require(((List<?>)field(more(), "labRows")).isEmpty() && "Nothing to try".contentEquals(((TextView)field(more(), "labTitle")).getText()), "2585 lists experimental controls");
+            // Its guided-test controls are offered by the official app but unverified by Volt: Help verify only.
+            for (Object row : (List<?>)field(more(), "labRows"))
+                require(!activity.service().ble.experimentalDecision(((ScooterCommands.Feature)field(row, "feature")).key).experimental(), "2585 lists an experimental control");
+            require(((List<?>)field(more(), "labRows")).size() == 5 && "Help verify".contentEquals(((TextView)field(more(), "labTitle")).getText()), "2585 Help verify rows");
         });
         screenshot("q-lab");
         main(() -> invoke(more(), "selectSection", new Class<?>[]{String.class}, "")); settle();
         home("q-noregion");
-        checks.add("25851 without region: maximum speed 25/32/40/50/70 km/h, Untested here rows, TCS/single-motor confirm sheets (Cancel keeps, Continue sends to the simulator), 0-5 km/h kick-start, six-colour zones, nothing in Experimental controls");
+        checks.add("25851 without region: maximum speed 25/32/40/50/70 km/h, Untested here rows, TCS/single-motor confirm sheets (Cancel keeps, Continue sends to the simulator), 0-5 km/h kick-start, six-colour zones, only Help verify in Experimental controls");
     }
 
     /** 2585: US and DE offer the same model-specific table, retaining high-speed and low-start cautions. */

@@ -116,7 +116,7 @@ public final class MoreScreen implements AppScreen {
     private TextView labConnect, labTitle, labIntro, labFoot, labNotice, historyUsage, historyStatus;
     private LinearLayout labList;
     private String labSignature = "", labModelKey = "";
-    private List<String> labKeys = new ArrayList<>();
+    private List<String> labKeys = new ArrayList<>(), verifyKeys = new ArrayList<>();
     private LabSheet labSheet;
     private TextView[] historyCounts;
     private LinearLayout historyBar;
@@ -1485,10 +1485,11 @@ public final class MoreScreen implements AppScreen {
     // ---- Experimental controls ------------------------------------------------------------
 
     /**
-     * Controls the official app doesn't offer for this model (ModelRegistry.experimental), most likely to work first.
-     * A row says whether the control is untested here or what this session's last try read back; Try opens its sheet
-     * and Set back returns, in one tap, to the value before the first try. Everything the official app offers stays
-     * in Scooter settings. Rows rebuild when the model or the fields this scooter reports change.
+     * Controls the official app doesn't offer for this model (ModelRegistry.experimental), most likely to work first,
+     * then Help verify: controls it does offer that Volt hasn't verified here (ModelRegistry.verifiable). A row says
+     * whether the control is untested or what its last try read back (journalled, so it survives restarts); Try opens
+     * its sheet (try, readback, "Did you see it change?") and Set back returns a kept try's earlier value in one tap.
+     * Ordinary Scooter rows are unchanged. Rows rebuild when the model or the fields this scooter reports change.
      */
     private void lab() {
         LinearLayout intro = ui.card(); intro.setOrientation(LinearLayout.HORIZONTAL); intro.setGravity(Gravity.TOP);
@@ -1515,31 +1516,45 @@ public final class MoreScreen implements AppScreen {
         labFoot = footnote("");
         LinearLayout tools = group();
         row(tools, "stats", "Command evidence", null, this::commandEvidence).view.setTag("lab-evidence");
+        dangerRow(tools, "Clear try results", this::clearTries).view.setTag("lab-clear");
+    }
+    /** The owner clears this scooter's finished tries: their results, report entries and Set back. Unfinished ones stay. */
+    private void clearTries() {
+        confirm("Clear try results?", "Volt forgets what your tries on this scooter showed, so they leave your next report and Set back. Settings stay as they are. Unfinished tries stay until you review them.",
+                "Clear", () -> { int n = service().ble.clearTries(); host.toast(n == 0 ? "No finished tries to clear" : n == 1 ? "Cleared 1 try" : "Cleared " + n + " tries"); refresh(); });
     }
     private void refreshLab(ScooterService s) {
         BleController ble = s.ble; boolean ready = ble.ready();
         DeviceDescriptor d = ble.descriptor(); ModelRegistry.Resolution r = ModelRegistry.resolve(d);
         String model = r.layer + "|" + r.matchedPrefix + "|" + r.conflict + "|" + d.rulePid() + "|" + d.pidSource();
-        if (!model.equals(labModelKey)) { labModelKey = model; labKeys = ModelRegistry.experimental(d); }
-        // Split into controls to try and controls this scooter doesn't report; rebuild only when that changes.
-        List<String> tryable = new ArrayList<>(), absent = new ArrayList<>();
+        if (!model.equals(labModelKey)) { labModelKey = model; labKeys = ModelRegistry.experimental(d); verifyKeys = ModelRegistry.verifiable(d); }
+        // Split into controls to try, to help verify, and this scooter doesn't report; rebuild only when that changes.
+        List<String> tryable = new ArrayList<>(), verify = new ArrayList<>(), absent = new ArrayList<>();
         for (String key : labKeys) {
             CapabilityResolver.Decision decision = ble.experimentalDecision(key);
             if (!decision.experimental()) continue;
             (ready && decision.reason == CapabilityResolver.Reason.FIELD_ABSENT ? absent : tryable).add(key);
         }
-        String signature = model + tryable + absent;
-        if (!signature.equals(labSignature)) { labSignature = signature; buildLab(r, d, tryable, absent); }
-        boolean rows = !tryable.isEmpty() || !absent.isEmpty();
-        labTitle.setText(rows ? "Untested controls" : "Nothing to try");
-        labIntro.setText(rows ? "The official app doesn't offer these for " + labModel(d) + ". Try one while parked; Volt reads it back." : labEmpty(r, d));
+        for (String key : verifyKeys) {
+            CapabilityResolver.Decision decision = ble.verifyDecision(key);
+            if (decision.support != CapabilityResolver.Support.KNOWN_ENCODING) continue;
+            (ready && decision.reason == CapabilityResolver.Reason.FIELD_ABSENT ? absent : verify).add(key);
+        }
+        String signature = model + tryable + verify + absent;
+        if (!signature.equals(labSignature)) { labSignature = signature; buildLab(r, d, tryable, verify, absent); }
+        boolean experimental = !tryable.isEmpty() || absent.stream().anyMatch(labKeys::contains), rows = experimental || !verify.isEmpty() || !absent.isEmpty();
+        labTitle.setText(experimental ? "Untested controls" : rows ? "Help verify" : "Nothing to try");
+        labIntro.setText(experimental ? "The official app doesn't offer these for " + labModel(d) + ". Try one while parked; Volt reads it back."
+                : rows ? "The official app offers these for " + labModel(d) + ", but Volt hasn't tested them there. Try one while parked; Volt reads it back." : labEmpty(r, d));
         boolean offeredElsewhere = r.layer == ModelRegistry.Layer.OEM_GROUP || r.layer == ModelRegistry.Layer.UT5_MAX;
-        labFoot.setText(r.layer == ModelRegistry.Layer.OEM_GROUP
+        String kept = rows ? " Try results stay on this phone until a compatibility report you send includes them, or until you clear them." : "";
+        labFoot.setText((r.layer == ModelRegistry.Layer.OEM_GROUP
                 ? "Controls the official app offers for your model stay in Scooter settings. Speed limits, charging, the lock, PIN, proximity unlock and the clock are never added here. Volt never changes firmware."
-                : offeredElsewhere ? "Controls the official app offers for your model stay in Scooter settings. Volt never changes firmware." : "Volt never changes firmware.");
+                : offeredElsewhere ? "Controls the official app offers for your model stay in Scooter settings. Volt never changes firmware." : "Volt never changes firmware.") + kept);
         labConnect.setVisibility(ble.state() == BleController.State.DISCONNECTED ? View.VISIBLE : View.GONE);
         CapabilityResolver.Reason held = null;
-        for (String key : tryable) { CapabilityResolver.Reason reason = ble.experimentalDecision(key).reason; if (held == null && LAB_HELD.contains(reason)) held = reason; }
+        List<String> live = new ArrayList<>(tryable); live.addAll(verify);
+        for (String key : live) { CapabilityResolver.Reason reason = ble.tryDecision(key).reason; if (held == null && LAB_HELD.contains(reason)) held = reason; }
         // Disconnected, the Connect button says it; while connecting, the notice does.
         String notice = held == null || held == CapabilityResolver.Reason.NOT_CONNECTED && labConnect.getVisibility() == View.VISIBLE ? ""
                 : held == CapabilityResolver.Reason.NOT_CONNECTED ? "Connecting…" : labHeld(held);
@@ -1547,7 +1562,7 @@ public final class MoreScreen implements AppScreen {
         for (LabRow row : labRows) refreshLabRow(ble, row);
         if (labSheet != null) labSheet.refresh();
     }
-    private void buildLab(ModelRegistry.Resolution r, DeviceDescriptor d, List<String> tryable, List<String> absent) {
+    private void buildLab(ModelRegistry.Resolution r, DeviceDescriptor d, List<String> tryable, List<String> verify, List<String> absent) {
         labList.removeAllViews(); labRows.clear();
         LinearLayout destination = cardDestination; cardDestination = labList;
         try {
@@ -1555,6 +1570,12 @@ public final class MoreScreen implements AppScreen {
                 label("Try on this scooter");
                 LinearLayout list = group(); list.setTag("lab-try");
                 for (String key : tryable) labRows.add(labRow(list, ScooterCommands.find(key), true));
+            }
+            if (!verify.isEmpty()) {
+                label("Help verify");
+                LinearLayout list = group(); list.setTag("lab-verify");
+                for (String key : verify) labRows.add(labRow(list, ScooterCommands.find(key), true));
+                footnote("The official app offers these for your model, but Volt hasn't tested them on it. Your try and answer go in your next compatibility report.");
             }
             if (!absent.isEmpty()) {
                 label("Not reported by this scooter");
@@ -1633,17 +1654,18 @@ public final class MoreScreen implements AppScreen {
     }
     private void refreshLabRow(BleController ble, LabRow row) {
         if (row.status == null) return;
-        String key = row.feature.key; CapabilityResolver.Decision d = ble.experimentalDecision(key);
+        String key = row.feature.key; CapabilityResolver.Decision d = ble.tryDecision(key);
         Integer current = ble.ready() ? ble.featureValue(key) : null, before = ble.experimentBaseline(key);
         labStatus(ble, key, row.status, false);
-        boolean back = labBack(d, current, before);
+        boolean back = labBack(d, current, before), review = labUnfinished(ble, key) != null;
         String text = current == null ? "" : "Now " + labValue(row.feature, d, current) + (back ? " · was " + labValue(row.feature, d, before) : "");
         if (!d.available() && d.reason != CapabilityResolver.Reason.BUSY && !LAB_HELD.contains(d.reason)) text = (text.isEmpty() ? "" : text + " · ") + d.reasonText();
         row.now.setText(text); row.now.setVisibility(text.isEmpty() ? View.GONE : View.VISIBLE);
         // Ride-blocked stays tappable so the tap can say why; the write gate still refuses it.
-        boolean usable = (d.available() || d.blockedByRide()) && ble.pending() == null;
-        row.action.setText(back ? "Set back" : "Try"); row.action.setEnabled(usable); row.action.setClickable(usable);
-        row.action.setContentDescription(back ? "Set " + row.feature.label.toLowerCase(Locale.ROOT) + " back to " + labValue(row.feature, d, before)
+        boolean usable = review || (d.available() || d.blockedByRide()) && ble.pending() == null;
+        row.action.setText(review ? "Review" : back ? "Set back" : "Try"); row.action.setEnabled(usable); row.action.setClickable(usable);
+        row.action.setContentDescription(review ? "Review the unfinished " + row.feature.label.toLowerCase(Locale.ROOT) + " try"
+                : back ? "Set " + row.feature.label.toLowerCase(Locale.ROOT) + " back to " + labValue(row.feature, d, before)
                 : "Try " + row.feature.label.toLowerCase(Locale.ROOT));
         row.line.setContentDescription(row.feature.label + ", " + row.status.getContentDescription() + (text.isEmpty() ? "" : ", " + text));
     }
@@ -1662,7 +1684,7 @@ public final class MoreScreen implements AppScreen {
             case LOCKED: return "Unlock the scooter to try these.";
             case OWNER_ONLY: return "Only the owner's profile can try these.";
             case DISCOVERY_ACTIVE: return "Wait for the compatibility check to finish.";
-            case TEST_ACTIVE: return "Finish the setting test first.";
+            case TEST_ACTIVE: return "Finish the current try first.";
             case RECORDING: return "Stop recording to try these.";
             default: return CapabilityResolver.text(reason);
         }
@@ -1671,37 +1693,76 @@ public final class MoreScreen implements AppScreen {
     private static boolean labBack(CapabilityResolver.Decision d, Integer current, Integer before) {
         return before != null && current != null && !before.equals(current) && d.variant != null && d.variant.allows(before);
     }
-    /** What this session's last try read back, or that the control is untested here (quiet orange words, not a pill). */
+    /**
+     * The running try of this control, or what its last journalled try read back, or that it is untested (experimental)
+     * or unverified (Help verify) here, as quiet orange words rather than a pill.
+     */
     private void labStatus(BleController ble, String key, LadderPill pill, boolean sheet) {
-        String result = ble.commandResults().get(key);
-        boolean tried = result != null && ble.commandResultTime(key) > 0;
-        if (key.equals(ble.pending())) pill.show(ui.muted, false, "Checking…");
+        GuidedTest live = labLive(ble, key);
+        TestJournal.Entry last = ble.simulating() ? null : ble.latestTry(key);
+        boolean verify = !ble.experimentalDecision(key).experimental();
+        if (live != null) {
+            switch (live.phase()) {
+                // The sheet asks the question itself; its fact line just says what the try waits for.
+                case OBSERVE: if (sheet) pill.show(ui.orange, true, "Waiting for your answer", "Your answer"); else pill.show(ui.orange, true, "Did you see it change?", "Answer"); return;
+                case RESTORE_PENDING: case RESTORE_AWAIT: pill.show(ui.muted, false, "Setting back…"); return;
+                default: pill.show(ui.muted, false, "Checking…"); return;
+            }
+        }
         // The simulator changes only its own memory and reads nothing back: no scooter evidence either way.
-        else if (ble.simulating() && ble.experimentBaseline(key) != null) pill.quiet(ui.muted, "Simulated change", "Simulated");
-        else if (!tried && sheet) pill.quiet(ui.muted, "Not tried yet");
-        else if (!tried) pill.quiet(ui.orange, "Untested on your model", "Untested here", "Untested");
-        else if (result.startsWith("Confirmed") || result.startsWith("Setting confirmed")) pill.show(ui.ok, true, "Worked here", "Worked");
-        else if (result.startsWith("Rejected")) pill.show(ui.danger, true, "Refused by scooter", "Refused");
-        else if (result.equals(BleController.OTHER_VALUE)) pill.show(ui.orange, true, "Other value read", "Other value");
-        // Only these two are known: nothing went out, or the scooter acknowledged and two reads showed no change.
-        else if (result.equals("Cancelled before sending")) pill.show(ui.muted, false, "Not sent");
-        else if (result.equals(BleController.NO_CHANGE)) pill.show(ui.muted, false, "No change seen", "No change");
-        // Interrupted or timed out after sending: the scooter may have applied it. Its next read shows which.
-        else pill.show(ui.orange, true, sheet ? "Unconfirmed · reconnect to check" : "Unconfirmed", "Unconfirmed");
+        if (ble.simulating() && ble.experimentBaseline(key) != null) { pill.quiet(ui.muted, "Simulated change", "Simulated"); return; }
+        if (last != null && !last.resolved) { pill.show(ui.danger, true, "Unfinished · review", "Unfinished"); return; }
+        if (last == null) {
+            if (sheet) pill.quiet(ui.muted, "Not tried yet");
+            else if (verify) pill.quiet(ui.orange, "Unverified on your model", "Unverified here", "Unverified");
+            else pill.quiet(ui.orange, "Untested on your model", "Untested here", "Untested");
+            return;
+        }
+        switch (CompatibilityReport.tryResult(last)) {
+            case "worked_here": pill.show(ui.ok, true, "Worked here", "Worked"); return;
+            case "refused": pill.show(ui.danger, true, "Refused by scooter", "Refused"); return;
+            case "other_value": pill.show(ui.orange, true, "Other value read", "Other value"); return;
+            case "not_sent": pill.show(ui.muted, false, "Not sent"); return;
+            case "no_change_seen": pill.show(ui.muted, false, "No change seen", "No change"); return;
+            // Sent, but no conclusive readback (or interrupted): never called no change or not sent.
+            default: pill.show(ui.orange, true, sheet ? "Unconfirmed · reconnect to check" : "Unconfirmed", "Unconfirmed");
+        }
+    }
+    /** The running (not finished) try of this control, or null. */
+    private static GuidedTest labLive(BleController ble, String key) {
+        GuidedTest t = ble.guidedTest();
+        return t != null && !t.terminal() && t.keeps() && t.feature.equals(key) ? t : null;
+    }
+    /** This control's latest try when it didn't finish (it waits for the owner's review), or null. */
+    private static TestJournal.Entry labUnfinished(BleController ble, String key) {
+        if (ble.simulating() || labLive(ble, key) != null) return null;
+        TestJournal.Entry e = ble.latestTry(key);
+        return e != null && !e.resolved ? e : null;
+    }
+    /** An unfinished try is reviewed where every unfinished test is: Restore, Keep or Dismiss. */
+    private void reviewTry() {
+        if (labSheet != null) labSheet.dialog.dismiss();
+        selectSection("Compatibility");
     }
     private void labAction(LabRow row) {
         BleController ble = service() == null ? null : service().ble; if (ble == null) return;
-        CapabilityResolver.Decision d = ble.experimentalDecision(row.feature.key);
+        if (labUnfinished(ble, row.feature.key) != null) { reviewTry(); return; }
+        CapabilityResolver.Decision d = ble.tryDecision(row.feature.key);
         Integer current = ble.ready() ? ble.featureValue(row.feature.key) : null, before = ble.experimentBaseline(row.feature.key);
-        if (labBack(d, current, before)) labSend(row.feature, before); else openTry(row.feature);
+        if (labBack(d, current, before)) labSetBack(row.feature); else openTry(row.feature);
     }
     private boolean labSend(ScooterCommands.Feature f, int value) {
         BleController ble = service().ble; boolean sent = ble.setExperimental(f.key, value);
-        if (!ble.message().isEmpty()) host.toast(ble.message());
+        if (!ble.message().isEmpty() && !sent) host.toast(ble.message());
+        refresh(); return sent;
+    }
+    private boolean labSetBack(ScooterCommands.Feature f) {
+        BleController ble = service().ble; boolean sent = ble.setBack(f.key);
+        if (!ble.message().isEmpty() && !sent) host.toast(ble.message());
         refresh(); return sent;
     }
     void inspectQuickFeature(ScooterCommands.Feature feature) {
-        if (!closed && feature != null && service() != null && service().ble.experimentalDecision(feature.key).experimental()) openTry(feature);
+        if (!closed && feature != null && service() != null && service().ble.tryDecision(feature.key).support == CapabilityResolver.Support.KNOWN_ENCODING) openTry(feature);
     }
     private void openTry(ScooterCommands.Feature feature) {
         if (closed || service() == null) return;
@@ -1750,13 +1811,15 @@ public final class MoreScreen implements AppScreen {
      * slider for a range), the reason it can't be sent now, Try and Set back. The sheet stays open to show the result.
      */
     private final class LabSheet {
-        final ScooterCommands.Feature feature; final AlertDialog dialog;
-        final TextView now, warn, reason, go, back; final LadderPill status;
+        final ScooterCommands.Feature feature; final AlertDialog dialog; final boolean verify;
+        final TextView now, warn, reason, go, back, progress, question, unfinishedText; final LadderPill status;
+        final LinearLayout controls, observe, unfinished;
         final List<Ui.RadioDot> dots = new ArrayList<>(); final List<Integer> values = new ArrayList<>(); final List<View> nowTags = new ArrayList<>();
         SeekBar slider; TextView sliderValue; final List<Integer> range = new ArrayList<>();
         Integer selected;
         LabSheet(ScooterCommands.Feature f) {
-            feature = f; BleController ble = service().ble; CapabilityResolver.Decision d = ble.experimentalDecision(f.key);
+            feature = f; BleController ble = service().ble; CapabilityResolver.Decision d = ble.tryDecision(f.key);
+            verify = !d.experimental();
             final AlertDialog[] self = new AlertDialog[1];
             LinearLayout body = host.sheetContent(f.label, null, () -> { if (self[0] != null) self[0].dismiss(); });
             body.setTag("lab-sheet");
@@ -1764,9 +1827,10 @@ public final class MoreScreen implements AppScreen {
             caution.setBackground(ui.shape(Ui.withAlpha(ui.orange, ui.dark ? 26 : 18), 18, Ui.withAlpha(ui.orange, ui.dark ? 80 : 70)));
             caution.addView(ui.icon("lab", 22, ui.orange), new LinearLayout.LayoutParams(ui.dp(22), ui.dp(22)));
             LinearLayout cw = column();
-            cw.addView(ui.text("Untested on " + labModel(ble.descriptor()), 15, true));
-            TextView why = ui.text(labWhy(f.key, ble.descriptor()), 13.5f, false); why.setTextColor(ui.muted); why.setPadding(0, ui.dp(4), 0, 0);
-            cw.addView(why);
+            cw.addView(ui.text((verify ? "Unverified on " : "Untested on ") + labModel(ble.descriptor()), 15, true));
+            TextView why = ui.text(verify ? "The official app offers this for your model, but Volt hasn't tested it there. Your try and answer go in your next compatibility report."
+                    : labWhy(f.key, ble.descriptor()), 13.5f, false);
+            why.setTextColor(ui.muted); why.setPadding(0, ui.dp(4), 0, 0); cw.addView(why);
             LinearLayout.LayoutParams cwp = new LinearLayout.LayoutParams(0, -2, 1); cwp.leftMargin = ui.dp(12); caution.addView(cw, cwp);
             body.addView(caution);
             LinearLayout facts = ui.groupCard(); LinearLayout.LayoutParams fp = new LinearLayout.LayoutParams(-1, -2); fp.topMargin = ui.dp(12);
@@ -1774,11 +1838,33 @@ public final class MoreScreen implements AppScreen {
             now = fact(facts, "Now", ui.text("", 15, true));
             ui.divider(facts);
             status = new LadderPill(); fact(facts, "Last try", status);
+            // While a try runs: what Volt is doing, then the owner's answer.
+            progress = ui.text("", 14, false); progress.setTextColor(ui.muted); progress.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), ui.dp(4));
+            progress.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); progress.setTag("lab-progress"); body.addView(progress);
+            observe = column(); observe.setTag("lab-observe"); body.addView(observe);
+            observe.addView(ui.sectionLabel("Your answer"));
+            LinearLayout ask = ui.card(); observe.addView(ask);
+            question = ui.text("", 16, true); question.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); ask.addView(question);
+            TextView hint = ui.caption("Look at the scooter while it's parked. Your answer goes in your next compatibility report with what the scooter read back.");
+            hint.setPadding(0, ui.dp(6), 0, ui.dp(4)); ask.addView(hint);
+            TextView yes = ui.button("Yes", () -> answer(true)); yes.setTag("lab-observe-yes"); ask.addView(yes);
+            LinearLayout split = row(); ask.addView(split);
+            TextView no = ui.secondaryButton("No", () -> answer(false)), skip = ui.secondaryButton("Skip", () -> answer(null));
+            no.setTag("lab-observe-no"); skip.setTag("lab-observe-skip");
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(0, -2, 1); lp.rightMargin = ui.dp(6);
+            LinearLayout.LayoutParams rp = new LinearLayout.LayoutParams(0, -2, 1); rp.leftMargin = ui.dp(6);
+            split.addView(no, lp); split.addView(skip, rp);
+            // An interrupted try is reviewed where every unfinished one is.
+            unfinished = column(); unfinished.setTag("lab-unfinished"); body.addView(unfinished);
+            unfinishedText = ui.text("This try didn't finish, so the scooter may still be on the value tried. Review it to set it back or keep it.", 14, false);
+            unfinishedText.setPadding(ui.dp(4), ui.dp(12), ui.dp(4), ui.dp(4)); unfinished.addView(unfinishedText);
+            TextView review = ui.button("Review", MoreScreen.this::reviewTry); review.setTag("lab-review"); unfinished.addView(review);
+            controls = column(); body.addView(controls);
             // A range without listed values (the UT5 MAX speed caps) is a slider; anything else is radio rows.
             boolean sliding = d.variant != null && d.variant.values.length == 0;
-            body.addView(ui.sectionLabel(sliding ? "Choose a limit" : "Choose a value"));
+            controls.addView(ui.sectionLabel(sliding ? "Choose a limit" : "Choose a value"));
             if (sliding) {
-                LinearLayout card = ui.card(); body.addView(card);
+                LinearLayout card = ui.card(); controls.addView(card);
                 for (int n = d.variant.min; n <= d.variant.max; n += d.variant.step) if (d.variant.allows(n)) range.add(n);
                 sliderValue = ui.text("", 16, true); card.addView(sliderValue);
                 slider = new SeekBar(host.activity()); slider.setMax(Math.max(0, range.size() - 1));
@@ -1791,17 +1877,17 @@ public final class MoreScreen implements AppScreen {
                     @Override public void onStopTrackingTouch(SeekBar s) { }
                 });
             } else {
-                LinearLayout list = ui.groupCard(); body.addView(list);
+                LinearLayout list = ui.groupCard(); controls.addView(list);
                 for (int value : d.values()) { if (list.getChildCount() > 0) ui.divider(list); list.addView(option(d, value)); }
             }
             // The ordinary rows' cautions (kick-start below 3 km/h, traction control or motor braking off) apply here too.
             warn = ui.text("", 13.5f, false); warn.setTextColor(ui.orange); warn.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); warn.setTag("lab-caution");
-            warn.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); body.addView(warn);
+            warn.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); controls.addView(warn);
             reason = ui.text("", 13.5f, false); reason.setTextColor(ui.danger); reason.setPadding(ui.dp(4), ui.dp(4), ui.dp(4), 0);
-            reason.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); body.addView(reason);
-            go = ui.button("Try", this::send); go.setTag("lab-try-button"); body.addView(go);
-            back = ui.secondaryButton("Set back", this::setBack); back.setTag("lab-back-button"); body.addView(back);
-            TextView note = ui.caption("Volt sends one change while the scooter is parked and unlocked, then reads it back. Set back returns to the value from before your first try.");
+            reason.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE); controls.addView(reason);
+            go = ui.button("Try", this::send); go.setTag("lab-try-button"); controls.addView(go);
+            back = ui.secondaryButton("Set back", this::setBack); back.setTag("lab-back-button"); controls.addView(back);
+            TextView note = ui.caption("Volt sends one change while the scooter is parked and unlocked, reads it back, then asks what you saw. The value stays until you set it back. If the connection drops, Volt never writes again by itself: the try waits for your review.");
             note.setPadding(ui.dp(4), ui.dp(8), ui.dp(4), 0); body.addView(note);
             if (d.variant != null) {
                 TextView source = ui.caption(String.format(Locale.ROOT, "Command 0x%02X%s · status byte %d", d.variant.cmd,
@@ -1809,7 +1895,13 @@ public final class MoreScreen implements AppScreen {
                 source.setTextColor(ui.dim); source.setPadding(ui.dp(4), ui.dp(6), ui.dp(4), 0); body.addView(source);
             }
             dialog = host.showSheet(body); self[0] = dialog; dialogs.add(dialog);
-            dialog.setOnDismissListener(x -> { dialogs.remove(dialog); if (labSheet == this) labSheet = null; });
+            dialog.setOnDismissListener(x -> {
+                dialogs.remove(dialog); if (labSheet == this) labSheet = null;
+                // Leaving the question unanswered counts as Skip, so the try doesn't hold every other change.
+                BleController b = service() == null ? null : service().ble;
+                GuidedTest t = b == null ? null : labLive(b, feature.key);
+                if (t != null && t.phase() == GuidedTest.Phase.OBSERVE) { b.testEffect(null); refresh(); }
+            });
             refresh();
         }
         private TextView fact(LinearLayout card, String label, TextView value) {
@@ -1845,11 +1937,23 @@ public final class MoreScreen implements AppScreen {
         }
         void refresh() {
             BleController ble = service() == null || closed ? null : service().ble;
-            CapabilityResolver.Decision d = ble == null ? null : ble.experimentalDecision(feature.key);
-            if (d == null || !d.experimental()) { dialog.dismiss(); return; }
+            CapabilityResolver.Decision d = ble == null ? null : ble.tryDecision(feature.key);
+            if (d == null || d.support != CapabilityResolver.Support.KNOWN_ENCODING) { dialog.dismiss(); return; }
             Integer current = ble.ready() ? ble.featureValue(feature.key) : null, before = ble.experimentBaseline(feature.key);
             now.setText(current == null ? "—" : labValue(feature, d, current));
             labStatus(ble, feature.key, status, true);
+            GuidedTest live = labLive(ble, feature.key), shown = ble.guidedTest();
+            boolean asking = live != null && live.phase() == GuidedTest.Phase.OBSERVE, held = labUnfinished(ble, feature.key) != null;
+            String doing = live == null ? "" : asking ? "" : live.restoring() ? (live.verifying() ? "Checking it is unchanged…" : "Setting it back to " + labValue(feature, d, live.baseline()) + "…")
+                    : live.phase() == GuidedTest.Phase.PRECHECK || live.phase() == GuidedTest.Phase.BASELINE ? "Reading the current value…"
+                    : "Sending " + labValue(feature, d, live.target) + " and reading it back…";
+            // A try that ended without writing (the value changed, or a condition failed) says why once.
+            if (live == null && shown != null && shown.terminal() && shown.keeps() && shown.feature.equals(feature.key) && shown.nothingWritten() && !shown.note().isEmpty()) doing = shown.note();
+            progress.setText(doing); progress.setVisibility(doing.isEmpty() ? View.GONE : View.VISIBLE);
+            observe.setVisibility(asking ? View.VISIBLE : View.GONE);
+            if (asking) question.setText(verify ? CompatibilityPanel.question(feature.key, labValue(feature, d, live.target)) : "Did you see it change?");
+            unfinished.setVisibility(held ? View.VISIBLE : View.GONE);
+            controls.setVisibility(live == null && !held ? View.VISIBLE : View.GONE);
             if (selected == null && current != null) {
                 for (int v : values) if (v != current) { selected = v; break; }
                 if (selected == null && range.size() > 1) selected = range.get(range.indexOf(current) == 0 ? 1 : 0);
@@ -1863,9 +1967,9 @@ public final class MoreScreen implements AppScreen {
                 if (at >= 0 && slider.getProgress() != at) slider.setProgress(at);
                 sliderValue.setText(selected == null ? "—" : labValue(feature, d, selected));
             }
-            boolean pending = feature.key.equals(ble.pending()), busy = ble.pending() != null;
+            boolean busy = ble.pending() != null || ble.testing();
             boolean change = selected != null && current != null && !selected.equals(current) && d.allows(selected);
-            go.setText(pending ? "Checking…" : selected == null ? "Try" : current != null && selected.equals(current) ? "Already " + labValue(feature, d, selected)
+            go.setText(selected == null ? "Try" : current != null && selected.equals(current) ? "Already " + labValue(feature, d, selected)
                     : "Try " + labValue(feature, d, selected));
             go.setContentDescription(go.getText()); go.setEnabled(d.available() && !busy && change);
             String caution = change ? ModelRegistry.experimentalCaution(feature.key, selected) : null;
@@ -1874,13 +1978,18 @@ public final class MoreScreen implements AppScreen {
             reason.setText(why); reason.setVisibility(why.isEmpty() ? View.GONE : View.VISIBLE);
             boolean showBack = labBack(d, current, before);
             // After a try, Set back is the one action unless another value is chosen.
-            go.setVisibility(showBack && !pending && (selected == null || selected.equals(current) || selected.equals(before)) ? View.GONE : View.VISIBLE);
+            go.setVisibility(showBack && (selected == null || selected.equals(current) || selected.equals(before)) ? View.GONE : View.VISIBLE);
             back.setVisibility(showBack ? View.VISIBLE : View.GONE);
             if (showBack) { back.setText("Set back to " + labValue(feature, d, before)); back.setContentDescription(back.getText()); }
             back.setEnabled(d.available() && !busy);
         }
+        void answer(Boolean saw) {
+            BleController ble = service() == null ? null : service().ble;
+            if (ble == null || labLive(ble, feature.key) == null) return;
+            ble.testEffect(saw); MoreScreen.this.refresh();
+        }
         void send() { if (selected != null) labSend(feature, selected); }
-        void setBack() { Integer before = service().ble.experimentBaseline(feature.key); if (before != null) labSend(feature, before); }
+        void setBack() { labSetBack(feature); }
     }
     /** Where the official app offers this control instead (OEM tables), in plain words. */
     private static String labWhy(String key, DeviceDescriptor d) {

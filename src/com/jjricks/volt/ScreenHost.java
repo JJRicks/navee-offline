@@ -9,6 +9,8 @@ public interface ScreenHost {
     void requestRideLocation(Runnable ready);
     void saveText(String name,String mime,String content);
     void saveFile(String name,String mime,File content);
+    /** Saves a compatibility report file; its tries count as reported only once the file is written. */
+    default void saveReport(CompatibilityReport report) { saveText("volt-compat-report.json", "application/json", report.json()); }
     /** Back up & restore. A null direction first asks Back up or Restore; preselect is a category ID or null. */
     default void dataBackup(Boolean restore, String preselect) { }
     /** A Volt bottom sheet: its body (grab handle, title, close) and the shown sheet around that body. */

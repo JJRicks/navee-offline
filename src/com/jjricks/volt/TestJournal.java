@@ -11,6 +11,8 @@ import java.nio.charset.StandardCharsets;
 import java.nio.file.AtomicMoveNotSupportedException;
 import java.nio.file.Files;
 import java.nio.file.StandardCopyOption;
+import java.security.MessageDigest;
+import java.security.NoSuchAlgorithmException;
 import java.util.ArrayList;
 import java.util.Collections;
 import java.util.List;
@@ -18,16 +20,20 @@ import java.util.Locale;
 import java.util.zip.CRC32;
 
 /**
- * Device-local write-ahead record of guided setting tests, so an interrupted test is never
- * forgotten and never replayed. Each entry is one versioned key=value line with a checksum; a
- * corrupt or unknown line is dropped and the valid entries are kept. Only semantic values are
- * stored (feature, variant, model prefix, meter firmware, baseline, target, phase, outcomes):
- * no packets, serials, MACs, owner identities or PIN data, and every value is pattern-checked so
- * none can be written. Not part of any backup. Pure Java; the Android file lives under
- * getNoBackupFilesDir().
+ * Device-local write-ahead record of setting tries, so an interrupted one is never forgotten and
+ * never replayed: Experimental controls' tries (kind "experimental" and "verify", Help verify) and
+ * the older guided tests (kind "test", only recovered and reported now). Each entry is one versioned
+ * key=value line with a checksum; a corrupt or unknown line is dropped and the valid entries are
+ * kept. Only semantic values are stored (kind, feature, variant, layer, model prefix, meter firmware,
+ * baseline, target, phase, outcomes, whether a sent report included it): no packets, serials, MACs,
+ * owner identities, names, PIN data or times of day, and every value is pattern-checked so none can
+ * be written. Not part of any backup. Pure Java; the Android file lives under getNoBackupFilesDir().
+ * Version 2 adds kind, layer and reported; a version 1 file loads as guided tests.
  */
 final class TestJournal {
-    static final String HEADER="volt-compat-tests v1";
+    static final String HEADER="volt-compat-tests v2",HEADER_V1="volt-compat-tests v1";
+    /** Entry kinds: an older guided test, an Experimental controls try, a Help verify try. */
+    static final String TEST="test",EXPERIMENTAL="experimental",VERIFY="verify";
     static final int MAX_ENTRIES=20;
     static final long PRUNE_AFTER_MS=30L*24*60*60*1000;
     /** Outcome steps kept per test; later steps replace the middle of the history, never make the entry invalid. */
@@ -44,6 +50,10 @@ final class TestJournal {
     static final class Entry {
         String testId="",profileId="",feature="",variantId="",pidPrefix="",pidSource="none",meterFw="",phase="",effect="not_checked";
         String restoration=OUTSTANDING,resolution="";
+        /** TEST, EXPERIMENTAL or VERIFY; layer is the model layer at the time (lower case), "" for older entries. */
+        String kind=TEST,layer="";
+        /** A report the owner shared, saved or emailed included this entry as it is now; then it may be pruned like any other. */
+        boolean reported;
         int registryVersion,baseline,target;
         /** The related byte captured with the baseline (another bit field of the same byte, or the range choice set), or -1. */
         int related=-1;
@@ -54,8 +64,10 @@ final class TestJournal {
             Entry e=new Entry();e.testId=testId;e.profileId=profileId;e.feature=feature;e.variantId=variantId;e.pidPrefix=pidPrefix;e.pidSource=pidSource;
             e.meterFw=meterFw;e.phase=phase;e.effect=effect;e.restoration=restoration;e.resolution=resolution;e.registryVersion=registryVersion;
             e.baseline=baseline;e.target=target;e.related=related;e.outcomes=new ArrayList<>(outcomes);e.elapsedMs=new ArrayList<>(elapsedMs);
-            e.createdWall=createdWall;e.updatedWall=updatedWall;e.resolved=resolved;return e;
+            e.createdWall=createdWall;e.updatedWall=updatedWall;e.resolved=resolved;e.kind=kind;e.layer=layer;e.reported=reported;return e;
         }
+        /** An Experimental controls try (either group), not an older guided test. */
+        boolean isTry(){return !TEST.equals(kind);}
     }
 
     private final Storage storage;
@@ -87,13 +99,36 @@ final class TestJournal {
         if(!readable)throw new IOException("Test records are unavailable");
         if(!valid(e))throw new IllegalArgumentException("Test record is invalid");
         List<Entry> next=new ArrayList<>();boolean replaced=false;
-        for(Entry old:entries){if(old.testId.equals(e.testId)){next.add(e.copy());replaced=true;}else next.add(old);}
-        if(!replaced)next.add(e.copy());
+        for(Entry old:entries){if(old.testId.equals(e.testId)){next.add(saved(old,e));replaced=true;}else next.add(old);}
+        if(!replaced)next.add(saved(null,e));
         prune(next,e.updatedWall);
         if(next.size()>MAX_ENTRIES)throw new IOException("Too many unfinished tests");
         storage.writeAtomic(serialize(next));
         entries.clear();entries.addAll(next);
     }
+    /**
+     * The entry as committed: reported only while it records exactly what a sent report included. A new outcome, the
+     * owner's answer, a restoration, a resolution or a reopening (Set back, review) makes it unreported again, so the
+     * overflow keeps it until a report includes the new evidence. A commit never marks an entry reported.
+     */
+    private static Entry saved(Entry old,Entry e){Entry put=e.copy();put.reported=old!=null&&old.reported&&sameRecord(old,put);return put;}
+    private static boolean sameRecord(Entry a,Entry b){return record(a).equals(record(b));}
+    /** The entry's line without the reported flag and the update time: what a report built from it shows. */
+    private static String record(Entry e){Entry x=e.copy();x.reported=false;x.updatedWall=0;return line(x);}
+    /**
+     * One entry as a report includes it: "test ID:digest of its record". A report carries these beside it (never in it),
+     * and acknowledging the report marks only entries whose record still has that digest, so evidence added after the
+     * snapshot (a restoration finished while the preview was open, or during a save) waits for the next report.
+     */
+    static String revision(Entry e){
+        try{
+            byte[] hash=MessageDigest.getInstance("SHA-256").digest(record(e).getBytes(StandardCharsets.UTF_8));
+            StringBuilder out=new StringBuilder(e.testId).append(':');for(int i=0;i<8;i++)out.append(String.format(Locale.ROOT,"%02x",hash[i]&255));
+            return out.toString();
+        }catch(NoSuchAlgorithmException missing){throw new IllegalStateException(missing);}
+    }
+    /** Revisions of one profile's entries now, as a report built from all(profileId) would include them. */
+    synchronized List<String> revisions(String profileId){List<String> out=new ArrayList<>();for(Entry e:entries)if(e.profileId.equals(profileId))out.add(revision(e));return out;}
     /** Marks a test resolved: how is CONFIRMED (restoration verified) or DECLINED (owner kept the value or dismissed it). */
     synchronized void resolve(String testId,String how,String note,long wallMs) throws IOException{
         if(!CONFIRMED.equals(how)&&!DECLINED.equals(how))throw new IllegalArgumentException("Unknown resolution");
@@ -118,22 +153,56 @@ final class TestJournal {
     synchronized List<Entry> unresolved(){List<Entry> out=new ArrayList<>();for(Entry e:entries)if(!e.resolved)out.add(e.copy());return out;}
     /** Every kept test of one profile (for the report), oldest first. */
     synchronized List<Entry> all(String profileId){List<Entry> out=new ArrayList<>();for(Entry e:entries)if(e.profileId.equals(profileId))out.add(e.copy());return out;}
+    /** The latest try of one control on one profile, or null. */
+    synchronized Entry latestTry(String profileId,String feature){
+        Entry best=null;for(Entry e:entries)if(e.isTry()&&e.profileId.equals(profileId)&&e.feature.equals(feature)&&(best==null||e.createdWall>=best.createdWall))best=e;
+        return best==null?null:best.copy();
+    }
+    /**
+     * A sent report included these entry revisions (revision()): they keep their results but may now be pruned. An entry
+     * whose record changed since the report was built is left unreported; a bare test ID matches nothing.
+     */
+    synchronized void markReported(List<String> revisions,long wallMs) throws IOException{
+        if(!readable)throw new IOException("Test records are unavailable");
+        List<Entry> next=new ArrayList<>();boolean changed=false;
+        for(Entry old:entries){Entry e=old.copy();if(!e.reported&&revisions.contains(revision(e))){e.reported=true;changed=true;}next.add(e);}
+        if(!changed)return;
+        prune(next,wallMs);storage.writeAtomic(serialize(next));entries.clear();entries.addAll(next);
+    }
+    /** The owner clears one profile's finished tries. Unfinished ones stay: they still need a review. Returns how many went. */
+    synchronized int clearTries(String profileId) throws IOException{
+        if(!readable)throw new IOException("Test records are unavailable");
+        List<Entry> next=new ArrayList<>();int removed=0;
+        for(Entry e:entries){if(e.isTry()&&e.resolved&&e.profileId.equals(profileId))removed++;else next.add(e);}
+        if(removed==0)return 0;
+        storage.writeAtomic(serialize(next));entries.clear();entries.addAll(next);return removed;
+    }
     /** Room for one more test: unresolved entries are never pruned to make space. */
     synchronized boolean canStart(){return readable&&unresolved().size()<MAX_ENTRIES;}
 
-    /** Resolved entries older than 30 days go; then the oldest resolved ones while over the limit. Unresolved entries always stay. */
+    /**
+     * Resolved entries older than 30 days go, except tries no sent report has included yet; then, while
+     * over the limit, the oldest resolved ones (reported ones first). Unresolved entries always stay.
+     */
     private static void prune(List<Entry> list,long nowWall){
-        for(int i=list.size()-1;i>=0;i--){Entry e=list.get(i);if(e.resolved&&nowWall-e.updatedWall>PRUNE_AFTER_MS)list.remove(i);}
+        for(int i=list.size()-1;i>=0;i--){Entry e=list.get(i);if(e.resolved&&(e.reported||!e.isTry())&&nowWall-e.updatedWall>PRUNE_AFTER_MS)list.remove(i);}
         while(list.size()>MAX_ENTRIES){
-            int oldest=-1;for(int i=0;i<list.size();i++)if(list.get(i).resolved&&(oldest<0||list.get(i).updatedWall<list.get(oldest).updatedWall))oldest=i;
+            int oldest=-1;
+            for(int i=0;i<list.size();i++){
+                Entry e=list.get(i);if(!e.resolved)continue;
+                if(oldest<0)oldest=i;
+                else{Entry o=list.get(oldest);if(e.reported!=o.reported?e.reported:e.updatedWall<o.updatedWall)oldest=i;}
+            }
             if(oldest<0)return;list.remove(oldest);
         }
     }
 
     // ---- Format ------------------------------------------------------------------------------
 
-    private static final String[] KEYS={"id","profile","feature","variant","pid_prefix","pid_source","meter","registry","baseline","target","related",
+    private static final String[] KEYS_V1={"id","profile","feature","variant","pid_prefix","pid_source","meter","registry","baseline","target","related",
         "phase","effect","restoration","resolution","outcomes","elapsed","created","updated","resolved"};
+    private static final String[] KEYS={"id","profile","feature","variant","pid_prefix","pid_source","meter","registry","baseline","target","related",
+        "phase","effect","restoration","resolution","outcomes","elapsed","created","updated","resolved","kind","layer","reported"};
 
     static String serialize(List<Entry> list){
         StringBuilder out=new StringBuilder(HEADER).append('\n');
@@ -144,7 +213,7 @@ final class TestJournal {
         StringBuilder b=new StringBuilder("entry");
         String[] values={e.testId,e.profileId,e.feature,e.variantId,e.pidPrefix,e.pidSource,e.meterFw,Integer.toString(e.registryVersion),
             Integer.toString(e.baseline),Integer.toString(e.target),Integer.toString(e.related),e.phase,e.effect,e.restoration,e.resolution,
-            join(e.outcomes),joinLongs(e.elapsedMs),Long.toString(e.createdWall),Long.toString(e.updatedWall),e.resolved?"1":"0"};
+            join(e.outcomes),joinLongs(e.elapsedMs),Long.toString(e.createdWall),Long.toString(e.updatedWall),e.resolved?"1":"0",e.kind,e.layer,e.reported?"1":"0"};
         for(int i=0;i<KEYS.length;i++)b.append('\t').append(KEYS[i]).append('=').append(values[i]);
         String body=b.toString();
         return body+"\tcrc="+crc(body);
@@ -153,20 +222,23 @@ final class TestJournal {
         String[] lines=text.split("\n",-1);
         if(text.isEmpty())return;
         // Another format (a newer Volt) is never overwritten: the journal stays read-only and empty.
-        if(!lines[0].equals(HEADER))throw new IllegalStateException("Unknown test journal format");
+        boolean v1=lines[0].equals(HEADER_V1);
+        if(!v1&&!lines[0].equals(HEADER))throw new IllegalStateException("Unknown test journal format");
         for(int i=1;i<lines.length;i++){
             if(lines[i].isEmpty())continue;
-            Entry e=parse(lines[i]);
+            Entry e=parse(lines[i],v1?KEYS_V1:KEYS);
             if(e==null||find(e.testId)!=null||entries.size()>=MAX_ENTRIES){dropped++;continue;}
             entries.add(e);
         }
     }
-    static Entry parse(String line){
+    static Entry parse(String line){return parse(line,KEYS);}
+    /** One line in the current format, or (keys KEYS_V1) a version 1 line, which is an older guided test. */
+    static Entry parse(String line,String[] keys){
         int c=line.lastIndexOf("\tcrc=");if(c<0||!line.startsWith("entry\t"))return null;
         if(!line.substring(c+5).equals(crc(line.substring(0,c))))return null;
-        String[] parts=line.substring(6,c).split("\t",-1);if(parts.length!=KEYS.length)return null;
-        String[] v=new String[KEYS.length];
-        for(int i=0;i<KEYS.length;i++){String p=parts[i];if(!p.startsWith(KEYS[i]+"="))return null;v[i]=p.substring(KEYS[i].length()+1);}
+        String[] parts=line.substring(6,c).split("\t",-1);if(parts.length!=keys.length)return null;
+        String[] v=new String[keys.length];
+        for(int i=0;i<keys.length;i++){String p=parts[i];if(!p.startsWith(keys[i]+"="))return null;v[i]=p.substring(keys[i].length()+1);}
         try{
             Entry e=new Entry();
             e.testId=v[0];e.profileId=v[1];e.feature=v[2];e.variantId=v[3];e.pidPrefix=v[4];e.pidSource=v[5];e.meterFw=v[6];
@@ -176,6 +248,7 @@ final class TestJournal {
             e.elapsedMs=new ArrayList<>();if(!v[16].isEmpty())for(String t:v[16].split(",",-1))e.elapsedMs.add(Long.parseLong(t));
             e.createdWall=Long.parseLong(v[17]);e.updatedWall=Long.parseLong(v[18]);
             if(!v[19].equals("0")&&!v[19].equals("1"))return null;e.resolved=v[19].equals("1");
+            if(keys.length>20){e.kind=v[20];e.layer=v[21];if(!v[22].equals("0")&&!v[22].equals("1"))return null;e.reported=v[22].equals("1");}
             return valid(e)?e:null;
         }catch(NumberFormatException bad){return null;}
     }
@@ -184,7 +257,11 @@ final class TestJournal {
     static boolean valid(Entry e){
         if(e==null)return false;
         if(!e.testId.matches("[0-9a-f]{16}")||!e.profileId.matches("[0-9A-Za-z_-]{1,64}"))return false;
-        if(!ModelRegistry.testable(e.feature)||!e.variantId.matches("[a-z0-9_.]{1,48}")||!e.variantId.startsWith(e.feature+"."))return false;
+        if(!(TEST.equals(e.kind)||EXPERIMENTAL.equals(e.kind)||VERIFY.equals(e.kind)))return false;
+        // Guided tests and Help verify tries only for the guided-test table; experimental tries only for Experimental controls' keys.
+        if(!(EXPERIMENTAL.equals(e.kind)?ModelRegistry.experimentalKey(e.feature):ModelRegistry.testable(e.feature)))return false;
+        if(!e.variantId.matches("[a-z0-9_.]{1,48}")||!e.variantId.startsWith(e.feature+"."))return false;
+        if(!e.layer.isEmpty()){boolean known=false;for(ModelRegistry.Layer l:ModelRegistry.Layer.values())known|=l.name().toLowerCase(Locale.ROOT).equals(e.layer);if(!known)return false;}
         if(!e.pidPrefix.matches("[0-9]{0,4}")||!(e.pidSource.equals("advertised")||e.pidSource.equals("serial")||e.pidSource.equals("none")))return false;
         if(!e.meterFw.matches("[0-9A-Za-z.]{0,16}"))return false;
         if(e.registryVersion<0||e.registryVersion>9999||e.baseline<0||e.baseline>255||e.target<0||e.target>255||e.related<-1||e.related>255)return false;

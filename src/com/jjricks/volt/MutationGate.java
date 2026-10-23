@@ -66,16 +66,20 @@ final class MutationGate {
     }
 
     /**
-     * Experimental controls write one value of a Lab variant (ModelRegistry.experimentalRule) through
-     * CapabilityResolver.admitExperimental and its conditions. Only a plain SET of a 0x70-readable
-     * control qualifies: no PIN, time, clock or proximity write, whatever the rule says.
+     * A plain Experimental controls change, on the developer simulator only (memory, no frames): on a scooter
+     * every try is a journalled guided write (GUIDED_TEST / GUIDED_RESTORE with rt.testTry), so a try
+     * interrupted by a disconnect or app death is recovered and set back. It writes one value of a try
+     * variant (CapabilityResolver.admitTry). Only a plain SET of a 0x70-readable control qualifies.
      */
     private static CapabilityResolver.Decision experimental(Request r,DeviceDescriptor d,StatusFields s,CapabilityResolver.Runtime rt){
-        CapabilityResolver.Decision decision=CapabilityResolver.admitExperimental(r.feature,r.value,d,s,rt);
-        ScooterCommands.Feature f=r.feature.equals("clock_sync")?null:ScooterCommands.find(r.feature);
-        if(r.kind!=Kind.SET||f==null||f.sensitive||f.type==ScooterCommands.Type.TIME||f.requiresBond||decision.variant==null||!decision.variant.lab)
-            return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.MODEL_EXCLUDED);
+        CapabilityResolver.Decision decision=CapabilityResolver.admitTry(r.feature,r.value,d,s,rt);
+        if(rt==null||!rt.simulation||!plainTry(r,decision))return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.MODEL_EXCLUDED);
         return decision;
+    }
+    /** A SET of a readable try variant: never PIN, time, clock or proximity, whatever a rule says. */
+    private static boolean plainTry(Request r,CapabilityResolver.Decision decision){
+        ScooterCommands.Feature f=r.feature.equals("clock_sync")?null:ScooterCommands.find(r.feature);
+        return r.kind==Kind.SET&&f!=null&&!f.sensitive&&f.type!=ScooterCommands.Type.TIME&&!f.requiresBond&&decision.variant!=null&&decision.variant.readable;
     }
 
     /**
@@ -84,8 +88,10 @@ final class MutationGate {
      * rule and its preconditions. Any other kind, feature or state is refused.
      */
     private static CapabilityResolver.Decision guided(Request r,DeviceDescriptor d,StatusFields s,CapabilityResolver.Runtime rt){
-        CapabilityResolver.Decision decision=CapabilityResolver.admitTest(r.feature,r.value,d,s,rt);
-        if(r.kind!=Kind.SET)return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.MODEL_EXCLUDED);
+        // An Experimental controls try runs as a guided test under the try rule (its group's conditions), never the test table.
+        boolean tried=rt!=null&&rt.testTry;
+        CapabilityResolver.Decision decision=tried?CapabilityResolver.admitTry(r.feature,r.value,d,s,rt):CapabilityResolver.admitTest(r.feature,r.value,d,s,rt);
+        if(r.kind!=Kind.SET||tried&&!plainTry(r,decision))return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.MODEL_EXCLUDED);
         if(rt==null||!rt.test)return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.NO_TEST);
         if(!r.feature.equals(rt.testFeature))return CapabilityResolver.withReason(decision,CapabilityResolver.Reason.TEST_ACTIVE);
         return decision;
