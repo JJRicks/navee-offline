@@ -26,7 +26,7 @@ final class DefaultDashboard {
         DashboardConfig.Widget settings = add(result, "shortcuts", "Setting tiles",
                 "power_w", 86400000L, stack(7, 1, 3, 2, 3, 1));
         settings.quickActions.clear();
-        settings.quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
+        settings.quickActions.addAll(ModelTiles.DEFAULT);
         add(result, "ride", "Ride recorder",
                 "power_w", 86400000L, stack(8, 1, 3, 3, 3, 1));
         // Six columns need to clear the overview/lock stack before spanning the whole grid.

@@ -87,9 +87,13 @@ public final class DashboardScreen implements AppScreen {
         ScooterProfiles.Profile profile = service == null ? null : service.profiles.active();
         profileId = profile == null ? "unconfigured" : profile.id;
         // Freeze the window class for this screen, including any gesture canceled during a fold.
+        // Default Setting tiles follow the model once Volt knows it (a GT5 Max has no scheduled charging).
+        modelIdentity = identity(profile);
+        java.util.List<String> modelTiles = profile == null ? ModelTiles.DEFAULT : ModelTiles.settingTiles(profile.savedDescriptor());
         config = new DashboardConfig(preferences, profileId,
-                host.activity().getResources().getConfiguration().screenWidthDp >= 650);
+                host.activity().getResources().getConfiguration().screenWidthDp >= 650, modelTiles);
         restoreUndoKey = "dashboard_restore_undo_v1_" + profileId;
+        reconcileModelTiles(modelTiles);
         editing = preferences.getBoolean("dashboard_editing", false);
         view = column();
         // Home header: a muted status line, the scooter name and a round edit button.
@@ -720,6 +724,13 @@ public final class DashboardScreen implements AppScreen {
         if (!profileId.equals(id)) {
             host.rebuild();
             return;
+        }
+        // This scooter's model became known (or changed): its untouched default tiles follow, but never mid-edit.
+        if (!editing && !modelIdentity.equals(identity(current))) {
+            modelIdentity = identity(current);
+            java.util.List<String> tiles = current == null ? ModelTiles.DEFAULT : ModelTiles.settingTiles(current.savedDescriptor());
+            config.modelTiles(tiles);
+            if (reconcileModelTiles(tiles)) { render(); return; }
         }
         boolean live = service != null && service.ble.ready();
         long last = 0;
@@ -6270,6 +6281,30 @@ public final class DashboardScreen implements AppScreen {
             if (closed || !editing || !editHistory.canUndo()) return;
             restoreEdit(false);
         });
+    }
+
+    /** The identity evidence model tiles depend on: the advertised Model ID and the serial. */
+    private static String identity(ScooterProfiles.Profile p) { return p == null ? "" : p.advertisedPid + "|" + p.serial; }
+    private String modelIdentity = "";
+
+    /**
+     * Untouched default Setting tiles become the model's own and are saved. A pending Restore defaults Undo that
+     * points at exactly those defaults is moved along with them, so adapting never ends the Undo offer.
+     */
+    private boolean reconcileModelTiles(java.util.List<String> tiles) {
+        String before = config.storedWidgetsJson();
+        if (!config.adaptSettingTiles(tiles)) return false;
+        config.save();
+        if (before != null && preferences.contains(restoreUndoKey)) {
+            try {
+                org.json.JSONObject saved = new org.json.JSONObject(preferences.getString(restoreUndoKey, ""));
+                if (before.equals(saved.optString("restored", null)))
+                    preferences.edit().putString(restoreUndoKey, saved.put("restored", config.storedWidgetsJson()).toString()).apply();
+            } catch (org.json.JSONException unreadable) {
+                // An unreadable offer ends as before.
+            }
+        }
+        return true;
     }
 
     private void clearRestoreUndo() {
