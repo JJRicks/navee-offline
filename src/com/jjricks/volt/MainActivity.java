@@ -2345,12 +2345,17 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(p==null)return;
         Dialog[] self={null};ModelPicker[] picker={null};
         String saved=p.ownerModel;
-        Runnable save=()->{if(picker[0].choice()==null)return;rememberModel(profileId,picker[0].choice(),true);if(self[0]!=null)self[0].dismiss();};
-        picker[0]=new ModelPicker(this,design,c->picker[0].primary("Save",true));
+        Runnable save=()->{
+            NaveeModels.Choice choice=picker[0].choice();
+            if(choice==null||choice.source==NaveeModels.Choice.Source.TYPED)return; // listed-only below; never a save that keeps nothing
+            rememberModel(profileId,choice,true);if(self[0]!=null)self[0].dismiss();
+        };
+        // Save keeps exactly the row shown as chosen: never an answer the search has hidden.
+        picker[0]=new ModelPicker(this,design,c->picker[0].primary("Save",picker[0].choice()!=null&&picker[0].choiceShown())).listedOnly();
         LinearLayout content=sheetContent("Which scooter is this?",null,()->{if(self[0]!=null)self[0].dismiss();});
         picker[0].build(content,null,"Save",save);
         if(!saved.isEmpty()&&saved.equals(NaveeModels.exact(saved)))picker[0].select(NaveeModels.Choice.listed(saved));
-        picker[0].primary("Save",picker[0].choice()!=null);
+        picker[0].primary("Save",picker[0].choice()!=null&&picker[0].choiceShown());
         picker[0].status("Volt shows this model's name and photo until it can identify your scooter itself.",false);
         Dialog dialog=showTallSheet(content);self[0]=dialog;reportDialog=dialog;
         dialog.setOnDismissListener(d->{if(reportDialog==dialog)reportDialog=null;});

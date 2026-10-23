@@ -98,6 +98,16 @@ public final class OwnerModelValidation extends Instrumentation {
                 change.performClick(); });
             settle();
             require(sheetShowing() && sheet("model-gt5max").isSelected() && sheet("model-next").isEnabled(), "Change model did not start from the answer");
+            // Only listed models can be kept, so this sheet offers no write-in: an unlisted name says so instead of a Save that keeps nothing.
+            main(() -> ((android.widget.EditText) sheet("model-search")).setText("Mystery GT9")); settle();
+            require(sheet("model-typed") == null && sheet("model-none") != null && sheetText("model-none").startsWith("No listed model matches “Mystery GT9”"),
+                    "Edit scooter offered a write-in it cannot keep");
+            // The search hides the earlier answer, so Save is off: no save that only looks like it kept the typed name.
+            require(!sheet("model-next").isEnabled(), "Save stayed on while the search hides the answer");
+            screenshot("sheet-unlisted");
+            main(() -> ((android.widget.EditText) sheet("model-search")).setText("gt5")); settle();
+            require(sheet("model-gt5max").isSelected() && sheet("model-next").isEnabled(), "Save did not return with the answer in view");
+            main(() -> ((android.widget.EditText) sheet("model-search")).setText("")); settle();
             main(() -> sheet("model-unsure").performClick()); settle();
             main(() -> sheet("model-next").performClick()); settle();
             main(() -> { ScooterProfiles.Profile p = profile(unknownId); require("".equals(p.ownerModel) && "NAVEE scooter".equals(p.name), "Not sure did not clear the answer: " + p.ownerModel + " / " + p.name); });
