@@ -195,7 +195,9 @@ final class CompatibilityReport {
 
     // ---- Output ---------------------------------------------------------------------------
 
-    String json(){StringBuilder out=new StringBuilder();write(out,tree,0);out.append('\n');return out.toString();}
+    String json(){return json(tree);}
+    /** The same indented, ASCII-only JSON for another sanitized tree (ConnectionReport). */
+    static String json(Map<String,Object> tree){StringBuilder out=new StringBuilder();write(out,tree,0);out.append('\n');return out.toString();}
     String reportId(){Object id=tree.get("report_id");return id instanceof String?(String)id:"";}
     /** Human-readable text built only from the sanitized report. */
     String summary(){

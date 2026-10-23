@@ -176,6 +176,7 @@ public final class BackupPlanTest {
         check(app.get("dashboard_v1_" + C).equals("[{\"id\":\"w-a\"}]") && !app.containsKey("dashboard_slot_v1_" + C + "_1") && app.get("dashboard_slot_v1_" + C + "_2").equals("slot two a") && !app.containsKey("dashboard_restore_undo_v1_" + C)
                 && app.get("dashboard_v1_" + B).equals("[{\"id\":\"w-b\"}]") && Integer.valueOf(4).equals(app.get("dashboard_columns")), "Dashboards replace each mapped scooter's dashboard and slots and drop its undo");
         check("other scooter's dashboard".equals(app.get("dashboard_v1_d0000000-0000-4000-8000-00000000000d")), "an unmapped scooter's dashboard stays");
+        check("never".equals(app.get("connect_report_" + C)) && !app.containsKey("connect_report_" + A), "A connection-details opt-out follows its scooter onto the mapped scooter");
         check("learned".equals(app.get("range_source_" + C)) && "HIGH_SPEED".equals(app.get("charge_charger_" + C)) && Boolean.TRUE.equals(app.get("range_follow_mode_" + C))
                 && after.get("control_evidence").get(C).equals("{\"cached\":\"a\"}"), "Scooter preferences replace each mapped scooter's app-side choices, never firmware");
         List<BackupProfiles.Profile> profiles = BackupArchive.profiles(after);

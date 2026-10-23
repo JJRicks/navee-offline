@@ -133,6 +133,7 @@ final class BackupTestStore implements BackupArchive.Storage {
         for (String pid : new String[]{"a0000000-0000-4000-8000-00000000000a", "b0000000-0000-4000-8000-00000000000b"}) {
             app.put("dashboard_v1_" + pid, "[{\"id\":\"w-" + pid.charAt(0) + "\"}]"); app.put("dashboard_slot_v1_" + pid + "_0", "slot zero " + pid.charAt(0)); app.put("dashboard_slot_v1_" + pid + "_2", "slot two " + pid.charAt(0));
             app.put("dashboard_empty_example_v1_" + pid, false); app.put("range_source_" + pid, "learned"); app.put("range_follow_mode_" + pid, true); app.put("charge_charger_" + pid, "HIGH_SPEED");
+            app.put("connect_report_" + pid, "never");
             p.get("control_evidence").put(pid, "{\"cached\":\"" + pid.charAt(0) + "\"}");
         }
         app.put("dashboard_restore_undo_v1_" + A, "{\"undo\":true}");
