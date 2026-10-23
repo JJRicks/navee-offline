@@ -556,7 +556,7 @@ public final class ModelRegistry {
      * the model keeps its ordinary rule and place; controls Volt has not mapped stay hidden (Volt can't tell
      * whether the official app offers them); unidentified, conflicting, unmapped and incompatible models get nothing.
      * The custom speed cap joined in October 2026 (owner decision): it only lowers speed below the owner's Top speed,
-     * reads back from its own byte, and Set back restores it.
+     * reads back from its own byte, and Set back restores the previous setting (a cap or Off).
      */
     static final String[] EXPERIMENTAL={"cruise_control","traction_control","start_speed","hill_start_assist","parking_assist",
         "hill_descent_control","headlight","auto_sensor","turn_sound","prompt_tone","speed_limit"};
@@ -822,7 +822,7 @@ public final class ModelRegistry {
             case "traction_control": return value==0?"Turns traction control off. Ride gently on wet or loose ground until you know how it behaves.":null;
             case "start_speed": return value<3?"Below 3 km/h, the motor can pull from a standstill as soon as you use the throttle.":null;
             case "energy_recovery": return value==0?"Turns motor braking off, so your brakes do more of the stopping.":null;
-            case "speed_limit": return value!=0?"Caps your speed while riding, below your Top speed setting. Set back removes the cap.":null;
+            case "speed_limit": return value!=0?"Caps your speed while riding, below your Top speed setting. Set back restores your previous setting.":null;
             default: return null;
         }
     }
