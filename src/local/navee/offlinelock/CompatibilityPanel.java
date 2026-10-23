@@ -11,7 +11,7 @@ import java.util.List;
 import java.util.Set;
 
 /**
- * More › Compatibility: the scooter's identity, the read-only check, its results, guided setting
+ * More › Developer options › Compatibility: the scooter's identity, the read-only check, its results, guided setting
  * tests and the report preview. Nothing leaves the phone unless the owner opens the preview and
  * taps Share or Save. A guided test writes only after the owner approves it, and its result is
  * report-only: it never turns a control on.
@@ -20,6 +20,7 @@ final class CompatibilityPanel {
     private final ScreenHost host;
     private final Ui ui;
     private final LinearLayout root;
+    private final boolean recoveryOnly;
     private String shown="";
     private TextView progressText;
     private View progressFill,progressRest;
@@ -27,8 +28,8 @@ final class CompatibilityPanel {
     private boolean preview,showJson;
     private CompatibilityReport report;
 
-    CompatibilityPanel(ScreenHost host,LinearLayout destination){
-        this.host=host;ui=host.ui();
+    CompatibilityPanel(ScreenHost host,LinearLayout destination,boolean recoveryOnly){
+        this.host=host;ui=host.ui();this.recoveryOnly=recoveryOnly;
         root=new LinearLayout(host.activity());root.setOrientation(LinearLayout.VERTICAL);
         destination.addView(root,new LinearLayout.LayoutParams(-1,-2));
         expanded.add("Reads");expanded.add("Controls");expanded.add("Try a setting");
@@ -55,6 +56,15 @@ final class CompatibilityPanel {
         shown=key;root.removeAllViews();progressText=null;
         if(ble==null){root.addView(note("Your local scooter service is starting."));return;}
         DiscoveryCoordinator check=ble.discovery();boolean running=ble.discovering();
+        // A pre-upgrade or interrupted test must remain recoverable even when developer options
+        // are hidden. This route never offers a new check, test or report.
+        if(recoveryOnly){
+            if(!ble.ready())root.addView(ui.button("Connect",host::connect));
+            tests(ble);
+            if(ble.guidedTest()==null&&ble.unresolvedTests().isEmpty()&&ble.unresolvedTestsElsewhere()==0
+                    &&ble.orphanedTests().isEmpty()&&ble.testRecordsHealthy())root.addView(note("No unfinished tests."));
+            return;
+        }
         identity(ble);
         if(running&&check!=null)running();
         else if(ble.ready()&&!ble.modelUnidentified()&&!ble.testing())root.addView(ui.button(check==null?"Run check":"Run again",()->{ble.startDiscovery();toastIfIdle(ble);host.redraw();}));
@@ -122,7 +132,7 @@ final class CompatibilityPanel {
         for(TestJournal.Entry e:ble.orphanedTests())orphaned(ble,e);
         // An unreadable journal may hide an unfinished test, so say so whether or not a scooter is connected.
         if(!ble.testRecordsHealthy()){root.addView(note(TestJournal.UNAVAILABLE_NOTE));return;}
-        if(!ble.ready()||ble.testing()||!open.isEmpty())return;
+        if(recoveryOnly||!ble.ready()||ble.testing()||!open.isEmpty())return;
         LinearLayout g=group("Try a setting");
         if(g==null)return;
         boolean any=false,askParked=false;

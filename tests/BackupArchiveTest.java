@@ -30,8 +30,10 @@ public final class BackupArchiveTest {
             singleCategories(root, source);
             subsets(root, complete);
             legacy(root);
+            legacyOwner(root);
+            sameAccountOwner(root);
             hostile(root, source, complete);
-            System.out.println("BackupArchiveTest: " + checks + " checks passed (complete reset roundtrip, 7 single and 127 subset restores, legacy v1/.voltrides/layout, hostile archives)");
+            System.out.println("BackupArchiveTest: " + checks + " checks passed (complete reset roundtrip, 7 single and 127 subset restores, legacy v1/.voltrides/layout/owner, hostile archives)");
         } finally { AppDataArchive.deleteTree(root); }
     }
 
@@ -219,6 +221,210 @@ public final class BackupArchiveTest {
         File broken = new File(root, "broken.json"); Files.write(broken.toPath(), "{\"format\":\"volt-dashboard-layouts\",\"version\":2,\"slots\":[]}".getBytes("UTF-8"));
         rejects(() -> phone.stage(broken, null), "an invalid layout file is refused");
         check(!BackupTransaction.needsRecovery(phone), "legacy imports leave no staging");
+    }
+
+    /** One NAVEE owner account can control several physically different scooters. */
+    private static void sameAccountOwner(File root) throws Exception {
+        Set<String> scooters = Collections.singleton(BackupRegistry.SCOOTERS);
+        BackupTestStore phone = phone(new File(root, "same-account-owner"));
+        Map<String, Map<String, Object>> data = phone.preferences();
+        String original = (String)data.get("profiles").get("items");
+        String second = BackupTestStore.profileItem(BackupTestStore.B, "My N65i", "0123456789ab", "SERIAL-B");
+        String otherRole = BackupTestStore.profileItem(BackupTestStore.A, "Shared scooter", "0123456789AB", "SERIAL-C").replace("\"role\":0", "\"role\":1");
+        data.get("profiles").put("items", original.substring(0, original.length() - 1) + "," + second + "," + otherRole + "]");
+        phone.write(data);
+        Map<String, Map<String, Object>> before = phone.preferences(); Map<String, String> files = phone.fileHashes();
+        byte[] helper = ownerFile("Another owner scooter", "0123456789AB", 0, "", "");
+        String lastSource = null;
+        for (String existing : new String[]{C, BackupTestStore.B}) {
+            BackupArchive.Prepared p = phone.stage(helper);
+            BackupArchive.Destination d = BackupArchive.destinations(phone, p, scooters).get(0);
+            check(d.suggested == null && d.addable && d.accountMatches.equals(Arrays.asList(C, BackupTestStore.B)),
+                    "same-account owner offers both named scooters and Add another, without choosing");
+            check(!d.source.equals(lastSource), "a new unbound import cannot collide by account-derived profile UUID"); lastSource = d.source;
+            rejects(() -> phone.plan(p, scooters, false, null), "an ambiguous import requires an explicit destination");
+            rejects(() -> BackupArchive.plan(phone, p, scooters, false, Collections.singletonMap(d.source, BackupTestStore.A)),
+                    "an ambiguous owner import cannot be mapped to a different role");
+            BackupArchive.Plan plan = BackupArchive.plan(phone, p, scooters, false, Collections.singletonMap(d.source, existing));
+            check(plan.lines.contains("Scooters: adds 0 · 1 already here"), "explicit existing owner is shown as reuse");
+            BackupTransaction.apply(phone, plan);
+            check(phone.preferences().equals(before) && phone.fileHashes().equals(files), "either existing owner choice preserves all stored data and active scooter");
+        }
+        BackupArchive.Prepared adding = phone.stage(helper);
+        BackupArchive.Destination add = BackupArchive.destinations(phone, adding, scooters).get(0);
+        BackupArchive.Plan addPlan = BackupArchive.plan(phone, adding, scooters, false, Collections.singletonMap(add.source, add.source));
+        check(addPlan.lines.contains("Scooters: adds 1 · 0 already here"), "explicit Add another previews one new scooter");
+        BackupTransaction.apply(phone, addPlan);
+        List<BackupProfiles.Profile> after = BackupArchive.profiles(phone.preferences());
+        check(after.size() == 4 && BackupProfiles.find(after, add.source) != null && C.equals(phone.preferences().get("profiles").get("active")),
+                "Add another creates a separate same-account profile without switching away from the current scooter");
+        for (String namespace : before.keySet()) if (!namespace.equals("profiles"))
+            check(phone.preferences().get(namespace).equals(before.get(namespace)), "adding same-account scooter preserves " + namespace);
+        check(phone.fileHashes().equals(files), "adding same-account scooter preserves every recording and history byte");
+        Map<String, Map<String, Object>> afterAdd = phone.preferences();
+        phone.restore(helper, scooters, false, add.source);
+        check(phone.preferences().equals(afterAdd) && phone.fileHashes().equals(files), "explicitly reusing newly added unlocated scooter is idempotent");
+
+        // Earlier code derived an account-only UUID. Even an old unlocated profile with that
+        // exact ID must be a choice, not a shortcut that suppresses the new-scooter option.
+        BackupTestStore legacy = new BackupTestStore(new File(root, "same-account-old-owner-id"));
+        String oldId = UUID.nameUUIDFromBytes(("volt-owner-v1\0" + "0123456789AB" + "\0" + "0" + "\0" + "\0").getBytes(StandardCharsets.UTF_8)).toString();
+        Map<String, Map<String, Object>> old = BackupTestStore.empty();
+        old.get("profiles").put("items", "[{\"id\":" + BackupJson.quote(oldId) + ",\"name\":\"Old unlocated scooter\",\"identity\":\"0123456789AB\",\"role\":0,\"mac\":\"\",\"serial\":\"\"}]");
+        old.get("profiles").put("active", oldId); legacy.write(old);
+        BackupArchive.Prepared p = legacy.stage(helper);
+        List<BackupArchive.Destination> choices = BackupArchive.destinations(legacy, p, scooters);
+        check(choices.size() == 1 && !choices.get(0).source.equals(oldId) && choices.get(0).addable
+                        && choices.get(0).suggested == null && choices.get(0).accountMatches.equals(Collections.singletonList(oldId)),
+                "legacy account-derived UUID does not bypass explicit scooter choice");
+    }
+
+    private static byte[] ownerFile(String name, String identity, int role, String mac, String serial) {
+        return ("{\"format\":\"navee-offline-owner-v1\",\"owner_identity\":" + BackupJson.quote(identity)
+                + ",\"role\":" + role + ",\"name\":" + BackupJson.quote(name)
+                + ",\"scooter_address\":" + BackupJson.quote(mac) + ",\"scooter_serial\":" + BackupJson.quote(serial) + "}").getBytes(StandardCharsets.UTF_8);
+    }
+    private static void legacyOwner(File root) throws Exception {
+        Set<String> scooters = Collections.singleton(BackupRegistry.SCOOTERS);
+        byte[] owner = ownerFile("Synthetic owner file", "aabbccddeeff", 1, "02:00:00:00:00:01", "SERIAL-NEW");
+        BackupTestStore fresh = new BackupTestStore(new File(root, "legacy-owner-fresh"));
+        BackupArchive.Prepared prepared = BackupArchive.stage(fresh, new ByteArrayInputStream(owner), null);
+        check(prepared.kind.equals("owner") && !prepared.complete && !prepared.encrypted()
+                && prepared.categories.equals(Collections.singletonMap(BackupRegistry.SCOOTERS, 1)), "legacy owner file explicitly contains pairing only");
+        check(prepared.rides.isEmpty() && prepared.charges.isEmpty() && prepared.history.isEmpty() && prepared.fileCount == 0,
+                "pairing import does not invent missing recordings or history");
+        check(fresh.preferences().equals(BackupTestStore.empty()) && fresh.fileHashes().isEmpty(), "owner staging never changes the app");
+        BackupArchive.Prepared initial = prepared;
+        rejects(() -> fresh.plan(initial, scooters, true, null), "pairing file can never replace everything");
+        rejects(() -> fresh.plan(initial, BackupTestStore.all(), false, null), "pairing file cannot claim app-data categories");
+        BackupTransaction.apply(fresh, fresh.plan(prepared, scooters, false, null));
+        BackupProfiles.Profile added = BackupArchive.profiles(fresh.preferences()).get(0);
+        check(added.identity.equals("AABBCCDDEEFF") && added.role == 1 && added.serial.equals("SERIAL-NEW") && added.mac.equals("02:00:00:00:00:01"),
+                "pairing fields roundtrip into a configured profile");
+        check(added.configured() && Boolean.TRUE.equals(fresh.preferences().get("onboarding").get("onboarding_done")), "a new pairing completes setup");
+        Map<String, Map<String, Object>> once = fresh.preferences();
+        fresh.restore(owner, scooters, false, null);
+        check(fresh.preferences().equals(once), "repeated pairing import keeps the original profile and preferences");
+        BackupTestStore completeCopy = new BackupTestStore(new File(root, "legacy-owner-full-copy"));
+        completeCopy.restore(fresh.export(BackupTestStore.all()), BackupTestStore.all(), true, null);
+        check(durable(completeCopy.preferences()).equals(durable(once)), "converted pairing participates in a later complete backup");
+
+        BackupTestStore phone = phone(new File(root, "legacy-owner-existing"));
+        phone.put("onboarding", "step", 3);
+        Map<String, Map<String, Object>> before = phone.preferences(); Map<String, String> files = phone.fileHashes();
+        byte[] conflict = ownerFile("Different name", "FFFFFFFFFFFF", 1, "02:11:22:33:44:55", "SERIAL-A");
+        prepared = phone.stage(conflict);
+        List<BackupArchive.Destination> destination = BackupArchive.destinations(phone, prepared, scooters);
+        check(destination.size() == 1 && C.equals(destination.get(0).suggested) && !destination.get(0).addable,
+                "known serial suggests the current scooter instead of a duplicate");
+        BackupTransaction.apply(phone, phone.plan(prepared, scooters, false, null));
+        check(phone.preferences().equals(before) && phone.fileHashes().equals(files), "legacy conflicts preserve current key, name, settings and recordings exactly");
+        phone.restore(owner, scooters, false, null);
+        check(BackupArchive.profiles(phone.preferences()).size() == 2 && C.equals(phone.preferences().get("profiles").get("active")),
+                "a different pairing adds a scooter without switching the current one");
+        check(phone.fileHashes().equals(files), "adding a pairing leaves every journal and history byte intact");
+        for (String namespace : before.keySet()) if (!namespace.equals("profiles"))
+            check(phone.preferences().get(namespace).equals(before.get(namespace)), "adding another pairing preserves every unrelated preference in " + namespace);
+        for (String category : BackupRegistry.CATEGORIES) if (!category.equals(BackupRegistry.SCOOTERS))
+            check(BackupArchive.subset(phone.preferences(), category).equals(BackupArchive.subset(before, category)), "pairing import leaves category " + category + " alone");
+
+        byte[] bare = "{\"format\":\"navee-offline-owner-v1\",\"owner_identity\":\"001122334455\",\"role\":0}".getBytes(StandardCharsets.UTF_8);
+        BackupTestStore unlocated = new BackupTestStore(new File(root, "legacy-owner-unlocated"));
+        unlocated.restore(bare, scooters, false, null);
+        Map<String, Map<String, Object>> bareOnce = unlocated.preferences();
+        String unlocatedId = BackupArchive.profiles(bareOnce).get(0).id;
+        unlocated.restore(bare, scooters, false, unlocatedId);
+        check(unlocated.preferences().equals(bareOnce), "explicit existing-scooter choice repeats identifier-less import without duplicates");
+        Map<String, Map<String, Object>> arbitrary = BackupTestStore.empty();
+        arbitrary.get("profiles").put("items", "[{\"id\":\"current-id\",\"name\":\"Keep me\",\"identity\":\"001122334455\",\"role\":0,\"mac\":\"\",\"serial\":\"\"}]");
+        arbitrary.get("profiles").put("active", "current-id"); arbitrary.get("profiles").put("legacy_migrated", true);
+        arbitrary.get("onboarding").put("step", 3);
+        unlocated.write(arbitrary); unlocated.restore(bare, scooters, false, "current-id");
+        check(unlocated.preferences().equals(arbitrary), "explicit unlocated existing-scooter choice keeps UUID and in-progress setup untouched");
+
+        // Schema emitted by setup/capture-owner.py and setup/web/src/protocol.js. Those
+        // files intentionally carry metadata, no scooter address/serial or profile name.
+        for (String[] generator : new String[][] {{"cli", "NAVEE UT5 MAX", "2026-10-22T12:00:00.123456Z"}, {"web", "NAVEE scooter", "2026-10-22T12:00:00.123Z"}}) {
+            String generated = "{\"format\":\"navee-offline-owner-v1\",\"owner_identity\":\"AABBCCDDEEFF\",\"role\":0,\"model_name\":"
+                    + BackupJson.quote(generator[1]) + ",\"captured_at_utc\":" + BackupJson.quote(generator[2])
+                    + ",\"note\":\"Private Bluetooth owner identity; not a NAVEE password or cloud login token.\"}";
+            BackupTestStore helper = new BackupTestStore(new File(root, "legacy-owner-helper-" + generator[0]));
+            helper.restore(generated.getBytes(StandardCharsets.UTF_8), scooters, false, null);
+            BackupProfiles.Profile imported = BackupArchive.profiles(helper.preferences()).get(0);
+            check(imported.name.equals(generator[1]) && imported.configured() && imported.mac.isEmpty() && imported.serial.isEmpty(),
+                    generator[0] + " helper imports pairing with display-only model name");
+            check(!imported.raw.contains("captured_at_utc") && !imported.raw.contains("note") && !imported.raw.contains("pid_advertised"),
+                    generator[0] + " metadata cannot become timestamps, model evidence or stored arbitrary state");
+            rejects(() -> helper.stage(generated.replace(BackupJson.quote(generator[1]), "{}").getBytes(StandardCharsets.UTF_8)), "helper model metadata must be text");
+            rejects(() -> helper.stage(generated.replace(BackupJson.quote(generator[2]), "false").getBytes(StandardCharsets.UTF_8)), "helper date metadata must be text");
+
+            // Real helper files omit hardware identifiers even after this phone has learned them.
+            // The same key could mean this scooter or another owned by the same account.
+            BackupTestStore connected = phone(new File(root, "legacy-owner-connected-" + generator[0]));
+            connected.put("onboarding", "step", 3);
+            if (generator[0].equals("web")) {
+                Map<String, Map<String, Object>> lower = connected.preferences();
+                lower.get("profiles").put("items", ((String)lower.get("profiles").get("items")).replace("0123456789AB", "0123456789ab"));
+                connected.write(lower);
+            }
+            Map<String, Map<String, Object>> connectedPrefs = connected.preferences();
+            Map<String, String> connectedFiles = connected.fileHashes();
+            byte[] matchingHelper = generated.replace("AABBCCDDEEFF", "0123456789ab").getBytes(StandardCharsets.UTF_8);
+            for (int repeat = 0; repeat < 2; repeat++) {
+                BackupArchive.Prepared matching = connected.stage(matchingHelper);
+                List<BackupArchive.Destination> matches = BackupArchive.destinations(connected, matching, scooters);
+                check(matches.size() == 1 && matches.get(0).suggested == null && matches.get(0).addable
+                                && matches.get(0).accountMatches.equals(Collections.singletonList(C)),
+                        generator[0] + " helper requires existing-or-another choice on import " + repeat);
+                rejects(() -> connected.plan(matching, scooters, false, null), "same-account owner cannot silently choose existing or add");
+                BackupArchive.Plan unchanged = connected.plan(matching, scooters, false, C);
+                check(unchanged.lines.contains("Scooters: adds 0 · 1 already here"), generator[0] + " preview reports the existing scooter");
+                BackupTransaction.apply(connected, unchanged);
+                check(connected.preferences().equals(connectedPrefs) && connected.fileHashes().equals(connectedFiles),
+                        generator[0] + " repeated helper import preserves profiles, preferences and every recording byte");
+            }
+        }
+
+        // Other roles/identities and explicit hardware keep their distinct-destination behavior.
+        BackupTestStore strict = phone(new File(root, "legacy-owner-strict-matching"));
+        for (byte[] distinct : new byte[][] {
+                ownerFile("Other identity", "111111111111", 0, "", ""),
+                ownerFile("Other role", "0123456789AB", 1, "", ""),
+                ownerFile("Other serial", "0123456789AB", 0, "", "SERIAL-OTHER"),
+                ownerFile("Other address", "0123456789AB", 0, "02:00:00:00:00:ff", "")}) {
+            BackupArchive.Prepared other = strict.stage(distinct);
+            List<BackupArchive.Destination> matches = BackupArchive.destinations(strict, other, scooters);
+            check(matches.size() == 1 && matches.get(0).addable && !C.equals(matches.get(0).suggested) && matches.get(0).accountMatches.isEmpty(),
+                    "different role, key or explicit hardware identifier is not identity-only matched");
+        }
+        BackupTestStore identifierless = new BackupTestStore(new File(root, "legacy-owner-archive-source"));
+        identifierless.restore(ownerFile("Archive profile", "0123456789AB", 0, "", ""), scooters, false, null);
+        for (Set<String> categories : Arrays.asList(scooters, BackupTestStore.all())) {
+            BackupArchive.Prepared archive = strict.stage(identifierless.export(categories));
+            List<BackupArchive.Destination> matches = BackupArchive.destinations(strict, archive, scooters);
+            check(matches.size() == 1 && matches.get(0).addable && !C.equals(matches.get(0).suggested),
+                    "full/category archive retains strict hardware-identifier matching");
+        }
+
+        String valid = new String(owner, StandardCharsets.UTF_8);
+        String deep = "{}"; for (int i = 0; i < 14; i++) deep = "{\"nested\":" + deep + "}";
+        List<String> invalid = Arrays.asList(
+                valid.replace("aabbccddeeff", "not-an-owner"), valid.replace("\"role\":1", "\"role\":2"),
+                valid.replace("\"role\":1", "\"role\":0.5"), valid.replace("\"role\":1", "\"role\":\"1\""),
+                valid.replace("\"role\":1,", ""), valid.replace("\"name\":\"Synthetic owner file\"", "\"name\":null"),
+                valid.replace("\"name\":\"Synthetic owner file\"", "\"name\":{}"),
+                valid.replace("Synthetic owner file", String.join("", Collections.nCopies(81, "n"))),
+                valid.replace("SERIAL-NEW", String.join("", Collections.nCopies(129, "s"))),
+                valid.replace("02:00:00:00:00:01", "bad address"),
+                valid.replace("\"role\":1", "\"role\":1,\"role\":0"),
+                valid.substring(0, valid.length() - 1) + ",\"extra\":" + deep + "}",
+                valid.substring(0, valid.length() - 1) + ",\"other\":true}",
+                valid + "{}", valid + String.join("", Collections.nCopies(BackupArchive.MAX_OWNER, " ")));
+        Map<String, Map<String, Object>> protectedPrefs = phone.preferences(); Map<String, String> protectedFiles = phone.fileHashes();
+        for (String bad : invalid) rejects(() -> phone.stage(bad.getBytes(StandardCharsets.UTF_8)), "malformed owner input refused");
+        rejects(() -> phone.stage((valid + String.join("", Collections.nCopies(BackupArchive.MAX_LAYOUT, " "))).getBytes(StandardCharsets.UTF_8)), "oversized JSON refused before parsing");
+        check(phone.preferences().equals(protectedPrefs) && phone.fileHashes().equals(protectedFiles) && !BackupTransaction.needsRecovery(phone),
+                "invalid owner files leave current data and staging untouched");
     }
 
     private static void hostile(File root, BackupTestStore source, byte[] complete) throws Exception {

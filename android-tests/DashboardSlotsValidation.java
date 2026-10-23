@@ -459,7 +459,7 @@ public final class DashboardSlotsValidation extends Instrumentation {
                     + ",{\"type\":\"tiles\",\"title\":\"Reading tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"power_w\",\"temperature_c\",\"battery_health_percent\"],\"layouts\":{\"1\":[0,5,1,2],\"2\":[0,5,2,2],\"3\":[0,5,3,2],\"4\":[0,5,4,2],\"5\":[0,5,5,2],\"6\":[3,0,3,2]}}"
                     + ",{\"type\":\"shortcuts\",\"title\":\"Setting tiles\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"feature:maximum_speed\",\"feature:timed_charging\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,7,1,1],\"2\":[0,7,2,1],\"3\":[0,7,3,1],\"4\":[0,7,4,1],\"5\":[0,7,5,1],\"6\":[3,2,3,1]}}"
                     + ",{\"type\":\"ride\",\"title\":\"Ride recorder\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":86400000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,8,1,1],\"2\":[0,8,2,1],\"3\":[0,8,3,1],\"4\":[0,8,4,1],\"5\":[0,8,5,1],\"6\":[3,3,3,1]}}"
-                    + ",{\"type\":\"capacity\",\"title\":\"Capacity experiment\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":7776000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,9,1,4],\"2\":[0,9,2,4],\"3\":[0,9,3,4],\"4\":[0,9,4,4],\"5\":[0,9,5,4],\"6\":[0,5,6,4]}}]");
+                    + ",{\"type\":\"capacity\",\"title\":\"Usable ride energy\",\"metric\":\"power_w\",\"note\":\"\",\"color\":0,\"window\":7776000000,\"min\":0,\"max\":100,\"advertisedWh\":0,\"showDisconnect\":true,\"absoluteAxis\":false,\"quickActions\":[\"lights\",\"controls\",\"stats\",\"rides\"],\"keys\":[\"remaining_range_km\",\"power_w\",\"battery_health_percent\",\"temperature_c\"],\"layouts\":{\"1\":[0,9,1,4],\"2\":[0,9,2,4],\"3\":[0,9,3,4],\"4\":[0,9,4,4],\"5\":[0,9,5,4],\"6\":[0,5,6,4]}}]");
             check.accept(configuration.widgets.size() == expected.length(), "Captured default widget count changed");
             java.util.HashSet<String> ids = new java.util.HashSet<>();
             for (int i = 0; i < expected.length(); i++) {
@@ -592,6 +592,13 @@ public final class DashboardSlotsValidation extends Instrumentation {
                             && savedPreviousDefaults.equals(preferences.getString(activeKey, "")),
                     "Upgrade resized an installed five-row Capacity experiment");
         }
+
+        // The capacity widget was renamed: an untouched old default title follows the rename.
+        JSONArray legacy = new JSONArray(pristine);
+        legacy.getJSONObject(5).put("title", "Capacity experiment");
+        require(preferences.edit().putString(activeKey, legacy.toString()).commit(), "Could not seed the old capacity title");
+        require(new DashboardConfig(preferences, profile, false).widgets.get(5).title.equals("Usable ride energy"),
+                "An untouched old capacity title did not follow the rename");
 
         // Model an owner's existing phone: four readings plus their own four-row Capacity experiment.
         // Both display banks and every width must survive reload, reset and slot restoration.

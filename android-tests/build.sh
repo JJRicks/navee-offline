@@ -17,6 +17,7 @@ mkdir -p "$TEST_BUILD_DIR/classes" "$TEST_BUILD_DIR/dex"
 javac --release 8 -encoding UTF-8 \
     -cp "$ANDROID_JAR:$BUILD_TOOLS/core-lambda-stubs.jar:$APP_JAR" \
     -d "$TEST_BUILD_DIR/classes" \
+    "$SCRIPT_DIR/FirstConnectionValidation.java" "$SCRIPT_DIR/MyScootersValidation.java" \
     "$SCRIPT_DIR/ParkedValidation.java" "$SCRIPT_DIR/LaunchValidation.java" \
     "$SCRIPT_DIR/PhoneRideValidation.java" "$SCRIPT_DIR/UiOrganizationValidation.java" \
     "$SCRIPT_DIR/DashboardValidation.java" "$SCRIPT_DIR/HistoryValidation.java" \

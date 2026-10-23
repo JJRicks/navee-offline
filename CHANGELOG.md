@@ -2,6 +2,23 @@
 
 ## Unreleased
 
+- Make uncertain UT5 MAX standard-charger estimates to full more conservative, while preserving voltage matching and the final taper.
+- Prevent shorter percentage-only charge history from overriding uncertain early full-time estimates; preserve existing lower-cutoff calculations.
+- Wait for automatic charger identification or manual selection before enabling Charge done by during UT5 MAX charging.
+- Increase the Charge done by scheduling buffer from ten to twenty minutes for newly enabled or explicitly updated plans.
+- Estimate UT5 MAX standard-charger time below 89% from pack voltage, live current and charge age, instead of the battery percentage alone. The gauge's late catch-up and the charger's first-hour current decline no longer make early estimates, especially for lower limits such as 80%, optimistic.
+- Give Charge done by a separate cautious estimate (more charge still needed than the gauge's observed catch-up implies, strongest observed current decline, longest observed finish) before its twenty-minute buffer; the dashboard shows the most likely time.
+- Track when charging starts, or infer it from about ten minutes of current readings, without saving anything.
+- Record new predictions as estimator `ut5-stock-pack-v6`; preserve earlier recordings and saved predictions.
+- Offer to measure a UT5 MAX standard charge for up to ten minutes before arming Charge done by when Volt did not see the charge begin. Volt asks first, stays connected with a notification offering **Schedule now**, then arms the existing one-shot schedule with the charge's inferred age. If measuring cannot finish, it falls back to the cautious plan or explains why nothing was set.
+- Keep a charge recording open through a pause that Volt's own charging schedule creates, marking the paused interval in the journal and export (`schedule_pauses`) so a scheduled charge can be recorded end to end.
+- Show the last confirmed lock state while disconnected or reconnecting, clearly marked as last known.
+- Move the compatibility checker into Developer options; keep unfinished test recovery accessible.
+- Put Back up & restore directly in More, replacing the separate owner-only export. New backups include all saved app data by default and clearly identify partial selections.
+- Make full backup restore prominent during onboarding. Older owner setup files import through the same restore flow with an explicit scooter-access-only notice.
+- Rename Capacity experiment to Usable ride energy; an untouched old default title follows the rename and custom titles are kept. It is not a battery-health test.
+- Require 60 battery points across six rides before estimating, set aside rides whose gauge corrected itself mid-ride, and show a 90% range.
+- Show charge per full gauge (Ah) and a charging check from completed charge recordings.
 - Make Volt's learned range follow the battery gauge: energy per percentage point is learned across the gauge, so low-battery forecasts are no longer optimistic, and levels below any recorded ride are treated cautiously.
 - Separate riding efficiency from battery energy; rides with a short recording gap now count toward energy per km.
 - Show the learned forecast and its likely range in the Range estimate picker.

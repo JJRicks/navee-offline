@@ -115,6 +115,7 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(service.chargeCharger()==null,"New scooter inherited the other charger selection");service.profiles.select(profile);
             });
             verifyRecoveryTransitions();
+            verifySchedulePause();
             main(()->{seedActive(profile);activity.finish();getTargetContext().stopService(new Intent(getTargetContext(),ScooterService.class));});
             ScooterService ended=service;await(()->Boolean.TRUE.equals(field(ended,"destroyed")),"Service did not end");
             require(!store(ended).active(),"Service end left capture active");
@@ -433,6 +434,41 @@ public final class ChargeCaptureValidation extends Instrumentation {
                 require(!json.contains("000000000000")&&!json.contains("X2538-SYNTHETIC")&&!json.contains(profile),"Diagnostic events leaked owner/radio identity");
             }catch(Exception e){throw new IllegalStateException(e);}
             require(field(service.ble,"gatt")==null&&field(service.ble,"scanner")==null,"Fault injection touched real Bluetooth transport");
+        });
+    }
+    /** Volt's own armed schedule holds current off; the capture waits, marks it and stays one journal. */
+    private void verifySchedulePause(){
+        main(()->{
+            service.visible(true);setField(service,"chargeUpdating",true);
+            long now=System.currentTimeMillis(),start=now+2*60*60_000L,deadline=now+8*60*60_000L;
+            settings().edit().putString("charge_schedule_owned_"+profile,"3|2|480|"+start+"|"+(start/1000)+"|"+deadline+"|"+now+"|100.0|300.0|false|0|"+(start/1000)+"|50.0").commit();
+            setField(service,"chargeScheduleController",null);
+            require(service.chargeSchedule().doneByEnabled&&(Boolean)invoke(service,"scheduledChargePause",new Class<?>[]{}),"An armed plan before its start is not treated as Volt's pause");
+            seedActive(profile);
+            try{
+                long at=SystemClock.elapsedRealtime();store().pause(System.currentTimeMillis(),at);
+                require(store().paused()&&service.isChargeRecording()&&service.chargeCaptureStatus().endsWith("paused until the scheduled start"),"Paused capture status missing: "+service.chargeCaptureStatus());
+                Notification notice=(Notification)invoke(service,"notification",new Class<?>[]{});
+                require(notice.extras.getCharSequence(Notification.EXTRA_TEXT).toString().contains("paused until the scheduled start")&&notice.actions[0].title.toString().equals("Stop charge recording"),"Paused capture notice lost its state or Stop action");
+                store().heartbeat(at+20000);require(store().lastFreshMono()==at+20000,"Paused heartbeat did not keep the capture fresh");
+                store().resume(System.currentTimeMillis()+30000,at+30000);
+                require(store().sample(sampleFrame(at+31000,51,-2))&&!store().paused(),"Charging after the pause did not resume the same journal");
+            }catch(IOException e){throw new IllegalStateException(e);}
+            service.stopChargeRecording();
+            try{
+                StringWriter out=new StringWriter();store().exportJson(profile,out);
+                org.json.JSONArray sessions=new org.json.JSONObject(out.toString()).getJSONArray("sessions");boolean found=false;
+                for(int i=0;i<sessions.length();i++){org.json.JSONObject session=sessions.getJSONObject(i);org.json.JSONArray pauses=session.getJSONArray("schedule_pauses");
+                    if(pauses.length()==1){found=true;require(!pauses.getJSONObject(0).isNull("end_elapsed_ms")&&session.getJSONArray("samples").getJSONObject(1).getBoolean("gap_before"),"Exported pause is open or bridged");}}
+                require(found,"Paused journal missing from export");
+            }catch(Exception e){throw new IllegalStateException(e);}
+            long past=System.currentTimeMillis()-3*60_000L; // beyond the two-minute start grace
+            settings().edit().putString("charge_schedule_owned_"+profile,"3|2|480|"+past+"|"+(past/1000)+"|"+(past+6*60*60_000L)+"|"+(past-60_000L)+"|100.0|300.0|false|0|"+(past/1000)+"|50.0").commit();
+            setField(service,"chargeScheduleController",null);
+            require(!(Boolean)invoke(service,"scheduledChargePause",new Class<?>[]{}),"A start past its grace still holds the capture open");
+            settings().edit().remove("charge_schedule_owned_"+profile).commit();setField(service,"chargeScheduleController",null);
+            require(!(Boolean)invoke(service,"scheduledChargePause",new Class<?>[]{}),"No plan still counts as a pause");
+            setField(service,"chargeUpdating",false);
         });
     }
     private ChargeRecoveryPolicy recoveryPolicy(){

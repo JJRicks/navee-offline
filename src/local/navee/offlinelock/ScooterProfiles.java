@@ -36,9 +36,29 @@ public final class ScooterProfiles {
         if(!profiles.isEmpty())prefs.edit().putBoolean("legacy_migrated",true).apply();
     }
     public synchronized List<Profile> all(){return new ArrayList<>(profiles);}
+    /** Hardware belongs to one profile; the same owner identity may belong to several scooters. */
+    public synchronized Profile hardwareMatch(String excludedProfileId,String mac,String serial){
+        for(Profile p:profiles){
+            if(p.id.equals(excludedProfileId))continue;
+            if(mac!=null&&!mac.isEmpty()&&mac.equalsIgnoreCase(p.mac)
+                    ||serial!=null&&!serial.isEmpty()&&serial.equalsIgnoreCase(p.serial))return p;
+        }
+        return null;
+    }
     public synchronized Profile active(){String id=prefs.getString("active","");for(Profile p:profiles)if(p.id.equals(id))return p;return profiles.isEmpty()?null:profiles.get(0);}
     public synchronized void select(String id){prefs.edit().putString("active",id).apply();}
-    public synchronized Profile create(String name,String identity,int role){if(!identity.matches("(?i)[0-9a-f]{12}")||role<0||role>1)throw new IllegalArgumentException("Enter a 12-character owner identity.");boolean generic=name==null||name.trim().isEmpty();Profile p=new Profile(UUID.randomUUID().toString(),generic?"Scooter":name.trim(),identity.toUpperCase(Locale.ROOT),role,"","",0);p.nameDefault=generic;profiles.add(p);select(p.id);save();return p;}
+    public synchronized Profile create(String name,String identity,int role){return createWithId(UUID.randomUUID().toString(),name,identity,role);}
+    /** A private staged request owns one ID even if the process stops before its receipt is saved. */
+    static String ownerImportProfileId(String importId){
+        if(importId==null||!importId.matches("(?i)[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}"))throw new IllegalArgumentException("Import failed. Pick file again.");
+        return UUID.nameUUIDFromBytes(("volt-owner-import:"+importId.toLowerCase(Locale.ROOT)).getBytes(java.nio.charset.StandardCharsets.UTF_8)).toString();
+    }
+    synchronized Profile createForOwnerImport(String importId,String name,String identity,int role){
+        String id=ownerImportProfileId(importId);
+        for(Profile profile:profiles)if(profile.id.equals(id))throw new IllegalStateException("Owner import profile already exists");
+        return createWithId(id,name,identity,role);
+    }
+    private Profile createWithId(String id,String name,String identity,int role){if(!identity.matches("(?i)[0-9a-f]{12}")||role<0||role>1)throw new IllegalArgumentException("Enter a 12-character owner identity.");boolean generic=name==null||name.trim().isEmpty();Profile p=new Profile(id,generic?"Scooter":name.trim(),identity.toUpperCase(Locale.ROOT),role,"","",0);p.nameDefault=generic;profiles.add(p);select(p.id);save();return p;}
     public synchronized void update(Profile p){save();}
     public synchronized void remove(String id){String identity="";for(Profile p:profiles)if(p.id.equals(id))identity=p.identity;profiles.removeIf(p->p.id.equals(id));boolean retained=false;for(Profile p:profiles)retained|=p.identity.equalsIgnoreCase(identity);if(!retained&&!identity.isEmpty()&&identity.equalsIgnoreCase(legacy.getString("identity","")))legacy.edit().remove("identity").remove("role").apply();prefs.edit().putBoolean("legacy_migrated",true).apply();if(active()!=null)select(active().id);save();}
     public synchronized void save(){try{JSONArray a=new JSONArray();for(Profile p:profiles){JSONObject o=new JSONObject();o.put("id",p.id);o.put("name",p.name);o.put("identity",p.identity);o.put("role",p.role);o.put("mac",p.mac);o.put("serial",p.serial);o.put("lastConnected",p.lastConnected);o.put("pid_advertised",p.advertisedPid);o.put("pid_advertised_wall",p.advertisedPidWall);o.put("name_default",p.nameDefault);o.put("fw_meter",p.fwMeter);o.put("fw_controller",p.fwController);o.put("fw_bms",p.fwBms);o.put("fw_screen",p.fwScreen);o.put("fw_uwb",p.fwUwb);o.put("fw_wall",p.fwWall);a.put(o);}prefs.edit().putString("items",a.toString()).apply();}catch(JSONException e){throw new IllegalStateException(e);}}

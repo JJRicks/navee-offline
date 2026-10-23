@@ -37,6 +37,8 @@ public final class DashboardConfig {
         "tiles",
         "shortcuts"
     };
+    /** The capacity widget's default title before it became "Usable ride energy". */
+    static final String LEGACY_CAPACITY_TITLE = "Capacity experiment";
     public static final String[] NAMES = {
         "Lock & connection",
         "Your scooter",
@@ -48,7 +50,7 @@ public final class DashboardConfig {
         "Readings",
         "Trip overview",
         "Reported health",
-        "Capacity experiment",
+        "Usable ride energy",
         "Charging",
         "Shortcuts",
         "Ride recorder",
@@ -282,6 +284,8 @@ public final class DashboardConfig {
                 continue;
             Widget w = new Widget(id, type);
             w.title = o.optString("title", w.title);
+            // The widget was renamed; an untouched old default title follows it, custom titles stay.
+            if (type.equals("capacity") && LEGACY_CAPACITY_TITLE.equals(w.title)) w.title = NAMES[Arrays.asList(TYPES).indexOf("capacity")];
             w.metric = o.optString("metric", w.metric);
             w.note = o.optString("note", "");
             w.color = Math.max(0, Math.min(3, o.optInt("color", 0)));

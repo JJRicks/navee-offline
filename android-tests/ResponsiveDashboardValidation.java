@@ -465,11 +465,12 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                 if (activity.ui().textScale * activity.getResources().getConfiguration().fontScale <= 1.05f
                         && dashboardConfig().widgets.size() == DEFAULT_STACK.length) {
                     boolean expanded = (Boolean)field(activity, "expanded");
+                    // Capacity has four rows in both layouts (see assertDefaultCardContents).
                     int[][] rectangles = expanded
                             ? new int[][] {{0, 0, 3, 4}, {0, 4, 5, 1}, {3, 0, 2, 4},
-                                    {0, 5, 5, 1}, {0, 6, 5, 1}, {0, 7, 5, 5}}
+                                    {0, 5, 5, 1}, {0, 6, 5, 1}, {0, 7, 5, 4}}
                             : new int[][] {{0, 0, 5, 4}, {0, 4, 5, 1}, {0, 5, 5, 2},
-                                    {0, 7, 5, 1}, {0, 8, 5, 1}, {0, 9, 5, 5}};
+                                    {0, 7, 5, 1}, {0, 8, 5, 1}, {0, 9, 5, 4}};
                     for (int i = 0; i < DEFAULT_STACK.length; i++) {
                         DashboardLayout.Cell cell = (DashboardLayout.Cell)invoke(grid, "currentCell",
                                 new Class<?>[]{DashboardConfig.Widget.class}, field(tile(DEFAULT_STACK[i]), "widget"));
@@ -550,7 +551,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     compare.setVisibility(numeric && !state.equals("reference") ? View.VISIBLE : View.GONE);
                     ((View)field(capacity, "capacityBar")).setVisibility(compare.getVisibility());
                     ((View)field(capacity, "capacityReference")).setVisibility(state.equals("reference") ? View.VISIBLE : View.GONE);
-                    ((TextView)field(capacity, "capacitySummary")).setText(numeric ? "6 rides · 42 points used"
+                    ((TextView)field(capacity, "capacitySummary")).setText(numeric ? "8 rides · 590–650 Wh"
                             : state.equals("processing") ? "Checking recorded rides…" : "Record a longer ride");
                     ((View)capacity).requestLayout();
                 });

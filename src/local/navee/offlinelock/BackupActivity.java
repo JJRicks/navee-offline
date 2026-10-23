@@ -36,7 +36,7 @@ public final class BackupActivity extends Activity {
     private TextView status, action, closeAction;
     private EditText password, repeat;
     private ProgressBar progress;
-    private boolean busy, terminal, restore, waitingForPicker, hasData;
+    private boolean busy, terminal, restore, waitingForPicker, hasData, exportedComplete;
     private String preselect;
     private final LinkedHashMap<String,CheckBox> boxes=new LinkedHashMap<>();
     private Map<String,long[]> inventory;
@@ -160,6 +160,8 @@ public final class BackupActivity extends Activity {
     private boolean hasItems(String id){return inventory.get(id)[0]>0||inventory.get(id)[1]>0;}
     private void backupCategories(){
         reset("Back up");
+        TextView scope=paragraph("");scope.setTag("backup-scope");
+        scope.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);
         LinearLayout list=list();LinearLayout categories=new LinearLayout(this);categories.setOrientation(LinearLayout.VERTICAL);
         for(String id:AppDataBackup.CATEGORIES){
             long items=inventory.get(id)[0],bytes=inventory.get(id)[1];String detail;
@@ -172,9 +174,14 @@ public final class BackupActivity extends Activity {
             boxes.put(id,checkRow(categories,id,AppDataBackup.label(id),detail,hasItems(id),preselect==null||preselect.equals(id)));
         }
         TextView estimate=ui.caption("");estimate.setTextSize(TypedValue.COMPLEX_UNIT_SP,13*textScale);estimate.setPadding(0,ui.dp(10),0,0);
-        selectAll(list,()->{long total=0;for(Map.Entry<String,CheckBox> e:boxes.entrySet())if(e.getValue().isChecked())total+=inventory.get(e.getKey())[1];estimate.setText("About "+size(total));});
+        selectAll(list,()->{long total=0;int missing=0;for(Map.Entry<String,CheckBox> e:boxes.entrySet()){
+                if(e.getValue().isChecked())total+=inventory.get(e.getKey())[1];else if(hasItems(e.getKey()))missing++;
+            }
+            scope.setText(missing==0?"Full backup · all saved app data, including scooter access."
+                    :"Selected data only · "+missing+" "+(missing==1?"category":"categories")+" excluded.");
+            estimate.setText("About "+size(total));});
         list.addView(categories);content.addView(estimate);
-        paragraph("Permissions and Bluetooth pairing aren't included.");
+        paragraph("Permissions and Bluetooth pairing aren't included. Scooter preferences are saved in Volt; restoring them doesn't change settings on the scooter.");
         password=passwordField("New password");repeat=passwordField("Repeat password");paragraph("Password can't be recovered.");
         footer("Create backup","backup-create",this::createBackup);
     }
@@ -189,6 +196,7 @@ public final class BackupActivity extends Activity {
         if(busy||waitingForPicker||terminal)return;
         Set<String> categories=selected();
         if(categories.isEmpty()){status.setText("Choose what to back up.");return;}
+        exportedComplete=categories.containsAll(AppDataBackup.CATEGORIES);
         char[] secret=new char[password.length()];password.getText().getChars(0,password.length(),secret,0);
         if(secret.length<8){Arrays.fill(secret,'\0');password.setError("Use at least 8 characters.");return;}
         char[] repeated=new char[repeat.length()];repeat.getText().getChars(0,repeat.length(),repeated,0);
@@ -196,13 +204,14 @@ public final class BackupActivity extends Activity {
         if(!same){Arrays.fill(secret,'\0');repeat.setError("The passwords do not match.");return;}
         password.setText("");repeat.setText("");hideKeyboard();
         for(CheckBox box:boxes.values())box.setEnabled(false);
+        View all=content.findViewWithTag("backup-select-all");if(all!=null)all.setEnabled(false);
         setBusy("Encrypting your backup…");
         submit(()->{
             File file=null;
             try{file=File.createTempFile("volt-encrypted-",".voltbackup",getCacheDir());
                 try(OutputStream out=new FileOutputStream(file)){AppDataBackup.write(this,out,secret,categories);}
                 File ready=file;runOnUiThread(()->{if(isDestroyed()||isFinishing()){ready.delete();return;}exported=ready;busy=false;progress.setVisibility(View.GONE);getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);launchSave();});
-            }catch(Exception failure){if(file!=null)file.delete();show(()->{for(Map.Entry<String,CheckBox> e:boxes.entrySet())e.getValue().setEnabled(hasItems(e.getKey()));retry("Backup failed. Check free space.");});}
+            }catch(Exception failure){if(file!=null)file.delete();show(()->{for(Map.Entry<String,CheckBox> e:boxes.entrySet())e.getValue().setEnabled(hasItems(e.getKey()));if(all!=null)all.setEnabled(true);retry("Backup failed. Check free space.");});}
             finally{Arrays.fill(secret,'\0');}
         });
     }
@@ -212,14 +221,14 @@ public final class BackupActivity extends Activity {
         status.setText("");if(closeAction!=null)closeAction.setEnabled(true);
         label(action,"Save backup");action.setTag("backup-save");action.setEnabled(true);action.setOnClickListener(v->launchSave());
         Intent picker=new Intent(Intent.ACTION_CREATE_DOCUMENT).addCategory(Intent.CATEGORY_OPENABLE).setType(AppDataBackup.MIME_TYPE);
-        picker.putExtra(Intent.EXTRA_TITLE,"volt-"+new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm",Locale.ROOT).format(new Date())+AppDataBackup.FILE_EXTENSION);
+        picker.putExtra(Intent.EXTRA_TITLE,(exportedComplete?"volt-full-":"volt-selected-")+new java.text.SimpleDateFormat("yyyy-MM-dd-HHmm",Locale.ROOT).format(new Date())+AppDataBackup.FILE_EXTENSION);
         try{waitingForPicker=true;startActivityForResult(picker,SAVE_BACKUP);}catch(Exception missing){waitingForPicker=false;status.setText("A file picker could not open. Tap Save to try again.");}
     }
 
     // ---- Restore -----------------------------------------------------------------------------
 
     private void restoreForm(){
-        reset("Restore");paragraph("Volt backups, ride backups or layout files.");paragraph("Permissions and Bluetooth pairing aren't included.");
+        reset("Restore");paragraph("Choose a Volt backup to recover your saved app data. Older owner setup, ride and layout files also work; you’ll see exactly what they contain before restoring.");paragraph("Permissions and Bluetooth pairing aren't included.");
         footer("Choose file","restore-choose",this::choose);
     }
     private void choose(){
@@ -279,7 +288,12 @@ public final class BackupActivity extends Activity {
     private void restoreCategories(){
         reset("Restore");
         String date=staged.createdAtMs>0?java.text.DateFormat.getDateTimeInstance(java.text.DateFormat.MEDIUM,java.text.DateFormat.SHORT).format(new Date(staged.createdAtMs)):null;
-        paragraph(staged.format.equals("layout")?"Layout file":(staged.format.equals("rides")?"Ride backup":"Backup")+(date==null?"":" from "+date));
+        paragraph(staged.format.equals("owner")?"Owner setup file · scooter access only"
+                :staged.format.equals("layout")?"Layout file":(staged.format.equals("rides")?"Ride backup":staged.complete?"Full backup":"Selected data backup")+(date==null?"":" from "+date));
+        if(staged.format.equals("owner")){
+            TextView warning=paragraph("This file has no rides, charges, history, dashboards or app settings. It only restores scooter access. Your existing data stays on this phone.");
+            warning.setTag("restore-owner-only");
+        }else if(!staged.complete)paragraph("Only the categories listed below are in this file. Other app data stays on this phone.");
         LinearLayout list=list();LinearLayout categories=new LinearLayout(this);categories.setOrientation(LinearLayout.VERTICAL);
         boolean preselected=preselect!=null&&staged.categories.containsKey(preselect);
         for(Map.Entry<String,Integer> category:staged.categories.entrySet()){
@@ -320,21 +334,29 @@ public final class BackupActivity extends Activity {
         busy=false;getWindow().clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON);
         reset("Scooters");
         LinkedHashMap<String,Spinner> choices=new LinkedHashMap<>();LinkedHashMap<String,List<String>> targets=new LinkedHashMap<>();boolean onlySkip=true;
+        Runnable updateReady=()->{
+            boolean resolved=true;
+            for(Map.Entry<String,Spinner> e:choices.entrySet())resolved&=targets.get(e.getKey()).get(e.getValue().getSelectedItemPosition())!=null;
+            if(action!=null)action.setEnabled(resolved);
+        };
         for(AppDataBackup.Destination d:needed){
-            paragraph(d.source.equals(BackupArchive.LAYOUT_SOURCE)?"Layout goes to:":"Data from “"+d.name+"” goes to:");
+            boolean accountChoice=!d.accountMatches.isEmpty();
+            paragraph(accountChoice?"Which scooter is this setup for?":d.source.equals(BackupArchive.LAYOUT_SOURCE)?"Layout goes to:":"Data from “"+d.name+"” goes to:");
+            if(accountChoice)paragraph("More than one scooter can use this setup file. Choose an existing scooter or add another.").setTag("restore-owner-choice");
             List<String> ids=new ArrayList<>(),names=new ArrayList<>();
-            for(Map.Entry<String,String> scooter:local.entrySet()){ids.add(scooter.getKey());names.add(scooter.getValue());}
-            if(d.addable){ids.add(d.source);names.add("Add from backup");}
+            if(accountChoice){ids.add(null);names.add("Choose a scooter…");}
+            for(Map.Entry<String,String> scooter:local.entrySet())if(!accountChoice||d.accountMatches.contains(scooter.getKey())){ids.add(scooter.getKey());names.add(scooter.getValue());}
+            if(d.addable){ids.add(d.source);names.add(accountChoice?"Add another scooter":"Add from backup");}
             ids.add(AppDataBackup.SKIP);names.add("Don't restore");
             onlySkip&=ids.size()==1;
             Spinner choice=new Spinner(this);ArrayAdapter<String> adapter=new ArrayAdapter<>(this,android.R.layout.simple_spinner_item,names);
             adapter.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);choice.setAdapter(adapter);choice.setMinimumHeight(ui.dp(56));
             choice.setContentDescription("Destination for "+d.name);choice.setTag("restore-destination");
-            choice.setSelection(d.suggested==null?ids.size()-1:Math.max(0,ids.indexOf(d.suggested)));
+            choice.setSelection(accountChoice?0:d.suggested==null?ids.size()-1:Math.max(0,ids.indexOf(d.suggested)));
             // A description replaces the spoken value, so it carries the current choice too.
             final String source=d.name;
             choice.setOnItemSelectedListener(new AdapterView.OnItemSelectedListener(){
-                public void onItemSelected(AdapterView<?> parent,View view,int position,long id){parent.setContentDescription("Destination for "+source+": "+names.get(position));}
+                public void onItemSelected(AdapterView<?> parent,View view,int position,long id){parent.setContentDescription("Destination for "+source+": "+names.get(position));updateReady.run();}
                 public void onNothingSelected(AdapterView<?> parent){}});
             choice.setContentDescription("Destination for "+source+": "+names.get(choice.getSelectedItemPosition()));
             content.addView(choice,new LinearLayout.LayoutParams(-1,-2));choices.put(d.source,choice);targets.put(d.source,ids);
@@ -342,9 +364,13 @@ public final class BackupActivity extends Activity {
         if(onlySkip)paragraph("Include Scooters or set up a scooter first.");
         footer("Review","restore-review",()->{
             Map<String,String> chosen=new LinkedHashMap<>();
-            for(Map.Entry<String,Spinner> e:choices.entrySet())chosen.put(e.getKey(),targets.get(e.getKey()).get(e.getValue().getSelectedItemPosition()));
+            for(Map.Entry<String,Spinner> e:choices.entrySet()){
+                String target=targets.get(e.getKey()).get(e.getValue().getSelectedItemPosition());
+                if(target==null){status.setText("Choose a scooter first.");return;}chosen.put(e.getKey(),target);
+            }
             review(categories,false,chosen);
         });
+        updateReady.run();
     }
     private void review(Set<String> categories,boolean replace,Map<String,String> chosen){review(categories,replace,chosen,null);}
     /** A non-null note means saved data changed after the last review: the new one replaces it, or the choices start over. */
@@ -358,6 +384,7 @@ public final class BackupActivity extends Activity {
         reset("Review");
         LinearLayout list=list();list.setTag("restore-preview");list.setPadding(ui.dp(14),ui.dp(6),ui.dp(14),ui.dp(6));
         for(String line:review.lines)paragraph(list,line).setTextColor(ui.text);
+        if(staged!=null&&staged.format.equals("owner"))paragraph("Scooter access only. This file contains no rides or other app data.").setTag("restore-owner-only");
         paragraph("Volt closes when the restore is done.");
         footer(review.replace?"Replace everything":"Restore","restore-apply",()->applyRestore(review,again));
         if(note!=null)status.setText(note);

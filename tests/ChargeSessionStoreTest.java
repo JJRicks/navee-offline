@@ -137,7 +137,112 @@ public final class ChargeSessionStoreTest {
         }
         boolean refused=false;try{ChargeSessionStore.reassignJournal(saved,"bad/profile");}catch(IOException expected){refused=true;}check(refused,"invalid destination refused");
     }
+    /** Volt's own charging schedule holds current off; the journal waits, marks it and stays one session. */
+    static void schedulePause()throws Exception{
+        File folder=Files.createTempDirectory("charge-pause-test-").toFile();ChargeSessionStore store=new ChargeSessionStore(folder);
+        store.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        long t=MONO;for(;t<MONO+30*60000L;t+=10000)check(store.sample(frame(t,40+(t-MONO)/60000)),"Charging before the pause samples");
+        long pauseAt=t,hours=3*3600000L;
+        store.pause(WALL+pauseAt-MONO,pauseAt);
+        check(store.paused()&&store.active(),"A scheduled pause keeps the journal open");
+        check(!store.sample(new ChargeSessionStore.Frame(WALL+pauseAt-MONO+10000,pauseAt+10000,value(0d,pauseAt+10000),value(70d,pauseAt+10000),value(52d,pauseAt+10000),value(0d,pauseAt+10000),null)),"Paused off readings are never sampled");
+        for(long h=pauseAt;h<pauseAt+hours;h+=10000)store.heartbeat(h);
+        check(store.lastFreshMono()==pauseAt+hours-10000&&store.sampleCount()==180,"Fresh off readings keep a paused capture alive without samples");
+        store.pause(WALL+pauseAt-MONO+hours,pauseAt+hours);
+        check(store.paused(),"A repeated pause call adds no second marker");
+        long resumeAt=pauseAt+hours;store.resume(WALL+resumeAt-MONO,resumeAt);
+        check(!store.paused(),"Resume reopens sampling");
+        for(t=resumeAt;t<resumeAt+30*60000L;t+=10000)check(store.sample(frame(t,70+(t-resumeAt)/60000)),"Charging after the pause samples");
+        store.stop(ChargeSessionStore.Stop.STOPPED);
+        ChargeSessionStore.HistorySession saved=store.recordings("one").get(0);
+        check(store.recordings("one").size()==1&&saved.pauses==1&&saved.pausedMs==hours,"One recording keeps the exact pause interval");
+        check(saved.points.size()==360&&saved.points.get(180).gap&&!saved.points.get(181).gap&&!saved.points.get(179).gap,"Only the first resumed sample starts a new segment");
+        ChargeSessionStore.Curve curve=store.snapshot().curves.get(ChargeSessionStore.key("one",ChargeSessionStore.Charger.STOCK));
+        check(curve!=null&&curve.qualifiedSessions==1,"Coverage is judged on charging time, so a paused charge still qualifies");
+        StringWriter json=new StringWriter();store.exportJson("one",json);
+        check(json.toString().contains("\"schedule_pauses\":[{\"start_wall_ms\":"+(WALL+pauseAt-MONO)+",\"start_elapsed_ms\":"+pauseAt
+                +",\"end_wall_ms\":"+(WALL+resumeAt-MONO)+",\"end_elapsed_ms\":"+resumeAt+"}]"),"Export names the paused interval");
+        File journal=folder.listFiles((d,n)->n.endsWith(".csv"))[0];
+        check(ChargeSessionStore.inspectJournal(journal).finished,"A paused journal remains a valid backup journal");
+
+        // The schedule's OFF confirmation can arrive before charging resumes: the open pause holds briefly.
+        ChargeSessionStore grace=store();grace.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        check(grace.holdsSchedulePause(true,MONO+1000),"An armed plan holds the pause");
+        check(!grace.holdsSchedulePause(false,MONO+2000),"Without an open pause there is nothing to hold");
+        grace.holdsSchedulePause(true,MONO+3000);grace.pause(WALL+3000,MONO+3000);
+        check(grace.holdsSchedulePause(false,MONO+4000),"A plan cancelled before charging resumes keeps the recorded pause");
+        check(grace.holdsSchedulePause(false,MONO+3000+ChargeSessionStore.PAUSE_RELEASE_GRACE_MS-1),"The pause holds until its grace ends");
+        check(!grace.holdsSchedulePause(false,MONO+3000+ChargeSessionStore.PAUSE_RELEASE_GRACE_MS),"After the grace an off charger ends the recording as before");
+        grace.stop(ChargeSessionStore.Stop.STOPPED);grace.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO+10_000_000L);
+        check(!grace.holdsSchedulePause(false,MONO+10_000_001L),"A new recording starts with no inherited grace");
+
+        ChargeSessionStore limited=store();limited.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        for(int i=0;i<ChargeSessionStore.MAX_PAUSES;i++){limited.pause(WALL+i*2,MONO+i*2);limited.resume(WALL+i*2+1,MONO+i*2+1);}
+        check(limited.active(),"Eight pauses fit one recording");
+        limited.pause(WALL+100,MONO+100);
+        check(!limited.active()&&limited.recordings("one").get(0).stop==ChargeSessionStore.Stop.LIMIT,"A ninth pause ends the recording at its limit");
+
+        ChargeSessionStore open=store();open.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        open.sample(frame(MONO,50));open.pause(WALL+10000,MONO+10000);
+        long lastHeard=MONO+10000+3*3600000L;for(long h=MONO+10000;h<=lastHeard;h+=10000)open.heartbeat(h);
+        open.stop(ChargeSessionStore.Stop.STOPPED);
+        ChargeSessionStore.HistorySession ended=open.recordings("one").get(0);
+        check(ended.pauses==1&&ended.pausedMs==3*3600000L,"A recording that ends inside its pause keeps the pause length, not 0 min: "+ended.pausedMs);
+        StringWriter openJson=new StringWriter();open.exportJson("one",openJson);
+        check(openJson.toString().contains("\"end_wall_ms\":"+(WALL+lastHeard-MONO)+",\"end_elapsed_ms\":"+lastHeard)&&!open.paused(),
+                "Stopping while paused closes the pause at its last fresh reading");
+
+        for(String bad:new String[]{"charge-v2,a,STOCK,1,1\np,1,1,0\n","charge-v2,a,STOCK,1,1\np,1,2,1\np,1,3,1\n","charge-v1,a,STOCK,1,1\np,1,1,1\n",
+                "charge-v2,a,STOCK,1,1\nend,STOPPED\np,1,1,1\n","charge-v2,a,STOCK,1,1\np,1,9,1\np,1,8,0\n","charge-v2,a,STOCK,1,1\np,0,1,1\n","charge-v2,a,STOCK,1,1\np,1,1,2\n"}){
+            File file=new File(folder,UUID.randomUUID()+".csv");Files.write(file.toPath(),bad.getBytes(StandardCharsets.UTF_8));
+            boolean refused=false;try{ChargeSessionStore.inspectJournal(file);}catch(IOException expected){refused=true;}
+            check(refused,"malformed pause markers refused: "+bad.replace('\n','|'));file.delete();
+        }
+    }
+    /** Completed charges below 80% give the charge accepted per gauge point, catch-up included. */
+    static void gaugeChargeCheck()throws Exception{
+        ChargeSessionStore s=store();
+        charge(s,"one",40,ChargeSessionStore.Stop.COMPLETE);
+        BatteryCapacityEstimate.ChargeEvidence e=s.snapshot().gaugeCharge.get("one");
+        check(e!=null&&e.sessions==1&&Math.abs(e.points-59)<1e-9,"Counted from the first percentage change (41%) to 100%");
+        check(Math.abs(e.ah-2*59*60/3600.0)<1e-6,"2 A for 59 one-minute percentage steps: "+(e==null?null:e.ah));
+        charge(s,"one",40,ChargeSessionStore.Stop.STOPPED);
+        charge(s,"one",85,ChargeSessionStore.Stop.COMPLETE);
+        charge(s,"two",40,ChargeSessionStore.Stop.COMPLETE);
+        BatteryCapacityEstimate.ChargeEvidence again=s.snapshot().gaugeCharge.get("one");
+        check(again.sessions==1&&Math.abs(again.ah-e.ah)<1e-9,"Stopped charges and starts above 80% are not counted");
+        check(s.snapshot().gaugeCharge.get("two").sessions==1,"Each scooter keeps its own charging check");
+        // A four-minute Bluetooth loss at 76%: charging may have stopped and restarted unseen.
+        ChargeSessionStore gap=store();chargeWithGap(gap,"one",40,76);
+        BatteryCapacityEstimate.ChargeEvidence resumed=gap.snapshot().gaugeCharge.get("one");
+        check(resumed!=null&&Math.abs(resumed.points-23)<1e-9,"Counting restarts at the first percentage change after the gap (77%)");
+        check(Math.abs(resumed.ah-2*23*60/3600.0)<1e-6,"The unobserved four minutes add no charge: "+(resumed==null?null:resumed.ah));
+        ChargeSessionStore late=store();chargeWithGap(late,"one",40,85);
+        check(late.snapshot().gaugeCharge.get("one")==null,"A restart above 80% is not counted");
+        // A rejected frame between normal 10 s samples is flagged too, but nothing went unobserved.
+        ChargeSessionStore flagged=store();flagged.start("one",ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        for(long t=MONO;t<=MONO+60*60000L;t+=10000){if(t==MONO+30*60000L)flagged.markGap();flagged.sample(frame(t,Math.floor(40+(t-MONO)/60000.0)));}
+        flagged.stop(ChargeSessionStore.Stop.COMPLETE);
+        BatteryCapacityEstimate.ChargeEvidence kept=flagged.snapshot().gaugeCharge.get("one");
+        check(kept!=null&&Math.abs(kept.points-59)<1e-9&&Math.abs(kept.ah-2*59*60/3600.0)<1e-6,"A flagged normal-length step keeps the charge");
+    }
+    private static void chargeWithGap(ChargeSessionStore s,String profile,int start,int gapAt)throws Exception{
+        s.start(profile,ChargeSessionStore.Charger.STOCK,WALL,MONO);long t=MONO;double soc=start;
+        for(;soc<gapAt;t+=10000){soc=Math.floor(start+(t-MONO)/60000.0);s.sample(frame(t,soc));}
+        s.markGap();long resume=t+240000;
+        for(t=resume;soc<100;t+=10000){soc=Math.floor(gapAt+(t-resume)/60000.0);s.sample(frame(t,soc));}
+        s.stop(ChargeSessionStore.Stop.COMPLETE);
+    }
+    private static void charge(ChargeSessionStore s,String profile,int start,ChargeSessionStore.Stop stop)throws Exception{
+        s.start(profile,ChargeSessionStore.Charger.STOCK,WALL,MONO);
+        for(long t=MONO;t<=MONO+(100-start)*60000L;t+=10000){
+            double soc=Math.floor(start+(t-MONO)/60000.0);
+            s.sample(frame(t,soc));
+        }
+        s.stop(stop);
+    }
     public static void main(String[] args)throws Exception{
+        gaugeChargeCheck();
         ChargeSessionStore a=store();
         session(a,"one",ChargeSessionStore.Charger.STOCK,40,100,60000,false,false);
         ChargeSessionStore.Curve first=curve(a,"one",ChargeSessionStore.Charger.STOCK);
@@ -309,7 +414,7 @@ public final class ChargeSessionStoreTest {
         StringWriter resumedJson=new StringWriter();reconnected.exportJson("one",resumedJson);
         check(resumedJson.toString().contains("\"battery_percent\":54.0,\"voltage_v\":56.0,\"current_a\":-0.2,\"power_w\":-11.200000000000001,\"temperature_c\":null,\"gap_before\":true"),"First post-loss sample keeps gap and real measurements");
         check(reconnected.snapshot().sessions==1,"Transient recovery remains one journal, not a second session");
-        sustainedElectricalChanges();journals();
+        sustainedElectricalChanges();journals();schedulePause();
         System.out.println("ChargeSessionStore: "+checks+" checks passed");
     }
 }
