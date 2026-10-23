@@ -2246,41 +2246,66 @@ public final class MainActivity extends Activity implements ScreenHost {
         TextView privacy=design.caption("No serial, MAC, owner key, PIN, names or routes are included.");privacy.setPadding(0,design.dp(6),0,0);box.addView(privacy);
         TextView status=design.caption("");status.setPadding(0,design.dp(10),0,0);status.setVisibility(View.GONE);status.setTag("report-invite-status");
         status.setAccessibilityLiveRegion(View.ACCESSIBILITY_LIVE_REGION_POLITE);box.addView(status);
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Help Volt support this scooter")).setView(box)
+        // The check takes about 30 seconds; the owner says which scooter it is meanwhile.
+        CompatibilityReport[] ready={null};String[] scooter={""};android.widget.Button[] next={null};
+        ModelPicker picker=new ModelPicker(this,design,c->{if(next[0]!=null)next[0].setEnabled(ready[0]!=null);});
+        View pick=picker.view();pick.setPadding(0,design.dp(14),0,0);pick.setVisibility(View.GONE);box.addView(pick);
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(box);
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Help Volt support this scooter")).setView(scroll)
                 .setPositiveButton("Check & share",null).setNegativeButton("Not now",null).setNeutralButton("Don't ask again",null).create();
         reportDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
         android.widget.Button share=dialog.getButton(AlertDialog.BUTTON_POSITIVE),later=dialog.getButton(AlertDialog.BUTTON_NEGATIVE),never=dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
-        reportChecking=false;
+        next[0]=share;reportChecking=false;
         later.setOnClickListener(v->{
             if(reportChecking){scooterService.ble.stopDiscovery();return;}
             preferences.edit().putString(ReportInvite.PREFIX+model,ReportInvite.later(System.currentTimeMillis())).apply();dialog.dismiss();
         });
         never.setOnClickListener(v->{preferences.edit().putString(ReportInvite.PREFIX+model,"never").apply();dialog.dismiss();});
         share.setOnClickListener(v->{
+            if(ready[0]!=null){finishReport(model,ready[0],picker.choice(),scooter[0],dialog);return;}
             BleController ble=scooterService==null?null:scooterService.ble;
             if(ble==null||!ble.ready()){status.setText("Connect your scooter first.");status.setVisibility(View.VISIBLE);return;}
-            ScooterProfiles.Profile checked=scooterService.profiles.active();String scooter=checked==null?"":checked.id;
+            ScooterProfiles.Profile checked=scooterService.profiles.active();scooter[0]=checked==null?"":checked.id;
             ble.startDiscovery();
             if(!ble.discovering()){status.setText(ble.message());status.setVisibility(View.VISIBLE);return;}
-            reportChecking=true;share.setEnabled(false);share.setText("Checking…");later.setText("Stop");never.setVisibility(View.GONE);
-            status.setText("Checking the scooter. This takes about 30 seconds.");status.setVisibility(View.VISIBLE);
+            reportChecking=true;share.setEnabled(false);share.setText("Next");later.setText("Stop");never.setVisibility(View.GONE);
+            about.setVisibility(View.GONE);pick.setVisibility(View.VISIBLE);
+            status.setText("Checking your scooter, about 30 seconds.");status.setVisibility(View.VISIBLE);
             handler.postDelayed(new Runnable(){@Override public void run(){
                 if(destroyed||!dialog.isShowing())return;
                 // A check that finishes while Volt is in the background waits: the email app opens only in front of Volt.
                 if(ble.discovering()||!resumed){handler.postDelayed(this,400);return;}
                 reportChecking=false;
                 ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
-                DiscoveryCoordinator finished=now==null||!now.id.equals(scooter)?null:ble.discovery();
-                CompatibilityReport report=finished==null||finished.interrupted()?null:ble.compatibilityReport(AppVersion.name(MainActivity.this));
-                if(report!=null&&email(ReportInvite.subject(model),ReportInvite.body(report))){
-                    preferences.edit().putString(ReportInvite.PREFIX+model,"sent").apply();dialog.dismiss();
-                    toast("Your email app has the report. Thanks for helping!");return;
+                DiscoveryCoordinator finished=now==null||!now.id.equals(scooter[0])?null:ble.discovery();
+                ready[0]=finished==null||finished.interrupted()?null:ble.compatibilityReport(AppVersion.name(MainActivity.this));
+                later.setText("Not now");
+                if(ready[0]==null){
+                    share.setEnabled(true);share.setText("Try again");never.setVisibility(View.VISIBLE);
+                    status.setText("The check stopped before it finished.");return;
                 }
-                share.setEnabled(true);share.setText("Try again");later.setText("Not now");never.setVisibility(View.VISIBLE);
-                status.setText(report==null?"The check stopped before it finished.":"No email app could open the report.");
+                share.setEnabled(picker.choice()!=null);
+                status.setText(picker.choice()==null?"Check finished ✓ Choose your scooter (or Not sure), then Next.":"Check finished ✓");
             }},400);
         });
         dialog.setOnDismissListener(d->{if(reportChecking&&scooterService!=null)scooterService.ble.stopDiscovery();reportChecking=false;if(reportDialog==dialog)reportDialog=null;});
+    }
+    /** After the check and the owner's answer: optionally name the drive modes, then open the email, still for the same scooter. */
+    private void finishReport(String model,CompatibilityReport report,NaveeModels.Choice choice,String scooter,AlertDialog dialog){
+        dialog.dismiss();
+        java.util.function.Consumer<DriveModeSurvey> send=modes->{
+            if(destroyed)return;
+            ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
+            if(now==null||!now.id.equals(scooter)){toast("The scooter changed, so Volt didn't open the report.");return;}
+            if(email(ReportInvite.subject(model),ReportInvite.body(report,choice,modes,model))){
+                preferences.edit().putString(ReportInvite.PREFIX+model,"sent").apply();toast("Your email app has the report. Thanks for helping!");
+            }else toast("No email app could open the report.");
+        };
+        BleController ble=scooterService==null?null:scooterService.ble;
+        // Optional: the owner names each drive mode the scooter reports (DriveModeStep); skipping still sends the report.
+        if(ble!=null&&ble.ready()&&ble.telemetry.number("driving_mode")!=null)
+            reportDialog=new DriveModeStep(this,design,ble,modes->{if(!destroyed)reportDialog=null;send.accept(modes);}).show();
+        else send.accept(null);
     }
     /** After repeated failures on a scooter that has never connected, offer once per app session to email its connection details. */
     private static final java.util.Set<String> connectOffered=java.util.Collections.synchronizedSet(new java.util.HashSet<>());
@@ -2300,7 +2325,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         addressLine(box);
         TextView privacy=design.caption("It lists each connection step and error code, the scooter's model ID, and your Android version and phone model. No serial, MAC, owner key, PIN or names.");
         privacy.setPadding(0,design.dp(6),0,0);box.addView(privacy);
-        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Volt couldn't connect to this scooter")).setView(box)
+        ModelPicker picker=new ModelPicker(this,design,c->{});View pick=picker.view();pick.setPadding(0,design.dp(14),0,0);box.addView(pick);
+        android.widget.ScrollView scroll=new android.widget.ScrollView(this);scroll.addView(box);
+        AlertDialog dialog=new AlertDialog.Builder(dialogContext()).setCustomTitle(dialogTitle("Volt couldn't connect to this scooter")).setView(scroll)
                 .setPositiveButton("Send details",null).setNegativeButton("Not now",null).setNeutralButton("Don't ask again",null).create();
         reportDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
         String key=ConnectionReport.PREFIX+p.id;
@@ -2310,7 +2337,7 @@ public final class MainActivity extends Activity implements ScreenHost {
             BleController ble=scooterService.ble;String model=ble.advertisedModelId(p);
             String json=ConnectionReport.json(AppVersion.name(this),Build.VERSION.SDK_INT,Build.MANUFACTURER+" "+Build.MODEL,model,ble.advertisedTransport(p),ble.mtu(),
                     ble.connectionAttempts(p.id),ble.connectionActivity(p.id));
-            if(email(ConnectionReport.subject(model),ConnectionReport.body(json))){preferences.edit().putString(key,"sent").apply();dialog.dismiss();toast("Your email app has the details. Thanks for helping!");}
+            if(email(ConnectionReport.subject(model),ConnectionReport.body(json,picker.choice(),model))){preferences.edit().putString(key,"sent").apply();dialog.dismiss();toast("Your email app has the details. Thanks for helping!");}
             else toast("No email app could open the details.");
         });
         dialog.setOnDismissListener(d->{if(reportDialog==dialog)reportDialog=null;});

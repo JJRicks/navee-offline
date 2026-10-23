@@ -121,7 +121,11 @@ final class ConnectionReport {
     }
 
     /** The whole email: a short note, then the report. */
-    static String body(String json) {
-        return ReportInvite.NAME_PROMPT + "\n\nVolt could not connect to this scooter. These are its connection details; it is everything Volt sends, and nothing is attached.\n\n" + json;
+    static String body(String json) { return body(json, null, ""); }
+
+    /** The same, opening with the model the owner picked (or a prompt to type it), with their answer after the details. */
+    static String body(String json, NaveeModels.Choice model, String modelId) {
+        return OwnerNotes.firstLine(model) + "\n\nVolt could not connect to this scooter. These are its connection details; it is everything Volt sends, and nothing is attached.\n\n"
+                + json + OwnerNotes.section(modelId, model, null);
     }
 }
