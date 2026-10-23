@@ -225,7 +225,9 @@ public final class TelemetryTest {
         check("2.5 (raw)".equals(Telemetry.drivingModeLabel(2538, 2.5)), "Fractional code cannot silently round to a known mode");
         check("—".equals(Telemetry.drivingModeLabel(2538, null)), "Missing mode stays unavailable");
         check("WALK".equals(Telemetry.drivingModeLabel(25462, 11.0)) && "DRIVE".equals(Telemetry.drivingModeLabel(25462, 2.0))
-                && "SPORT".equals(Telemetry.drivingModeLabel(25462, 3.0)) && "5 (raw)".equals(Telemetry.drivingModeLabel(25462, 5.0)), "Owner-reported GT5 Max codes: 2 is Drive");
+                && "SPORT".equals(Telemetry.drivingModeLabel(25462, 3.0)) && "SPORT".equals(Telemetry.drivingModeLabel(25462, 5.0))
+                && "4 (raw)".equals(Telemetry.drivingModeLabel(25462, 4.0)) && "5 (raw)".equals(Telemetry.drivingModeLabel(2538, 5.0)),
+                "Owner-reported GT5 Max codes: 2 is Drive, 3 and 5 are Sport; other codes and the UT5 MAX's 5 stay raw");
         check("—".equals(Telemetry.drivingModeLabel(2538, Double.NaN)), "Invalid mode stays unavailable");
         check("—".equals(Telemetry.drivingModeLabel(2538, Double.POSITIVE_INFINITY)), "Nonfinite mode stays unavailable");
         Telemetry model = new Telemetry();
