@@ -13,4 +13,8 @@ public interface ScreenHost {
     default void dataBackup(Boolean restore, String preselect) { }
     default void exportDashboardLayouts() { }
     default void importDashboardLayouts() { }
+    /** Opens the owner's email app with a draft to Volt's report address; false when no app can. */
+    default boolean emailVolt(String subject, String body) { return false; }
+    /** Asks which scooter this is (and optionally its drive modes), then drafts the finished check's report to Volt's report address. */
+    default void emailReport(CompatibilityReport report) { }
 }

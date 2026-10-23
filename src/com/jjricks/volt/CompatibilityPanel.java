@@ -12,8 +12,8 @@ import java.util.Set;
 
 /**
  * More › Developer options › Compatibility: the scooter's identity, the read-only check, its results, guided setting
- * tests and the report preview. Nothing leaves the phone unless the owner opens the preview and
- * taps Share or Save. A guided test writes only after the owner approves it, and its result is
+ * tests and the report preview. Nothing leaves the phone unless the owner sends the email that Email
+ * to Volt (under Run again) drafts, or taps Share or Save in the preview. A guided test writes only after the owner approves it, and its result is
  * report-only: it never turns a control on.
  */
 final class CompatibilityPanel {
@@ -68,6 +68,8 @@ final class CompatibilityPanel {
         identity(ble);
         if(running&&check!=null)running();
         else if(ble.ready()&&!ble.modelUnidentified()&&!ble.testing())root.addView(ui.button(check==null?"Run check":"Run again",()->{ble.startDiscovery();toastIfIdle(ble);host.redraw();}));
+        // A finished check is one tap from Volt's inbox: the offer's "Which scooter is this?" sheet, then an email draft.
+        if(!running&&check!=null){TextView email=ui.secondaryButton("Email to Volt",()->emailNow(ble));email.setTag("compatibility-email");root.addView(email);}
         if(!running)tests(ble);
         if(!running&&check!=null){
             results(ble,check);
@@ -362,6 +364,11 @@ final class CompatibilityPanel {
         root.addView(ui.button("Share",()->share(shared)));
         root.addView(ui.secondaryButton("Save file",()->host.saveText("volt-compat-report.json","application/json",shared.json())));
         root.addView(ui.secondaryButton("Close preview",()->{preview=false;report=null;refresh();}));
+    }
+    private void emailNow(BleController ble){
+        CompatibilityReport r=ble.compatibilityReport(AppVersion.name(host.activity()));
+        if(r==null){host.toast("No finished check yet");return;}
+        host.emailReport(r);
     }
     /** Android share sheet, only from the owner's tap in the preview. */
     private void share(CompatibilityReport r){

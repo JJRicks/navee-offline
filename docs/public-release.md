@@ -69,14 +69,16 @@ private, and neither a 1.0 release nor a website deployment is part of this prep
 | UT5 MAX photo | Temporary image obtained from the manufacturer's website; redistribution permission is not established; separate from the MIT source license |
 | N65i photo | NAVEE product render supplied through a tester; redistribution permission is not established; separate from the MIT source license |
 | ST3 Pro photo | NAVEE product image supplied by the maintainer; redistribution permission is not established; separate from the MIT source license |
+| GT5 Max and GT3 Max photos | NAVEE product images supplied by the maintainer; redistribution permission is not established; separate from the MIT source license |
 | Map tiles and data | Provider terms apply; no map data is bundled or relicensed as source |
 
 **Release blocker:** the current `res/drawable-nodpi/ut5max.webp` was obtained
 from the manufacturer's website. On 14 October 2026 the maintainer clarified
 that permission was not established and chose to keep it as a temporary
 placeholder while preparing an original photo. The N65i render added on 23
-October 2026 (`res/drawable-nodpi/n65i.webp`) and the ST3 Pro image
-(`res/drawable-nodpi/st3pro.webp`) are in the same position. Before
+October 2026 (`res/drawable-nodpi/n65i.webp`), the ST3 Pro image
+(`res/drawable-nodpi/st3pro.webp`) and the GT5 Max and GT3 Max images
+(`res/drawable-nodpi/gt5max.webp`, `gt3max.webp`) are in the same position. Before
 public distribution, replace each with an appropriately licensed original or
 obtain verified permission.
 Update the source asset, APK, screenshots and notices together. Older Git tags,
