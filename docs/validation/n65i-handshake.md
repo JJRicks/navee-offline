@@ -16,7 +16,7 @@ The capture showed:
   - accepts either checksum style;
   - fixes the style per connection from the first valid reply and resets it on every connect and disconnect, so the two styles never mix within one connection;
   - keeps rejecting a frame that matches neither style. The two styles always differ by 0x55, so no frame matches both.
-- **Settings reads** bind once the lock byte is present and reads 0 or 1. The UT5 MAX keeps its full 14-byte minimum. Every field reader already checks its own bounds, so a field the N65i doesn't send reads as unknown. Controls remain subject to the existing per-model compatibility rules.
+- **Settings reads** bind once the lock byte is present and reads 0 or 1. The UT5 MAX keeps its full 14-byte minimum, judged by the model this connection has verified: on first pairing that is the transport's serial, before the profile stores it. A settings read that arrives before the serial is judged again when the serial arrives. Every field reader already checks its own bounds, so a field the N65i doesn't send reads as unknown. Controls remain subject to the existing per-model compatibility rules.
 - **Connection activity** notes, once per connection, a reply that failed its checks and a scooter using the header-free checksum.
 
 ## Checks run
@@ -28,8 +28,14 @@ The capture showed:
   - N65i replies within one connection;
   - refusing a mixed style;
   - a fresh style after reset.
-- `FirstConnectionValidation` on a disposable emulator: 1,707 assertions. It drives a synthetic N65i handshake (header-free owner-check success, serial, ten-byte settings) to a saved binding, and reads the lock state from the short settings. It also checks two refusals:
+- `FirstConnectionValidation` on a disposable emulator: 1,949 assertions. It drives a synthetic N65i handshake (header-free owner-check success, serial, ten-byte settings) to a saved binding, and reads the lock state from the short settings. It also checks three refusals:
   - a mixed-checksum reply is reported and ignored;
-  - a short settings read does not bind a saved UT5 MAX, which still connects with its full read.
-- **Physical:** the tester installed a release-signed test build of this change over Volt 1.5.0 (commit 6c140e6, versionName `1.5.0-n65i-test`) and reported that their N65i now connects. Telemetry accuracy and controls, including the shared lock, have not been checked on the scooter.
+  - a short settings read does not bind a saved UT5 MAX, which still connects with its full read;
+  - on a UT5 MAX's first pairing, when its profile has no serial yet, a short read does not bind in either order (serial first or status first). The transport's verified serial decides, and the full read that follows binds. With the fix reverted, this case fails.
+- **Physical (tester-reported):** the tester installed a release-signed test build of this change over Volt 1.5.0 (commit 6c140e6, versionName `1.5.0-n65i-test`). They reported that their N65i now connects, and their exported diagnostics and compatibility report show:
+  - plausible telemetry: battery, a 50.4 V pack, temperature, odometer and settings;
+  - the shared lock **confirmed by readback**;
+  - display units, headlight and auto light sensor each changed, confirmed by readback, observed on the scooter and restored, through Volt's guided tests.
+
+  Other telemetry and controls have not been checked on the scooter.
 - The capture itself stays private: it contains the tester's owner identity. Only the non-secret reply above and aggregate counts are published.

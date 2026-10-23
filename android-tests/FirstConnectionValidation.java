@@ -239,6 +239,22 @@ public final class FirstConnectionValidation extends Instrumentation {
             require(hasEvent("failed its checks") && ble.ready(), "A mixed-checksum reply was accepted or not reported");
             ble.disconnect();
         });
+        // First pairing of a UT5 MAX: its profile has no serial yet, so the transport's verified serial decides.
+        // Neither arrival order binds on a short read; the full read that follows does.
+        for (boolean statusFirst : new boolean[]{false, true}) {
+            fresh(false);
+            main(() -> {
+                syntheticConnection("C0:FF:EE:00:00:D0", false);
+                if (statusFirst) receive(0x70, new byte[10]);
+                receive(0x74, "Q2538ZZ9US5555555".getBytes(StandardCharsets.US_ASCII));
+                if (!statusFirst) receive(0x70, new byte[10]);
+                require(!ble.ready() && profile.mac.isEmpty() && profile.serial.isEmpty(),
+                        "A short settings read bound a first-pairing UT5 MAX (" + (statusFirst ? "status first" : "serial first") + ")");
+                receive(0x70, new byte[43]);
+                require(ble.ready() && profile.serial.equals("Q2538ZZ9US5555555"), "A first-pairing UT5 MAX did not bind on its full settings read");
+                ble.disconnect();
+            });
+        }
         // The UT5 MAX keeps its full settings layout: a short read never binds it.
         fresh(true);
         main(() -> {

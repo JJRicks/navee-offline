@@ -403,6 +403,8 @@ public final class BleController {
         ScooterProfiles.Profile saved=profiles.hardwareMatch(profile.id,address,serial);
         if(saved!=null){wanted=false;identifying=false;pendingAdvertised=null;pendingAdvertisedMac="";telemetry.clear();
             failed("This is "+saved.name+". Select it in My scooters, or scan for your new scooter.",false,ConnectionEventLog.Reason.IDENTITY_REJECTED,-1);return false;}
+        // A settings read that arrived before the serial is judged again now the transport's model is known.
+        if(pendingStatusFrame!=null&&!statusRead(pendingStatusFrame)){pendingStatusFrame=null;pendingStatusMs=0;}
         if(statusMs<=0&&pendingStatusFrame==null)return true;
         boolean changed=!address.equals(profile.mac)||!serial.equals(profile.serial);profile.mac=address;profile.serial=serial;
         // Authenticated, serial verified on this MAC: the advertised model ID becomes evidence (a conflict is kept too; the resolver handles it).
@@ -708,7 +710,17 @@ public final class BleController {
      * keeps its full 14-byte minimum; other models may send less (the N65i sends ten bytes), and every
      * field reader checks its own bounds, so missing fields read as unknown.
      */
-    private boolean statusRead(Protocol.Frame f){return f.cmd==0x70&&f.error()==0&&f.data.length>=4&&(f.data[3]&255)<=1&&(f.data.length>=14||!ModelRegistry.ut5Max(descriptor()));}
+    private boolean statusRead(Protocol.Frame f){return f.cmd==0x70&&f.error()==0&&f.data.length>=4&&(f.data[3]&255)<=1&&(f.data.length>=14||!ModelRegistry.ut5Max(transportDescriptor()));}
+    /**
+     * The model this connection has shown so far. On first pairing the profile has no serial until
+     * remember() binds it, so the transport's verified serial (or this scan's Model ID) decides.
+     */
+    private DeviceDescriptor transportDescriptor(){
+        ScooterProfiles.Profile p=profile();
+        String s=!serial.isEmpty()?serial:p==null?"":p.serial;
+        String pid=pendingAdvertised!=null&&gatt!=null&&gatt.getDevice().getAddress().equals(pendingAdvertisedMac)?pendingAdvertised.pid:p==null?"":p.advertisedPid;
+        return DeviceDescriptor.of(s,pid,1,null,false,DeviceDescriptor.Transport.STANDARD,p==null?0:p.role);
+    }
     private void confirmMutation(Protocol.Frame f){if(simulating())return;if(mutation==null||!mutation.ack||mutation.key.equals("clock_sync")||guided(mutation))return;ScooterCommands.Feature feature=ScooterCommands.find(mutation.key);if(mutation.time!=null){Long actual=ScooterCommands.timeReadback(f);if(actual!=null&&actual.equals(mutation.time))finishMutation("Charging start time confirmed.");}else{Integer value=mutation.variant!=null&&mutation.variant.decode!=FeatureVariant.Decode.UT5_FEATURE?mutation.variant.read(StatusFields.of(f,now())):feature.readback(f);if(value!=null&&value==mutation.target){if(feature.key.equals("headlight")||feature.key.equals("auto_sensor"))finishMutation(feature.label+" setting confirmed.","Setting confirmed by readback; light output not measured");else finishMutation(feature.label+" confirmed.");}}}
     private void finishMutation(String text){finishMutation(text,"Confirmed");}
     private void finishMutation(String text,String evidence){String key=mutation.key;Consumer<Boolean> completion=mutation.completion;mutation.completion=null;result(key,evidence);clearMutation();notice(text);completed(completion,true);}
