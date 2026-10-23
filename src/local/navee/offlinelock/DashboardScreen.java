@@ -2296,7 +2296,7 @@ public final class DashboardScreen implements AppScreen {
                     capacityReference.setContentDescription("Set reference capacity");
                     capacityReference.setVisibility(View.GONE);
                     body.addView(capacityReference, new LinearLayout.LayoutParams(-2, -2));
-                    // The bar compares with the reference, or fills toward 20 battery points.
+                    // The bar compares with the reference, or fills toward the evidence minimum.
                     capacityBar = new CapacityBar();
                     capacityBar.setVisibility(View.GONE);
                     LinearLayout.LayoutParams barSpace = new LinearLayout.LayoutParams(-1, ui.dp(10));
@@ -3592,7 +3592,7 @@ public final class DashboardScreen implements AppScreen {
                 capacityValue.setText(String.format(Locale.US, "≈ %.0f Wh", sample));
                 capacityValue.setTextColor(ui.text);
                 styleTag(capacityMethod, "Sample", false);
-                capacitySummary.setText("6 rides · 42 points used");
+                capacitySummary.setText(String.format(Locale.US, "8 rides · %.0f–%.0f Wh", sample * .96, sample * 1.04));
                 showComparison(advertised == null ? null : 95d, advertised, false, true);
                 return;
             }
@@ -3669,23 +3669,28 @@ public final class DashboardScreen implements AppScreen {
                         // The title and lab glyph say "experiment"; only the proxy keeps an honesty chip.
                         styleTag(capacityMethod, proxy ? result.label : null, true);
                         if (value == null) {
-                            // The bar becomes progress toward 20 battery points in one evidence group.
+                            // The bar becomes progress toward the points and rides one evidence group needs.
                             capacitySummary.setText(result.label);
                             capacityCompare.setVisibility(View.GONE);
                             capacityReference.setVisibility(View.GONE);
                             boolean progress = result.qualifiedRides + result.proxyRides > 0;
+                            int groupRides = result.batteryDropPoints >= result.proxyBatteryDropPoints
+                                    ? result.qualifiedRides : result.proxyRides;
                             capacityBar.set(progress
-                                    ? Math.min(100, result.progressPoints / BatteryCapacityEstimate.MIN_TOTAL_DROP * 100)
+                                    ? Math.min(100, 100 * Math.min(result.progressPoints / BatteryCapacityEstimate.MIN_TOTAL_DROP,
+                                            groupRides / (double) BatteryCapacityEstimate.MIN_RIDES))
                                     : 0d);
                             capacityBar.setContentDescription(result.label);
                             capacityBar.setVisibility(progress ? View.VISIBLE : View.GONE);
                             return;
                         }
-                        capacitySummary.setText(String.format(
-                                Locale.US,
-                                "%d rides · %.0f points used",
-                                estimated ? result.qualifiedRides : result.proxyRides,
-                                estimated ? result.batteryDropPoints : result.proxyBatteryDropPoints));
+                        int rides = estimated ? result.qualifiedRides : result.proxyRides;
+                        Double low = estimated ? result.estimatedLowWh : result.throughputLowWh;
+                        Double high = estimated ? result.estimatedHighWh : result.throughputHighWh;
+                        capacitySummary.setText(low != null && high != null
+                                ? String.format(Locale.US, "%d rides · %.0f–%.0f Wh", rides, low, high)
+                                : String.format(Locale.US, "%d rides · %.0f points used", rides,
+                                        estimated ? result.batteryDropPoints : result.proxyBatteryDropPoints));
                         showComparison(percent, result.advertisedWh, proxy, false);
                     });
         }
@@ -3724,8 +3729,8 @@ public final class DashboardScreen implements AppScreen {
             BatteryCapacityEstimate.Result r = capacityResult;
             boolean sample = service != null && service.simulating();
             if (sample) {
-                details.addView(detailRow("Rides", "6"));
-                details.addView(detailRow("Points", "42"));
+                details.addView(detailRow("Rides", "8"));
+                details.addView(detailRow("Points", "72"));
                 details.addView(detailRow("Window", shortWindow(widget.windowMs)));
                 details.addView(caveat("Sample"));
             } else if (r == null) {
@@ -3741,6 +3746,19 @@ public final class DashboardScreen implements AppScreen {
                         ? String.format(Locale.US, "%.0f", points)
                         : String.format(Locale.US, "%.0f / %.0f", Math.floor(r.progressPoints),
                                 BatteryCapacityEstimate.MIN_TOTAL_DROP)));
+                if (!estimated && !proxy && rides > 0 && rides < BatteryCapacityEstimate.MIN_RIDES)
+                    details.addView(detailRow("Rides needed", Integer.toString(BatteryCapacityEstimate.MIN_RIDES)));
+                Double low = estimated ? r.estimatedLowWh : proxy ? r.throughputLowWh : null;
+                Double high = estimated ? r.estimatedHighWh : proxy ? r.throughputHighWh : null;
+                if (low != null && high != null)
+                    details.addView(detailRow("90% range", String.format(Locale.US, "%.0f–%.0f Wh", low, high)));
+                if (r.ahPerGauge != null)
+                    details.addView(detailRow("Charge per gauge", r.ahPerGaugeLow != null && r.ahPerGaugeHigh != null
+                            ? String.format(Locale.US, "%.1f Ah (%.1f–%.1f)", r.ahPerGauge, r.ahPerGaugeLow, r.ahPerGaugeHigh)
+                            : String.format(Locale.US, "%.1f Ah", r.ahPerGauge)));
+                if (r.chargingAhPerGauge != null)
+                    details.addView(detailRow("Charging check", String.format(Locale.US, "%.1f Ah · %d charge%s",
+                            r.chargingAhPerGauge, r.chargingSessions, r.chargingSessions == 1 ? "" : "s")));
                 if (rides > 0)
                     details.addView(detailRow("Coverage",
                             String.format(Locale.US, "%.0f%%", r.electricalCoverage * 100)));
@@ -3754,10 +3772,11 @@ public final class DashboardScreen implements AppScreen {
                             + (r.reason == null ? "" : " · " + r.reason)));
                 if (!estimated && !proxy && r.qualifiedRides + r.proxyRides == 0 && r.rejectedRides == 0)
                     details.addView(caveat(r.label));
-                details.addView(caveat(proxy ? "Proxy: may overstate; not health." : "Not a measured capacity test."));
+                details.addView(caveat(proxy ? "Proxy: may overstate; not health."
+                        : "Energy your rides drew per full gauge. Not a battery health or capacity test."));
                 if (capacityUnavailable != null) details.addView(caveat(capacityUnavailable));
             }
-            show("Capacity estimate", details);
+            show("Usable ride energy", details);
         }
 
         private LinearLayout detailRow(String label, String value) {

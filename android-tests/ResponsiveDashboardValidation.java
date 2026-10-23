@@ -551,7 +551,7 @@ public final class ResponsiveDashboardValidation extends Instrumentation {
                     compare.setVisibility(numeric && !state.equals("reference") ? View.VISIBLE : View.GONE);
                     ((View)field(capacity, "capacityBar")).setVisibility(compare.getVisibility());
                     ((View)field(capacity, "capacityReference")).setVisibility(state.equals("reference") ? View.VISIBLE : View.GONE);
-                    ((TextView)field(capacity, "capacitySummary")).setText(numeric ? "6 rides · 42 points used"
+                    ((TextView)field(capacity, "capacitySummary")).setText(numeric ? "8 rides · 590–650 Wh"
                             : state.equals("processing") ? "Checking recorded rides…" : "Record a longer ride");
                     ((View)capacity).requestLayout();
                 });

@@ -1261,6 +1261,8 @@ public final class ScooterService extends Service {
         waiting = new ArrayList<>(); waiting.add(callback); capacityPending.put(key, waiting);
         long generation = capacityGeneration;
         RideStore store = rides;
+        // Read on the main thread: completed charges independently check the ride-based charge.
+        BatteryCapacityEstimate.ChargeEvidence charging = chargeSnapshot == null ? null : chargeSnapshot.gaugeCharge.get(profile);
         capacityWorker.execute(() -> {
             BatteryCapacityEstimate.Result calculated;
             try {
@@ -1269,7 +1271,7 @@ public final class ScooterService extends Service {
                 for (RideStore.AnalysisSnapshot snapshot : store.analysisSnapshots(profile, wall - days * 86400000L)) {
                     input.add(new BatteryCapacityEstimate.Ride(snapshot.summary, snapshot.points));
                 }
-                calculated = BatteryCapacityEstimate.calculate(profile, input, reference, wall, days);
+                calculated = BatteryCapacityEstimate.calculate(profile, input, reference, wall, days, charging);
             } catch (IOException | RuntimeException e) {
                 calculated = BatteryCapacityEstimate.unavailable(profile, reference, days, "Recorded rides could not be analyzed");
             }

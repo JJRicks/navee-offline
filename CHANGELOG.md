@@ -16,6 +16,9 @@
 - Move the compatibility checker into Developer options; keep unfinished test recovery accessible.
 - Put Back up & restore directly in More, replacing the separate owner-only export. New backups include all saved app data by default and clearly identify partial selections.
 - Make full backup restore prominent during onboarding. Older owner setup files import through the same restore flow with an explicit scooter-access-only notice.
+- Rename Capacity experiment to Usable ride energy; an untouched old default title follows the rename and custom titles are kept. It is not a battery-health test.
+- Require 60 battery points across six rides before estimating, set aside rides whose gauge corrected itself mid-ride, and show a 90% range.
+- Show charge per full gauge (Ah) and a charging check from completed charge recordings.
 
 ## 1.4.8 — 2026-10-21
 

@@ -227,6 +227,9 @@ public final class CapacityWidgetValidation extends Instrumentation {
 
     private void assertEstimate() {
         require(value().equals("≈ 600 Wh"), "Expected genuine 600 Wh estimate: " + value());
+        require(text("capacitySummary").startsWith("6 rides · ") || text("capacitySummary").contains("Updating")
+                        || text("capacitySummary").contains("refresh unavailable"),
+                "Estimate summary lacks its rides and range: " + text("capacitySummary"));
         require(result() != null && profile.equals(result().profileId)
                 && result().estimatedUsableWh != null && Math.abs(result().estimatedUsableWh - 600) < .001,
                 "Displayed estimate does not match the genuine fixture");
@@ -237,10 +240,15 @@ public final class CapacityWidgetValidation extends Instrumentation {
         require(value().equals("≈ 680 Wh"), "Sample card did not show reference-based sample estimate");
     }
 
+    /** Six identical 20-point rides at 600 Wh per gauge: enough rides and points for an estimate. */
     private void seedRide() throws Exception {
+        for (int ride = 0; ride < BatteryCapacityEstimate.MIN_RIDES; ride++) seedRide(ride);
+    }
+
+    private void seedRide(int ride) throws Exception {
         RideStore fixture = new RideStore(new File(getTargetContext().getCacheDir(), "capacity-" + UUID.randomUUID()));
         fixture.setCurrentDirection(RideStore.CurrentDirection.POSITIVE_IS_DRAW);
-        long start = System.currentTimeMillis() - 1200000;
+        long start = System.currentTimeMillis() - 1200000 - ride * 3600000L;
         String id = fixture.start(profile, "Synthetic capacity ride", start, 0);
         for (int sec = 0; sec <= 360; sec++) {
             long mono = sec * 1000L;
