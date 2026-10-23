@@ -89,6 +89,8 @@ public final class DashboardScreen implements AppScreen {
         // Freeze the window class for this screen, including any gesture canceled during a fold.
         config = new DashboardConfig(preferences, profileId,
                 host.activity().getResources().getConfiguration().screenWidthDp >= 650);
+        // Default Setting tiles follow the model once Volt knows it (a GT5 Max has no scheduled charging).
+        if (profile != null && config.adaptSettingTiles(ModelTiles.settingTiles(profile.savedDescriptor()))) config.save();
         restoreUndoKey = "dashboard_restore_undo_v1_" + profileId;
         editing = preferences.getBoolean("dashboard_editing", false);
         view = column();

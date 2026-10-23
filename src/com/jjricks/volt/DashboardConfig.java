@@ -109,7 +109,7 @@ public final class DashboardConfig {
                                             "temperature_c"));
             if (type.equals("shortcuts")) {
                 quickActions.clear();
-                quickActions.addAll(Arrays.asList("feature:maximum_speed", "feature:timed_charging"));
+                quickActions.addAll(ModelTiles.DEFAULT);
             }
             // The compact bar matches the Home concept: Disconnect stays in connection details.
             if (type.equals("lockbar")) showDisconnect = false;
@@ -435,6 +435,20 @@ public final class DashboardConfig {
         }
         List<DashboardLayout.Cell> result = DashboardLayout.settle(visible, columns, priority);
         return priority == null ? DashboardLayout.withoutLeadingRows(result) : result;
+    }
+
+    /**
+     * Setting tiles still on the release pair become the model's own (ModelTiles); tiles the owner chose are never touched.
+     * True when something changed and the dashboard needs saving.
+     */
+    public boolean adaptSettingTiles(java.util.List<String> modelTiles) {
+        boolean changed = false;
+        if (modelTiles == null || modelTiles.equals(ModelTiles.DEFAULT)) return false;
+        for (Widget widget : widgets)
+            if (widget.type.equals("shortcuts") && widget.quickActions.equals(ModelTiles.DEFAULT)) {
+                widget.quickActions.clear(); widget.quickActions.addAll(modelTiles); changed = true;
+            }
+        return changed;
     }
 
     public void save() {

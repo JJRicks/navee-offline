@@ -70,6 +70,10 @@ final class QuickAccessGrid extends ViewGroup {
             boolean unmapped = decision != null && !feature.key.equals("range_algorithm")
                     && decision.support != CapabilityResolver.Support.KNOWN_ENCODING && !ble.controlOffered(feature.key);
             if (unmapped) { value = null; featureLive = false; }
+            // A choice value outside the model's choices (e.g. a Top speed reading 0) is unreadable, not a setting to show,
+            // whatever else holds the control right now (moving, locked).
+            boolean unreadable = !unmapped && value != null && decision != null && feature.type == ScooterCommands.Type.CHOICE && !offers(decision, value);
+            if (unreadable) value = null;
             String state = feature == null || feature.sensitive && !unmapped ? ""
                     : unmapped ? "—" : pending ? "Updating…" : value == null ? "—"
                     : decision != null && decision.oemLabel(value) != null ? decision.oemLabel(value)
@@ -140,7 +144,7 @@ final class QuickAccessGrid extends ViewGroup {
             }
             cell.setEnabled(!editing);
             String description = (tiles ? tileLabel(cell.entry) : cell.entry.label) + (state.isEmpty() ? "" : ", " + state)
-                    + (unmapped ? ", not on this model" : chargeControl && chargeBlocked != null ? ", " + chargeBlocked
+                    + (unmapped ? ", not on this model" : unreadable ? ", unreadable value" : chargeControl && chargeBlocked != null ? ", " + chargeBlocked
                             : feature != null && !featureLive ? ", last seen" : "")
                     + (toggle ? ", toggle" : ", open");
             cell.setContentDescription(description);
@@ -412,6 +416,12 @@ final class QuickAccessGrid extends ViewGroup {
         }
     }
 
+    /** The model's mapped choices include this value (no choices known means nothing to judge it by). */
+    private static boolean offers(CapabilityResolver.Decision decision, int value) {
+        int[] choices = decision.values(); if (choices.length == 0) return true;
+        for (int choice : choices) if (choice == value) return true;
+        return false;
+    }
     /** Setting tiles use short names: the Scooter page's "Top speed", and "Charge schedule". */
     private static String tileLabel(QuickAccessActions.Entry entry) {
         if ("feature:maximum_speed".equals(entry.id)) return "Top speed";
