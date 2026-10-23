@@ -1948,7 +1948,7 @@ public final class MoreScreen implements AppScreen {
         note(box, "Shizuku API 13.1.5\nCopyright (c) 2021 RikkaW. MIT License. Optional phone-only owner setup.");
         note(box, "AndroidX annotations 1.3.0\nCopyright The Android Open Source Project. Apache License 2.0.");
         note(box, "Protocol research reference\npepperonas/navee-st3-pro, MIT License.");
-        note(box, "UT5 MAX and N65i photos\n© NAVEE; not covered by app licence.");
+        note(box, "UT5 MAX, N65i and ST3 Pro photos\n© NAVEE; not covered by app licence.");
         note(box, "Maps\nMap data and tiles belong to the selected provider. USGS Topo: U.S. Geological Survey, National Geospatial Program. OpenStreetMap: © OpenStreetMap contributors.");
         LinearLayout notices = ui.groupCard(); notices.setBackground(null); notices.setPadding(0, 0, 0, 0); box.addView(notices);
         row(notices, "copy", "View full notices", null, this::fullNotices);

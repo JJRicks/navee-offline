@@ -8,7 +8,7 @@ import android.widget.ImageView;
 import java.util.HashMap;
 import java.util.Map;
 
-/** Bundled model photos, decoded once per model and sample size; the sources are 2048 px. */
+/** Bundled model photos, decoded once per model and sample size. Sample sizes assume a 2048 px source; a smaller one is sampled less. */
 final class ScooterPhotos {
     private static final Map<String, Bitmap> CACHE = new HashMap<>();
     private ScooterPhotos() {}
@@ -16,12 +16,15 @@ final class ScooterPhotos {
     /** This model's photo, or null when it has none or cannot be decoded. */
     static synchronized Bitmap get(Resources resources, DeviceDescriptor d, int sampleSize) {
         String key = ModelRegistry.photo(d);
-        int id = "ut5max".equals(key) ? R.drawable.ut5max : "n65i".equals(key) ? R.drawable.n65i : 0;
+        int id = "ut5max".equals(key) ? R.drawable.ut5max : "n65i".equals(key) ? R.drawable.n65i : "st3pro".equals(key) ? R.drawable.st3pro : 0;
         if (id == 0) return null;
         Bitmap cached = CACHE.get(key + "@" + sampleSize);
         if (cached != null) return cached;
         try {
-            BitmapFactory.Options options = new BitmapFactory.Options(); options.inSampleSize = sampleSize;
+            BitmapFactory.Options bounds = new BitmapFactory.Options(); bounds.inJustDecodeBounds = true;
+            BitmapFactory.decodeResource(resources, id, bounds);
+            BitmapFactory.Options options = new BitmapFactory.Options();
+            options.inSampleSize = bounds.outWidth > 0 ? Math.max(1, sampleSize * bounds.outWidth / 2048) : sampleSize;
             Bitmap decoded = BitmapFactory.decodeResource(resources, id, options);
             if (decoded != null) CACHE.put(key + "@" + sampleSize, decoded);
             return decoded;
