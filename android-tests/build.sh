@@ -31,7 +31,7 @@ javac --release 8 -encoding UTF-8 \
     "$SCRIPT_DIR/QuickHapticsValidation.java" "$SCRIPT_DIR/ConnectionHapticsValidation.java" \
     "$SCRIPT_DIR/MotionPolishValidation.java" \
     "$SCRIPT_DIR/RideAutoStopValidation.java" \
-    "$SCRIPT_DIR/ReportInviteValidation.java" "$SCRIPT_DIR/UpdateCheckValidation.java" "$SCRIPT_DIR/ReportShortcutsValidation.java" "$SCRIPT_DIR/OwnerModelValidation.java" "$SCRIPT_DIR/ModelHomeValidation.java" "$SCRIPT_DIR/CompatibilityGatingValidation.java" "$SCRIPT_DIR/Ut5SimulationScreens.java" \
+    "$SCRIPT_DIR/ReportInviteValidation.java" "$SCRIPT_DIR/UpdateCheckValidation.java" "$SCRIPT_DIR/ReportShortcutsValidation.java" "$SCRIPT_DIR/MoreMenuValidation.java" "$SCRIPT_DIR/OwnerModelValidation.java" "$SCRIPT_DIR/ModelHomeValidation.java" "$SCRIPT_DIR/CompatibilityGatingValidation.java" "$SCRIPT_DIR/Ut5SimulationScreens.java" \
     "$SCRIPT_DIR/GuidedTestValidation.java" \
     "$SCRIPT_DIR/CompatControlsValidation.java"
 jar cf "$TEST_BUILD_DIR/runner.jar" -C "$TEST_BUILD_DIR/classes" .
