@@ -266,7 +266,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(!selectedPage.equals("home")){select("home");return;}
         finish();
     }
-    @Override public void onConfigurationChanged(Configuration next){super.onConfigurationChanged(next);rebuild();}
+    @Override public void onConfigurationChanged(Configuration next){super.onConfigurationChanged(next);rebuild();fitTallSheet();}
     @Override public void onWindowFocusChanged(boolean focused){
         super.onWindowFocusChanged(focused);
         // Returning to the app (or dismissing a dialog) is not a new scooter connection.
@@ -2424,6 +2424,13 @@ public final class MainActivity extends Activity implements ScreenHost {
         if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,ViewGroup.LayoutParams.WRAP_CONTENT);
         return dialog;
     }
+    /** The open tall sheet, kept nine-tenths of Volt's window tall through rotation, folding and window resizing. */
+    private Dialog tallSheet;private boolean tallSheetFollows;
+    private int tallSheetHeight(){int h=getWindow().getDecorView().getHeight();return Math.round((h>0?h:getResources().getDisplayMetrics().heightPixels)*.9f);}
+    private void fitTallSheet(){
+        android.view.Window window=tallSheet==null||!tallSheet.isShowing()?null:tallSheet.getWindow();
+        if(window!=null&&window.getAttributes().height!=tallSheetHeight())window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,tallSheetHeight());
+    }
     /** A bottom sheet of fixed height whose content fills it, so a long list scrolls between a fixed title and footer. */
     private Dialog showTallSheet(LinearLayout content){
         Dialog dialog=new Dialog(dialogContext());dialog.requestWindowFeature(android.view.Window.FEATURE_NO_TITLE);
@@ -2439,7 +2446,10 @@ public final class MainActivity extends Activity implements ScreenHost {
             window.setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_STATE_HIDDEN|WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE);
         }
         dialog.show();
-        if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,Math.round(getResources().getDisplayMetrics().heightPixels*.9f));
+        if(window!=null)window.setLayout(ViewGroup.LayoutParams.MATCH_PARENT,tallSheetHeight());
+        tallSheet=dialog;
+        // Volt's window changes size without being recreated (configChanges): follow it, keeping the sheet's answer and check.
+        if(!tallSheetFollows){tallSheetFollows=true;getWindow().getDecorView().addOnLayoutChangeListener((v,l,t,r,b,ol,ot,or,ob)->{if(b-t!=ob-ot)fitTallSheet();});}
         return dialog;
     }
     private static final String RANGE_INTRO_SEEN="range_learned_intro_seen";

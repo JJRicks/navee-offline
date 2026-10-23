@@ -91,6 +91,15 @@ public final class ReportInviteValidation extends Instrumentation {
             main(() -> ((android.widget.ScrollView) find("model-list")).fullScroll(View.FOCUS_DOWN)); settle();
             require(onScreen("model-k100plus") && !onScreen("model-ut3max"), "The end of the list is unreachable"); screenshot("list-end");
             main(() -> ((android.widget.ScrollView) find("model-list")).fullScroll(View.FOCUS_UP)); settle();
+            // Turning the phone resizes the open sheet to the new window, keeping the same sheet, its answer and the check.
+            android.app.Dialog sheet = dialog(); require(sheetFits(), "The sheet is not nine-tenths of Volt's window");
+            getUiAutomation().setRotation(android.app.UiAutomation.ROTATION_FREEZE_90);
+            await(() -> landscape() && sheetFits(), "The sheet did not follow the turn to landscape");
+            main(() -> find("model-unsure").performClick()); settle(); screenshot("landscape");
+            getUiAutomation().setRotation(android.app.UiAutomation.ROTATION_FREEZE_0);
+            await(() -> !landscape() && sheetFits(), "The sheet kept its landscape height in portrait");
+            require(dialog() == sheet && showing() && view("model-unsure").isSelected(), "Turning the phone lost the sheet or its answer");
+            getUiAutomation().setRotation(android.app.UiAutomation.ROTATION_UNFREEZE);
             // A check that stops (here, stopped directly) offers Try again, and answering the question keeps it available.
             main(() -> activity.service().ble.stopDiscovery());
             await(() -> !activity.service().ble.discovering() && "Try again".equals(textOf("model-next")) && view("model-next").isEnabled(), "A stopped check did not offer Try again");
@@ -222,6 +231,8 @@ public final class ReportInviteValidation extends Instrumentation {
         } finally {
             result.putInt("assertions", assertions); result.putString("screenshots", screenshots.toString());
             result.putBoolean("physical_device_tested", false);
+            // A failure mid-turn must not leave the emulator turned.
+            try { getUiAutomation().setRotation(android.app.UiAutomation.ROTATION_FREEZE_0); getUiAutomation().setRotation(android.app.UiAutomation.ROTATION_UNFREEZE); } catch (Throwable ignored) { }
             try { if (activity != null) main(() -> activity.finish()); } catch (Throwable ignored) { }
             finish("PASS".equals(result.getString("result")) ? 0 : 1, result);
         }
@@ -286,6 +297,20 @@ public final class ReportInviteValidation extends Instrumentation {
     private Button button(int which) { AtomicReference<Button> found = new AtomicReference<>(); main(() -> found.set(((AlertDialog) dialog()).getButton(which))); return found.get(); }
     private void click(int which) { main(() -> ((AlertDialog) dialog()).getButton(which).performClick()); }
     private void tap(String tag) { main(() -> { View v = find(tag); require(v != null && v.isEnabled(), "Cannot tap " + tag); v.performClick(); }); }
+    /** The open sheet is nine-tenths of Volt's window tall (within rounding). */
+    private boolean sheetFits() {
+        AtomicReference<Boolean> fits = new AtomicReference<>(false);
+        main(() -> {
+            int window = activity.getWindow().getDecorView().getHeight(), sheet = dialog() == null ? 0 : dialog().getWindow().getDecorView().getHeight();
+            fits.set(window > 0 && Math.abs(sheet - Math.round(window * .9f)) <= 3);
+        });
+        return fits.get();
+    }
+    private boolean landscape() {
+        AtomicReference<Boolean> wide = new AtomicReference<>(false);
+        main(() -> { View d = activity.getWindow().getDecorView(); wide.set(d.getWidth() > d.getHeight()); });
+        return wide.get();
+    }
     /** The picker sheet's footer line. */
     private String status() { return textOf("model-status"); }
 
