@@ -85,10 +85,24 @@ public final class ReportInviteValidation extends Instrumentation {
             await(() -> !activity.service().ble.discovering() && button(AlertDialog.BUTTON_POSITIVE).isEnabled(), "Stop did not end the check");
             require(showing() && emailed.get() == null && status().contains("stopped"), "A stopped check sent a report or closed the offer");
 
-            click(AlertDialog.BUTTON_POSITIVE);
+            // The same guard Check & share uses: the recording flag that rides, charge capture and charge measurement set blocks it.
+            main(() -> {
+                Object ble = activity.service().ble; require((Boolean) invoke(ble, "discoveryAllowed", new Class<?>[0]), "A connected idle scooter cannot be checked");
+                setField(ble, "recording", true); require(!(Boolean) invoke(ble, "discoveryAllowed", new Class<?>[0]), "Recording (charge capture or measurement) did not block the check");
+                setField(ble, "recording", false);
+            });
+
+            // A check that finishes while Volt is in the background waits for Volt to return before opening email.
+            settings().edit().putBoolean("background_connection", true).commit();
+            click(AlertDialog.BUTTON_POSITIVE); settle();
+            main(() -> activity.moveTaskToBack(true)); settle();
+            await(() -> !activity.service().ble.discovering(), "The check did not finish in the background");
+            SystemClock.sleep(1500);
+            require(emailed.get() == null && !"sent".equals(settings().getString("report_invite_" + MODEL, "")), "Email opened while Volt was in the background");
+            getTargetContext().startActivity(new Intent(getTargetContext(), MainActivity.class).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK | Intent.FLAG_ACTIVITY_REORDER_TO_FRONT));
             long end = SystemClock.uptimeMillis() + 45000;
             while (emailed.get() == null && SystemClock.uptimeMillis() < end) SystemClock.sleep(100);
-            Intent mail = emailed.get(); require(mail != null, "No email was opened after the check");
+            Intent mail = emailed.get(); require(mail != null, "No email was opened after Volt returned");
             if (Intent.ACTION_CHOOSER.equals(mail.getAction())) mail = mail.getParcelableExtra(Intent.EXTRA_INTENT);
             String[] to = mail.getStringArrayExtra(Intent.EXTRA_EMAIL);
             String subject = mail.getStringExtra(Intent.EXTRA_SUBJECT), body = mail.getStringExtra(Intent.EXTRA_TEXT);
@@ -99,6 +113,21 @@ public final class ReportInviteValidation extends Instrumentation {
                 require(!body.toUpperCase(Locale.ROOT).contains(secret.toUpperCase(Locale.ROOT)), "A fixture secret reached the email");
             settle();
             require(!showing() && "sent".equals(settings().getString("report_invite_" + MODEL, "")), "A shared report did not close and persist");
+            settings().edit().putBoolean("background_connection", false).commit();
+
+            // Recreating the Activity mid-check stops the check and sends nothing.
+            settings().edit().remove("report_invite_" + MODEL).commit(); emailed.set(null);
+            open(); click(AlertDialog.BUTTON_POSITIVE); settle();
+            require(activity.service().ble.discovering(), "The check did not start before recreation");
+            ActivityMonitor recreated = addMonitor(MainActivity.class.getName(), null, false);
+            main(() -> activity.recreate());
+            MainActivity next = (MainActivity) waitForMonitorWithTimeout(recreated, 10000); removeMonitor(recreated);
+            require(next != null && next != activity, "The Activity was not recreated");
+            activity = next; await(() -> activity.service() != null, "The recreated Activity did not bind");
+            await(() -> !activity.service().ble.discovering(), "Recreation left the check running");
+            SystemClock.sleep(1000);
+            require(emailed.get() == null && settings().getString("report_invite_" + MODEL, "").isEmpty() && field(activity, "reportDialog") == null,
+                    "Recreation sent a report, stored an answer or re-offered");
             main(() -> require(activity.service().setSimulation(false), "Simulation did not stop")); settle();
             connectionDetails();
             result.putString("result", "PASS");
@@ -118,11 +147,19 @@ public final class ReportInviteValidation extends Instrumentation {
         main(() -> {
             ScooterProfiles profiles = activity.service().profiles; ScooterProfiles.Profile p = profiles.active();
             p.lastConnected = 0; profiles.update(p);
+            // Another scooter's failures in the app-wide log must not count; only this scooter's journal does.
             ConnectionEventLog log = (ConnectionEventLog) field(activity.service().ble, "diagnostics");
+            Object journal = field(activity.service().ble, "journal");
             long wall = System.currentTimeMillis(), boot = SystemClock.elapsedRealtime();
+            for (int i = 0; i < 3; i++) log.record(new ConnectionEventLog.Record(wall, boot, ConnectionEventLog.Reason.CONNECT_TIMEOUT, -1, true, false, ConnectionEventLog.Phase.AUTHENTICATING, -1, -1));
+            invoke(activity, "maybeOfferConnectionReport", new Class<?>[0]);
+            require(field(activity, "reportDialog") == null, "Failures from the app-wide log qualified this scooter");
+            invoke(journal, "attempt", new Class<?>[]{String.class}, p.id);
             for (int i = 0; i < 2; i++) {
-                log.record(new ConnectionEventLog.Record(wall + i * 20000, boot + i * 20000, ConnectionEventLog.Reason.CONNECT_ATTEMPT, -1, true, false, ConnectionEventLog.Phase.SCANNING, -1, -1));
-                log.record(new ConnectionEventLog.Record(wall + i * 20000 + 18000, boot + i * 20000 + 18000, ConnectionEventLog.Reason.CONNECT_TIMEOUT, -1, true, false, ConnectionEventLog.Phase.AUTHENTICATING, -1, -1));
+                ConnectionEventLog.Record attempt = new ConnectionEventLog.Record(wall + i * 20000, boot + i * 20000, ConnectionEventLog.Reason.CONNECT_ATTEMPT, -1, true, false, ConnectionEventLog.Phase.SCANNING, -1, -1);
+                ConnectionEventLog.Record timeout = new ConnectionEventLog.Record(wall + i * 20000 + 18000, boot + i * 20000 + 18000, ConnectionEventLog.Reason.CONNECT_TIMEOUT, -1, true, false, ConnectionEventLog.Phase.AUTHENTICATING, -1, -1);
+                for (ConnectionEventLog.Record r : new ConnectionEventLog.Record[]{attempt, timeout})
+                    invoke(journal, "record", new Class<?>[]{String.class, ConnectionEventLog.Record.class}, p.id, r);
             }
         });
         String profileId = activity.service().profiles.active().id;
@@ -204,6 +241,10 @@ public final class ReportInviteValidation extends Instrumentation {
         try { Class<?> type = target.getClass(); while (type != null) { try { Field f = type.getDeclaredField(name); f.setAccessible(true); return f.get(target); } catch (NoSuchFieldException next) { type = type.getSuperclass(); } }
             throw new NoSuchFieldException(name);
         } catch (Exception error) { throw new IllegalStateException(error); }
+    }
+    private void setField(Object target, String name, Object value) {
+        try { Field f = target.getClass().getDeclaredField(name); f.setAccessible(true); f.set(target, value); }
+        catch (Exception error) { throw new IllegalStateException(error); }
     }
     private Object invoke(Object target, String name, Class<?>[] types, Object... args) {
         try { Method m = target.getClass().getDeclaredMethod(name, types); m.setAccessible(true); return m.invoke(target, args); }

@@ -9,7 +9,7 @@ public final class ConnectionReportTest {
     private static int assertions;
     private static final long NOW = 1_800_000_000_000L;
     public static void main(String[] args) {
-        attempts(); offer(); redaction(); report();
+        attempts(); offer(); journal(); redaction(); report();
         System.out.println("ConnectionReport tests passed: " + assertions + " assertions");
     }
 
@@ -47,8 +47,28 @@ public final class ConnectionReportTest {
         check(!ConnectionReport.due(true, n65iLike(), "never", NOW) && !ConnectionReport.due(true, n65iLike(), "sent", NOW), "Answers end the offer");
         check(!ConnectionReport.due(true, n65iLike(), ReportInvite.later(NOW - 1000), NOW)
                 && ConnectionReport.due(true, n65iLike(), ReportInvite.later(NOW - ReportInvite.LATER_MS), NOW), "Not now waits three days");
-        BackupRegistry.Rule rule = BackupRegistry.rule("app_settings", ConnectionReport.PREFIX + "0f8fad5b-d9cb-469f-a165-70867728950e");
-        check(rule != null && !rule.excluded() && rule.perProfile, "Answers back up per scooter with app preferences");
+        String a = "0f8fad5b-d9cb-469f-a165-70867728950e", c = "c0000000-0000-4000-8000-00000000000c";
+        BackupRegistry.Rule rule = BackupRegistry.rule("app_settings", ConnectionReport.PREFIX + a);
+        check(rule != null && BackupRegistry.SCOOTER_PREFERENCES.equals(rule.category) && rule.perProfile
+                && rule.rename(ConnectionReport.PREFIX + a, c).equals(ConnectionReport.PREFIX + c), "Answers back up as that scooter's preference and follow it onto another scooter");
+    }
+
+    /** Volt's saved log has no scooter identity; the journal keeps each scooter's attempts apart. */
+    private static void journal() {
+        ConnectionReport.Journal j = new ConnectionReport.Journal();
+        j.attempt("A"); for (ConnectionEventLog.Record r : n65iLike()) j.record("A", r); j.line("A", "21:38:34  Bluetooth MTU 247");
+        check(ConnectionReport.due(true, j.records("A"), "", NOW) && j.activity("A").size() == 1, "A's own failures qualify A");
+        check(j.records("B").isEmpty() && j.activity("B").isEmpty() && !ConnectionReport.due(true, j.records("B"), "", NOW), "A's failures neither qualify nor describe B");
+        j.attempt("B");
+        check(j.records("A").isEmpty() && j.records("B").isEmpty(), "Another scooter's attempt starts a fresh journal");
+        j.record("A", record(60_000, ConnectionEventLog.Reason.CONNECT_TIMEOUT, -1, ConnectionEventLog.Phase.AUTHENTICATING)); j.line("A", "21:39:00  Timed out");
+        check(j.records("B").isEmpty() && j.activity("B").isEmpty(), "A late event for the previous scooter stays out");
+        j.record("B", record(0, ConnectionEventLog.Reason.CONNECT_TIMEOUT, -1, ConnectionEventLog.Phase.AUTHENTICATING));
+        check(!ConnectionReport.due(true, j.records("B"), "", NOW), "B needs two failures of its own");
+        j.attempt("B"); j.record("B", record(20_000, ConnectionEventLog.Reason.AUTHENTICATION_FAILED, 3, ConnectionEventLog.Phase.AUTHENTICATING));
+        check(j.records("B").size() == 2 && ConnectionReport.due(true, j.records("B"), "", NOW), "Repeated attempts on the same scooter keep adding");
+        for (int i = 0; i < 100; i++) j.record("B", record(i, ConnectionEventLog.Reason.CONNECT_TIMEOUT, -1, ConnectionEventLog.Phase.CONNECTING));
+        check(j.records("B").size() == ConnectionReport.MAX_EVENTS, "The journal stays bounded");
     }
 
     private static void redaction() {

@@ -117,12 +117,15 @@ public final class BleController {
     public List<ConnectionEventLog.Record> diagnosticEvents(){return diagnostics.snapshot();}
     public boolean diagnosticEventsLoaded(){return diagnostics.loaded();}
     public boolean diagnosticStorageHealthy(){return diagnostics.storageHealthy();}
-    public void recordDiagnostic(ConnectionEventLog.Reason reason,int code){
+    public void recordDiagnostic(ConnectionEventLog.Reason reason,int code){recordDiagnostic(reason,code,profile==null?null:profile.id);}
+    /** journalProfile: the scooter this event belongs to (a connect attempt names the scooter before it becomes current). */
+    private void recordDiagnostic(ConnectionEventLog.Reason reason,int code,String journalProfile){
         if(simulating())return;
         long elapsed=now();
-        diagnostics.record(new ConnectionEventLog.Record(System.currentTimeMillis(),elapsed,reason,code,
+        ConnectionEventLog.Record record=new ConnectionEventLog.Record(System.currentTimeMillis(),elapsed,reason,code,
                 visible,recording,ConnectionEventLog.Phase.valueOf(state.name()),
-                statusMs<=0?-1:Math.max(0,elapsed-statusMs),lastFrameMs<=0?-1:Math.max(0,elapsed-lastFrameMs)));
+                statusMs<=0?-1:Math.max(0,elapsed-statusMs),lastFrameMs<=0?-1:Math.max(0,elapsed-lastFrameMs));
+        diagnostics.record(record);if(journalProfile!=null)journal.record(journalProfile,record);
     }
     /** Raw motion push facts for ride auto-end; -1/0 mean missing. All reset whenever the transport closes. */
     public long motionSampleMs(){return simulating()?0:motionMs;}public int speedRaw(){return simulating()?-1:speedRaw;}public int drivingStatus(){return simulating()?-1:driving;}
@@ -257,7 +260,7 @@ public final class BleController {
         if(simulating())return;
         if(!workAllowed()){suspend();return;}
         if(!permissions()){notice(NEARBY_NEEDED);return;}if(!bluetoothEnabled()){notice(BLUETOOTH_OFF);return;}
-        recordDiagnostic(ConnectionEventLog.Reason.CONNECT_ATTEMPT,-1);close(State.CONNECTING);if(discoveryProfileId!=null&&!discoveryProfileId.equals(p.id))clearDiscovery();profile=p;telemetry.clear();sessionFirmware=null;pinState=null;loadResults();message="Connecting…";changed();
+        journal.attempt(p.id);recordDiagnostic(ConnectionEventLog.Reason.CONNECT_ATTEMPT,-1,p.id);close(State.CONNECTING);if(discoveryProfileId!=null&&!discoveryProfileId.equals(p.id))clearDiscovery();profile=p;telemetry.clear();sessionFirmware=null;pinState=null;loadResults();message="Connecting…";changed();
         if(!mac.equals(pendingAdvertisedMac)){pendingAdvertised=null;pendingAdvertisedMac="";}
         try{gatt=adapter.getRemoteDevice(mac).connectGatt(context,false,callbacks,BluetoothDevice.TRANSPORT_LE);}catch(Exception e){failed("Connection failed",true,ConnectionEventLog.Reason.CONNECT_FAILED,-1);return;}
         int session=generation;handler.postDelayed(()->{if(session==generation&&gatt!=null&&!ready())failed("Timed out",true,ConnectionEventLog.Reason.CONNECT_TIMEOUT,-1);},18000);
@@ -288,7 +291,7 @@ public final class BleController {
     private void notice(String text){notice(text,text);}
     /** Shows a short state; the event log may keep a longer form (for example with an error code). */
     private void notice(String text,String logged){message=text;event(logged);changed();}private void changed(){if(listener!=null)listener.changed();}
-    private void event(String text){SimpleDateFormat f=new SimpleDateFormat("HH:mm:ss",Locale.ROOT);events.add(f.format(new Date())+"  "+text);while(events.size()>180)events.remove(0);}
+    private void event(String text){SimpleDateFormat f=new SimpleDateFormat("HH:mm:ss",Locale.ROOT);String line=f.format(new Date())+"  "+text;events.add(line);while(events.size()>180)events.remove(0);if(profile!=null)journal.line(profile.id,line);}
     private static long now(){return SystemClock.elapsedRealtime();}
     private final BluetoothGattCallback callbacks=new BluetoothGattCallback(){
         @Override public void onConnectionStateChange(BluetoothGatt g,int code,int connection){handler.post(()->{
@@ -719,10 +722,26 @@ public final class BleController {
      * The model this connection has shown so far. On first pairing the profile has no serial until
      * remember() binds it, so the transport's verified serial (or this scan's Model ID) decides.
      */
-    /** The Model ID this scooter advertised, kept after a failed first connection, or the saved one; "" when unknown. */
-    public String advertisedModelId(){ScooterProfiles.Profile p=profile();return pendingAdvertised!=null?pendingAdvertised.pid:p==null?"":p.advertisedPid;}
+    /** This session's connection attempts for one scooter, which the connection-details offer counts and shares. */
+    private final ConnectionReport.Journal journal=new ConnectionReport.Journal();
+    public List<ConnectionEventLog.Record> connectionAttempts(String profileId){return journal.records(profileId);}
+    public List<String> connectionActivity(String profileId){return journal.activity(profileId);}
+    /** The Model ID this scooter advertised, kept after a failed first connection, or its saved one; "" when unknown. */
+    public String advertisedModelId(ScooterProfiles.Profile p){
+        if(p==null)return "";
+        return pendingAdvertised!=null&&profile!=null&&profile.id.equals(p.id)?pendingAdvertised.pid:p.advertisedPid;
+    }
     /** The transport its advertisement suggested ("standard", an e-bike or wearable), or "unknown" without one. */
-    public String advertisedTransport(){return pendingAdvertised==null?"unknown":pendingAdvertised.hint.name().toLowerCase(Locale.ROOT);}
+    public String advertisedTransport(ScooterProfiles.Profile p){
+        return p!=null&&pendingAdvertised!=null&&profile!=null&&profile.id.equals(p.id)?pendingAdvertised.hint.name().toLowerCase(Locale.ROOT):"unknown";
+    }
+    /** Whether startDiscovery() would start now: connected, no check or guided test running, not recording (a ride,
+     *  charge capture or charge measurement) and no change pending. */
+    public boolean discoveryAllowed(){
+        if(discovering||testing()||recording)return false;
+        if(simulating())return simulation!=null&&ready();
+        return ready()&&mutation==null&&!pinReadPending;
+    }
     private DeviceDescriptor transportDescriptor(){
         ScooterProfiles.Profile p=profile();
         String s=!serial.isEmpty()?serial:p==null?"":p.serial;

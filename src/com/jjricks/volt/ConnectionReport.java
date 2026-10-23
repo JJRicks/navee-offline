@@ -18,6 +18,33 @@ final class ConnectionReport {
     static final int MAX_EVENTS = 40, MAX_ACTIVITY = 60;
     private ConnectionReport() {}
 
+    /**
+     * This app session's connection attempts for one scooter. Volt's saved connection log has no
+     * scooter identity, so the offer counts, and the email shares, only the scooter attempted last.
+     */
+    static final class Journal {
+        private String profile = "";
+        private final List<ConnectionEventLog.Record> records = new ArrayList<>();
+        private final List<String> activity = new ArrayList<>();
+        /** Another scooter's attempt starts a fresh journal; the same scooter keeps adding. */
+        synchronized void attempt(String profileId) {
+            if (profileId == null || profileId.equals(profile)) return;
+            profile = profileId; records.clear(); activity.clear();
+        }
+        synchronized void record(String profileId, ConnectionEventLog.Record r) {
+            if (profile.equals(profileId)) { records.add(r); if (records.size() > MAX_EVENTS) records.remove(0); }
+        }
+        synchronized void line(String profileId, String text) {
+            if (profile.equals(profileId)) { activity.add(text); if (activity.size() > MAX_ACTIVITY * 3) activity.remove(0); }
+        }
+        synchronized List<ConnectionEventLog.Record> records(String profileId) {
+            return profile.equals(profileId) ? new ArrayList<>(records) : new ArrayList<ConnectionEventLog.Record>();
+        }
+        synchronized List<String> activity(String profileId) {
+            return profile.equals(profileId) ? new ArrayList<>(activity) : new ArrayList<String>();
+        }
+    }
+
     /** A step the scooter should have passed and did not; ordinary pauses and the owner's own actions never count. */
     static boolean failure(ConnectionEventLog.Reason reason) {
         switch (reason) {

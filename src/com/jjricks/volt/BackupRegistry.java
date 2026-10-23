@@ -57,7 +57,8 @@ final class BackupRegistry {
         prefix(app, "stats_group_", Boolean.class, PREFERENCES, false);prefix(app, "stats_chart_group_", Boolean.class, PREFERENCES, false);
         add(app, "dashboard_columns", Integer.class, DASHBOARDS);
         prefix(app, "report_invite_", String.class, PREFERENCES, false);
-        prefix(app, "connect_report_", String.class, PREFERENCES, true);
+        // Per scooter, so a merge onto another scooter carries the owner's answer with it.
+        prefix(app, "connect_report_", String.class, SCOOTER_PREFERENCES, true);
         prefix(app, "dashboard_v1_", String.class, DASHBOARDS, true);
         RULES.add(new Rule(app, "dashboard_slot_v1_", true, String.class, DASHBOARDS, null, true, true, false));
         prefix(app, "dashboard_empty_example_v1_", Boolean.class, DASHBOARDS, true);

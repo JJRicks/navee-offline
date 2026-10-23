@@ -238,7 +238,7 @@ public final class MainActivity extends Activity implements ScreenHost {
         connectionHaptics.cancel();
         if(startupRedirect){destroyed=true;super.onDestroy();return;}
         if(Build.VERSION.SDK_INT>=33&&systemBack!=null)getOnBackInvokedDispatcher().unregisterOnBackInvokedCallback(systemBack);
-        destroyed=true;closeQuickMenu();pendingRideLocation=null;if(controlDialog!=null)controlDialog.dismiss();bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
+        destroyed=true;closeQuickMenu();pendingRideLocation=null;if(controlDialog!=null)controlDialog.dismiss();if(reportChecking&&scooterService!=null)scooterService.ble.stopDiscovery();reportChecking=false;if(reportDialog!=null)reportDialog.dismiss();bodyRefreshScheduled=false;handler.removeCallbacksAndMessages(null);fold.stop();preferences.unregisterOnSharedPreferenceChangeListener(settingsChanged);
         if(screen!=null)screen.close();if(scanDialog!=null)scanDialog.dismiss();
         if(scooterService!=null)scooterService.unlisten(serviceChanged);
         if(bound||binding)try{unbindService(serviceConnection);}catch(IllegalArgumentException ignored){}
@@ -2223,14 +2223,17 @@ public final class MainActivity extends Activity implements ScreenHost {
     }
     // ---- Volt dialogs ------------------------------------------------------------------------------
     /** Rounded Volt surface and Saira buttons for the small AlertDialogs; only the primary action (if any) is red. */
-    /** One offer per Model ID per app session, a few seconds after a connection settles; answers persist under ReportInvite.PREFIX. */
-    private final java.util.HashSet<String> reportInvited=new java.util.HashSet<>();private AlertDialog reportDialog;private long reportReadySinceMs;
+    /** One offer per Model ID per app session (it survives Activity recreation), a few seconds after a connection settles; answers persist under ReportInvite.PREFIX. */
+    private static final java.util.Set<String> reportInvited=java.util.Collections.synchronizedSet(new java.util.HashSet<>());private AlertDialog reportDialog;private long reportReadySinceMs;
+    /** The offer's read-only check is running; onDestroy stops it (a dialog's dismiss listener runs too late). */
+    private boolean reportChecking;
     private void maybeInviteReport(){
         BleController ble=scooterService==null?null:scooterService.ble;
         if(ble==null||!ble.ready()){reportReadySinceMs=0;return;}
         long now=SystemClock.elapsedRealtime();if(reportReadySinceMs==0)reportReadySinceMs=now;
+        // The same guard as the check itself: never offer what Check & share would refuse (rides, charge capture or measurement, tests, pending changes).
         if(now-reportReadySinceMs<2500||onboarding!=null||!resumed||reportDialog!=null&&reportDialog.isShowing()
-                ||controlDialog!=null&&controlDialog.isShowing()||ble.discovering()||ble.testing()||scooterService.isRecording())return;
+                ||controlDialog!=null&&controlDialog.isShowing()||!ble.discoveryAllowed())return;
         String model=ReportInvite.model(ble.descriptor());
         if(model.isEmpty()||reportInvited.contains(model)||!ReportInvite.due(preferences.getString(ReportInvite.PREFIX+model,""),System.currentTimeMillis()))return;
         reportInvited.add(model);showReportInvite(model);
@@ -2247,24 +2250,27 @@ public final class MainActivity extends Activity implements ScreenHost {
                 .setPositiveButton("Check & share",null).setNegativeButton("Not now",null).setNeutralButton("Don't ask again",null).create();
         reportDialog=dialog;dialog.show();styleDialog(dialog,AlertDialog.BUTTON_POSITIVE);
         android.widget.Button share=dialog.getButton(AlertDialog.BUTTON_POSITIVE),later=dialog.getButton(AlertDialog.BUTTON_NEGATIVE),never=dialog.getButton(AlertDialog.BUTTON_NEUTRAL);
-        boolean[] checking={false};
+        reportChecking=false;
         later.setOnClickListener(v->{
-            if(checking[0]){scooterService.ble.stopDiscovery();return;}
+            if(reportChecking){scooterService.ble.stopDiscovery();return;}
             preferences.edit().putString(ReportInvite.PREFIX+model,ReportInvite.later(System.currentTimeMillis())).apply();dialog.dismiss();
         });
         never.setOnClickListener(v->{preferences.edit().putString(ReportInvite.PREFIX+model,"never").apply();dialog.dismiss();});
         share.setOnClickListener(v->{
             BleController ble=scooterService==null?null:scooterService.ble;
             if(ble==null||!ble.ready()){status.setText("Connect your scooter first.");status.setVisibility(View.VISIBLE);return;}
+            ScooterProfiles.Profile checked=scooterService.profiles.active();String scooter=checked==null?"":checked.id;
             ble.startDiscovery();
             if(!ble.discovering()){status.setText(ble.message());status.setVisibility(View.VISIBLE);return;}
-            checking[0]=true;share.setEnabled(false);share.setText("Checking…");later.setText("Stop");never.setVisibility(View.GONE);
+            reportChecking=true;share.setEnabled(false);share.setText("Checking…");later.setText("Stop");never.setVisibility(View.GONE);
             status.setText("Checking the scooter. This takes about 30 seconds.");status.setVisibility(View.VISIBLE);
             handler.postDelayed(new Runnable(){@Override public void run(){
-                if(!dialog.isShowing())return;
-                if(ble.discovering()){handler.postDelayed(this,400);return;}
-                checking[0]=false;
-                DiscoveryCoordinator finished=ble.discovery();
+                if(destroyed||!dialog.isShowing())return;
+                // A check that finishes while Volt is in the background waits: the email app opens only in front of Volt.
+                if(ble.discovering()||!resumed){handler.postDelayed(this,400);return;}
+                reportChecking=false;
+                ScooterProfiles.Profile now=scooterService==null?null:scooterService.profiles.active();
+                DiscoveryCoordinator finished=now==null||!now.id.equals(scooter)?null:ble.discovery();
                 CompatibilityReport report=finished==null||finished.interrupted()?null:ble.compatibilityReport(AppVersion.name(MainActivity.this));
                 if(report!=null&&email(ReportInvite.subject(model),ReportInvite.body(report))){
                     preferences.edit().putString(ReportInvite.PREFIX+model,"sent").apply();dialog.dismiss();
@@ -2274,17 +2280,17 @@ public final class MainActivity extends Activity implements ScreenHost {
                 status.setText(report==null?"The check stopped before it finished.":"No email app could open the report.");
             }},400);
         });
-        dialog.setOnDismissListener(d->{if(checking[0]&&scooterService!=null)scooterService.ble.stopDiscovery();if(reportDialog==dialog)reportDialog=null;});
+        dialog.setOnDismissListener(d->{if(reportChecking&&scooterService!=null)scooterService.ble.stopDiscovery();reportChecking=false;if(reportDialog==dialog)reportDialog=null;});
     }
-    /** After repeated failures on a scooter that has never connected, offer once to email its connection details. */
-    private final java.util.HashSet<String> connectOffered=new java.util.HashSet<>();
+    /** After repeated failures on a scooter that has never connected, offer once per app session to email its connection details. */
+    private static final java.util.Set<String> connectOffered=java.util.Collections.synchronizedSet(new java.util.HashSet<>());
     private void maybeOfferConnectionReport(){
         BleController ble=scooterService==null?null:scooterService.ble;
         if(ble==null||ble.simulating()||!resumed||ble.state()!=BleController.State.DISCONNECTED)return;
         if(reportDialog!=null&&reportDialog.isShowing()||controlDialog!=null&&controlDialog.isShowing())return;
         ScooterProfiles.Profile p=scooterService.profiles.active();
         if(p==null||!p.configured()||connectOffered.contains(p.id))return;
-        if(!ConnectionReport.due(p.lastConnected==0,ble.diagnosticEvents(),preferences.getString(ConnectionReport.PREFIX+p.id,""),System.currentTimeMillis()))return;
+        if(!ConnectionReport.due(p.lastConnected==0,ble.connectionAttempts(p.id),preferences.getString(ConnectionReport.PREFIX+p.id,""),System.currentTimeMillis()))return;
         connectOffered.add(p.id);showConnectionReportOffer(p);
     }
     /** Volt couldn't connect: one tap opens the email app with the redacted connection details to read before sending. */
@@ -2301,8 +2307,9 @@ public final class MainActivity extends Activity implements ScreenHost {
         dialog.getButton(AlertDialog.BUTTON_NEGATIVE).setOnClickListener(v->{preferences.edit().putString(key,ReportInvite.later(System.currentTimeMillis())).apply();dialog.dismiss();});
         dialog.getButton(AlertDialog.BUTTON_NEUTRAL).setOnClickListener(v->{preferences.edit().putString(key,"never").apply();dialog.dismiss();});
         dialog.getButton(AlertDialog.BUTTON_POSITIVE).setOnClickListener(v->{
-            BleController ble=scooterService.ble;String model=ble.advertisedModelId();
-            String json=ConnectionReport.json(AppVersion.name(this),Build.VERSION.SDK_INT,Build.MANUFACTURER+" "+Build.MODEL,model,ble.advertisedTransport(),ble.mtu(),ble.diagnosticEvents(),ble.events());
+            BleController ble=scooterService.ble;String model=ble.advertisedModelId(p);
+            String json=ConnectionReport.json(AppVersion.name(this),Build.VERSION.SDK_INT,Build.MANUFACTURER+" "+Build.MODEL,model,ble.advertisedTransport(p),ble.mtu(),
+                    ble.connectionAttempts(p.id),ble.connectionActivity(p.id));
             if(email(ConnectionReport.subject(model),ConnectionReport.body(json))){preferences.edit().putString(key,"sent").apply();dialog.dismiss();toast("Your email app has the details. Thanks for helping!");}
             else toast("No email app could open the details.");
         });
