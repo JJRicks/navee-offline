@@ -1,5 +1,9 @@
 # Changelog
 
+## Unreleased
+
+- Reopen Rides instantly on wide screens with a long ride selected. A finished ride's chart preview now comes from the analysis cache instead of replaying its whole recording on the main thread every time the tab is shown; the first view of a ride after Volt starts is unchanged.
+
 ## 1.5.0 — 2026-10-22
 
 - New Android app ID: `com.jjricks.volt` replaces `local.navee.offlinelock`. Android treats this as a different app, so it installs beside Volt 1.4.x instead of updating it. To move: in the old app, More → About & permissions → Your data → Back up & restore → Back up (everything selected). In the new app, choose **Restore Volt backup** on the welcome screen, check your scooters, rides and charges, then uninstall the old app. Grant permissions again; Bluetooth pairing belongs to the phone and carries over.

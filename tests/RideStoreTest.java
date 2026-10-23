@@ -27,6 +27,7 @@ public final class RideStoreTest {
         highRateRecordingRemainsBoundedAndReplayable();
         renamePreservesMeasurements();
         fullDetailPreservesUnthinnedSamples();
+        completedTrendReusesCachedPreview();
         System.out.println("RideStoreTest: " + assertions + " assertions passed");
     }
     private static File directory() throws Exception { return Files.createTempDirectory("navee-rides-test-").toFile(); }
@@ -335,6 +336,27 @@ public final class RideStoreTest {
         String prefix=new String(new char[199]).replace('\0','a');
         store.rename(id,prefix+"🛴extra");check(new RideStore(dir).get(id).label.equals(prefix),"Name truncation never leaves half an emoji");
         prefix=prefix.substring(1);store.rename(id,prefix+"🛴extra");check(new RideStore(dir).get(id).label.equals(prefix+"🛴"),"Complete boundary emoji survives journal replay");
+    }
+    private static void completedTrendReusesCachedPreview() throws Exception {
+        File dir = directory(); RideStore store = new RideStore(dir); String id = store.start("UT5", "Cached preview", WALL, 0);
+        for (int i = 0; i < 1500; i++) store.sample(WALL + i * 1000L, i * 1000L, snapshot(i * 1000L, 100 + i % 7, 20, i * .001));
+        check(store.trend(id, 600) != store.trend(id, 600), "An active ride's preview follows new samples instead of a cached copy");
+        store.stop(WALL + 1500 * 1000L, 1500 * 1000L);
+        List<RideStore.Point> first = store.trend(id, 600);
+        check(store.trend(id, 600) == first && store.trend(id, 2000) == first, "Reopening a completed ride reuses its preview instead of replaying the journal");
+        check(sameTrend(first, new RideStore(dir).trend(id, 600)), "The cached preview equals a fresh replay");
+        check(store.trend(id, 12).size() == 12, "A smaller requested resolution still replays at that resolution");
+        new RideStore(dir).rename(id, "Renamed elsewhere");
+        List<RideStore.Point> changed = store.trend(id, 600);
+        check(changed != first && sameTrend(first, changed), "A journal changed by another store is replayed again");
+        store.delete(id);
+        check(store.trend(id, 600).isEmpty(), "A deleted ride has no preview");
+    }
+    private static boolean sameTrend(List<RideStore.Point> a, List<RideStore.Point> b) {
+        if (a.size() != b.size()) return false;
+        for (int i = 0; i < a.size(); i++)
+            if (a.get(i).elapsedMs != b.get(i).elapsedMs || a.get(i).segment != b.get(i).segment || !a.get(i).powerW.equals(b.get(i).powerW)) return false;
+        return true;
     }
     private static void near(double expected, Double actual, String message) {
         check(actual != null && Math.abs(expected - actual) <= Math.max(1e-8, Math.abs(expected) * 1e-10),
