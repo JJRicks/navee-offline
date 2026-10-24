@@ -40,10 +40,11 @@ System.out.println("ExperimentalControls tests passed: "+assertions+" assertions
         String[] ut5Lab={"acceleration","speed_limit","dual_drive","drive_speed_limit","long_range_mode","overspeed_control","prompt_tone"};
         expect("UT5 MAX",ut5(),ut5Lab);
         expect("N65i 22131",model("22131"),"start_speed","traction_control","hill_start_assist","parking_assist","hill_descent_control","turn_sound","prompt_tone","speed_limit");
-        expect("ST3 Pro 23452",model("23452"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit");
-        expect("Group S 24431",model("24431"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit");
+        // Traction control is unmapped on the ST3 Pro (a partial OEM trace), so it is tried too.
+        expect("ST3 Pro 23452",model("23452"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit","traction_control");
+        expect("Group S 24431",model("24431"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit","traction_control");
         // GT5 Max (25462, group 2545): the official app offers kick-start speed there, so Standing start stays an ordinary Scooter row.
-        expect("GT5 Max 25462",model("25462"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit");
+        expect("GT5 Max 25462",model("25462"),"hill_start_assist","parking_assist","hill_descent_control","prompt_tone","speed_limit","traction_control");
         CapabilityResolver.Decision gt5Start=ordinary("start_speed",model("25462"));
         check(gt5Start.available()&&gt5Start.allows(0)&&!gt5Start.variant.lab&&ModelRegistry.modelName(model("25462")).equals("GT5 Max"),"GT5 Max keeps Standing start in Scooter settings: "+gt5Start);
         expect("2573",model("25731"),"cruise_control","traction_control","hill_start_assist","parking_assist","hill_descent_control","turn_sound","prompt_tone");
@@ -87,14 +88,15 @@ System.out.println("ExperimentalControls tests passed: "+assertions+" assertions
             check(tried.experimental()==got.contains(f.key),label+": decision agrees with the list for "+f.key);
             // Listed controls are exactly those not in Scooter settings; everything offered keeps its ordinary row.
             CapabilityResolver.Decision usual=CapabilityResolver.decide(f.key,d,status(data()),parked());
-            if(got.contains(f.key)&&!ModelRegistry.ut5Max(d))check(usual.support==CapabilityResolver.Support.INCOMPATIBLE&&usual.reason==CapabilityResolver.Reason.MODEL_EXCLUDED,label+": "+f.key+" is hidden by the official app");
+            if(got.contains(f.key)&&!ModelRegistry.ut5Max(d))check(usual.support==CapabilityResolver.Support.INCOMPATIBLE&&usual.reason==CapabilityResolver.Reason.MODEL_EXCLUDED
+                ||usual.support==CapabilityResolver.Support.UNKNOWN_MAPPING&&usual.reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,label+": "+f.key+" is hidden by the official app or not mapped");
             if(usual.support==CapabilityResolver.Support.KNOWN_ENCODING&&!usual.variant.lab)check(!got.contains(f.key),label+": offered "+f.key+" stays in Scooter settings");
         }
         for(ScooterCommands.Feature f:ScooterCommands.oemOnly())check(!CapabilityResolver.decideExperimental(f.key,d,status(data()),parked()).experimental(),label+": no other model's light "+f.key);
         check(!CapabilityResolver.decideExperimental("clock_sync",d,status(data()),parked()).experimental(),label+": clock never experimental");
     }
 
-    /** Every model ID the official app lists: experimental exactly where it hides an allowed control; never the excluded set. */
+    /** Every model ID the official app lists: experimental exactly where it hides (or Volt hasn't mapped) an allowed control; never the excluded set. */
     private static void sweep() {
         Set<String> allowed=set(ModelRegistry.EXPERIMENTAL),never=set(ModelRegistry.NEVER_EXPERIMENTAL);
         for(String key:allowed)check(!never.contains(key),"Allowed and never overlap: "+key);
@@ -109,7 +111,7 @@ System.out.println("ExperimentalControls tests passed: "+assertions+" assertions
                 for(ScooterCommands.Feature f:ScooterCommands.catalog()){
                     CapabilityResolver.Decision usual=CapabilityResolver.decide(f.key,d,status(data()),parked());
                     boolean expected=r.layer==ModelRegistry.Layer.UT5_MAX?f.experimental
-                        :r.layer==ModelRegistry.Layer.OEM_GROUP&&allowed.contains(f.key)&&usual.reason==CapabilityResolver.Reason.MODEL_EXCLUDED;
+                        :r.layer==ModelRegistry.Layer.OEM_GROUP&&allowed.contains(f.key)&&(usual.reason==CapabilityResolver.Reason.MODEL_EXCLUDED||usual.reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED);
                     check(got.contains(f.key)==expected,pid+": "+f.key+" experimental="+got.contains(f.key));
                     if(r.layer!=ModelRegistry.Layer.UT5_MAX)check(!got.contains(f.key)||!never.contains(f.key),pid+": never-added "+f.key);
                 }

@@ -120,7 +120,7 @@ public final class ModelRegistryTest {
             ModelRegistry.Rule named=ModelRegistry.rule(f,st3,null,null),plain=ModelRegistry.rule(f,sibling,null,null);
             check(named.evidence==plain.evidence&&named.support==plain.support&&named.variant==plain.variant,"Naming changes no rule: "+f);
         }
-        check(!ModelRegistry.reported(st3),"The ST3 Pro still gets the offer to share a report");
+        check(ModelRegistry.reported(st3)&&ReportInvite.model(st3).isEmpty(),"A US owner's report confirmed the ST3 Pro: it is reported and no longer offered");
         // The GT5 Max: named from an owner's report (25462, EU), so it is reported and no longer offered the report.
         DeviceDescriptor gt5=advertised("25462"),gt5Sibling=advertised("25461");
         check(layer(gt5)==ModelRegistry.Layer.OEM_GROUP&&ModelRegistry.modelName(gt5).equals("GT5 Max")&&ModelRegistry.modelLine(gt5).equals("GT5 Max")
@@ -237,7 +237,7 @@ public final class ModelRegistryTest {
         check(ModelRegistry.rule("display_units",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("charge_limit",advertised("24431"),null,null).evidence==CapabilityResolver.Evidence.OEM_MAPPED
             &&ModelRegistry.rule("drive_speed_limit",advertised("24431"),null,null).reason==CapabilityResolver.Reason.MODEL_NOT_MAPPED,"OEM-mapped rows; the D-mode cap stays unmapped");
-        check(ModelRegistry.VERSION==12,"Registry version records the experimental table alongside the known N65i, ST3 Pro, GT5 Max and UT5 Ultra X, the regional unions and control tables");
+        check(ModelRegistry.VERSION==13,"Registry version records the experimental table (including not-mapped tries) alongside the known N65i, ST3 Pro, GT5 Max and UT5 Ultra X, the regional unions and control tables");
         check(ModelRegistry.rule("display_units",both("Q2547ZZ9US7777777","25381"),null,null).reason==CapabilityResolver.Reason.IDENTITY_CONFLICT,"Conflict reason");
         boolean unknownKey=false;try{ModelRegistry.rule("not_a_feature",us,null,null);}catch(IllegalArgumentException expected){unknownKey=true;}
         check(unknownKey,"Unknown keys are rejected");
