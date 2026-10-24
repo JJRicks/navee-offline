@@ -35,7 +35,7 @@ import java.util.Set;
  */
 public final class ModelRegistry {
     /** Bump on ANY rule or table change; recorded in reports and test journals. */
-    public static final int VERSION=12;
+    public static final int VERSION=13;
     public enum Layer { UT5_MAX, OEM_GROUP, SHARED, UNSUPPORTED_PRODUCT, UNSUPPORTED_TRANSPORT }
     public enum Tri { YES, NO, UNKNOWN }
 
